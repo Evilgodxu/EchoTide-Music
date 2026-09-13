@@ -38,17 +38,16 @@ enum class CacheCategory {
     /** 曲库分析缓存：对曲库的判定结果，可重算 */
     ANALYSIS,
 
-    /** 设置与歌单：DataStore 与 SharedPreferences 中的用户配置、歌单与播放记录，属用户数据 */
+    /** 用户偏好：DataStore 与 SharedPreferences 中的用户配置、歌单与播放记录，属用户数据 */
     PREFERENCE,
 }
 
 /**
- * 缓存归属范围：按回收边界划分，是「哪些能清、哪些不能清」的唯一判据，不表达存放位置
- * —— 位置对用户不构成决策依据，回收难度才构成。
+ * 缓存归属范围：按产出归属方划分，是缓存页分卡的依据，也界定「清理缓存」的作用边界。
  *
- * [CLEARABLE] 位于 cacheDir，属系统「清除缓存」作用域，应用可随时整体回收；
- * [APP_DATA] 可重建的派生产出（日志、安装包、分析结果、封面与歌词缓存），各自按保留策略回收；
- * [USER_DATA] 用户创建且无法重建的数据（下载的歌曲、设置与歌单），只由用户显式删除。
+ * [CLEARABLE] 系统缓存：位于 cacheDir，属系统「清除缓存」作用域，可整体回收；
+ * [APP_DATA] 应用数据：应用自身运行产生的副产物（异常日志、更新安装包），按各自保留策略回收；
+ * [USER_DATA] 用户数据：围绕用户曲库与偏好产生的产出，按各自保留策略回收，或只由用户显式删除。
  */
 enum class CacheScope { CLEARABLE, APP_DATA, USER_DATA }
 
@@ -125,13 +124,13 @@ internal object CacheInventory {
         // 封面缓存：可由网络或音频文件重建，孤儿回收，连续 3 天无引用后删除
         CacheEntry(
             category = CacheCategory.COVER,
-            scope = CacheScope.APP_DATA,
+            scope = CacheScope.USER_DATA,
             resolve = { context -> metadataLocations(context, MusicMetadataCache.coverRoot(context)) },
         ),
         // 歌词缓存：可由网络或音频文件重建，孤儿回收，连续 3 天无引用后删除
         CacheEntry(
             category = CacheCategory.LYRIC,
-            scope = CacheScope.APP_DATA,
+            scope = CacheScope.USER_DATA,
             resolve = { context -> metadataLocations(context, MusicMetadataCache.lyricRoot(context)) },
         ),
         // 歌曲缓存：播放在线曲目时落盘的音频，随曲目删除，应用不自动回收
@@ -146,17 +145,17 @@ internal object CacheInventory {
             scope = CacheScope.APP_DATA,
             resolve = { context -> updatePackages(context) },
         ),
-        // 曲库分析缓存：识别结果可重算，识别策略升级或用户主动刷新时整体清空
-        CacheEntry(
-            category = CacheCategory.ANALYSIS,
-            scope = CacheScope.APP_DATA,
-            resolve = { context -> verdictCaches(context) },
-        ),
-        // 设置与歌单：用户配置与播放记录无法重建，应用不自动回收
+        // 用户偏好：用户配置与播放记录无法重建，应用不自动回收
         CacheEntry(
             category = CacheCategory.PREFERENCE,
             scope = CacheScope.USER_DATA,
             resolve = { context -> preferenceStores(context) },
+        ),
+        // 曲库分析缓存：识别结果可重算，识别策略升级或用户主动刷新时整体清空
+        CacheEntry(
+            category = CacheCategory.ANALYSIS,
+            scope = CacheScope.USER_DATA,
+            resolve = { context -> verdictCaches(context) },
         ),
     )
 

@@ -10,7 +10,7 @@ import com.yichao.evilgodxu.screens.cache.CacheUiState
 import com.yichao.evilgodxu.screens.cache.component.CacheUsageGroups
 import com.yichao.evilgodxu.ui.component.PageTopBar
 
-// 窄屏组装器：常驻标题栏 + 满宽缓存分组，清理入口随「可清理」卡片滚动
+// 窄屏组装器：常驻标题栏 + 满宽缓存分组，清理入口随合计占用收在末尾
 @Composable
 internal fun CompactAssembly(
     uiState: CacheUiState,

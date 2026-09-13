@@ -18,7 +18,7 @@ import com.yichao.evilgodxu.ui.component.PageTopBar
 // 宽屏下缓存内容的可读宽度上限，避免超宽窗口把明细行拉伸过长
 private val CACHE_CONTENT_MAX_WIDTH = 720.dp
 
-// 宽屏组装器：限宽居中的缓存分组，清理入口随「可清理」卡片滚动
+// 宽屏组装器：限宽居中的缓存分组，清理入口随合计占用收在末尾
 @Composable
 internal fun ExpandedAssembly(
     uiState: CacheUiState,

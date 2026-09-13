@@ -193,9 +193,8 @@
 
     <!-- Cache management -->
     <string name="settings_section_cache">Storage</string>
-    <string name="settings_cache_entry_title">Cache management</string>
-    <string name="settings_cache_entry_desc">Total %1$s</string>
-    <string name="cache_screen_title">Cache</string>
+    <string name="settings_cache_entry_title">Storage management</string>
+    <string name="cache_screen_title">Storage management</string>
     <string name="cache_group_system">System cache (clearable)</string>
     <string name="cache_group_private">App data</string>
     <string name="cache_group_user">User data</string>
@@ -211,7 +210,7 @@
     <string name="cache_category_audio">Song cache</string>
     <string name="cache_category_update">Update packages</string>
     <string name="cache_category_analysis">Library analysis cache</string>
-    <string name="cache_category_preference">Settings &amp; playlists</string>
+    <string name="cache_category_preference">User preferences</string>
 
     <!-- Cards & typography settings -->
     <string name="typography_screen_title">Cards &amp; Typography</string>

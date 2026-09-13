@@ -193,10 +193,9 @@
 
     <!-- 缓存管理 -->
     <string name="settings_section_cache">存储</string>
-    <string name="settings_cache_entry_title">缓存管理</string>
-    <string name="settings_cache_entry_desc">共占用 %1$s</string>
-    <string name="cache_screen_title">缓存管理</string>
-    <string name="cache_group_system">系统缓存（可清理）</string>
+    <string name="settings_cache_entry_title">存储管理</string>
+    <string name="cache_screen_title">存储管理</string>
+    <string name="cache_group_system">临时文件（可清理）</string>
     <string name="cache_group_private">应用数据</string>
     <string name="cache_group_user">用户数据</string>
     <string name="cache_total">共计占用 %1$s</string>
@@ -211,7 +210,7 @@
     <string name="cache_category_audio">歌曲缓存</string>
     <string name="cache_category_update">更新安装包</string>
     <string name="cache_category_analysis">曲库分析缓存</string>
-    <string name="cache_category_preference">设置与歌单</string>
+    <string name="cache_category_preference">用户偏好</string>
 
     <!-- 卡片与排版设置 -->
     <string name="typography_screen_title">排版设置</string>

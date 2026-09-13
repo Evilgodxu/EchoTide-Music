@@ -8,7 +8,7 @@ import com.yichao.evilgodxu.ui.component.section.GroupCard
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.utils.formatBytes
 
-// 缓存管理入口：展示合计占用，明细与清理在缓存页内完成
+// 存储管理入口：副标题与缓存页合计同用一处文案，避免两处合计写法分叉
 @Composable
 fun Cache(
     totalBytes: Long,
@@ -16,9 +16,9 @@ fun Cache(
 ) {
     GroupCard(title = stringResource(R.string.settings_section_cache)) {
         SettingsEntry(
-            icon = AppIcons.Delete,
+            icon = AppIcons.Storage,
             title = stringResource(R.string.settings_cache_entry_title),
-            subtitle = stringResource(R.string.settings_cache_entry_desc, formatBytes(totalBytes)),
+            subtitle = stringResource(R.string.cache_total, formatBytes(totalBytes)),
             onClick = onClick,
         )
     }

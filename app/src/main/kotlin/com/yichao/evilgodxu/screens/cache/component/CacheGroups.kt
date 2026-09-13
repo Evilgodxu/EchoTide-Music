@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.cache.CacheCategory
@@ -26,7 +27,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 import com.yichao.evilgodxu.utils.formatBytes
 
-// 缓存明细：按归属范围分卡片展示，卡片划分与清理作用范围一一对应
+// 缓存明细：按归属方分卡片展示；合计与清理入口收在末尾，清理只作用于「可清理」卡片
 @Composable
 internal fun CacheUsageGroups(
     usages: List<CacheUsage>,
@@ -45,34 +46,40 @@ internal fun CacheUsageGroups(
             .padding(horizontal = 16.dp)
             .verticalScroll(rememberScrollState()),
     ) {
-        CacheUsageCard(R.string.cache_group_system, usages, CacheScope.CLEARABLE) {
-            CacheClearAction(clearing = clearing, onClear = onClear)
-        }
+        CacheUsageCard(R.string.cache_group_system, usages, CacheScope.CLEARABLE)
         CacheUsageCard(R.string.cache_group_private, usages, CacheScope.APP_DATA)
         CacheUsageCard(R.string.cache_group_user, usages, CacheScope.USER_DATA)
         Text(
             text = stringResource(R.string.cache_total, formatBytes(usages.sumOf { it.sizeBytes })),
-            modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp, bottom = 4.dp),
+            textAlign = TextAlign.Center,
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+        )
+        // 与「可清理」卡片同一判定口径：该作用域内一个文件都没有时才算无可清理项
+        val hasClearable = usages.any { it.scope == CacheScope.CLEARABLE && it.fileCount > 0 }
+        CacheClearAction(
+            clearing = clearing,
+            hasClearable = hasClearable,
+            onClear = onClear,
         )
     }
 }
 
-// 单张归属卡片：空组整卡略去，未采到数据时不留空标题；trailing 随卡片存在，卡片略去时一并略去
+// 单张归属卡片：空组整卡略去，未采到数据时不留空标题
 @Composable
 private fun CacheUsageCard(
     @StringRes titleRes: Int,
     usages: List<CacheUsage>,
     scope: CacheScope,
-    trailing: (@Composable () -> Unit)? = null,
 ) {
     val group = usages.filter { it.scope == scope }
     if (group.isEmpty()) return
     GroupCard(title = stringResource(titleRes)) {
         group.forEach { usage -> CacheUsageRow(usage) }
     }
-    trailing?.invoke()
 }
 
 // 单行缓存占用：分类名 + 文件数与占用大小
