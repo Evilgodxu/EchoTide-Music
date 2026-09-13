@@ -31,6 +31,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onOpenTypography: () -> Unit = {},
+    onOpenCache: () -> Unit = {},
 ) {
     val application = LocalApplication.current
     val settingsRepository = LocalSettingsRepository.current
@@ -91,6 +92,7 @@ fun SettingsScreen(
             onProxySourceToggle = viewModel::setProxySourceEnabled,
             onProxySourceRemove = viewModel::removeProxySource,
             onProxyImportMessageDismiss = viewModel::clearProxyImportMessage,
+            onOpenCache = onOpenCache,
             modifier = modifier,
         )
     } else {
@@ -109,6 +111,7 @@ fun SettingsScreen(
             onProxySourceToggle = viewModel::setProxySourceEnabled,
             onProxySourceRemove = viewModel::removeProxySource,
             onProxyImportMessageDismiss = viewModel::clearProxyImportMessage,
+            onOpenCache = onOpenCache,
             modifier = modifier,
         )
     }

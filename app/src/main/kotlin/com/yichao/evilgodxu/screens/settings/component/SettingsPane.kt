@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.data.settings.AppLanguage
 import com.yichao.evilgodxu.data.settings.ThemeMode
 import com.yichao.evilgodxu.screens.settings.component.appearance.Appearance
+import com.yichao.evilgodxu.screens.settings.component.cache.Cache
 import com.yichao.evilgodxu.screens.settings.component.dialog.LanguageSelectionDialog
 import com.yichao.evilgodxu.screens.settings.component.dialog.ThemeSelectionDialog
 import com.yichao.evilgodxu.screens.settings.component.info.AppInfo
@@ -27,7 +28,7 @@ import com.yichao.evilgodxu.screens.settings.component.playback.Playback
 import com.yichao.evilgodxu.screens.settings.component.proxy.ProxySource
 import com.yichao.evilgodxu.screens.settings.SettingsUiState
 
-// 设置页内容：外观、语言、播放、代理音源、关于五个分组，以及主题与语言选择对话框
+// 设置页内容：外观、语言、播放、代理音源、缓存、关于六个分组，以及主题与语言选择对话框
 @Composable
 internal fun SettingsPane(
     uiState: SettingsUiState,
@@ -45,6 +46,7 @@ internal fun SettingsPane(
     onProxySourceToggle: (String, Boolean) -> Unit,
     onProxySourceRemove: (String) -> Unit,
     onProxyImportMessageDismiss: () -> Unit,
+    onOpenCache: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showThemeDialog by remember { mutableStateOf(false) }
@@ -92,6 +94,10 @@ internal fun SettingsPane(
             onToggle = onProxySourceToggle,
             onRemove = onProxySourceRemove,
             onMessageDismiss = onProxyImportMessageDismiss,
+        )
+        Cache(
+            totalBytes = uiState.cacheTotalBytes,
+            onClick = onOpenCache,
         )
         AppInfo(uiState.version, onVersionClick)
     }

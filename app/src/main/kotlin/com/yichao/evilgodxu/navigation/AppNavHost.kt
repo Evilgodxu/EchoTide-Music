@@ -17,6 +17,7 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.screens.cache.CacheScreen
 import com.yichao.evilgodxu.screens.home.HomeScreen
 import com.yichao.evilgodxu.screens.settings.SettingsScreen
 import com.yichao.evilgodxu.screens.typography.TypographyScreen
@@ -73,10 +74,14 @@ fun AppNavHost(
                     SettingsScreen(
                         onBack = { onBack() },
                         onOpenTypography = { backStack.add(Typography) },
+                        onOpenCache = { backStack.add(Cache) },
                     )
                 }
                 is Typography -> NavEntry(key) {
                     TypographyScreen(onBack = { onBack() })
+                }
+                is Cache -> NavEntry(key) {
+                    CacheScreen(onBack = { onBack() })
                 }
                 else -> error("Unknown NavKey: $key")
             }

@@ -45,7 +45,7 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
 
     /** 初始化日志系统，应在 Application.onCreate 最前面调用 */
     fun init(context: Context) {
-        logDir = File(context.getExternalFilesDir(null), LOG_DIR_NAME).apply { mkdirs() }
+        logDir = logDirectory(context).apply { mkdirs() }
         appVersion = runCatching {
             val info = context.packageManager.getPackageInfo(context.packageName, 0)
             "${info.versionName} (${info.longVersionCode})"
@@ -165,6 +165,9 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
         val today = LocalDate.now().format(dateFormat)
         return File(dir, "$LOG_FILE_PREFIX$today.log").takeIf { it.exists() }
     }
+
+    /** 日志目录：缓存台账统计日志占用时按此定位，目录名只在此处定义一次 */
+    fun logDirectory(context: Context): File = File(context.getExternalFilesDir(null), LOG_DIR_NAME)
 
     /** 写入日志文件头：设备、系统、版本固定信息 */
     private fun writeHeader(writer: FileWriter) {

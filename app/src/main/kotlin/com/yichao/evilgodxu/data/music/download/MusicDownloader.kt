@@ -7,6 +7,7 @@ import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
 import com.yichao.evilgodxu.data.music.api.MusicQuality
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
@@ -92,7 +93,7 @@ internal suspend fun cacheToDownloads(
             val contentValues = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, fileName)
                 put(MediaStore.Downloads.MIME_TYPE, audioMimeType(extension))
-                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/YiChao/Audio")
+                put(MediaStore.Downloads.RELATIVE_PATH, audioCachedRelativePath())
             }
             val uri = context.contentResolver.insert(collection, contentValues)
             if (uri != null) {
@@ -163,6 +164,10 @@ internal fun sanitizeFileName(name: String): String {
         .trim()
 }
 
+// 在线歌曲缓存的下载集合相对路径：目录名取自缓存元数据与台账，与统计端共用同一份事实
+private fun audioCachedRelativePath(): String =
+    "${Environment.DIRECTORY_DOWNLOADS}/${MusicMetadataCache.CACHE_DIR_NAME}/${CacheInventory.AUDIO_DIR_NAME}"
+
 // 歌单同步批量下载：把在线曲目下载到公共下载目录并写入标题/艺术家/封面，
 // 返回库内文件名（含扩展名）供刷新后按路径匹配入库；已存在或试听片段返回 null
 internal suspend fun downloadTrackToLibrary(
@@ -194,7 +199,7 @@ internal suspend fun downloadTrackToLibrary(
             val contentValues = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, fileName)
                 put(MediaStore.Downloads.MIME_TYPE, audioMimeType(extension))
-                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/YiChao/Audio")
+                put(MediaStore.Downloads.RELATIVE_PATH, audioCachedRelativePath())
             }
             val uri = context.contentResolver.insert(collection, contentValues)
             if (uri == null) return@withContext null
@@ -249,8 +254,8 @@ private const val STREAM_BUFFER_SIZE = 64 * 1024
 // 等待媒体扫描完成的上限：超时后仍继续刷新，新条目由后续媒体变更刷新兜底
 private const val SCAN_TIMEOUT_MS = 10_000L
 
-// 下载临时文件前缀：与 File.createTempFile 的 prefix 参数对应
-private val TEMP_FILE_PREFIXES = listOf("download", "upgrade")
+// 下载临时文件前缀由缓存台账统一登记（CacheInventory.TEMP_FILE_PREFIXES）：
+// 冷启动回收按同前缀整批清理，本文件只负责清理本次进程内的异常残留
 // 视为遗留的临时文件存在时长：进程被杀时 finally 不一定执行，超时未删即判定为异常中断残留
 private const val TEMP_STALE_MS = 30 * 60 * 1000L
 // 临时文件清理节流：下载密集场景避免每次下载都遍历缓存目录
@@ -265,7 +270,7 @@ private fun cleanupStaleTempFiles(context: Context) {
     if (now - lastTempCleanupAt < TEMP_CLEANUP_INTERVAL_MS) return
     lastTempCleanupAt = now
     runCatching {
-        context.cacheDir.listFiles { f -> TEMP_FILE_PREFIXES.any { f.name.startsWith(it) } }
+        context.cacheDir.listFiles { f -> CacheInventory.TEMP_FILE_PREFIXES.any { f.name.startsWith(it) } }
             ?.forEach { f -> if (now - f.lastModified() > TEMP_STALE_MS) f.delete() }
     }
 }
@@ -500,7 +505,7 @@ private suspend fun downloadLosslessToDownloads(
             val contentValues = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, fileName)
                 put(MediaStore.Downloads.MIME_TYPE, audioMimeType(extension))
-                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/YiChao/Audio")
+                put(MediaStore.Downloads.RELATIVE_PATH, audioCachedRelativePath())
             }
             val uri = context.contentResolver.insert(collection, contentValues)
             if (uri == null) return@withContext null

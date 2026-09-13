@@ -12,3 +12,6 @@ data object Settings : NavKey
 
 @Serializable
 data object Typography : NavKey
+
+@Serializable
+data object Cache : NavKey

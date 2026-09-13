@@ -38,6 +38,7 @@ internal fun ExpandedAssembly(
     onProxySourceToggle: (String, Boolean) -> Unit,
     onProxySourceRemove: (String) -> Unit,
     onProxyImportMessageDismiss: () -> Unit,
+    onOpenCache: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -63,6 +64,7 @@ internal fun ExpandedAssembly(
                 onProxySourceToggle = onProxySourceToggle,
                 onProxySourceRemove = onProxySourceRemove,
                 onProxyImportMessageDismiss = onProxyImportMessageDismiss,
+                onOpenCache = onOpenCache,
                 modifier = Modifier.widthIn(max = SETTINGS_CONTENT_MAX_WIDTH),
             )
         }

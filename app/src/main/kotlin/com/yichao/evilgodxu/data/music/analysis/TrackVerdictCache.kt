@@ -106,4 +106,15 @@ internal class TrackVerdictCache(
             }
         }
     }
+
+    companion object {
+        /** 假无损判定缓存文件名 */
+        internal const val FILE_NAME_FAKE_LOSSLESS = "fake_lossless_cache.json"
+
+        /** AI 识别判定缓存文件名 */
+        internal const val FILE_NAME_AI_MUSIC = "ai_music_cache.json"
+
+        /** 已登记的判定缓存文件名：缓存台账据此统计占用，新增判定缓存必须在此登记 */
+        internal val KNOWN_FILE_NAMES = listOf(FILE_NAME_FAKE_LOSSLESS, FILE_NAME_AI_MUSIC)
+    }
 }

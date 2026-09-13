@@ -21,7 +21,7 @@ internal object AiMusicAnalyzer {
     const val AI_MUSIC_KEY = "ai-music"
 
     // 识别结果缓存：键含文件大小与时长，文件变化即失效；供合并批量分析共享复用
-    internal val cache = TrackVerdictCache("ai_music_cache.json")
+    internal val cache = TrackVerdictCache(TrackVerdictCache.FILE_NAME_AI_MUSIC)
 
     // ---- 征象阈值（识别策略升级时经「刷新」清缓存强制全量重扫后生效）----
     // 征象①：中高频左右声道相关性下界

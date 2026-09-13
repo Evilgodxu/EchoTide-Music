@@ -27,7 +27,7 @@ internal object FakeLosslessAnalyzer {
     const val FAKE_LOSSLESS_KEY = "fake-lossless"
 
     // 识别结果缓存：键含文件大小与时长，文件变化即失效；供合并批量分析共享复用
-    internal val cache = TrackVerdictCache("fake_lossless_cache.json")
+    internal val cache = TrackVerdictCache(TrackVerdictCache.FILE_NAME_FAKE_LOSSLESS)
 
     // 立体声相关性佐证：统计所需最少样本数（约 0.1 秒），不足视为无证据；
     // 砖墙命中且相关性不高于该值时，视为自然限带内容（真去相关）而非转码，降级放行

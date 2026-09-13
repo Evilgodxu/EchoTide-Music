@@ -28,8 +28,9 @@ internal object MusicMetadataCache {
     // 位图内存峰值约 2048²×4 ≈ 16MB，解码后即压缩保存并回收，不常驻
     private const val COVER_MAX_EDGE = 2048
 
-    // 公共下载目录下的应用缓存根目录名，与在线音频缓存 Download/YiChao/Audio 保持同级
-    private const val CACHE_DIR_NAME = "YiChao"
+    // 公共下载目录下的应用缓存根目录名，与在线音频缓存 Download/YiChao/Audio 保持同级。
+    // 下载器写入在线歌曲条目时按此拼装相对路径，目录名只在此处定义一次
+    internal const val CACHE_DIR_NAME = "YiChao"
     private const val COVER_DIR = "Cover"
     private const val LYRIC_DIR = "Lyrics"
 
@@ -55,15 +56,17 @@ internal object MusicMetadataCache {
     // 权限缺失时经 MediaStore Downloads 集合写入自身条目（Android 11+ 对自身写入的
     // 文件保留路径读取能力），上层调用方统一按返回的绝对路径使用，不受分区存储影响。
     // getExternalStoragePublicDirectory 为获取公共下载目录路径的唯一接口，无新版等价实现
+    // 缓存台账统计同目录下的同级缓存（如在线音频）时也按此定位，避免路径出现第二份事实
     @Suppress("DEPRECATION")
-    private fun mediaRoot(context: Context): File {
+    internal fun mediaRoot(context: Context): File {
         val public = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             ?.let { File(it, CACHE_DIR_NAME) }
         return public ?: context.getExternalFilesDir(null) ?: context.filesDir
     }
 
     internal fun coverRoot(context: Context): File = File(mediaRoot(context), COVER_DIR)
-    private fun lyricRoot(context: Context): File = File(mediaRoot(context), LYRIC_DIR)
+    // 供缓存台账统计歌词占用：与写入端共用同一路径解析，不另立一份
+    internal fun lyricRoot(context: Context): File = File(mediaRoot(context), LYRIC_DIR)
 
     // 歌词文件按“标题 - 艺术家”命名，空字段自动忽略，保证可读且避免同名覆盖
     private fun lyricFileName(title: String, artist: String): String {

@@ -7,6 +7,7 @@ import android.content.SharedPreferences
 import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
 import com.yichao.evilgodxu.data.music.proxy.ProxyParseResult
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
@@ -80,6 +81,7 @@ class SettingsViewModel(
             }
         }
         refreshProxySources()
+        refreshCacheUsage()
         // 注册外部导入（如系统分享）引发的数据变更监听，确保列表即时同步
         ProxySourceStore.registerChangeListener(context, proxyChangeListener)
     }
@@ -192,6 +194,17 @@ class SettingsViewModel(
 
     fun clearProxyImportMessage() {
         _uiState.update { it.copy(proxyImportMessage = null, proxyImportFailed = false) }
+    }
+
+    // 采样缓存合计占用：目录遍历为阻塞 IO，先在 IO 线程取结果再回填状态。
+    // 明细与清理在缓存页进行，此处只需总量供入口展示
+    private fun refreshCacheUsage() {
+        viewModelScope.launch {
+            val totalBytes = withContext(Dispatchers.IO) {
+                CacheInventory.sample(context).sumOf { it.sizeBytes }
+            }
+            _uiState.update { it.copy(cacheTotalBytes = totalBytes) }
+        }
     }
 
     private fun refreshProxySources() {

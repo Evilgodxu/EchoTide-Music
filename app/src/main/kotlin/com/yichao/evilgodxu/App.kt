@@ -3,9 +3,11 @@ package com.yichao.evilgodxu
 import android.app.Application
 import android.content.pm.ApplicationInfo
 import android.os.StrictMode
+import coil3.disk.DiskCache
 import coil3.ImageLoader
 import coil3.memory.MemoryCache
 import coil3.SingletonImageLoader
+import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.settings.bootstrapAppLanguage
 import com.yichao.evilgodxu.data.settings.settingsDataStore
 import com.yichao.evilgodxu.data.settings.writeBootLanguage
@@ -15,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
+import okio.Path.Companion.toOkioPath
 
 class App : Application() {
 
@@ -37,7 +40,8 @@ class App : Application() {
             runCatching { writeBootLanguage(applicationContext, applicationContext.bootstrapAppLanguage()) }
         }
         // 收窄图片内存缓存到进程堆的 10%，把堆留给 ExoPlayer 高解析度音频缓冲，
-        // 缓解封面解码与播放并发时的 OOM
+        // 缓解封面解码与播放并发时的 OOM；
+        // 磁盘缓存显式限定上限：默认值按可用空间推算，会让封面占用随设备剩余空间无界增长
         SingletonImageLoader.setSafe { context ->
             ImageLoader.Builder(context)
                 .memoryCache {
@@ -45,7 +49,18 @@ class App : Application() {
                         .maxSizePercent(context, 0.10)
                         .build()
                 }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(context.cacheDir.resolve(CacheInventory.IMAGE_CACHE_DIR_NAME).toOkioPath())
+                        .maxSizeBytes(CacheInventory.IMAGE_DISK_CACHE_MAX_BYTES)
+                        .build()
+                }
                 .build()
+        }
+
+        // 冷启动回收上一次进程遗留的中转文件：启动时刻必然不存在本次下载，可整批清理
+        appScope.launch {
+            runCatching { CacheInventory.reclaimOnColdStart(this@App) }
         }
 
         container = AppContainer(this)

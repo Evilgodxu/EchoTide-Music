@@ -19,4 +19,6 @@ data class SettingsUiState(
     val proxyImportMessage: String? = null,
     // 最近一次导入是否失败（决定提示文案颜色）
     val proxyImportFailed: Boolean = false,
+    // 缓存合计占用：进入设置页采样一次，供缓存入口显示，明细在缓存页查看
+    val cacheTotalBytes: Long = 0L,
 )
