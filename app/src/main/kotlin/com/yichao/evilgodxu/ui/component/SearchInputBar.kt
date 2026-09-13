@@ -25,6 +25,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
@@ -33,9 +38,12 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.graphics.Rect
+import android.view.ViewTreeObserver
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
 // 底部搜索框在列表末尾占用的区域高度：最后一项底缘进入该区域即判定为滚到底部
@@ -43,6 +51,9 @@ internal val SEARCH_BAR_REGION_DP = 54.dp
 
 // 搜索框上方悬浮操作区与搜索框的间距：调用方计算底部遮挡区域高度时需一并计入
 internal val SEARCH_ACTION_GAP_DP = 6.dp
+
+// 判定软键盘可见的高度差比例：可见区域较根视图缩减超过该比例即视为键盘弹出
+private const val KEYBOARD_VISIBLE_RATIO = 0.15f
 
 // 悬浮在列表底部的搜索输入框：列表滚动中或滚到底部时隐藏，避免遮挡末尾条目；输入/聚焦期间常驻。
 // actions 为输入框右上方的悬浮操作区，与输入框同处一个显隐容器，显隐动画由结构保证同步
@@ -120,6 +131,25 @@ internal fun SearchInputBar(
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+    // 记录输入框自身焦点：键盘收起但焦点仍残留时（系统返回键/手势收键盘）需主动释放，
+    // 否则上层拦截层持续生效、列表无法滚动，「置顶」「定位」按钮也一直隐藏
+    var fieldFocused by remember { mutableStateOf(false) }
+    // 键盘收起瞬间释放输入焦点：以可见区域高度差判定软键盘显隐
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val rootView = view.rootView
+        val listener = ViewTreeObserver.OnGlobalLayoutListener {
+            val rect = Rect()
+            view.getWindowVisibleDisplayFrame(rect)
+            val heightDiff = rootView.height - rect.height()
+            val keyboardVisible = heightDiff > (rootView.height * KEYBOARD_VISIBLE_RATIO)
+            if (!keyboardVisible && fieldFocused) {
+                focusManager.clearFocus()
+            }
+        }
+        view.viewTreeObserver.addOnGlobalLayoutListener(listener)
+        onDispose { view.viewTreeObserver.removeOnGlobalLayoutListener(listener) }
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -150,7 +180,10 @@ internal fun SearchInputBar(
                 modifier = Modifier
                     .weight(1f)
                     .padding(start = 8.dp)
-                    .onFocusChanged { onFocusChanged(it.isFocused) },
+                    .onFocusChanged { focused ->
+                        fieldFocused = focused.isFocused
+                        onFocusChanged(focused.isFocused)
+                    },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(
                     color = textColor,
