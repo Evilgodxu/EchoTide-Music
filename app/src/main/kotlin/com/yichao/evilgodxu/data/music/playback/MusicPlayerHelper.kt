@@ -70,6 +70,9 @@ suspend fun playTrackAt(
             } else {
                 0L
             }
+            // 续播锚点：以保存位置起播时记录目标，供异步派发的 onMediaItemTransition 保留已还原进度；
+            // 真实切歌（resumePosition=0）不设锚点，按常规复位进度到起点
+            state.resumeAnchorPosition = if (resumePosition > 0L) resumePosition else -1L
             // 队列一致性同时校验 mediaId 与 URI：在线曲目缓存完成后 URI 已指向本地文件，
             // 仅比较 mediaId 会误判一致，导致播放源无法重定向（这是在线/离线切换失效的根因）
             val sameQueue = controller.mediaItemCount == items.size &&

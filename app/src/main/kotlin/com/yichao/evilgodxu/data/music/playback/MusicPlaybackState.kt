@@ -148,11 +148,15 @@ class MusicPlaybackState(
             val id = mediaItem?.mediaId?.toLongOrNull() ?: return
             val index = playlist.indexOfFirst { it.id == id }
             if (index >= 0) {
+                // 续播锚点：playTrackAt 以保存位置起播时已记录目标位置，本回调（异步派发）据此保留
+                // 已还原的进度，避免把进度清空到 0 再回填；真实切歌（无锚点）才复位到起点
+                val resumePos = resumeAnchorPosition
+                resumeAnchorPosition = -1L
                 currentIndex = index
                 currentTrack = playlist[index]
                 isPrepared = false
-                currentPosition = 0L
-                duration = 0L
+                currentPosition = if (resumePos > 0L) resumePos else 0L
+                duration = if (resumePos > 0L) playlist[index].duration else 0L
                 // 切歌或单曲循环重播：复位进度单调基准，允许进度回到起点
                 lastMonoMediaId = null
                 // 切换曲目即持久化最新 URI，确保后台自动下一首也能被冷启动恢复
@@ -914,6 +918,9 @@ class MusicPlaybackState(
 
     var pendingSavedUri: String? = null
     var pendingResumePosition: Long = 0L
+    // 续播锚点：playTrackAt 以保存位置起播时记录该目标，供异步派发的 onMediaItemTransition 保留已还原进度。
+    // -1 表示无续播锚点（真实切歌/重播），过渡回调按常规复位进度到起点。
+    internal var resumeAnchorPosition: Long = -1L
 
     fun persistState() {
         val context = appContext ?: return
@@ -946,6 +953,8 @@ class MusicPlaybackState(
             pendingSavedUri = track.audioUri
             pendingResumePosition = currentPosition
         }
+        // 清掉未消费的续播锚点，避免释放后残留锚点被后续非续播的过渡回调误用
+        resumeAnchorPosition = -1L
         mediaController?.let { controller ->
             controller.pause()
             controller.stop()
@@ -966,6 +975,8 @@ class MusicPlaybackState(
             pendingSavedUri = track.audioUri
             pendingResumePosition = currentPosition
         }
+        // 清掉未消费的续播锚点，避免释放后残留锚点被后续非续播的过渡回调误用
+        resumeAnchorPosition = -1L
         mediaController?.let { controller ->
             playbackScope.launch {
                 controller.stop()
@@ -1212,6 +1223,15 @@ class MusicPlaybackState(
             val controllerPosition = controller.currentPosition
             if (controllerPosition >= 0L && controllerDuration > 0L) {
                 val raw = controllerPosition.coerceIn(0L, controllerDuration)
+                // 播放器尚未 READY（冷启动续播/切歌预载阶段）时控制器可能短暂回报 0 或失真位置；
+                // 若会显著回退当前已还原的进度则保留现状，避免续播瞬间进度条从还原位置清空到 0 再回填。
+                // 真实切歌路径的 currentPosition 已被切歌回调复位到 0，不会误命中本守卫。
+                if (!isPrepared && currentPosition > 0L &&
+                    raw < currentPosition - MONO_REBASELINE_JUMP_MS
+                ) {
+                    isPlaying = controller.isPlaying
+                    return
+                }
                 // 换项(mediaId 变化)或位置大幅回退（如切换歌单重载同 ID 曲目未触发切歌回调）时复位单调基准；
                 // 小幅回退仍按流媒体回锚处理，保持进度单调，避免进度条倒退
                 val reset = mediaId != lastMonoMediaId ||
