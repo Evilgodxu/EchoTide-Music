@@ -10,7 +10,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,28 +21,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -59,8 +47,6 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.ui.component.DialogCard
-import com.yichao.evilgodxu.ui.icons.AppIcons
 
 @Composable
 internal fun CoverRefreshOverlay(
@@ -76,25 +62,25 @@ internal fun CoverRefreshOverlay(
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    if (!visible || track == null) return
-    Box(
-        modifier = Modifier.fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = .97f))
-            .pointerInput(Unit) { detectHorizontalDragGestures { _, amount -> if (amount > 50) onCancel() } },
-        contentAlignment = Alignment.Center
-    ) {
-        CoverRefreshContent(
-            playbackState = playbackState,
-            selectedId = selectedId,
-            saving = saving,
-            context = context,
-            onCandidateSelected = onCandidateSelected,
-            onSourceSelected = onSourceSelected,
-            onRefresh = onRefresh,
-            onConfirm = onConfirm,
-            onCancel = onCancel,
-        )
-    }
+    RefreshCandidateOverlay(
+        visible = visible && track != null,
+        searching = playbackState.isCoverSearching || saving,
+        saving = saving,
+        candidates = playbackState.coverCandidates,
+        selectedId = selectedId,
+        source = playbackState.coverRefreshSource,
+        titleText = stringResource(playbackState.coverRefreshSource.sourceNameRes()),
+        refreshLabel = stringResource(R.string.music_panel_refresh_cover),
+        noCandidatesText = stringResource(R.string.music_panel_cover_no_candidates),
+        onSourceSelected = onSourceSelected,
+        onRefresh = onRefresh,
+        onCandidateSelected = onCandidateSelected,
+        onConfirm = onConfirm,
+        onCancel = onCancel,
+        candidateItem = { candidate, selected ->
+            CoverCandidateItem(candidate = candidate, selected = selected, context = context, onSelected = onCandidateSelected)
+        },
+    )
 }
 
 @Composable
@@ -111,174 +97,71 @@ internal fun CoverRefreshDialog(
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    if (visible && track != null) {
-        DialogCard(onDismiss = onCancel) {
-            CoverRefreshContent(
-                playbackState = playbackState,
-                selectedId = selectedId,
-                saving = saving,
-                context = context,
-                onCandidateSelected = onCandidateSelected,
-                onSourceSelected = onSourceSelected,
-                onRefresh = onRefresh,
-                onConfirm = onConfirm,
-                onCancel = onCancel,
-                modifier = Modifier.padding(16.dp),
-            )
-        }
-    }
+    RefreshCandidateDialog(
+        visible = visible && track != null,
+        searching = playbackState.isCoverSearching || saving,
+        saving = saving,
+        candidates = playbackState.coverCandidates,
+        selectedId = selectedId,
+        source = playbackState.coverRefreshSource,
+        titleText = stringResource(playbackState.coverRefreshSource.sourceNameRes()),
+        refreshLabel = stringResource(R.string.music_panel_refresh_cover),
+        noCandidatesText = stringResource(R.string.music_panel_cover_no_candidates),
+        onSourceSelected = onSourceSelected,
+        onRefresh = onRefresh,
+        onCandidateSelected = onCandidateSelected,
+        onConfirm = onConfirm,
+        onCancel = onCancel,
+        candidateItem = { candidate, selected ->
+            CoverCandidateItem(candidate = candidate, selected = selected, context = context, onSelected = onCandidateSelected)
+        },
+    )
 }
 
-// 封面刷新共享主体：标题行(点击切换来源+刷新按钮) + 候选 / 状态 + 按钮，供全屏蒙层与对话框复用
+// 封面候选条目：封面图 + 标题 + 歌手（内容形态与歌词条目不同，故注入）
 @Composable
-private fun CoverRefreshContent(
-    playbackState: MusicPlaybackState,
-    selectedId: Long?,
-    saving: Boolean,
+private fun CoverCandidateItem(
+    candidate: NeteaseSongSearchResult,
+    selected: Boolean,
     context: Context,
-    onCandidateSelected: (NeteaseSongSearchResult) -> Unit,
-    onSourceSelected: (MusicSearchSource) -> Unit,
-    onRefresh: () -> Unit,
-    onConfirm: () -> Unit,
-    onCancel: () -> Unit,
-    modifier: Modifier = Modifier,
+    onSelected: (NeteaseSongSearchResult) -> Unit,
 ) {
-    val searching = playbackState.isCoverSearching || saving
     Column(
-        modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier = Modifier.width(92.dp).clickable { onSelected(candidate) },
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 标题行：居中显示当前来源名，点击弹出来源下拉列表，右侧独立刷新按钮
-        Box(Modifier.fillMaxWidth()) {
-            var sourceMenuExpanded by remember { mutableStateOf(false) }
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(enabled = !searching) { sourceMenuExpanded = true }
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = stringResource(playbackState.coverRefreshSource.sourceNameRes()),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 16.sp,
-                    )
-                    Icon(
-                        imageVector = AppIcons.ArrowDropDown,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-                DropdownMenu(
-                    expanded = sourceMenuExpanded,
-                    onDismissRequest = { sourceMenuExpanded = false },
-                ) {
-                    MusicSearchSource.entries.forEach { source ->
-                        DropdownMenuItem(
-                            text = { Text(stringResource(source.sourceNameRes())) },
-                            onClick = {
-                                sourceMenuExpanded = false
-                                onSourceSelected(source)
-                            },
-                            trailingIcon = {
-                                if (source == playbackState.coverRefreshSource) {
-                                    Icon(
-                                        imageVector = AppIcons.Check,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
-                            },
-                        )
-                    }
-                }
-            }
-            IconButton(
-                onClick = onRefresh,
-                enabled = !searching,
-                modifier = Modifier.align(Alignment.CenterEnd),
-            ) {
-                Icon(
-                    imageVector = AppIcons.Refresh,
-                    contentDescription = stringResource(R.string.music_panel_refresh_cover),
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-            }
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(candidate.coverUrl)
+                    .diskCachePolicy(CachePolicy.DISABLED)
+                    .build(),
+                contentDescription = candidate.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp))
+            )
         }
-        if (playbackState.isCoverSearching) {
-            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-        } else if (playbackState.coverCandidates.isEmpty()) {
-            Text(stringResource(R.string.music_panel_cover_no_candidates), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
-            ) {
-                items(playbackState.coverCandidates, key = { it.id }) { candidate ->
-                    val selected = candidate.id == selectedId
-                    Column(
-                        modifier = Modifier.width(92.dp).clickable { onCandidateSelected(candidate) },
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-                            color = MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(candidate.coverUrl)
-                                    .diskCachePolicy(CachePolicy.DISABLED)
-                                    .build(),
-                                contentDescription = candidate.title,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp))
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(1.dp))
-                        Text(
-                            text = candidate.title,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 11.sp,
-                            lineHeight = 13.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = candidate.artist,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 10.sp,
-                            lineHeight = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .08f), onClick = onCancel) {
-                Text(stringResource(R.string.music_panel_rename_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp))
-            }
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = if (selectedId != null && !saving) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                onClick = { if (selectedId != null && !saving) onConfirm() }
-            ) {
-                Box(modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
-                    Text(
-                        stringResource(R.string.music_panel_rename_confirm),
-                        color = if (saving) Color.Transparent else if (selectedId != null) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (saving) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                    }
-                }
-            }
-        }
+        Spacer(modifier = Modifier.height(1.dp))
+        Text(
+            text = candidate.title,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = candidate.artist,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 10.sp,
+            lineHeight = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
