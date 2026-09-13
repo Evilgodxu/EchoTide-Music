@@ -57,6 +57,8 @@ internal fun BoxScope.BottomSearchBarOverlay(
     textColor: Color = MaterialTheme.colorScheme.onSurface,
     hintColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     actions: (@Composable () -> Unit)? = null,
+    // 搜索框聚焦进入输入态时隐藏操作按钮，释放按钮占用的高度空间
+    actionsVisible: Boolean = true,
 ) {
     AnimatedVisibility(
         visible = !hidden,
@@ -71,15 +73,23 @@ internal fun BoxScope.BottomSearchBarOverlay(
     ) {
         Column {
             if (actions != null) {
-                // 操作区右对齐，与输入框右缘对齐
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = SEARCH_ACTION_GAP_DP),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
+                // 操作区右对齐，与输入框右缘对齐；聚焦进入输入态时整组隐藏，释放占位高度
+                AnimatedVisibility(
+                    visible = actionsVisible,
+                    enter = fadeIn(animationSpec = tween(120)) +
+                        slideInVertically(animationSpec = tween(120)) { it },
+                    exit = fadeOut(animationSpec = tween(120)) +
+                        slideOutVertically(animationSpec = tween(120)) { it },
                 ) {
-                    actions()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = SEARCH_ACTION_GAP_DP),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        actions()
+                    }
                 }
             }
             SearchInputBar(

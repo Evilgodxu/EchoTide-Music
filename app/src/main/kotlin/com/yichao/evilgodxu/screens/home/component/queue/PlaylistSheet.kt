@@ -420,6 +420,8 @@ internal fun PlaylistSheet(
                             query = searchQuery,
                             onQueryChange = { searchQuery = it },
                             onFocusChanged = { searchFocused = it },
+                            // 聚焦进入输入态时隐藏「置顶」「定位」按钮，避免按钮占位挤压搜索框
+                            actionsVisible = !searchFocused,
                             actions = {
                                 SearchActionButton(
                                     icon = AppIcons.VerticalAlignTop,
