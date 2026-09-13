@@ -231,7 +231,6 @@
     <string name="playlist_create">New playlist</string>
     <string name="playlist_create_title">New playlist</string>
     <string name="playlist_create_confirm">Create</string>
-    <string name="playlist_name_hint">Enter playlist name</string>
     <string name="playlist_rename_title">Rename playlist</string>
     <string name="playlist_rename">Rename</string>
     <string name="playlist_delete">Delete</string>
@@ -267,9 +266,6 @@
     <string name="playlist_import_name_hint">Playlist name</string>
     <string name="playlist_import_preview_songs">%1$d songs, all will be downloaded locally</string>
     <string name="playlist_import_start">Start sync</string>
-    <string name="playlist_import_syncing">Downloading %1$d/%2$d · %3$s</string>
-    <string name="playlist_import_result">Sync done: %1$d succeeded, %2$d failed</string>
-    <string name="playlist_import_finish">Done</string>
     <string name="playlist_import_invalid_link">Cannot recognize this share link</string>
     <string name="playlist_import_fetch_failed">Failed to parse playlist, check your network</string>
     <string name="playlist_import_empty">No downloadable songs</string>
