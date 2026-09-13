@@ -227,6 +227,10 @@ class MusicPlaybackState(
                         }
                     }
                 }
+                // 缓冲中：状态流转由 READY/ENDED 驱动，此处无需额外处理
+                Player.STATE_BUFFERING -> Unit
+                // 空闲态：错误/停止路径已各自复位，此处无需额外处理
+                Player.STATE_IDLE -> Unit
             }
         }
 

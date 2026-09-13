@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -38,7 +39,7 @@ fun AppNavHost(
     val exitHint = stringResource(R.string.back_again_exit)
 
     // 首页根节点 NavDisplay 不拦截返回，需自行拦截：双击返回桌面（播放中）或退出（未播放）
-    var lastHomeBackTime by remember { mutableStateOf(0L) }
+    var lastHomeBackTime by remember { mutableLongStateOf(0L) }
     BackHandler(enabled = backStack.size <= 1) {
         val now = System.currentTimeMillis()
         if (now - lastHomeBackTime < DOUBLE_BACK_EXIT_MS) {

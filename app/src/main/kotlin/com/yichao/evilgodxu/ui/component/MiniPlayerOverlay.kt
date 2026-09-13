@@ -17,6 +17,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,7 +55,7 @@ internal fun MiniPlayerOverlay(
     val barWidth = with(density) { barWidthPx.toDp() }
 
     // 左右滑动切歌：拖动时条跟随手指，抬手后回弹（切歌由手势侧直接触发，无滑出动画）
-    var swipeOffset by remember { mutableStateOf(0f) }
+    var swipeOffset by remember { mutableFloatStateOf(0f) }
     val swipeTranslate by animateFloatAsState(
         targetValue = swipeOffset,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
@@ -71,7 +73,7 @@ internal fun MiniPlayerOverlay(
     val colorScheme = if (isDarkTheme) DarkColorScheme else LightColorScheme
     // 展开缩放动画完成信号：每次展开动画结束自增，通知播放列表延迟定位当前曲目，
     // 避免滚动动画与缩放动画叠加导致首帧卡顿
-    var playlistReady by remember { mutableStateOf(0) }
+    var playlistReady by remember { mutableIntStateOf(0) }
     // 卡片背景：收起时高透明透出下层内容，展开播放列表时降低透明度保证列表可读性
     // 跟随视觉展开状态：收起动画期间保持不透明，动画结束切回紧凑条后再恢复高透明
     val cardBackground = if (visualExpanded) {

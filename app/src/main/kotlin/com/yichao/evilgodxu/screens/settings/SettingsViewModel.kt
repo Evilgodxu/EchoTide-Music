@@ -48,7 +48,6 @@ class SettingsViewModel(
 
     override fun onCleared() {
         ProxySourceStore.unregisterChangeListener(context, proxyChangeListener)
-        super.onCleared()
     }
 
     private val _uiState = MutableStateFlow(

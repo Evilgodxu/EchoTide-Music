@@ -200,10 +200,10 @@ internal fun PortraitPlayer(
     // 歌词微调按钮显示状态：点击歌词区切换
     var lyricTuneVisible by remember { mutableStateOf(false) }
     // 微调操作计数：每次调整自增以重置自动隐藏计时
-    var tuneVersion by remember { mutableStateOf(0) }
+    var tuneVersion by remember { mutableIntStateOf(0) }
     // 浮动提示：显示当前微调的毫秒数
     var tuneHintText by remember { mutableStateOf("") }
-    var tuneHintVersion by remember { mutableStateOf(0) }
+    var tuneHintVersion by remember { mutableIntStateOf(0) }
     // 显示后 2 秒无操作自动隐藏
     LaunchedEffect(lyricTuneVisible, tuneVersion) {
         if (lyricTuneVisible) {

@@ -23,6 +23,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -86,7 +89,7 @@ internal fun MiniPlayerBar(
 
     // 控件自动隐藏：3 秒无操作后隐藏控制按钮，改为显示歌曲名与歌词；任意触摸即可还原
     var controlsVisible by remember { mutableStateOf(true) }
-    var interactionTick by remember { mutableStateOf(0) }
+    var interactionTick by remember { mutableIntStateOf(0) }
     fun resetAutoHide() {
         controlsVisible = true
         interactionTick++
@@ -100,7 +103,7 @@ internal fun MiniPlayerBar(
         controlsVisible = false
     }
     // 隐藏控件期间跟随播放进度刷新当前歌词；跟随当前曲目，切换歌曲时重置到曲目起点
-    var lyricPosition by remember(playbackState.currentTrack?.id) { mutableStateOf(0L) }
+    var lyricPosition by remember(playbackState.currentTrack?.id) { mutableLongStateOf(0L) }
     LaunchedEffect(controlsVisible, playbackState.currentTrack?.id) {
         if (controlsVisible) return@LaunchedEffect
         var lastSyncMs = 0L
@@ -406,7 +409,7 @@ private fun MiniPlayerMarqueeText(
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val layout = remember(text, style) { textMeasurer.measure(AnnotatedString(text), style) }
-    var containerWidthPx by remember { mutableStateOf(0f) }
+    var containerWidthPx by remember { mutableFloatStateOf(0f) }
     val maxScroll = (layout.size.width - containerWidthPx).coerceAtLeast(0f)
     val offset = remember(text) { Animatable(0f) }
     LaunchedEffect(text, maxScroll) {

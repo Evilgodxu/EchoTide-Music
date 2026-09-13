@@ -88,7 +88,7 @@
 
         <!-- 透明权限申请页：从悬浮窗上下文链式申请音频/图片/全部文件权限 -->
         <activity
-            android:name=".ui.music.window.MusicPanelPermissionActivity"
+            android:name=".floatingwindow.MusicPanelPermissionActivity"
             android:theme="@style/Theme.Transparent"
             android:excludeFromRecents="true"
             android:exported="false"
