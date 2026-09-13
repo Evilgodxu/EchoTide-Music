@@ -45,8 +45,9 @@ enum class CacheCategory {
 /**
  * 缓存归属范围：按产出归属方划分，是缓存页分卡的依据，也界定「清理缓存」的作用边界。
  *
- * [CLEARABLE] 系统缓存：位于 cacheDir，属系统「清除缓存」作用域，可整体回收；
- * [APP_DATA] 应用数据：应用自身运行产生的副产物（异常日志、更新安装包），按各自保留策略回收；
+ * [CLEARABLE] 系统缓存：应用自身可随时回收的运行副产物（cacheDir 内产出、异常日志、更新安装包），
+ *              用户可经「清理缓存」整批删除；
+ * [APP_DATA] 应用数据：应用自身运行产生的副产物，按各自保留策略回收；（当前无登记项，保留以作区分）
  * [USER_DATA] 用户数据：围绕用户曲库与偏好产生的产出，按各自保留策略回收，或只由用户显式删除。
  */
 enum class CacheScope { CLEARABLE, APP_DATA, USER_DATA }
@@ -59,14 +60,14 @@ data class CacheUsage(
     val sizeBytes: Long,
 )
 
-// 台账条目：一类缓存的归属范围、落点解析与清理方式。
-// 保留策略与上限写在各条目上方的注释里；上限取值由使用方直接引用常量，不在此再存一份
+// 台账条目：一类缓存的归属范围与落点解析，供占用统计使用。
+// 保留策略与上限写在各条目上方的注释里；上限取值由使用方直接引用常量，不在此再存一份。
+// 清理不在此逐条驱动 —— 「清理缓存」按系统作用域整清 cacheDir（见 clearSystemCache），
+// 只有活跃缓存（Coil 磁盘缓存）须经其接口保持索引一致。
 private class CacheEntry(
     val category: CacheCategory,
     val scope: CacheScope,
     val resolve: (Context) -> List<File>,
-    // 有专属清理接口的缓存在此提供（如 LRU 缓存须经其接口清除），为空则按落点删文件
-    val clear: (suspend (Context) -> Unit)? = null,
 )
 
 /**
@@ -102,12 +103,11 @@ internal object CacheInventory {
     private const val SHARED_PREFS_DIR = "shared_prefs"
 
     private val ENTRIES: List<CacheEntry> = listOf(
-        // 图片缓存：上限 32MB，超出由 LRU 淘汰；清理须经 Coil 接口，直删文件会与其索引失配
+        // 图片缓存：上限 32MB，超出由 LRU 淘汰；清理在 clearSystemCache 里经 Coil 接口完成以保持索引一致
         CacheEntry(
             category = CacheCategory.IMAGE,
             scope = CacheScope.CLEARABLE,
             resolve = { context -> listOf(File(context.cacheDir, IMAGE_CACHE_DIR_NAME)) },
-            clear = { context -> SingletonImageLoader.get(context).diskCache?.clear() },
         ),
         // 中转文件：流程结束即删，进程异常中断的残留由冷启动回收
         CacheEntry(
@@ -115,11 +115,11 @@ internal object CacheInventory {
             scope = CacheScope.CLEARABLE,
             resolve = { context -> tempFiles(context) },
         ),
-        // 异常日志：仅保留今日，写入时顺带清理旧文件
+        // 异常日志：仅保留今日，写入时顺带清理旧文件；清理作用域内由用户整批删除（逐文件删，目录保留）
         CacheEntry(
             category = CacheCategory.LOG,
-            scope = CacheScope.APP_DATA,
-            resolve = { context -> listOf(CrashLogManager.logDirectory(context)) },
+            scope = CacheScope.CLEARABLE,
+            resolve = { context -> logFiles(context) },
         ),
         // 封面缓存：可由网络或音频文件重建，孤儿回收，连续 3 天无引用后删除
         CacheEntry(
@@ -139,10 +139,10 @@ internal object CacheInventory {
             scope = CacheScope.USER_DATA,
             resolve = { context -> listOf(File(MusicMetadataCache.mediaRoot(context), AUDIO_DIR_NAME)) },
         ),
-        // 更新安装包：校验后即删，隔日残留由冷启动回收
+        // 更新安装包：校验后即删，隔日残留由冷启动回收；清理作用域内由用户整批删除
         CacheEntry(
             category = CacheCategory.UPDATE_PACKAGE,
-            scope = CacheScope.APP_DATA,
+            scope = CacheScope.CLEARABLE,
             resolve = { context -> updatePackages(context) },
         ),
         // 用户偏好：用户配置与播放记录无法重建，应用不自动回收
@@ -191,20 +191,26 @@ internal object CacheInventory {
     }
 
     /**
-     * 清理可清理作用域：只作用于 cacheDir，与系统设置页「清除缓存」的作用范围一致。
-     * 应用数据与用户数据各自按保留策略回收或只由用户删除，不在此列。
+     * 清理应用自身缓存：与系统设置页「清除缓存」的作用域一致 —— 整清 cacheDir，
+     * 从而自动覆盖任何第三方库落盘在 cacheDir 的缓存，无需逐个登记。
+     * 系统缓存作用域不覆盖的应用专属外部产出（异常日志、更新安装包）在此手动删除。
+     * 活跃的 Coil 磁盘缓存须先经其接口清空以保持索引一致。
      */
     suspend fun clearSystemCache(context: Context) {
-        ENTRIES.filter { it.scope == CacheScope.CLEARABLE }.forEach { entry ->
-            val clear = entry.clear
-            if (clear != null) {
-                runCatching { clear(context) }.onFailure {
-                    CrashLogManager.logException(TAG, "清理缓存失败: ${entry.category}", it)
-                }
-            } else {
-                entry.resolve(context).forEach { deleteQuietly(it) }
-            }
+        // 活跃缓存：Coil 磁盘缓存的 clear() 只删值文件、会遗留 .journal 元数据，须补删使目录真正为空
+        runCatching {
+            SingletonImageLoader.get(context).diskCache?.clear()
+            File(context.cacheDir, IMAGE_CACHE_DIR_NAME)
+                .listFiles()?.forEach { it.delete() }
+        }.onFailure { CrashLogManager.logException(TAG, "清理图片缓存失败", it) }
+        // 清空 cacheDir 其余内容（等同系统「清除缓存」作用域）：跳过 image_cache 目录本身，
+        // 其值文件已清空，避免删掉 Coil 仍在使用的目录导致其后续写失效
+        context.cacheDir.listFiles()?.forEach { child ->
+            if (child.name != IMAGE_CACHE_DIR_NAME) child.deleteRecursively()
         }
+        // 系统缓存作用域外、应用专属外部的产出（异常日志、更新安装包），系统 API 覆盖不到，手动删除
+        logFiles(context).forEach { deleteQuietly(it) }
+        updatePackages(context).forEach { deleteQuietly(it) }
     }
 
     // 统计单个落点：目录递归累加、文件直接计入；不可读时按 0 计，统计失败不应中断调用方
@@ -224,6 +230,12 @@ internal object CacheInventory {
     // cacheDir 下的中转文件：按前缀匹配，仅认文件
     private fun tempFiles(context: Context): List<File> = context.cacheDir
         .listFiles { file -> file.isFile && TEMP_FILE_PREFIXES.any { file.name.startsWith(it) } }
+        ?.toList()
+        .orEmpty()
+
+    // 日志文件：仅认文件；清理时逐文件删除，目录保留以便 CrashLogManager 继续写入
+    private fun logFiles(context: Context): List<File> = CrashLogManager.logDirectory(context)
+        .listFiles { file -> file.isFile }
         ?.toList()
         .orEmpty()
 

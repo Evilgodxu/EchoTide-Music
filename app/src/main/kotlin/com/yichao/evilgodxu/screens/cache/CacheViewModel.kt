@@ -21,14 +21,15 @@ class CacheViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { loadUsage() }
     }
 
-    // 清理可清理作用域，完成后重新采样使展示与实际一致。
-    // 清理只覆盖 cacheDir，应用数据与用户数据各自按保留策略回收，不在此列
+    // 清理应用自身缓存（整清 cacheDir + 异常日志/更新安装包），完成后重新采样使展示与实际一致。
+    // 用户数据各自按保留策略回收，不在此列
     fun clearSystemCache() {
         if (_uiState.value.clearing) return
         _uiState.update { it.copy(clearing = true) }
         viewModelScope.launch {
             try {
-                CacheInventory.clearSystemCache(getApplication())
+                // 清理为阻塞 IO，统一切到 IO 线程，避免主线程磁盘写触达 StrictMode 惩罚
+                withContext(Dispatchers.IO) { CacheInventory.clearSystemCache(getApplication()) }
                 loadUsage()
             } finally {
                 _uiState.update { it.copy(clearing = false) }
