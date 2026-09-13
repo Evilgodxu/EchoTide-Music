@@ -17,7 +17,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.screens.home.component.bar.HomeTopBar
@@ -25,6 +24,7 @@ import com.yichao.evilgodxu.screens.home.component.dialog.HomeDialogs
 import com.yichao.evilgodxu.screens.home.component.panel.HomePanels
 import com.yichao.evilgodxu.screens.home.component.panel.HomePanelState
 import com.yichao.evilgodxu.screens.home.component.shell.HomeShell
+import com.yichao.evilgodxu.screens.home.component.swipe.rememberHomeTrackSwipeGesture
 import com.yichao.evilgodxu.screens.home.expanded.player.LandscapePlayer
 import com.yichao.evilgodxu.screens.home.HomeUiState
 import kotlinx.coroutines.delay
@@ -44,6 +44,11 @@ internal fun ExpandedAssembly(
     val playbackState = panelState.playbackState.state
     val currentTrackId = playbackState.currentTrack?.id
     val isLiked = currentTrackId?.let { playbackState.likedIds.contains(it) } ?: false
+    // 纵向切歌手势：挂在播放器页上，横向翻页由 Pager 承担
+    val trackSwipe = rememberHomeTrackSwipeGesture(
+        playbackState = playbackState,
+        playlistSheetVisible = panelState.playlistVisible,
+    )
     // 横屏下标题栏与控制栏的统一显隐状态
     var chromeVisible by remember { mutableStateOf(false) }
     // 3D 封面轮播显隐：与 chrome 同层持有，进入沉浸覆盖层时联动隐藏标题栏与控制栏
@@ -69,33 +74,30 @@ internal fun ExpandedAssembly(
         panelState = panelState,
         darkenStatusBarArea = false,
         modifier = modifier,
-    ) { contentWidth, topInset ->
-        // 播放器页铺满全屏；左右滑动时整体横移让位
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    translationX = contentWidth.toPx() * panelState.swipeController.searchProgress -
-                            contentWidth.toPx() * panelState.swipeController.playlistProgress
-                }
-        ) {
-            LandscapePlayer(
-                playbackState = playbackState,
-                chromeVisible = chromeVisible,
-                onToggleChrome = { chromeVisible = !chromeVisible },
-                playlistVisible = panelState.playlistVisible,
-                onPlaylistVisibilityChange = { panelState.playlistVisible = it },
-                onSpeedLongClick = { panelState.showSpeed = true },
-                coverCarouselVisible = coverCarouselVisible,
-                onCoverCarouselVisibilityChange = { coverCarouselVisible = it },
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
+    ) { topInset ->
         HomePanels(
             panelState = panelState,
-            contentWidth = contentWidth,
             topInset = topInset,
-        )
+        ) {
+            // 播放器页铺满全屏
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(trackSwipe.modifier),
+            ) {
+                LandscapePlayer(
+                    playbackState = playbackState,
+                    chromeVisible = chromeVisible,
+                    onToggleChrome = { chromeVisible = !chromeVisible },
+                    playlistVisible = panelState.playlistVisible,
+                    onPlaylistVisibilityChange = { panelState.playlistVisible = it },
+                    onSpeedLongClick = { panelState.showSpeed = true },
+                    coverCarouselVisible = coverCarouselVisible,
+                    onCoverCarouselVisibilityChange = { coverCarouselVisible = it },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
         // 横屏标题栏悬浮于内容顶部，随控制栏一起显隐，不挤压播放器布局
         AnimatedVisibility(
             visible = chromeVisible,

@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -15,9 +14,11 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.screens.home.compact.player.PortraitPlayer
 import com.yichao.evilgodxu.screens.home.component.bar.HomeTopBar
 import com.yichao.evilgodxu.screens.home.component.dialog.HomeDialogs
+import com.yichao.evilgodxu.screens.home.component.panel.HomePage
 import com.yichao.evilgodxu.screens.home.component.panel.HomePanels
 import com.yichao.evilgodxu.screens.home.component.panel.HomePanelState
 import com.yichao.evilgodxu.screens.home.component.shell.HomeShell
+import com.yichao.evilgodxu.screens.home.component.swipe.rememberHomeTrackSwipeGesture
 import com.yichao.evilgodxu.screens.home.HomeUiState
 import kotlinx.coroutines.launch
 
@@ -39,6 +40,11 @@ internal fun CompactAssembly(
     val scope = rememberCoroutineScope()
     val currentTrackId = playbackState.currentTrack?.id
     val isLiked = currentTrackId?.let { playbackState.likedIds.contains(it) } ?: false
+    // 纵向切歌手势：挂在播放器页上，横向翻页由 Pager 承担
+    val trackSwipe = rememberHomeTrackSwipeGesture(
+        playbackState = playbackState,
+        playlistSheetVisible = panelState.playlistVisible,
+    )
     // 对话框收起后的后台分析进度：在标题区居中展示
     val analysisCenterTitle = if (!panelState.libraryAnalysis.visible && panelState.libraryAnalysis.analyzing) {
         panelState.libraryAnalysis.checkingProgress?.let { (checked, total) ->
@@ -64,38 +70,35 @@ internal fun CompactAssembly(
                 onOpenSettings = onOpenSettings,
             )
         },
-    ) { contentWidth, topInset ->
-        // 播放器页铺满全屏（含标题栏区域），竖屏沉浸封面嵌入标题栏后方；左右滑动时整体横移让位
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    translationX = contentWidth.toPx() * panelState.swipeController.searchProgress -
-                            contentWidth.toPx() * panelState.swipeController.playlistProgress
-                }
-        ) {
-            PortraitPlayer(
-                modifier = Modifier.fillMaxSize(),
-                topBarInset = topInset,
-                swipePreviewText = panelState.swipeController.trackSwitchPreviewText,
-                libraryAnalysis = panelState.libraryAnalysis,
-                playlistVisible = panelState.playlistVisible,
-                onPlaylistVisibilityChange = { panelState.playlistVisible = it },
-                onSpeedLongClick = { panelState.showSpeed = true },
-                // 长按标题/艺术家菜单"在线搜索"：切到在线搜索面板并自动按当前菜单文本搜索
-                onOpenOnlineSearch = { query ->
-                    playbackState.setSearchQuery(query)
-                    playbackState.setSearchResultsVisible(true)
-                    panelState.swipeController.showOnlineSearch = true
-                    scope.launch { performSearch(playbackState, context) }
-                },
-            )
-        }
+    ) { topInset ->
         HomePanels(
             panelState = panelState,
-            contentWidth = contentWidth,
             topInset = topInset,
-        )
+        ) {
+            // 播放器页铺满全屏（含标题栏区域），竖屏沉浸封面嵌入标题栏后方
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(trackSwipe.modifier),
+            ) {
+                PortraitPlayer(
+                    modifier = Modifier.fillMaxSize(),
+                    topBarInset = topInset,
+                    swipePreviewText = trackSwipe.previewText,
+                    libraryAnalysis = panelState.libraryAnalysis,
+                    playlistVisible = panelState.playlistVisible,
+                    onPlaylistVisibilityChange = { panelState.playlistVisible = it },
+                    onSpeedLongClick = { panelState.showSpeed = true },
+                    // 长按标题/艺术家菜单"在线搜索"：切到在线搜索页并自动按当前菜单文本搜索
+                    onOpenOnlineSearch = { query ->
+                        playbackState.setSearchQuery(query)
+                        playbackState.setSearchResultsVisible(true)
+                        panelState.goToPage(HomePage.SEARCH)
+                        scope.launch { performSearch(playbackState, context) }
+                    },
+                )
+            }
+        }
         HomeDialogs(
             panelState = panelState,
             uiState = uiState,

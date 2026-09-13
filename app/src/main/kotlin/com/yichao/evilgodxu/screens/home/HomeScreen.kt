@@ -19,6 +19,7 @@ import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 import com.yichao.evilgodxu.LocalPlaylistRefresher
 import com.yichao.evilgodxu.screens.home.compact.CompactAssembly
+import com.yichao.evilgodxu.screens.home.component.panel.HomePage
 import com.yichao.evilgodxu.screens.home.component.panel.rememberHomePanelState
 import com.yichao.evilgodxu.screens.home.expanded.ExpandedAssembly
 import com.yichao.evilgodxu.theme.SystemBarAppearance
@@ -87,13 +88,13 @@ fun HomeScreen(
         }
     }
 
-    // 跨形态共享状态：旋转不重建 Activity，面板显隐与后台分析需在形态切换间保持
+    // 跨形态共享状态：旋转不重建 Activity，页面位置与后台分析需在形态切换间保持
     val panelState = rememberHomePanelState()
     val playbackState = panelState.playbackState.state
-    // 左右滑动结算：松手后按阈值平滑展开或回弹；挂在形态分派之上，切换形态不重启动画
-    panelState.swipeController.SettleEffect()
-    // 在线搜索覆盖层打开时返回键：优先清空搜索结果与输入框；搜索状态已清空时才关闭覆盖层返回播放器
-    BackHandler(enabled = panelState.swipeController.showOnlineSearch) {
+    val pagerState = panelState.pagerState
+
+    // 在线搜索页返回键：优先清空搜索结果与输入框；搜索状态已清空时才返回播放器
+    BackHandler(enabled = panelState.currentPage == HomePage.SEARCH) {
         val hasSearchContent = playbackState.searchQuery.isNotBlank() ||
             playbackState.searchResults.isNotEmpty() ||
             playbackState.showSearchResults
@@ -105,19 +106,26 @@ fun HomeScreen(
             playbackState.setSearchResultsVisible(false)
             playbackState.setErrorMsg(null)
         } else {
-            panelState.swipeController.showOnlineSearch = false
+            panelState.closePanels()
             playbackState.setSearchResultsVisible(false)
             playbackState.setErrorMsg(null)
         }
     }
-    // 歌单面板打开时返回键关闭面板
-    BackHandler(enabled = panelState.swipeController.showPlaylist) {
-        panelState.swipeController.showPlaylist = false
+    // 歌单页返回键回到播放器
+    BackHandler(enabled = panelState.currentPage == HomePage.PLAYLIST) {
+        panelState.closePanels()
     }
-    // 只有播放器真正开始播放（无错误）时才收起在线搜索覆盖层；播放失败出现错误提示时保持面板打开
+    // 离开搜索页即清空结果可见性与错误提示，避免下次进入残留上一次搜索的状态
+    LaunchedEffect(pagerState.currentPage) {
+        if (pagerState.currentPage != HomePage.SEARCH.ordinal) {
+            playbackState.setSearchResultsVisible(false)
+            playbackState.setErrorMsg(null)
+        }
+    }
+    // 只有播放器真正开始播放（无错误）时才返回播放器页；播放失败出现错误提示时留在搜索页
     LaunchedEffect(playbackState.isPlaying) {
-        if (playbackState.isPlaying && panelState.swipeController.showOnlineSearch) {
-            panelState.swipeController.showOnlineSearch = false
+        if (playbackState.isPlaying && panelState.currentPage == HomePage.SEARCH) {
+            panelState.closePanels()
         }
     }
 

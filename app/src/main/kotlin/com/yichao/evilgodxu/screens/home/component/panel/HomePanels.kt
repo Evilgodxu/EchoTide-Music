@@ -2,43 +2,49 @@ package com.yichao.evilgodxu.screens.home.component.panel
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
-import com.yichao.evilgodxu.screens.home.component.panel.HomePanelState
 import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistPanel
 import com.yichao.evilgodxu.screens.home.component.search.OnlineSearchPanel
 
-// 首页滑动覆盖层：在线搜索自左侧滑入、歌单面板自右侧滑入，均顶替播放器位置
+// 首页并列页面容器：跟手拖动、吸附与回弹由系统 HorizontalPager 结算，页面自身不再参与手势
 @Composable
 internal fun HomePanels(
     panelState: HomePanelState,
-    // 内容区宽度：滑动距离换算为位移的基准
-    contentWidth: Dp,
-    // 标题栏高度：面板内容仍从标题栏下方开始
+    // 标题栏高度：搜索页与歌单页内容从标题栏下方开始
     topInset: Dp,
+    modifier: Modifier = Modifier,
+    // 播放器页：竖屏与横屏的播放器主体不同，由调用方按形态提供
+    playerPage: @Composable () -> Unit,
 ) {
-    val swipeController = panelState.swipeController
-    OnlineSearchPanel(
-        playbackState = panelState.playbackState.state,
-        menuBackgroundColor = panelState.backgroundColor,
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = topInset)
-            .graphicsLayer {
-                translationX = -contentWidth.toPx() * (1f - swipeController.searchProgress)
-            },
-    )
-    PlaylistPanel(
-        visible = swipeController.showPlaylist,
-        playbackState = panelState.playbackState.state,
-        menuBackgroundColor = panelState.backgroundColor,
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = topInset)
-            .graphicsLayer {
-                translationX = contentWidth.toPx() * (1f - swipeController.playlistProgress)
-            },
-    )
+    val pagerState = panelState.pagerState
+    HorizontalPager(
+        state = pagerState,
+        modifier = modifier.fillMaxSize(),
+        // 三页均为重量级常驻视图（歌单页持有全库分组缓存与页面栈），全部保留在合成树，避免切页重建
+        beyondViewportPageCount = HomePage.entries.size,
+        key = { HomePage.entries[it] },
+    ) { index ->
+        when (HomePage.entries[index]) {
+            HomePage.SEARCH -> OnlineSearchPanel(
+                playbackState = panelState.playbackState.state,
+                menuBackgroundColor = panelState.backgroundColor,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = topInset),
+            )
+            HomePage.PLAYER -> playerPage()
+            HomePage.PLAYLIST -> PlaylistPanel(
+                // 离开歌单页即视为关闭，页面内回退栈随之复位
+                visible = panelState.currentPage == HomePage.PLAYLIST,
+                playbackState = panelState.playbackState.state,
+                menuBackgroundColor = panelState.backgroundColor,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = topInset),
+            )
+        }
+    }
 }
