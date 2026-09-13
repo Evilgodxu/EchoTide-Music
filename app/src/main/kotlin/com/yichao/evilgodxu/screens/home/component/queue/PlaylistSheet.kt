@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -49,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -78,6 +81,7 @@ import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
 import com.yichao.evilgodxu.ui.component.HeaderIconButton
 import com.yichao.evilgodxu.ui.component.PlaylistRow
 import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
+import com.yichao.evilgodxu.ui.component.SEARCH_ACTION_GAP_DP
 import com.yichao.evilgodxu.ui.component.SEARCH_BAR_REGION_DP
 import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 import com.yichao.evilgodxu.ui.component.scrollPlaylistTo
@@ -271,8 +275,11 @@ internal fun PlaylistSheet(
                     // 滚动到顶部后继续下拉：累计下拉距离超过阈值即收起面板
                     val density = LocalDensity.current
                     val dismissOverscrollPx = with(density) { PLAYLIST_DISMISS_OVERSCROLL_DP.toPx() }
-                    // 搜索框在列表底部占用的高度：最后一项底缘进入该区域即视为滚到底部
-                    val searchBarRegionPx = with(density) { SEARCH_BAR_REGION_DP.toPx() }
+                    // 底部悬浮区占用高度：搜索框及其上方操作按钮组共同遮挡列表末端，
+                    // 判定滚到底部需把按钮组高度一并计入，否则末项会被按钮压住
+                    val searchBarRegionPx = with(density) {
+                        (SEARCH_BAR_REGION_DP + SEARCH_ACTION_BUTTON_DP + SEARCH_ACTION_GAP_DP).toPx()
+                    }
                     // 滚到底部判定：最后一项已到达列表底部（底缘进入搜索框遮挡区）；
                     // 列表不足一屏时最后一项不会触底，搜索框保持常驻
                     val atBottom by remember {
@@ -286,6 +293,16 @@ internal fun PlaylistSheet(
                     // 搜索框显隐：列表滚动中或滚到底部时隐藏，避免遮挡底部曲目；
                     // 输入/聚焦期间常驻（即使已有搜索词，滚动到底部仍应隐藏），切歌触发的自动滚动不中断输入
                     val searchHidden = (isScrolling || atBottom) && !searchFocused
+                    // 列表已在顶部时「滚动至顶」无效果，按钮置灰
+                    val atListTop by remember {
+                        derivedStateOf {
+                            listState.firstVisibleItemIndex == 0 &&
+                                listState.firstVisibleItemScrollOffset == 0
+                        }
+                    }
+                    // 手动「定位播放」请求：置位后待过滤结果与目标索引对齐再滚动 ——
+                    // 过滤态下清空关键词需一次重组才恢复全量队列，直接滚动会落到错误曲目
+                    var pendingLocate by remember { mutableStateOf(false) }
                     val dismissNestedScroll = remember(listState) {
                         object : NestedScrollConnection {
                             private var overscrollAccum = 0f
@@ -368,6 +385,15 @@ internal fun PlaylistSheet(
                                     )
                                 }
                             }
+                            // 手动定位播放：待过滤结果与当前曲目对齐后居中滚动。
+                            // 当前曲目被过滤掉时上游会清空关键词，此处等重组恢复全量队列再定位
+                            LaunchedEffect(pendingLocate, filteredIndices) {
+                                if (!pendingLocate) return@LaunchedEffect
+                                val position = filteredIndices.indexOf(playbackState.currentIndex)
+                                if (position < 0) return@LaunchedEffect
+                                listState.scrollPlaylistTo(position, forceCenter = true)
+                                pendingLocate = false
+                            }
                         }
                         // 键盘展开期间覆盖列表的拦截层：点击列表任意处仅收起键盘，阻断误触播放歌单行
                         if (searchFocused) {
@@ -386,13 +412,44 @@ internal fun PlaylistSheet(
                                     }
                             )
                         }
-                        // 底部搜索框：滚到底部或滚动中隐藏，避免遮挡底部曲目；输入中常驻
+                        // 底部搜索框：滚到底部或滚动中隐藏，避免遮挡底部曲目；输入中常驻。
+                        // 右上角两个操作按钮与搜索框同容器，显隐随之同步
                         BottomSearchBarOverlay(
                             hidden = searchHidden,
                             placeholder = stringResource(R.string.playlist_search_placeholder),
                             query = searchQuery,
                             onQueryChange = { searchQuery = it },
                             onFocusChanged = { searchFocused = it },
+                            actions = {
+                                SearchActionButton(
+                                    icon = AppIcons.VerticalAlignTop,
+                                    contentDescription = stringResource(R.string.playlist_scroll_to_top),
+                                    enabled = !atListTop,
+                                    onClick = {
+                                        scope.launch {
+                                            // 距顶部较远时直接跳转，避免长距离动画滚动消耗
+                                            if (listState.firstVisibleItemIndex > SEARCH_ACTION_SCROLL_RANGE) {
+                                                listState.scrollToItem(0)
+                                            } else {
+                                                listState.animateScrollToItem(0)
+                                            }
+                                        }
+                                    },
+                                )
+                                Spacer(Modifier.width(SEARCH_ACTION_GAP_DP))
+                                SearchActionButton(
+                                    icon = AppIcons.MyLocation,
+                                    contentDescription = stringResource(R.string.playlist_locate_playing),
+                                    enabled = playbackState.currentIndex >= 0,
+                                    onClick = {
+                                        // 当前曲目被过滤掉则先清空关键词，否则该按钮永远定位不到目标
+                                        if (!filteredIndices.contains(playbackState.currentIndex)) {
+                                            searchQuery = ""
+                                        }
+                                        pendingLocate = true
+                                    },
+                                )
+                            },
                         )
                     }
                 }
@@ -428,6 +485,40 @@ internal fun PlaylistSheet(
 private const val PLAYLIST_EXPAND_ANIM_MS = 300L
 // 列表顶部继续下拉的收起阈值：累计下拉超过该距离即收起面板
 private val PLAYLIST_DISMISS_OVERSCROLL_DP = 64.dp
+// 搜索框右上角操作按钮的直径
+private val SEARCH_ACTION_BUTTON_DP = 32.dp
+// 「滚动至顶」平滑滚动的范围：可见首项距顶部超过该值即直接跳转
+private const val SEARCH_ACTION_SCROLL_RANGE = 10
+
+// 搜索框上方的悬浮操作按钮：圆形描边 + 透明底，描边与着色沿用底部搜索框的线条风格
+@Composable
+private fun SearchActionButton(
+    icon: ImageVector,
+    contentDescription: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val tint = MaterialTheme.colorScheme.onSurfaceVariant
+    Box(
+        modifier = Modifier
+            .size(SEARCH_ACTION_BUTTON_DP)
+            .clip(CircleShape)
+            .border(
+                width = 1.dp,
+                color = tint.copy(alpha = if (enabled) 0.45f else 0.25f),
+                shape = CircleShape,
+            )
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = if (enabled) tint else tint.copy(alpha = 0.3f),
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
 
 // 排序对话框：外壳与切换歌单面板一致（全宽圆角、同高），标题居中、右侧小字「逆序/正序」切换方向，字段列表居中高亮
 @Composable

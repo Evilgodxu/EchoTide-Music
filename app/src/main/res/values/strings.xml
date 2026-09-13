@@ -263,6 +263,8 @@
     <string name="playlist_search_album_placeholder">搜索专辑</string>
     <string name="playlist_search_no_artist_results">未找到匹配歌手</string>
     <string name="playlist_search_no_album_results">未找到匹配专辑</string>
+    <string name="playlist_scroll_to_top">滚动至顶</string>
+    <string name="playlist_locate_playing">定位播放</string>
 
     <!-- 曲库分析 -->
     <string name="library_analysis_title">曲库分析</string>

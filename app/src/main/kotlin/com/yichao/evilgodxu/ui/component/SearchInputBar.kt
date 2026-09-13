@@ -7,8 +7,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -39,7 +41,11 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 // 底部搜索框在列表末尾占用的区域高度：最后一项底缘进入该区域即判定为滚到底部
 internal val SEARCH_BAR_REGION_DP = 54.dp
 
-// 悬浮在列表底部的搜索输入框：列表滚动中或滚到底部时隐藏，避免遮挡末尾条目；输入/聚焦期间常驻
+// 搜索框上方悬浮操作区与搜索框的间距：调用方计算底部遮挡区域高度时需一并计入
+internal val SEARCH_ACTION_GAP_DP = 6.dp
+
+// 悬浮在列表底部的搜索输入框：列表滚动中或滚到底部时隐藏，避免遮挡末尾条目；输入/聚焦期间常驻。
+// actions 为输入框右上方的悬浮操作区，与输入框同处一个显隐容器，显隐动画由结构保证同步
 @Composable
 internal fun BoxScope.BottomSearchBarOverlay(
     hidden: Boolean,
@@ -50,6 +56,7 @@ internal fun BoxScope.BottomSearchBarOverlay(
     borderColor: Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
     textColor: Color = MaterialTheme.colorScheme.onSurface,
     hintColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    actions: (@Composable () -> Unit)? = null,
 ) {
     AnimatedVisibility(
         visible = !hidden,
@@ -62,15 +69,29 @@ internal fun BoxScope.BottomSearchBarOverlay(
         exit = fadeOut(animationSpec = tween(160)) +
             slideOutVertically(animationSpec = tween(160)) { it },
     ) {
-        SearchInputBar(
-            placeholder = placeholder,
-            query = query,
-            onQueryChange = onQueryChange,
-            onFocusChanged = onFocusChanged,
-            borderColor = borderColor,
-            textColor = textColor,
-            hintColor = hintColor,
-        )
+        Column {
+            if (actions != null) {
+                // 操作区右对齐，与输入框右缘对齐
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = SEARCH_ACTION_GAP_DP),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    actions()
+                }
+            }
+            SearchInputBar(
+                placeholder = placeholder,
+                query = query,
+                onQueryChange = onQueryChange,
+                onFocusChanged = onFocusChanged,
+                borderColor = borderColor,
+                textColor = textColor,
+                hintColor = hintColor,
+            )
+        }
     }
 }
 

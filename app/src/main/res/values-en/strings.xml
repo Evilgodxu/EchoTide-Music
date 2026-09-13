@@ -263,6 +263,8 @@
     <string name="playlist_search_album_placeholder">Search albums</string>
     <string name="playlist_search_no_artist_results">No matching artists</string>
     <string name="playlist_search_no_album_results">No matching albums</string>
+    <string name="playlist_scroll_to_top">Scroll to top</string>
+    <string name="playlist_locate_playing">Locate current track</string>
 
     <!-- Library analysis -->
     <string name="library_analysis_title">Library Analysis</string>
