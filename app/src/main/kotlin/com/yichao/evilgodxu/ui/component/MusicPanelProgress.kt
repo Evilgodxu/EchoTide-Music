@@ -1,5 +1,8 @@
 package com.yichao.evilgodxu.ui.component
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -34,6 +38,7 @@ import com.yichao.evilgodxu.data.music.playback.AudioSignalPathFormat
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.seekTo
 import com.yichao.evilgodxu.utils.formatTime
+import kotlin.math.abs
 
 @Composable
 internal fun ProgressSection(
@@ -58,29 +63,31 @@ internal fun ProgressSection(
                 .fillMaxWidth()
                 .alpha(0.6f),
         )
+        // 进度显示值先于 Row 计算：左侧时间文本与进度条共用同一动画值，位置跳变时平滑联动
+        val progress by remember {
+            derivedStateOf {
+                if (playbackState.duration > 0) {
+                    (playbackState.currentPosition.toFloat() / playbackState.duration).coerceIn(0f, 1f)
+                } else 0f
+            }
+        }
+        var seekFraction by remember { mutableFloatStateOf(progress) }
+        var isSeeking by remember { mutableStateOf(false) }
+        val displayProgress = rememberAnimatedProgress(progress, seekFraction, isSeeking)
+        val displayPosition = (displayProgress * playbackState.duration).toLong()
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = formatTime(playbackState.currentPosition),
+                text = formatTime(displayPosition),
                 color = dimTextColor,
                 fontSize = 9.sp,
                 modifier = Modifier.width(24.dp),
                 textAlign = TextAlign.Start
             )
-
-            val progress by remember {
-                derivedStateOf {
-                    if (playbackState.duration > 0) {
-                        (playbackState.currentPosition.toFloat() / playbackState.duration).coerceIn(0f, 1f)
-                    } else 0f
-                }
-            }
-            var seekFraction by remember { mutableFloatStateOf(progress) }
-            var isSeeking by remember { mutableStateOf(false) }
-            val displayProgress = if (isSeeking) seekFraction else progress
 
             Box(
                 modifier = Modifier
@@ -148,7 +155,7 @@ internal fun VerticalProgressBar(
     }
     var seekFraction by remember { mutableFloatStateOf(progress) }
     var isSeeking by remember { mutableStateOf(false) }
-    val displayProgress = if (isSeeking) seekFraction else progress
+    val displayProgress = rememberAnimatedProgress(progress, seekFraction, isSeeking)
 
     Box(
         modifier = modifier
@@ -240,3 +247,34 @@ private fun formatKhz(rate: Int): String {
     val khz = rate / 1000.0
     return String.format(java.util.Locale.US, "%.1f", khz).trimEnd('0').trimEnd('.')
 }
+
+// 进度条显示值：正常播放的逐帧小增量直接贴合真实进度，仅当位置大幅跳变时（冷启动还原、
+// 手动拖动定位、切歌重载）以过渡动画平滑到达，避免进度条突兀跳动。拖动中恒跟随手指不插值。
+@Composable
+private fun rememberAnimatedProgress(
+    targetFraction: Float,
+    seekFraction: Float,
+    isSeeking: Boolean,
+): Float {
+    val target = if (isSeeking) seekFraction else targetFraction
+    // 记录上一帧显示值，用于判定本次变化是否为需动画的大跳变
+    var lastDisplayed by remember { mutableFloatStateOf(0f) }
+    val displayed by animateFloatAsState(
+        targetValue = target,
+        animationSpec = if (isSeeking || abs(target - lastDisplayed) <= PROGRESS_SNAP_THRESHOLD) {
+            // 拖动中或小增量：瞬时贴合，不引入视觉滞后
+            tween(0)
+        } else {
+            tween(PROGRESS_TRANSITION_MS, easing = FastOutSlowInEasing)
+        },
+        label = "playerProgress",
+    )
+    LaunchedEffect(displayed) { lastDisplayed = displayed }
+    return displayed
+}
+
+// 进度大幅跳变的判定阈值：超过曲目长度的该比例视为跳变需动画过渡，否则直接贴合
+private const val PROGRESS_SNAP_THRESHOLD = 0.01f
+// 进度跳变过渡时长
+private const val PROGRESS_TRANSITION_MS = 600
+

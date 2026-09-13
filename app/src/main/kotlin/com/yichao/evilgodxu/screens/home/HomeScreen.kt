@@ -62,6 +62,10 @@ fun HomeScreen(
             state.currentIndex = index
             state.currentTrack = state.playlist[index]
         }
+        // 冷启动阶段尚无控制器时长，用缓存曲目时长补全，使进度条能按已还原的位置展示进度（伴随过渡动画）
+        if (state.duration <= 0L) {
+            state.currentTrack?.let { state.duration = it.duration }
+        }
         // 未播放时也预读当前曲目格式信息，重启后音频信息条仍能展示
         state.refreshIdleTrackFormatInfo(context)
     }
