@@ -11,7 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.platform.LocalContext
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
-import com.yichao.evilgodxu.screens.home.component.playlist.LibraryAnalysisController
+import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisController
 import com.yichao.evilgodxu.theme.md_theme_dark_surface
 import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 import kotlinx.coroutines.CoroutineScope

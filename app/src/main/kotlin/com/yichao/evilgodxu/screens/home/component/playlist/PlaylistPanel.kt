@@ -51,6 +51,11 @@ import com.yichao.evilgodxu.data.playlist.Playlist
 import com.yichao.evilgodxu.data.playlist.PlaylistGroup
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.playlist.SmartPlaylistType
+import com.yichao.evilgodxu.data.playlist.albumGroups
+import com.yichao.evilgodxu.data.playlist.artistGroups
+import com.yichao.evilgodxu.data.playlist.distinctAlbumCount
+import com.yichao.evilgodxu.data.playlist.distinctArtistCount
+import com.yichao.evilgodxu.data.playlist.smartTrackCount
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalPlaylistRefresher
@@ -58,6 +63,7 @@ import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.screens.home.component.dialog.PlaylistImportDialog
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.PlaylistArt
+import com.yichao.evilgodxu.ui.component.smartTypeLabel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -558,15 +564,6 @@ private fun ImportPlaylistRow(onClick: () -> Unit) {
             fontWeight = FontWeight.Medium,
         )
     }
-}
-
-// 系统歌单名称文案
-@Composable
-internal fun smartTypeLabel(type: SmartPlaylistType): String = when (type) {
-    SmartPlaylistType.RECENT -> stringResource(R.string.playlist_smart_recent)
-    SmartPlaylistType.FAVORITE -> stringResource(R.string.playlist_smart_favorite)
-    SmartPlaylistType.ALBUM -> stringResource(R.string.playlist_smart_album)
-    SmartPlaylistType.ARTIST -> stringResource(R.string.playlist_smart_artist)
 }
 
 private fun smartTypeIcon(type: SmartPlaylistType): ImageVector = when (type) {

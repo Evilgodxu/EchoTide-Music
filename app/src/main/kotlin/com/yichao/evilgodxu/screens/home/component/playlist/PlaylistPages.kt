@@ -52,6 +52,10 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.playlist.Playlist
 import com.yichao.evilgodxu.data.playlist.PlaylistGroup
 import com.yichao.evilgodxu.data.playlist.SmartPlaylistType
+import com.yichao.evilgodxu.data.playlist.albumGroups
+import com.yichao.evilgodxu.data.playlist.artistGroups
+import com.yichao.evilgodxu.data.playlist.recentTracks
+import com.yichao.evilgodxu.data.playlist.resolveTracks
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PlaylistSource
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
@@ -62,7 +66,9 @@ import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
 import com.yichao.evilgodxu.ui.component.DialogCard
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.PlaylistArt
+import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
 import com.yichao.evilgodxu.ui.component.SEARCH_BAR_REGION_DP
+import com.yichao.evilgodxu.ui.component.smartTypeLabel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -492,77 +498,6 @@ private fun playQueue(
     state.currentIndex = index
     scope.launch { playTrackAt(context, state, index) }
     state.persistPlaylist()
-}
-
-// 从歌单移除/删除歌曲的确认弹窗：默认文案为「从歌单移除」，可按场景传入删除文案
-@Composable
-internal fun RemoveTrackDialog(
-    track: MusicTrack?,
-    onConfirm: (MusicTrack) -> Unit,
-    onDismiss: () -> Unit,
-    titleRes: Int = R.string.playlist_remove_track_title,
-    messageRes: Int = R.string.playlist_remove_track_message,
-    confirmRes: Int = R.string.playlist_remove_track_confirm,
-) {
-    if (track == null) return
-    DialogCard(onDismiss = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = stringResource(titleRes),
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = stringResource(messageRes, track.title, track.artist),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Row(
-                modifier = Modifier.widthIn(max = 200.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                    onClick = onDismiss,
-                ) {
-                    Text(
-                        text = stringResource(R.string.music_panel_rename_cancel),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(vertical = 10.dp),
-                    )
-                }
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.error,
-                    onClick = { onConfirm(track) },
-                ) {
-                    Text(
-                        text = stringResource(confirmRes),
-                        color = MaterialTheme.colorScheme.onError,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(vertical = 10.dp),
-                    )
-                }
-            }
-        }
-    }
 }
 
 // 专辑视图长按歌曲：编辑该歌曲的专辑元数据

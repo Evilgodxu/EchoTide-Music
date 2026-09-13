@@ -1,8 +1,7 @@
-package com.yichao.evilgodxu.screens.home.component.playlist
+package com.yichao.evilgodxu.data.playlist
 
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
-import com.yichao.evilgodxu.data.playlist.PlaylistGroup
 
 // 按 id 集合从全量曲目中解析曲目，保持集合顺序。
 // 先建 id 索引再查表：逐个线性扫描全库会让调用点退化为 O(曲目数 × 集合长度)

@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.screens.home.component.playlist
+package com.yichao.evilgodxu.screens.home.component.analysis
 
 import android.content.Context
 import androidx.compose.foundation.Canvas
@@ -54,6 +54,7 @@ import com.yichao.evilgodxu.data.music.analysis.FakeLosslessAnalyzer
 import com.yichao.evilgodxu.data.music.analysis.trackFormatCategory
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PlaylistSource
+import com.yichao.evilgodxu.data.music.playback.switchToPlaylistQueue
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import java.util.Locale

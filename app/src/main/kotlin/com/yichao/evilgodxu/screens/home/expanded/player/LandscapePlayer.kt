@@ -55,7 +55,7 @@ import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
 import com.yichao.evilgodxu.screens.home.component.player.HomeAlbumArt
 import com.yichao.evilgodxu.screens.home.component.player.MarqueeInfoLine
 import com.yichao.evilgodxu.screens.home.component.player.PlayerControls
-import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistSheet
+import com.yichao.evilgodxu.screens.home.component.queue.PlaylistSheet
 import com.yichao.evilgodxu.ui.component.currentTrackNeedsLosslessUpgrade
 import com.yichao.evilgodxu.ui.component.TrackFormatInfoSection
 import com.yichao.evilgodxu.ui.component.VerticalProgressBar

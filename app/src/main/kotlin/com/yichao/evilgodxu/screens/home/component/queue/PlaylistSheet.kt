@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.screens.home.component.playlist
+package com.yichao.evilgodxu.screens.home.component.queue
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -77,6 +77,7 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
 import com.yichao.evilgodxu.ui.component.HeaderIconButton
 import com.yichao.evilgodxu.ui.component.PlaylistRow
+import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
 import com.yichao.evilgodxu.ui.component.SEARCH_BAR_REGION_DP
 import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 import com.yichao.evilgodxu.ui.component.scrollPlaylistTo

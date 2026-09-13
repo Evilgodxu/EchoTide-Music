@@ -77,9 +77,9 @@ import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
 import com.yichao.evilgodxu.screens.home.component.player.HomeImmersiveCover
 import com.yichao.evilgodxu.screens.home.component.player.MarqueeInfoLine
 import com.yichao.evilgodxu.screens.home.component.player.PlayerControls
-import com.yichao.evilgodxu.screens.home.component.playlist.LibraryAnalysisController
-import com.yichao.evilgodxu.screens.home.component.playlist.LibraryAnalysisSheet
-import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistSheet
+import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisController
+import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisSheet
+import com.yichao.evilgodxu.screens.home.component.queue.PlaylistSheet
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.currentTrackNeedsLosslessUpgrade
 import com.yichao.evilgodxu.ui.component.MusicErrorBanner

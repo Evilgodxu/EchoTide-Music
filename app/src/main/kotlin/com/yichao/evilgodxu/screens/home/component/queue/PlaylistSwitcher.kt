@@ -1,6 +1,5 @@
-package com.yichao.evilgodxu.screens.home.component.playlist
+package com.yichao.evilgodxu.screens.home.component.queue
 
-import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -38,48 +37,24 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.playlist.PlaylistGroup
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.playlist.SmartPlaylistType
+import com.yichao.evilgodxu.data.playlist.albumGroups
+import com.yichao.evilgodxu.data.playlist.artistGroups
+import com.yichao.evilgodxu.data.playlist.recentTracks
+import com.yichao.evilgodxu.data.playlist.resolveTracks
+import com.yichao.evilgodxu.data.playlist.smartTrackCount
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PlaylistSource
-import com.yichao.evilgodxu.data.music.playback.playTrackAt
+import com.yichao.evilgodxu.data.music.playback.switchToPlaylistQueue
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.PlaylistArt
-import kotlinx.coroutines.launch
-
-// 切换到指定歌单队列并播放该歌单第一首歌曲
-internal fun switchToPlaylistQueue(
-    context: Context,
-    state: MusicPlaybackState,
-    tracks: List<MusicTrack>,
-    source: PlaylistSource?,
-    metadataEnricher: MetadataEnricher,
-) {
-    if (tracks.isEmpty()) {
-        state.playlist = tracks
-        state.playlistSource = source
-        state.persistPlaylist()
-        return
-    }
-    // 首次从默认库切到歌单时备份默认列表，供快捷切回
-    if (state.playlistSource == null && state.defaultPlaylistBackup == null) {
-        state.defaultPlaylistBackup = state.playlist
-    }
-    state.playlist = if (source == null) state.sortByActiveRule(tracks) else tracks
-    state.playlistSource = source
-    state.currentIndex = 0
-    // 仅加载新队列并暂停，不自动播放；在播放器全局作用域执行，避免弹层关闭取消协程导致队列未加载
-    state.playbackScope.launch { playTrackAt(context, state, 0, autoPlay = false) }
-    state.persistPlaylist()
-    // 切换歌单后后台补全新歌单缺失的封面/歌词，缓存已就绪的歌曲直接命中不重复加载
-    state.playbackScope.launch { metadataEnricher.enrichAndCleanup(context, state) }
-}
+import com.yichao.evilgodxu.ui.component.smartTypeLabel
 
 // 播放列表副标题快捷切换歌单弹层：默认 + 系统歌单 + 自定义歌单，专辑/艺术家支持分组二级导航
 @Composable
