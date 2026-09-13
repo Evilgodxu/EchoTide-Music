@@ -199,19 +199,19 @@
     <string name="cache_group_system">系统缓存（可清理）</string>
     <string name="cache_group_private">应用数据</string>
     <string name="cache_group_user">用户数据</string>
-    <string name="cache_total">共占用 %1$s</string>
+    <string name="cache_total">共计占用 %1$s</string>
     <string name="cache_clear">清理缓存</string>
     <string name="cache_clearing">正在清理…</string>
-    <string name="cache_clear_hint">清理仅释放系统缓存，封面、歌词与已缓存歌曲不受影响</string>
     <string name="cache_usage">%1$d 项 · %2$s</string>
     <string name="cache_category_image">图片缓存</string>
-    <string name="cache_category_temp">下载中转文件</string>
+    <string name="cache_category_temp">中转文件</string>
     <string name="cache_category_log">异常日志</string>
     <string name="cache_category_cover">封面缓存</string>
     <string name="cache_category_lyric">歌词缓存</string>
-    <string name="cache_category_audio">在线歌曲缓存</string>
+    <string name="cache_category_audio">歌曲缓存</string>
     <string name="cache_category_update">更新安装包</string>
-    <string name="cache_category_analysis">分析结果缓存</string>
+    <string name="cache_category_analysis">曲库分析缓存</string>
+    <string name="cache_category_preference">设置与歌单</string>
 
     <!-- 卡片与排版设置 -->
     <string name="typography_screen_title">排版设置</string>

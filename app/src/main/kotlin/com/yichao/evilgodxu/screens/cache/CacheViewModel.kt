@@ -21,8 +21,8 @@ class CacheViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { loadUsage() }
     }
 
-    // 清理系统缓存作用域，完成后重新采样使展示与实际一致。
-    // 清理只覆盖 cacheDir，封面/歌词/在线歌曲等用户可见数据不在其中
+    // 清理可清理作用域，完成后重新采样使展示与实际一致。
+    // 清理只覆盖 cacheDir，应用数据与用户数据各自按保留策略回收，不在此列
     fun clearSystemCache() {
         if (_uiState.value.clearing) return
         _uiState.update { it.copy(clearing = true) }

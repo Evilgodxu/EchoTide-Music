@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,6 +30,8 @@ import com.yichao.evilgodxu.utils.formatBytes
 @Composable
 internal fun CacheUsageGroups(
     usages: List<CacheUsage>,
+    clearing: Boolean,
+    onClear: () -> Unit,
     innerPadding: PaddingValues,
     modifier: Modifier = Modifier,
 ) {
@@ -37,14 +40,18 @@ internal fun CacheUsageGroups(
             .fillMaxSize()
             .consumeWindowInsets(innerPadding)
             .padding(innerPadding)
+            // 宿主为 edge-to-edge 且已无底部栏代管，末项须自行避让系统导航栏
+            .navigationBarsPadding()
             .padding(horizontal = 16.dp)
             .verticalScroll(rememberScrollState()),
     ) {
-        CacheUsageCard(R.string.cache_group_system, usages, CacheScope.SYSTEM_CACHE)
-        CacheUsageCard(R.string.cache_group_private, usages, CacheScope.PRIVATE)
-        CacheUsageCard(R.string.cache_group_user, usages, CacheScope.USER_VISIBLE)
+        CacheUsageCard(R.string.cache_group_system, usages, CacheScope.CLEARABLE) {
+            CacheClearAction(clearing = clearing, onClear = onClear)
+        }
+        CacheUsageCard(R.string.cache_group_private, usages, CacheScope.APP_DATA)
+        CacheUsageCard(R.string.cache_group_user, usages, CacheScope.USER_DATA)
         Text(
-            text = stringResource(R.string.cache_clear_hint),
+            text = stringResource(R.string.cache_total, formatBytes(usages.sumOf { it.sizeBytes })),
             modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
@@ -52,18 +59,20 @@ internal fun CacheUsageGroups(
     }
 }
 
-// 单张归属卡片：空组整卡略去，未采到数据时不留空标题
+// 单张归属卡片：空组整卡略去，未采到数据时不留空标题；trailing 随卡片存在，卡片略去时一并略去
 @Composable
 private fun CacheUsageCard(
     @StringRes titleRes: Int,
     usages: List<CacheUsage>,
     scope: CacheScope,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     val group = usages.filter { it.scope == scope }
     if (group.isEmpty()) return
     GroupCard(title = stringResource(titleRes)) {
         group.forEach { usage -> CacheUsageRow(usage) }
     }
+    trailing?.invoke()
 }
 
 // 单行缓存占用：分类名 + 文件数与占用大小
@@ -101,4 +110,5 @@ private val CacheCategory.labelRes: Int
         CacheCategory.AUDIO -> R.string.cache_category_audio
         CacheCategory.UPDATE_PACKAGE -> R.string.cache_category_update
         CacheCategory.ANALYSIS -> R.string.cache_category_analysis
+        CacheCategory.PREFERENCE -> R.string.cache_category_preference
     }

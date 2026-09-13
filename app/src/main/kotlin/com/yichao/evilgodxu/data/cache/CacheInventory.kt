@@ -17,7 +17,7 @@ enum class CacheCategory {
     /** 网络图片磁盘缓存 */
     IMAGE,
 
-    /** 下载与更新过程中转的临时文件 */
+    /** 中转文件：下载与更新过程的临时产物，流程结束即删 */
     TEMP_FILE,
 
     /** 崩溃与异常日志 */
@@ -29,24 +29,28 @@ enum class CacheCategory {
     /** 歌词展示缓存 */
     LYRIC,
 
-    /** 在线歌曲缓存，属用户数据 */
+    /** 歌曲缓存：播放在线曲目落盘的音频，属用户数据 */
     AUDIO,
 
     /** 更新安装包 */
     UPDATE_PACKAGE,
 
-    /** 曲目判定结果缓存 */
+    /** 曲库分析缓存：对曲库的判定结果，可重算 */
     ANALYSIS,
+
+    /** 设置与歌单：DataStore 与 SharedPreferences 中的用户配置、歌单与播放记录，属用户数据 */
+    PREFERENCE,
 }
 
 /**
- * 缓存归属范围：决定回收边界，是「哪些能清、哪些不能清」的唯一判据。
+ * 缓存归属范围：按回收边界划分，是「哪些能清、哪些不能清」的唯一判据，不表达存放位置
+ * —— 位置对用户不构成决策依据，回收难度才构成。
  *
- * [SYSTEM_CACHE] 位于 cacheDir，属系统「清除缓存」作用域，应用可随时整体回收；
- * [PRIVATE] 位于应用专属目录，仅在各自保留策略下回收；
- * [USER_VISIBLE] 位于公共下载目录，是用户可见数据，不得由「清理缓存」批量删除。
+ * [CLEARABLE] 位于 cacheDir，属系统「清除缓存」作用域，应用可随时整体回收；
+ * [APP_DATA] 可重建的派生产出（日志、安装包、分析结果、封面与歌词缓存），各自按保留策略回收；
+ * [USER_DATA] 用户创建且无法重建的数据（下载的歌曲、设置与歌单），只由用户显式删除。
  */
-enum class CacheScope { SYSTEM_CACHE, PRIVATE, USER_VISIBLE }
+enum class CacheScope { CLEARABLE, APP_DATA, USER_DATA }
 
 /** 单类缓存的产出占用 */
 data class CacheUsage(
@@ -80,10 +84,10 @@ internal object CacheInventory {
     /** 图片磁盘缓存上限：约可容纳百张 2048 长边封面，超出由 LRU 淘汰，不随可用空间无界增长 */
     const val IMAGE_DISK_CACHE_MAX_BYTES = 32L * 1024 * 1024
 
-    /** 在线歌曲缓存目录名：与公共下载目录下音频条目的落点一致 */
+    /** 歌曲缓存目录名：与公共下载目录下音频条目的落点一致 */
     const val AUDIO_DIR_NAME = "Audio"
 
-    /** 下载与更新中转文件前缀：与 File.createTempFile 的 prefix 参数对应 */
+    /** 中转文件前缀：与 File.createTempFile 的 prefix 参数对应 */
     val TEMP_FILE_PREFIXES = listOf("download", "upgrade")
 
     private const val TAG = "CacheInventory"
@@ -92,55 +96,67 @@ internal object CacheInventory {
     // 故只回收隔日残留，避免删掉正在下载或待安装的包
     private const val STALE_UPDATE_PACKAGE_MS = 24 * 60 * 60 * 1000L
 
+    // DataStore 文件目录名：位于 filesDir 下，由 preferencesDataStore 按名生成
+    private const val DATA_STORE_DIR = "datastore"
+
+    // SharedPreferences 文件目录名：位于应用数据根目录下，由框架按名写入 XML
+    private const val SHARED_PREFS_DIR = "shared_prefs"
+
     private val ENTRIES: List<CacheEntry> = listOf(
         // 图片缓存：上限 32MB，超出由 LRU 淘汰；清理须经 Coil 接口，直删文件会与其索引失配
         CacheEntry(
             category = CacheCategory.IMAGE,
-            scope = CacheScope.SYSTEM_CACHE,
+            scope = CacheScope.CLEARABLE,
             resolve = { context -> listOf(File(context.cacheDir, IMAGE_CACHE_DIR_NAME)) },
             clear = { context -> SingletonImageLoader.get(context).diskCache?.clear() },
         ),
-        // 下载中转文件：流程结束即删，进程异常中断的残留由冷启动回收
+        // 中转文件：流程结束即删，进程异常中断的残留由冷启动回收
         CacheEntry(
             category = CacheCategory.TEMP_FILE,
-            scope = CacheScope.SYSTEM_CACHE,
+            scope = CacheScope.CLEARABLE,
             resolve = { context -> tempFiles(context) },
         ),
         // 异常日志：仅保留今日，写入时顺带清理旧文件
         CacheEntry(
             category = CacheCategory.LOG,
-            scope = CacheScope.PRIVATE,
+            scope = CacheScope.APP_DATA,
             resolve = { context -> listOf(CrashLogManager.logDirectory(context)) },
         ),
-        // 封面缓存：孤儿回收，连续 3 天无引用后删除
+        // 封面缓存：可由网络或音频文件重建，孤儿回收，连续 3 天无引用后删除
         CacheEntry(
             category = CacheCategory.COVER,
-            scope = CacheScope.USER_VISIBLE,
+            scope = CacheScope.APP_DATA,
             resolve = { context -> metadataLocations(context, MusicMetadataCache.coverRoot(context)) },
         ),
-        // 歌词缓存：孤儿回收，连续 3 天无引用后删除
+        // 歌词缓存：可由网络或音频文件重建，孤儿回收，连续 3 天无引用后删除
         CacheEntry(
             category = CacheCategory.LYRIC,
-            scope = CacheScope.USER_VISIBLE,
+            scope = CacheScope.APP_DATA,
             resolve = { context -> metadataLocations(context, MusicMetadataCache.lyricRoot(context)) },
         ),
-        // 在线歌曲缓存：属用户数据，随曲目删除，应用不自动回收
+        // 歌曲缓存：播放在线曲目时落盘的音频，随曲目删除，应用不自动回收
         CacheEntry(
             category = CacheCategory.AUDIO,
-            scope = CacheScope.USER_VISIBLE,
+            scope = CacheScope.USER_DATA,
             resolve = { context -> listOf(File(MusicMetadataCache.mediaRoot(context), AUDIO_DIR_NAME)) },
         ),
         // 更新安装包：校验后即删，隔日残留由冷启动回收
         CacheEntry(
             category = CacheCategory.UPDATE_PACKAGE,
-            scope = CacheScope.PRIVATE,
+            scope = CacheScope.APP_DATA,
             resolve = { context -> updatePackages(context) },
         ),
-        // 判定结果缓存：识别策略升级或用户主动刷新时整体清空
+        // 曲库分析缓存：识别结果可重算，识别策略升级或用户主动刷新时整体清空
         CacheEntry(
             category = CacheCategory.ANALYSIS,
-            scope = CacheScope.PRIVATE,
+            scope = CacheScope.APP_DATA,
             resolve = { context -> verdictCaches(context) },
+        ),
+        // 设置与歌单：用户配置与播放记录无法重建，应用不自动回收
+        CacheEntry(
+            category = CacheCategory.PREFERENCE,
+            scope = CacheScope.USER_DATA,
+            resolve = { context -> preferenceStores(context) },
         ),
     )
 
@@ -176,11 +192,11 @@ internal object CacheInventory {
     }
 
     /**
-     * 清理系统缓存作用域：只作用于 cacheDir，与系统设置页「清除缓存」的作用范围一致。
-     * 公共下载目录下的封面/歌词/音频属用户可见数据，各自有回收策略，不在此列。
+     * 清理可清理作用域：只作用于 cacheDir，与系统设置页「清除缓存」的作用范围一致。
+     * 应用数据与用户数据各自按保留策略回收或只由用户删除，不在此列。
      */
     suspend fun clearSystemCache(context: Context) {
-        ENTRIES.filter { it.scope == CacheScope.SYSTEM_CACHE }.forEach { entry ->
+        ENTRIES.filter { it.scope == CacheScope.CLEARABLE }.forEach { entry ->
             val clear = entry.clear
             if (clear != null) {
                 runCatching { clear(context) }.onFailure {
@@ -222,6 +238,13 @@ internal object CacheInventory {
     // 判定缓存落点：含写入中断可能留下的 .tmp 中间文件
     private fun verdictCaches(context: Context): List<File> = TrackVerdictCache.KNOWN_FILE_NAMES
         .flatMap { name -> listOf(File(context.filesDir, name), File(context.filesDir, "$name.tmp")) }
+
+    // 偏好落点：两个目录都只由框架写入本应用的偏好文件，按目录整体计入而不逐个登记存储名，
+    // 新增偏好存储无需补登记也不会漏计
+    private fun preferenceStores(context: Context): List<File> = listOfNotNull(
+        File(context.filesDir, DATA_STORE_DIR),
+        context.filesDir.parentFile?.let { File(it, SHARED_PREFS_DIR) },
+    )
 
     // 元数据缓存落点：公共下载目录与应用专属目录兜底两处，路径重合时只保留一处
     private fun metadataLocations(context: Context, primary: File): List<File> {

@@ -199,19 +199,19 @@
     <string name="cache_group_system">System cache (clearable)</string>
     <string name="cache_group_private">App data</string>
     <string name="cache_group_user">User data</string>
-    <string name="cache_total">Total %1$s</string>
+    <string name="cache_total">Total used %1$s</string>
     <string name="cache_clear">Clear cache</string>
     <string name="cache_clearing">Clearing…</string>
-    <string name="cache_clear_hint">Only system cache is freed; covers, lyrics and cached songs are kept</string>
     <string name="cache_usage">%1$d items · %2$s</string>
     <string name="cache_category_image">Image cache</string>
-    <string name="cache_category_temp">Download temp files</string>
+    <string name="cache_category_temp">Temp files</string>
     <string name="cache_category_log">Error logs</string>
     <string name="cache_category_cover">Cover cache</string>
     <string name="cache_category_lyric">Lyric cache</string>
-    <string name="cache_category_audio">Cached online songs</string>
+    <string name="cache_category_audio">Song cache</string>
     <string name="cache_category_update">Update packages</string>
-    <string name="cache_category_analysis">Analysis results</string>
+    <string name="cache_category_analysis">Library analysis cache</string>
+    <string name="cache_category_preference">Settings &amp; playlists</string>
 
     <!-- Cards & typography settings -->
     <string name="typography_screen_title">Cards &amp; Typography</string>

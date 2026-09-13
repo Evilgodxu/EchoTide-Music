@@ -7,11 +7,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.screens.cache.CacheUiState
-import com.yichao.evilgodxu.screens.cache.component.CacheClearBar
 import com.yichao.evilgodxu.screens.cache.component.CacheUsageGroups
 import com.yichao.evilgodxu.ui.component.PageTopBar
 
-// 窄屏组装器：常驻标题栏 + 满宽缓存分组 + 底部清理栏
+// 窄屏组装器：常驻标题栏 + 满宽缓存分组，清理入口随「可清理」卡片滚动
 @Composable
 internal fun CompactAssembly(
     uiState: CacheUiState,
@@ -24,15 +23,13 @@ internal fun CompactAssembly(
         topBar = {
             PageTopBar(title = stringResource(R.string.cache_screen_title), onBack = onBack)
         },
-        bottomBar = {
-            CacheClearBar(
-                totalBytes = uiState.usages.sumOf { it.sizeBytes },
-                clearing = uiState.clearing,
-                onClear = onClearCache,
-            )
-        },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { innerPadding ->
-        CacheUsageGroups(usages = uiState.usages, innerPadding = innerPadding)
+        CacheUsageGroups(
+            usages = uiState.usages,
+            clearing = uiState.clearing,
+            onClear = onClearCache,
+            innerPadding = innerPadding,
+        )
     }
 }

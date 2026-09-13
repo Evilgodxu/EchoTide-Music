@@ -12,14 +12,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.screens.cache.CacheUiState
-import com.yichao.evilgodxu.screens.cache.component.CacheClearBar
 import com.yichao.evilgodxu.screens.cache.component.CacheUsageGroups
 import com.yichao.evilgodxu.ui.component.PageTopBar
 
 // 宽屏下缓存内容的可读宽度上限，避免超宽窗口把明细行拉伸过长
 private val CACHE_CONTENT_MAX_WIDTH = 720.dp
 
-// 宽屏组装器：限宽居中的缓存分组 + 底部清理栏
+// 宽屏组装器：限宽居中的缓存分组，清理入口随「可清理」卡片滚动
 @Composable
 internal fun ExpandedAssembly(
     uiState: CacheUiState,
@@ -32,18 +31,13 @@ internal fun ExpandedAssembly(
         topBar = {
             PageTopBar(title = stringResource(R.string.cache_screen_title), onBack = onBack)
         },
-        bottomBar = {
-            CacheClearBar(
-                totalBytes = uiState.usages.sumOf { it.sizeBytes },
-                clearing = uiState.clearing,
-                onClear = onClearCache,
-            )
-        },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             CacheUsageGroups(
                 usages = uiState.usages,
+                clearing = uiState.clearing,
+                onClear = onClearCache,
                 innerPadding = innerPadding,
                 modifier = Modifier.widthIn(max = CACHE_CONTENT_MAX_WIDTH),
             )
