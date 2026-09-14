@@ -1,8 +1,5 @@
 package com.yichao.evilgodxu.ui.component
 
-import android.content.Context
-import android.net.Uri
-import android.util.Size
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -26,14 +23,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -52,9 +46,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
-import coil3.compose.AsyncImage
-import coil3.request.ImageRequest
-import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
@@ -62,9 +53,6 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.DiscArt
 import com.yichao.evilgodxu.ui.copyToClipboard
 import com.yichao.evilgodxu.LocalMusicPanelStateHolder
-import java.io.File
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @Composable
 internal fun CurrentCover(
@@ -107,31 +95,9 @@ internal fun CurrentCover(
     }
 }
 
-/**
- * 封面缓存文件（磁盘缓存兜底）的加载模型，供面板/列表封面与沉浸背景共用。
- *
- * 封面缓存按「标题 - 艺术家」索引命名，换封面即覆盖同名文件——路径不变而内容已变，
- * 仅以路径作缓存键会让 Coil 一直命中旧图，故以 路径 + 封面写入版本号 作键；版本号是全局的，
- * 任一封面重写都会让可见封面重新解码，与首页大封面的重载口径一致。
- * 无路径或文件不可用时返回 null，交由调用方回退系统略缩图 / 在线原图 / 占位符
- */
-internal fun coverModel(context: Context, track: MusicTrack?, coverRevision: Int): ImageRequest? {
-    return track?.coverCachePath
-        ?.takeIf { MusicMetadataCache.isValid(it) }
-        ?.let { path ->
-            val key = "$path@$coverRevision"
-            ImageRequest.Builder(context)
-                .data(File(path))
-                .memoryCacheKey(key)
-                .diskCacheKey(key)
-                .build()
-        }
-}
-
-// 系统略缩图即时加载：MediaStore 索引曲目直接走 OS 常驻略缩图缓存（首帧命中），
-// 不等待全量解析器逐首读内嵌→解码→转码→落盘；非索引曲目回退磁盘缓存/占位符。
-// 封面加载顺序：系统略缩图 → 磁盘缓存/在线原图 → 占位符；在线曲目仍等封面缓存落盘后再展示，
-// 避免开始播放即请求在线封面地址。
+// 封面显示的唯一来源：系统略缩图（见 rememberSystemThumbnail）。取不到即占位符——
+// 应用不自建封面缓存、不提取内嵌封面兜底，也不回退在线封面地址：
+// 在线曲目落盘入库后由系统的媒体扫描生成略缩图，此前的最终刷新会驱动本组件重新取图。
 // [thumbnailSize] 按显示尺寸适配：列表行 256px，音乐面板/轮播/迷你播放器 512px。
 @Composable
 private fun SystemCoverArt(
@@ -140,55 +106,23 @@ private fun SystemCoverArt(
     thumbnailSize: Int,
     placeholderIconSize: Dp,
 ) {
-    val context = LocalContext.current
     val stateHolder = LocalMusicPanelStateHolder.current
-    val audioUri = track?.audioUri
-    val indexed = audioUri != null && audioUri.startsWith("content://media/")
-    val thumb by produceState<ImageBitmap?>(
-        initialValue = null,
-        audioUri,
-    ) {
-        value = if (indexed) {
-            withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.loadThumbnail(
-                        Uri.parse(audioUri),
-                        Size(thumbnailSize, thumbnailSize),
-                        null,
-                    ).asImageBitmap()
-                }.getOrNull()
-            }
-        } else null
-    }
-    // 磁盘缓存兜底：非 MediaStore 索引曲目 / 系统略缩图读取失败时使用既有缓存或在线原图。
-    // 封面写入版本号参与模型键：重新写入封面后路径可能不变，需据此重建模型才能重载
-    val coverRevision = stateHolder.state.coverRevision
-    val model = remember(track?.id, track?.coverCachePath, track?.neteaseCoverUrl, coverRevision) {
-        coverModel(context, track, coverRevision)
-    }
-    // 封面缺失时按需补全：幂等，补全成功后回写 coverCachePath 驱动重组重新加载；
-    // 仅 MediaStore 索引曲目不再依赖此回填来显示略缩图，但仍需其为大封面/歌词补全
-    LaunchedEffect(track?.id, track?.coverCachePath, track?.neteaseCoverUrl, track?.coverFailed) {
+    val thumb = rememberSystemThumbnail(track, thumbnailSize)
+    // 列表滚入视口时按需补全元数据（幂等，已具备则直接返回）：可见项优先于全量扫描
+    LaunchedEffect(track?.id) {
         track?.let { stateHolder.state.requestMetadata(it) }
     }
-    when {
-        thumb != null -> Image(
-            bitmap = thumb!!,
+    if (thumb != null) {
+        Image(
+            bitmap = thumb,
             contentDescription = track?.title,
             contentScale = ContentScale.Crop,
             // 高清渲染：mipmap 三线性过滤，缩放/旋转均无锯齿与模糊
             filterQuality = FilterQuality.High,
             modifier = modifier.background(Color.Black),
         )
-        model != null -> AsyncImage(
-            model = model,
-            contentDescription = track?.title,
-            contentScale = ContentScale.Crop,
-            // 高清渲染：mipmap 三线性过滤，缩放/旋转均无锯齿与模糊
-            filterQuality = FilterQuality.High,
-            modifier = modifier.background(Color.Black),
-        )
-        else -> Box(
+    } else {
+        Box(
             modifier = modifier
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center

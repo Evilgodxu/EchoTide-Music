@@ -112,7 +112,6 @@ private val CacheCategory.labelRes: Int
         CacheCategory.IMAGE -> R.string.cache_category_image
         CacheCategory.TEMP_FILE -> R.string.cache_category_temp
         CacheCategory.LOG -> R.string.cache_category_log
-        CacheCategory.COVER -> R.string.cache_category_cover
         CacheCategory.LYRIC -> R.string.cache_category_lyric
         CacheCategory.AUDIO -> R.string.cache_category_audio
         CacheCategory.UPDATE_PACKAGE -> R.string.cache_category_update

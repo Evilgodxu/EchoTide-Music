@@ -11,15 +11,13 @@ data class MusicTrack(
     val albumId: Long,
     val albumName: String = "",
     val neteaseId: Long = 0L,
+    // 在线封面地址：仅作在线播放时下载封面原图的凭据，不参与显示（显示统一读系统略缩图）
     val neteaseCoverUrl: String = "",
-    val coverCachePath: String = "",
     val lyricCachePath: String = "",
     internal val lyricLines: List<LyricLine> = emptyList(),
     val isFavorite: Boolean = false,
     // 歌词时间轴偏移（毫秒），用于微调持久化
     val lyricOffsetMs: Long = 0L,
-    // 封面自动匹配已尝试且失败：直接显示占位符，不再重复匹配
-    val coverFailed: Boolean = false,
     // 歌词自动匹配已尝试且失败：不再重复拉取
     val lyricFailed: Boolean = false,
     // 是否由在线播放产生（含已缓存为本地文件）；仅当前播放时保留，切歌后自动清理
@@ -28,7 +26,6 @@ data class MusicTrack(
     val fileModifiedMs: Long = 0L,
 ) {
     // 是否为可读取本地音频源：本地文件路径或 MediaStore 本地文件 URI
-    // 本地源的内嵌封面由后台提取，提取完成前不直接回退在线封面
     val isLocalAudioSource: Boolean
         get() = path.isNotBlank() || audioUri.startsWith("content:") || audioUri.startsWith("file:")
 

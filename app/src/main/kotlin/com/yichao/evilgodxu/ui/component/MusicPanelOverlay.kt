@@ -46,8 +46,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
+import com.yichao.evilgodxu.data.music.metadata.isMediaStoreIndexed
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.model.RecentCover
@@ -505,7 +505,8 @@ fun MusicPanelOverlay(
                             val candidate = selectedCoverCandidate
                             val track = playbackState.currentTrack
                             if (candidate != null && track != null && track.id == coverTargetId) {
-                                val hasCover = MusicMetadataCache.isValid(track.coverCachePath) || track.neteaseCoverUrl.isNotBlank()
+                                // 索引曲目的封面由系统维护，已有封面时确认是否覆盖
+                                val hasCover = track.isMediaStoreIndexed
                                 if (hasCover) {
                                     showCoverReplace = true
                                 } else {

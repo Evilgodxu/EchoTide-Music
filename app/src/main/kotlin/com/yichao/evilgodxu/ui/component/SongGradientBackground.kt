@@ -1,6 +1,5 @@
 package com.yichao.evilgodxu.ui.component
 
-import android.content.Context
 import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -13,20 +12,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import coil3.imageLoader
-import coil3.request.ImageRequest
-import coil3.toBitmap
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.theme.md_theme_dark_surface
 import com.yichao.evilgodxu.theme.md_theme_dark_surfaceVariant
-import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// 歌曲封面沉浸式背景：以小尺寸解码封面，取上下半区平均色组成向下渐变。
+// 取色只需上下半区的平均色，64px 已足够且解码代价最低
+private const val GRADIENT_SAMPLE_SIZE = 64
+
+// 歌曲封面沉浸式背景：以系统略缩图（与封面显示同源）的小尺寸取上下半区平均色组成向下渐变。
 // 首页与 3D 封面轮播共用，随传入曲目实时变化；背景代表色经回调暴露供浮层容器复用。
 @Composable
 internal fun SongGradientBackground(
@@ -35,20 +33,16 @@ internal fun SongGradientBackground(
     darkenStatusBarArea: Boolean = true,
     onBackgroundColor: ((Color) -> Unit)? = null,
 ) {
-    val context = LocalContext.current
     val defaultGradient = defaultSongGradient()
     var gradient by remember { mutableStateOf(defaultGradient) }
-    // 封面写入版本号参与模型键：重新写入封面后缓存路径可能不变，需据此重建模型才能重算背景色
-    val model = coverModel(context, track, LocalMusicPanelStateHolder.current.state.coverRevision)
-    LaunchedEffect(model, darkenStatusBarArea) {
-        if (model != null) {
-            val result = songGradient(context, model, darkenStatusBarArea)
-            if (result != null) {
-                gradient = result.first
-                onBackgroundColor?.invoke(result.second)
-            } else {
-                onBackgroundColor?.invoke(md_theme_dark_surface)
-            }
+    // 与封面显示同一份系统略缩图：封面重写后系统图随媒体扫描重建，版本号变化即重新取色
+    val thumbnail = rememberSystemThumbnail(track, GRADIENT_SAMPLE_SIZE)
+    LaunchedEffect(thumbnail, darkenStatusBarArea) {
+        val source = thumbnail?.asAndroidBitmap()
+        val result = source?.let { songGradient(it, darkenStatusBarArea) }
+        if (result != null) {
+            gradient = result.first
+            onBackgroundColor?.invoke(result.second)
         } else {
             gradient = defaultGradient
             onBackgroundColor?.invoke(md_theme_dark_surface)
@@ -70,16 +64,13 @@ private fun defaultSongGradient(): Brush =
         )
     )
 
-// 以小尺寸解码封面，取上下半区平均色组成向下渐变并返回顶部主色；
-// 竖屏时顶部压暗保证状态栏区域足够深，横屏系统栏隐藏时跳过该处理。
-// 沿用封面模型自带的缓存键，仅收窄解码尺寸
+// 取系统略缩图上下半区的平均色组成向下渐变并返回顶部主色；
+// 竖屏时顶部压暗保证状态栏区域足够深，横屏系统栏隐藏时跳过该处理
 private suspend fun songGradient(
-    context: Context,
-    request: ImageRequest,
+    source: Bitmap,
     darkenStatusBarArea: Boolean,
 ): Pair<Brush, Color>? = withContext(Dispatchers.IO) {
-    val result = context.imageLoader.execute(request.newBuilder().size(32).build())
-    val source = result.image?.toBitmap() ?: return@withContext null
+    // 硬件位图不可直接 getPixel，复制为软件位图后再取色
     val bitmap = if (source.config == Bitmap.Config.HARDWARE) {
         source.copy(Bitmap.Config.ARGB_8888, false) ?: return@withContext null
     } else source

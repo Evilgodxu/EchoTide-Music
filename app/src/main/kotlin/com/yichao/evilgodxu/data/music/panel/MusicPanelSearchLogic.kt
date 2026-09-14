@@ -21,7 +21,6 @@ import com.yichao.evilgodxu.data.music.proxy.ProxySourceEngine
 import com.yichao.evilgodxu.data.music.download.cacheToDownloads
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
-import com.yichao.evilgodxu.data.music.playback.refreshCurrentMediaItem
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.R
 import kotlinx.coroutines.async
@@ -251,23 +250,16 @@ internal suspend fun applyCoverCandidate(
     candidate: NeteaseSongSearchResult,
 ): Boolean {
     return try {
-        val updated = withContext(Dispatchers.IO) {
-            val bytes = NeteaseMusicApi.loadCoverBytes(candidate.coverUrl.orEmpty()) ?: return@withContext null
-            // 手动刷新封面：按音频容器格式原生写入元数据
-            val writeSuccess = MusicMetadataWriter.writeCover(context, track, bytes)
-            val path = MusicMetadataCache.saveCover(context, track.title, track.artist, bytes).orEmpty()
-            if (path.isBlank()) return@withContext null
-            // 旧索引下的文件若已无引用，由扫描后的窗口回收统一处理（连续数天无引用才删），避免误删共享的封面
-            track.copy(
-                neteaseId = candidate.id,
-                neteaseCoverUrl = if (writeSuccess) "" else candidate.coverUrl.orEmpty(),
-                coverCachePath = path,
-                // 封面已就位，清掉此前的失败标记，否则缓存文件被删后不再重建
-                coverFailed = false
-            )
-        } ?: return false
+        val writeSuccess = withContext(Dispatchers.IO) {
+            val bytes = NeteaseMusicApi.loadCoverBytes(candidate.coverUrl.orEmpty()) ?: return@withContext false
+            // 手动刷新封面：按音频容器格式原生写入元数据；系统据此重建封面略缩图，
+            // 显示端只读系统略缩图，不再落盘应用自建封面缓存
+            MusicMetadataWriter.writeCover(context, track, bytes)
+        }
+        if (!writeSuccess) return false
         withContext(Dispatchers.Main) {
-            playbackState.updateTrack(updated)
+            // 封面已写入音频文件：清掉在线封面地址，转由系统略缩图提供显示
+            playbackState.updateTrack(track.copy(neteaseId = candidate.id, neteaseCoverUrl = ""))
             playbackState.bumpCoverRevision()
             playbackState.coverCandidates = emptyList()
         }
@@ -511,31 +503,17 @@ internal suspend fun downloadAndPlay(
         }
     }
 
-    // 在线播放时同步下载封面原图落盘：缓存完成后可直接内嵌写入本地文件，面板与通知栏也即时获得本地封面。
-    // 以 async 返回下载到的原图字节，供缓存流程把原图内嵌进音频文件（缓存落盘的是重编码 WebP，仅用于显示）。
+    // 在线播放时同步下载封面原图：仅以字节形式交回缓存流程，由其在缓存完成后内嵌进音频文件，
+    // 系统随即为该文件生成封面略缩图（显示端只读系统略缩图，不落盘自建封面缓存）。
     // 在线播放由用户主动选择曲目触发，属用户决策下的联网补齐；自动补全路径不联网
     val coverJob = playbackState.playbackScope.async(Dispatchers.IO) {
         try {
             // 代理音源优先按 coverId 换取封面，失败时回退搜索结果的封面直链
-            val bytes = ProxySourceEngine.coverBytes(context, result)
+            ProxySourceEngine.coverBytes(context, result)
                 ?: run {
                     val coverUrl = result.coverUrl?.takeIf { it.isNotBlank() } ?: return@run null
                     NeteaseMusicApi.loadCoverBytes(coverUrl)
                 }
-                ?: return@async null
-            // 落盘索引名与入库曲目的标题/艺术家一致，缓存才可直接由元数据推出
-            val coverPath = MusicMetadataCache.saveCover(context, result.title, result.artist, bytes).orEmpty()
-            if (coverPath.isBlank()) return@async null
-            withContext(Dispatchers.Main) {
-                // updateTrack 同步回写并持久化引用：仅改内存态会丢失持久化引用，
-                // 进程被杀后重启清理会把刚落盘的封面缓存当作孤儿误删
-                val track = playbackState.playlist.firstOrNull { it.id == trackId } ?: return@withContext
-                // 封面已就位，清掉此前的失败标记，否则缓存文件被删后不再重建
-                playbackState.updateTrack(track.copy(coverCachePath = coverPath, coverFailed = false))
-            }
-            // 封面就绪后刷新系统媒体面板的当前 MediaItem
-            refreshCurrentMediaItem(playbackState)
-            bytes
         } catch (e: Exception) {
             CrashLogManager.logException("MusicPanelSearchLogic", "下载在线封面失败: 歌曲=${result.title}", e)
             null

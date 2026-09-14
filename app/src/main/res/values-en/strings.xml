@@ -205,7 +205,6 @@
     <string name="cache_category_image">Image cache</string>
     <string name="cache_category_temp">Temp files</string>
     <string name="cache_category_log">Error logs</string>
-    <string name="cache_category_cover">Cover cache</string>
     <string name="cache_category_lyric">Lyric cache</string>
     <string name="cache_category_audio">Song cache</string>
     <string name="cache_category_update">Update packages</string>

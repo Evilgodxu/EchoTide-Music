@@ -1,6 +1,5 @@
 package com.yichao.evilgodxu.screens.home.component.player
 
-import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
@@ -8,13 +7,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -23,73 +19,31 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.model.MusicTrack
-import com.yichao.evilgodxu.data.music.MusicScanner
 import com.yichao.evilgodxu.theme.md_theme_dark_background
+import com.yichao.evilgodxu.ui.component.rememberSystemThumbnail
 import com.yichao.evilgodxu.ui.icons.AppIcons
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 
-// 首页封面显示解码上限：与缓存保存上限对齐，避免超大图全尺寸进内存
-private const val DISPLAY_MAX_EDGE = 2048
+// 首页大封面按面板尺寸取图：系统略缩图最大档即为该尺寸，再大也只是插值放大
+private const val HOME_COVER_THUMBNAIL_SIZE = 512
 
-// 首页大封面：优先显示已应用的封面缓存文件（修改封面后即时重载），其次音频内嵌原图；
-// 在线曲目等封面缓存落盘后再展示，避免开始播放即请求在线封面地址
+// 首页大封面：与其余封面显示处同源，只取系统略缩图（见 rememberSystemThumbnail）；
+// 系统无略缩图即显示占位符，不回退内嵌原图或在线封面地址
 @Composable
 internal fun HomeAlbumArt(track: MusicTrack?, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val stateHolder = LocalMusicPanelStateHolder.current
-    // 以路径与封面写入版本号为 key：路径变化或重新写入新封面时均强制重载
-    val cachePath = track?.coverCachePath?.takeIf { MusicMetadataCache.isValid(it) }
-    val cacheRevision = stateHolder.state.coverRevision
-    val cached by produceState<androidx.compose.ui.graphics.ImageBitmap?>(
-        initialValue = null,
-        key1 = cachePath,
-        key2 = cacheRevision,
-    ) {
-        value = cachePath?.let { path ->
-            withContext(Dispatchers.IO) {
-                MusicMetadataCache.loadCoverBytes(path)
-                    // 显示端按最长边限幅解码，避免 4K 缓存封面全尺寸进内存
-                    ?.let { MusicMetadataCache.decodeSampledBitmap(it, DISPLAY_MAX_EDGE)?.asImageBitmap() }
-            }
-        }
-    }
-    // 仅当无缓存封面时按曲目音频身份在 IO 线程提取内嵌封面，避免每次显示重复元数据 I/O
-    val embedded by produceState<androidx.compose.ui.graphics.ImageBitmap?>(
-        initialValue = null,
-        key1 = cachePath,
-        key2 = track?.audioUri,
-    ) {
-        value = if (cachePath != null) null
-        else track?.takeIf { it.isLocalAudioSource }?.let { t ->
-            withContext(Dispatchers.IO) {
-                MusicScanner.loadEmbeddedCover(context, Uri.parse(t.audioUri), t.path)?.asImageBitmap()
-            }
-        }
-    }
-    when {
-        cached != null -> Image(
-            bitmap = cached!!,
+    val thumbnail = rememberSystemThumbnail(track, HOME_COVER_THUMBNAIL_SIZE)
+    if (thumbnail != null) {
+        Image(
+            bitmap = thumbnail,
             contentDescription = track?.title,
             contentScale = ContentScale.Crop,
             // 高清渲染：mipmap 三线性过滤，缩放/旋转均无锯齿与模糊
             filterQuality = FilterQuality.High,
             modifier = modifier.background(Color.Black),
         )
-        embedded != null -> Image(
-            bitmap = embedded!!,
-            contentDescription = track?.title,
-            contentScale = ContentScale.Crop,
-            // 高清渲染：mipmap 三线性过滤，缩放/旋转均无锯齿与模糊
-            filterQuality = FilterQuality.High,
-            modifier = modifier.background(Color.Black),
-        )
-        else -> Box(
+    } else {
+        Box(
             // 首页背景恒为深色，占位背景固定用深色主题背景色，避免浅色主题下首帧浅色闪烁
             modifier = modifier.background(md_theme_dark_background),
             contentAlignment = Alignment.Center,

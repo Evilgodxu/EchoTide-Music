@@ -14,32 +14,24 @@ import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.LyricWord
 import com.yichao.evilgodxu.data.music.download.sanitizeFileName
 import com.yichao.evilgodxu.log.CrashLogManager
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
 import kotlin.math.roundToInt
 import org.json.JSONArray
 import org.json.JSONObject
 
-// 封面/歌词缓存读写工具：全部为无状态静态函数，按需传入 Context，以 object 单例形态提供
+// 歌词缓存读写工具：全部为无状态静态函数，按需传入 Context，以 object 单例形态提供。
+// 封面不在此列：显示端统一读系统略缩图，应用不落盘封面缓存（内嵌封面由系统媒体扫描生成略缩图）
 internal object MusicMetadataCache {
-    // 封面保存上限与显示端对齐（2K）：覆盖折叠屏/平板横屏等最大显示场景，超过部分永不显示；
-    // 位图内存峰值约 2048²×4 ≈ 16MB，解码后即压缩保存并回收，不常驻
-    private const val COVER_MAX_EDGE = 2048
-
     // 公共下载目录下的应用缓存根目录名，与在线音频缓存 Download/YiChao/Audio 保持同级。
     // 下载器写入在线歌曲条目时按此拼装相对路径，目录名只在此处定义一次
     internal const val CACHE_DIR_NAME = "YiChao"
-    private const val COVER_DIR = "Cover"
     private const val LYRIC_DIR = "Lyrics"
 
-    // 封面缓存允许的扩展名，按写入回退顺序排列（WEBP 为主、PNG 兜底）：
-    // 查找与清理共用同一份事实，避免两处顺序或集合不一致
-    private val COVER_CACHE_EXTENSIONS = listOf("webp", "png")
     // 歌词缓存允许的扩展名
     private val LYRIC_CACHE_EXTENSIONS = listOf("lrc")
-    // 孤儿回收的作用域上限：只认这两个子目录，新增缓存类型须独立建目录 + 独立扩展名白名单
-    private val CACHE_DIR_NAMES = listOf(COVER_DIR, LYRIC_DIR)
+    // 孤儿回收的作用域上限：只认这个子目录，新增缓存类型须独立建目录 + 独立扩展名白名单
+    private val CACHE_DIR_NAMES = listOf(LYRIC_DIR)
     // 立即回收的写入竞态宽限期：外部写封面先落盘后写曲目引用，晚于该窗口的缓存可能尚未被引用，跳过避免误删
     private const val ORPHAN_GRACE_MS = 10_000L
     // 自动回收窗口：缓存文件须在每次可信扫描中都无引用、持续该时长才回收。
@@ -52,9 +44,9 @@ internal object MusicMetadataCache {
     private const val TAG = "MusicMetadataCache"
 
     // 缓存根目录：系统公共下载目录 Download/YiChao。
-    // 具备全部文件访问权限时直写文件系统并附带 .nomedia 防止封面混入相册；
-    // 权限缺失时经 MediaStore Downloads 集合写入自身条目（Android 11+ 对自身写入的
-    // 文件保留路径读取能力），上层调用方统一按返回的绝对路径使用，不受分区存储影响。
+    // 具备全部文件访问权限时直写文件系统；权限缺失时经 MediaStore Downloads 集合写入自身条目
+    // （Android 11+ 对自身写入的文件保留路径读取能力），上层调用方统一按返回的绝对路径使用，
+    // 不受分区存储影响。
     // getExternalStoragePublicDirectory 为获取公共下载目录路径的唯一接口，无新版等价实现
     // 缓存台账统计同目录下的同级缓存（如在线音频）时也按此定位，避免路径出现第二份事实
     @Suppress("DEPRECATION")
@@ -64,7 +56,6 @@ internal object MusicMetadataCache {
         return public ?: context.getExternalFilesDir(null) ?: context.filesDir
     }
 
-    internal fun coverRoot(context: Context): File = File(mediaRoot(context), COVER_DIR)
     // 供缓存台账统计歌词占用：与写入端共用同一路径解析，不另立一份
     internal fun lyricRoot(context: Context): File = File(mediaRoot(context), LYRIC_DIR)
 
@@ -86,11 +77,6 @@ internal object MusicMetadataCache {
     private fun lyricFile(context: Context, title: String, artist: String): File =
         File(lyricRoot(context), lyricFileName(title, artist))
 
-    // 标记目录不被系统媒体扫描器收录，避免封面图出现在相册
-    private fun ensureNoMedia(dir: File) = runCatching {
-        File(dir, ".nomedia").apply { if (!exists()) createNewFile() }
-    }
-
     // 是否具备直接读写公共下载目录的特殊权限（全部文件访问）
     private fun hasDirectDownloadAccess(): Boolean = Environment.isExternalStorageManager()
 
@@ -103,8 +89,6 @@ internal object MusicMetadataCache {
         }
         val dir = File(mediaRoot(context), dirName)
         if (!dir.isDirectory && !runCatching { dir.mkdirs() }.getOrDefault(false)) return null
-        // 仅封面目录需 .nomedia 防止混入相册，歌词文本不受媒体扫描影响
-        if (dirName == COVER_DIR) ensureNoMedia(dir)
         val file = File(dir, name)
         return if (runCatching { file.writeBytes(bytes) }.isSuccess && file.isFile) file else null
     }
@@ -169,8 +153,6 @@ internal object MusicMetadataCache {
 
     // 按文件名推断缓存条目的 MIME 类型
     private fun cacheMimeType(name: String): String = when (name.substringAfterLast('.', "")) {
-        "webp" -> "image/webp"
-        "png" -> "image/png"
         "lrc" -> "text/plain"
         else -> "application/octet-stream"
     }
@@ -180,14 +162,12 @@ internal object MusicMetadataCache {
         val root = context.getExternalFilesDir(null) ?: return null
         val dir = File(root, dirName)
         if (!dir.isDirectory && !dir.mkdirs()) return null
-        // 仅封面目录需 .nomedia 防止混入相册，歌词文本不受媒体扫描影响
-        if (dirName == COVER_DIR) ensureNoMedia(dir)
         val file = File(dir, name)
         return if (runCatching { file.writeBytes(bytes) }.isSuccess && file.isFile) file else null
     }
 
-    /** 按最长边等比高质量解码；maxEdge 可调以适配显示场景（显示端无需保存上限全尺寸位图） */
-    fun decodeSampledBitmap(bytes: ByteArray, maxEdge: Int = COVER_MAX_EDGE): Bitmap? {
+    /** 按最长边等比高质量解码；maxEdge 由调用方按使用场景显式指定 */
+    fun decodeSampledBitmap(bytes: ByteArray, maxEdge: Int): Bitmap? {
         // 用 ImageDecoder 替代 BitmapFactory.inSampleSize：
         // inSampleSize 为最近邻点采样，4K 等高分辨率封面降采样会产生混叠锯齿（解码时即固化）；
         // ImageDecoder 按目标尺寸高质量滤波缩放，直接解码到目标分辨率，无锯齿且内存可控
@@ -208,47 +188,6 @@ internal object MusicMetadataCache {
                 decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB))
             }
         }.getOrNull()
-    }
-
-    fun saveCover(context: Context, title: String, artist: String, originalBytes: ByteArray): String? = try {
-        val bitmap = decodeSampledBitmap(originalBytes) ?: return null
-        try {
-            saveCover(context, title, artist, bitmap)
-        } finally {
-            bitmap.recycle()
-        }
-    } catch (e: Exception) {
-        CrashLogManager.logException("MusicMetadataCache", "保存封面失败: 歌曲=$title - $artist 来源=${originalBytes.size}B", e)
-        null
-    }
-
-    fun saveCover(context: Context, title: String, artist: String, bitmap: Bitmap): String? = try {
-        // 文件名取自「标题 - 艺术家」索引，与歌词同款：可由曲目元数据直接推出，
-        // 换封面即覆盖同名文件，同名曲共享同一封面（WebP 编码结果不再参与命名，故同一张图
-        // 在不同设备/版本上编码出的字节差异不会再产生第二份文件）
-        val webpBytes = ByteArrayOutputStream().use { out ->
-            if (bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 92, out)) out.toByteArray() else null
-        }
-        if (webpBytes != null) {
-            val cached = writeCacheFile(context, COVER_DIR, cacheFileName(title, artist, "webp"), webpBytes)
-            if (cached != null) return cached.absolutePath
-        }
-        // WEBP 编码/写入失败，回退为 PNG 原样保存（同一索引名、仅扩展名不同）
-        val pngBytes = ByteArrayOutputStream().use { out ->
-            if (bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) out.toByteArray() else return null
-        }
-        writeCacheFile(context, COVER_DIR, cacheFileName(title, artist, "png"), pngBytes)?.absolutePath
-    } catch (e: Exception) {
-        CrashLogManager.logException("MusicMetadataCache", "保存封面失败: 歌曲=$title - $artist 封面尺寸=${bitmap.width}x${bitmap.height}", e)
-        null
-    }
-
-    // 按「标题 - 艺术家」查找已存在的封面缓存文件；查找顺序与写入回退顺序一致，WebP 命中即不再看 PNG
-    fun findCover(context: Context, title: String, artist: String): String? {
-        val root = coverRoot(context)
-        return COVER_CACHE_EXTENSIONS
-            .map { File(root, cacheFileName(title, artist, it)).absolutePath }
-            .firstOrNull { isValid(it) }
     }
 
     fun saveLyrics(context: Context, title: String, artist: String, lines: List<LyricLine>): String? = try {
@@ -388,23 +327,9 @@ internal object MusicMetadataCache {
 
     fun isValid(path: String): Boolean = path.isNotBlank() && File(path).let { it.isFile && it.length() > 0 }
 
-    // 封面缓存文件名是否由当前「标题 - 艺术家」索引生成。旧版按歌曲 id 或内容哈希命名的文件不匹配，
-    // 会按新索引重新提取并落盘；纯字符串判定，不含文件 IO
-    fun isIndexedCoverName(path: String, title: String, artist: String): Boolean = runCatching {
-        val file = File(path)
-        file.extension in COVER_CACHE_EXTENSIONS && file.name == cacheFileName(title, artist, file.extension)
-    }.getOrDefault(false)
-
-    fun loadCoverBytes(path: String): ByteArray? = try {
-        if (!isValid(path)) null else File(path).readBytes()
-    } catch (e: Exception) {
-        CrashLogManager.logException("MusicMetadataCache", "读取封面文件失败: $path", e)
-        null
-    }
-
     // ===== 孤儿缓存回收 =====
     //
-    // 作用域不变量（只可收窄，不可放宽）：本机制只遍历封面与歌词两个缓存子目录（CACHE_DIR_NAMES），
+    // 作用域不变量（只可收窄，不可放宽）：本机制只遍历歌词缓存子目录（CACHE_DIR_NAMES），
     // 且只删扩展名命中白名单的文件。在线音频缓存 Download/YiChao/Audio、用户媒体目录与任何音频文件
     // 都不在作用域内 —— 音频只由用户显式删除曲目（deleteSongPermanently）移除。
     //
@@ -488,17 +413,15 @@ internal object MusicMetadataCache {
         referenced: Set<String>,
         into: MutableMap<String, OrphanCandidate>,
     ) {
-        // 仅封面目录保留 .nomedia，歌词目录残留的旧 .nomedia 一并清理
-        val isCoverDir = dir.name == COVER_DIR
-        val allowed = if (isCoverDir) COVER_CACHE_EXTENSIONS else LYRIC_CACHE_EXTENSIONS
         runCatching { dir.listFiles() }.getOrNull().orEmpty().forEach { file ->
             if (!file.isFile) return@forEach
+            // 旧版封面缓存目录遗留的 .nomedia 一并清掉；歌词文本不受媒体扫描影响，无需该标记
             if (file.name == ".nomedia") {
-                if (!isCoverDir) runCatching { file.delete() }
+                runCatching { file.delete() }
                 return@forEach
             }
             // 仅清理明确属于缓存的扩展名，防止误删目录内其他用途文件
-            if (file.extension !in allowed) return@forEach
+            if (file.extension !in LYRIC_CACHE_EXTENSIONS) return@forEach
             if (file.absolutePath in referenced) return@forEach
             into[file.absolutePath] = OrphanCandidate(
                 path = file.absolutePath,

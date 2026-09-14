@@ -336,7 +336,8 @@ class MusicPlaybackState(
     var coverCandidates by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
     var isCoverSearching by mutableStateOf(false)
     var localCoverCandidates by mutableStateOf<List<RecentCover>>(emptyList())
-    // 封面写入版本号：每次成功写入新封面自增，驱动封面组件重新加载最新图
+    // 封面写入成功后自增：封面写进音频文件后其 URI 不变而系统略缩图已变，
+    // 通知封面组件重新取系统略缩图
     var coverRevision by mutableIntStateOf(0)
     var lyricsCandidates by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
     var isLyricsSearching by mutableStateOf(false)
@@ -486,9 +487,9 @@ class MusicPlaybackState(
         persistPlaylist()
     }
 
-    // 彻底删除歌曲：移除音频源文件与仅该曲引用的歌词/封面缓存，并同步库、播放队列与歌单引用
+    // 彻底删除歌曲：移除音频源文件与仅该曲引用的歌词缓存，并同步库、播放队列与歌单引用
     suspend fun deleteSongPermanently(context: Context, track: MusicTrack) {
-        // 删除前基于全量库+当前列表计算剩余曲目的缓存引用，作为封面/歌词清除依据：
+        // 删除前基于全量库+当前列表计算剩余曲目的歌词缓存引用，作为清除依据：
         // 全量库覆盖本地曲目，当前列表兜底在线曲目（在线曲目只存在于当前列表，不在全量库备份）
         val remaining = (defaultPlaylistBackup.orEmpty() + playlist)
             .filterNot { it.id == track.id }
@@ -501,7 +502,7 @@ class MusicPlaybackState(
             if (libraryKnown) {
                 MusicMetadataCache.cleanupOrphanedMetadata(
                     context,
-                    remaining.flatMap { listOfNotNull(it.coverCachePath, it.lyricCachePath) }.toSet(),
+                    remaining.map { it.lyricCachePath }.toSet(),
                 )
             }
         }
@@ -874,13 +875,11 @@ class MusicPlaybackState(
                     albumName = item.optString("albumName", ""),
                     neteaseId = item.optLong("neteaseId", 0L),
                     neteaseCoverUrl = item.optString("neteaseCoverUrl", ""),
-                    coverCachePath = item.optString("coverCachePath", ""),
                     isFavorite = item.optBoolean("isFavorite", false),
                     isOnlinePlay = item.optBoolean("isOnlinePlay", false),
                     lyricCachePath = lyricCachePath,
                     lyricLines = emptyList(),
                     lyricOffsetMs = lyricOffset,
-                    coverFailed = item.optBoolean("coverFailed", false),
                     lyricFailed = item.optBoolean("lyricFailed", false),
                     fileModifiedMs = item.optLong("fileModifiedMs", 0L),
                 )
@@ -906,12 +905,10 @@ class MusicPlaybackState(
                 put("albumName", track.albumName)
                 put("neteaseId", track.neteaseId)
                 put("neteaseCoverUrl", track.neteaseCoverUrl)
-                put("coverCachePath", track.coverCachePath)
                 put("lyricCachePath", track.lyricCachePath)
                 put("isOnlinePlay", track.isOnlinePlay)
                 put("isFavorite", track.isFavorite)
                 put("lyricOffsetMs", track.lyricOffsetMs)
-                put("coverFailed", track.coverFailed)
                 put("lyricFailed", track.lyricFailed)
                 put("fileModifiedMs", track.fileModifiedMs)
             })

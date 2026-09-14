@@ -30,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.RecentCover
@@ -72,16 +71,12 @@ internal suspend fun applyLocalCover(
 ): Boolean = withContext(Dispatchers.IO) {
     try {
         val bytes = context.contentResolver.openInputStream(cover.uri)?.use { it.readBytes() } ?: return@withContext false
+        // 封面写入音频文件，系统据此重建封面略缩图；显示端只读系统略缩图，不落盘应用自建封面缓存
         val writeSuccess = MusicMetadataWriter.writeCover(context, track, bytes)
         if (!writeSuccess) return@withContext false
-        val path = MusicMetadataCache.saveCover(context, track.title, track.artist, bytes) ?: return@withContext false
-        // 旧索引下的文件若已无引用，由扫描后的窗口回收统一处理（连续数天无引用才删），避免误删共享的封面
         withContext(Dispatchers.Main) {
-            // 封面已就位，清掉此前的失败标记：否则「文件里有封面、缓存也在」却仍被标记为失败，
-            // 一旦缓存文件被删就再也不会重建
-            playbackState.updateTrack(
-                track.copy(coverCachePath = path, neteaseCoverUrl = "", coverFailed = false)
-            )
+            // 封面已写入音频文件：清掉在线封面地址，转由系统略缩图提供显示
+            playbackState.updateTrack(track.copy(neteaseCoverUrl = ""))
             playbackState.bumpCoverRevision()
             playbackState.setLocalCoverCandidates(emptyList())
         }

@@ -51,13 +51,13 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
                     // 形态进入列表，仅按 URI 去重会残留同文件多条目且每次刷新重新产生，故按真实文件路径合并
                     val mergedBase = (tracks + externalTracks).distinctBy { trackIdentityKey(context, it) }
                     // 缓存复用索引以全量库为准而非当前列表：停留在歌单时当前列表只是全量库子集，
-                    // 仅按它建索引会丢掉库内其他歌曲的歌词/封面缓存引用，导致切歌单后缓存污染
+                    // 仅按它建索引会丢掉库内其他歌曲的歌词缓存引用，导致切歌单后缓存污染
                     val cachedLibrary = state.libraryTracks
                     val previous = cachedLibrary.associateBy { normalizedAudioUri(it.audioUri) }
                     // 缓存下载后 audioUri 由 downloads 集合切换为 audio/media 集合，归一化后仍不一致；
-                    // 按"标题 - 艺术家"兜底匹配旧列表，复用在线播放期间已保存的歌词/封面缓存
+                    // 按"标题 - 艺术家"兜底匹配旧列表，复用在线播放期间已保存的歌词缓存
                     val previousByTitleArtist = cachedLibrary
-                        .filter { it.lyricCachePath.isNotBlank() || it.coverCachePath.isNotBlank() }
+                        .filter { it.lyricCachePath.isNotBlank() }
                         .associateBy { titleArtistKey(it) }
                     val mergedTracks = mergedBase
                         .map { track ->
@@ -67,10 +67,8 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
                             track.copy(
                                 neteaseId = cached.neteaseId,
                                 neteaseCoverUrl = cached.neteaseCoverUrl,
-                                coverCachePath = cached.coverCachePath,
                                 lyricCachePath = cached.lyricCachePath,
                                 lyricLines = cached.lyricLines,
-                                coverFailed = cached.coverFailed,
                                 lyricFailed = cached.lyricFailed,
                             )
                         }
@@ -111,7 +109,7 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
         }
     }
 
-    // 归一化"标题 + 艺术家"作为歌词/封面缓存复用的匹配键
+    // 归一化"标题 + 艺术家"作为歌词缓存复用的匹配键
     private fun titleArtistKey(track: MusicTrack): String =
         normalizeTitle(track.title) + "\u0000" + normalizeTitle(track.artist)
 

@@ -8,7 +8,6 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.MediaStore
-import android.util.Size
 import com.yichao.evilgodxu.data.music.api.stableIdFromString
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.model.MusicTrack
@@ -18,16 +17,12 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// 本地音乐扫描器（基于 MediaStore）：无共享可变状态、纯函数集合，以 object 单例形态提供
+// 本地音乐扫描器（基于 MediaStore）：无共享可变状态、纯函数集合，以 object 单例形态提供。
+// 封面不在扫描期产出：显示端统一读系统略缩图（随媒体扫描生成），应用不落盘封面缓存
 object MusicScanner {
 
-    // 封面来源，用于决定缓存文件归属：内嵌封面属于歌曲，专辑封面/缩略图属于专辑
-    internal enum class AlbumArtSource { EMBEDDED, ALBUM, THUMBNAIL }
-
-    internal data class AlbumArtResult(
-        val bitmap: Bitmap,
-        val source: AlbumArtSource,
-    )
+    // 内嵌封面提取的解码限幅：与内嵌原图可能的最大显示场景对齐（折叠屏/平板横屏）
+    private const val EMBEDDED_COVER_MAX_EDGE = 2048
 
     // 内嵌封面提取结果。必须区分「文件读不出」与「文件正常但没有内嵌封面」：
     // 前者才值得换另一条取数路径重试；后者读的是同一文件的同一段标签，重试结果必然相同
@@ -51,17 +46,6 @@ object MusicScanner {
             val hash = stableIdFromString(uri.toString())
             val id = if (hash == Long.MIN_VALUE) Long.MAX_VALUE else -kotlin.math.abs(hash)
             val trackId = if (id == 0L) -1L else id
-            // 提取内嵌封面写入本地缓存供面板显示，位图用完即回收
-            var coverCachePath = ""
-            retriever.embeddedPicture?.let { picture ->
-                MusicMetadataCache.decodeSampledBitmap(picture)?.let { art ->
-                    try {
-                        coverCachePath = MusicMetadataCache.saveCover(context, title, artist, art).orEmpty()
-                    } finally {
-                        art.recycle()
-                    }
-                }
-            }
             MusicTrack(
                 id = trackId,
                 path = "",
@@ -70,7 +54,6 @@ object MusicScanner {
                 artist = artist,
                 duration = duration,
                 albumId = 0L,
-                coverCachePath = coverCachePath
             )
         } catch (e: Exception) {
             CrashLogManager.logException("MusicScanner", "读取外部音频元数据失败", e)
@@ -159,64 +142,12 @@ object MusicScanner {
         tracks
     }
 
-    internal fun loadAlbumArt(
-        context: Context,
-        contentResolver: ContentResolver,
-        audioUri: Uri,
-        albumId: Long,
-        fallbackPath: String
-    ): AlbumArtResult? {
-        // 分层优化：系统专辑封面优先（OS 扫描时已解析内嵌图并存缓存），
-        // 已入库曲目（albumId>0 且 MediaStore 已提取）直接命中，免去逐首
-        // MediaMetadataRetriever 打开文件的开销——这是批量补全的主要 I/O 成本。
-        // 画质说明：MediaStore 专辑封面是原图（非 256px 缩略图），仍按 ≤2048 采样解码，
-        // 首页大封面清晰度不受影响。
-        if (albumId > 0) {
-            try {
-                val uri = Uri.parse("content://media/external/audio/albumart/$albumId")
-                contentResolver.openInputStream(uri)?.use { input ->
-                    MusicMetadataCache.decodeSampledBitmap(input.readBytes())
-                        ?.let { return AlbumArtResult(it, AlbumArtSource.ALBUM) }
-                }
-            } catch (e: Exception) {
-                CrashLogManager.logException("MusicScanner", "读取专辑封面失败: $fallbackPath", e)
-            }
-        }
-        // 无系统专辑封面时回退到内嵌全量提取：覆盖 albumId<=0 的外部导入曲目、
-        // MediaStore 未提取封面的文件，以及专辑内单曲封面各不相同（合集）的曲目。
-        // 文件路径与 content URI 指向同一文件时，同一段内嵌标签不会读出两种结果：
-        // 路径已能正常读出且无内嵌封面即不再重复打开，仅当文件读不出时才换 URI 重试
-        if (fallbackPath.isNotBlank()) {
-            when (val art = extractEmbeddedArt(fallbackPath)) {
-                is EmbeddedArt.Found -> return AlbumArtResult(art.bitmap, AlbumArtSource.EMBEDDED)
-                EmbeddedArt.Absent -> Unit
-                EmbeddedArt.Unavailable -> {
-                    val byUri = extractEmbeddedArt(context, audioUri)
-                    if (byUri is EmbeddedArt.Found) return AlbumArtResult(byUri.bitmap, AlbumArtSource.EMBEDDED)
-                }
-            }
-        } else {
-            val byUri = extractEmbeddedArt(context, audioUri)
-            if (byUri is EmbeddedArt.Found) return AlbumArtResult(byUri.bitmap, AlbumArtSource.EMBEDDED)
-        }
-        // 官方缩略图 API 兜底：从 MediaStore 缩略图缓存读取小图，最轻量且带系统缓存
-        try {
-            return AlbumArtResult(
-                contentResolver.loadThumbnail(audioUri, Size(256, 256), null),
-                AlbumArtSource.THUMBNAIL
-            )
-        } catch (e: Exception) {
-            CrashLogManager.logException("MusicScanner", "加载缩略图封面失败: $fallbackPath", e)
-        }
-        return null
-    }
-
     private fun extractEmbeddedArt(context: Context, audioUri: Uri): EmbeddedArt {
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(context, audioUri)
             retriever.embeddedPicture
-                ?.let { MusicMetadataCache.decodeSampledBitmap(it) }
+                ?.let { MusicMetadataCache.decodeSampledBitmap(it, EMBEDDED_COVER_MAX_EDGE) }
                 ?.let { EmbeddedArt.Found(it) }
                 ?: EmbeddedArt.Absent
         } catch (e: Exception) {
@@ -236,7 +167,7 @@ object MusicScanner {
         return try {
             retriever.setDataSource(path)
             retriever.embeddedPicture
-                ?.let { MusicMetadataCache.decodeSampledBitmap(it) }
+                ?.let { MusicMetadataCache.decodeSampledBitmap(it, EMBEDDED_COVER_MAX_EDGE) }
                 ?.let { EmbeddedArt.Found(it) }
                 ?: EmbeddedArt.Absent
         } catch (e: Exception) {
@@ -251,8 +182,9 @@ object MusicScanner {
         }
     }
 
-    // 读取本地音频内嵌封面原图（按封面保存上限 2048 采样）：首页大封面优先使用内嵌原图；
-    // 本地文件路径优先，其次 content/file URI；纯在线流无内嵌封面返回 null
+    // 读取本地音频内嵌封面原图（按内嵌封面限幅采样）：本地文件路径优先，其次 content/file URI；
+    // 纯在线流无内嵌封面返回 null。
+    // 保留能力，当前无调用方：封面显示统一走系统略缩图，内嵌提取不再承担任何兜底职责
     internal fun loadEmbeddedCover(context: Context, audioUri: Uri, path: String): Bitmap? {
         if (path.isNotBlank()) {
             when (val art = extractEmbeddedArt(path)) {

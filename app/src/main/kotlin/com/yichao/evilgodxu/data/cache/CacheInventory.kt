@@ -23,9 +23,6 @@ enum class CacheCategory {
     /** 崩溃与异常日志 */
     LOG,
 
-    /** 封面展示缓存 */
-    COVER,
-
     /** 歌词展示缓存 */
     LYRIC,
 
@@ -120,12 +117,6 @@ internal object CacheInventory {
             category = CacheCategory.LOG,
             scope = CacheScope.CLEARABLE,
             resolve = { context -> logFiles(context) },
-        ),
-        // 封面缓存：可由网络或音频文件重建，孤儿回收，连续 3 天无引用后删除
-        CacheEntry(
-            category = CacheCategory.COVER,
-            scope = CacheScope.USER_DATA,
-            resolve = { context -> metadataLocations(context, MusicMetadataCache.coverRoot(context)) },
         ),
         // 歌词缓存：可由网络或音频文件重建，孤儿回收，连续 3 天无引用后删除
         CacheEntry(
