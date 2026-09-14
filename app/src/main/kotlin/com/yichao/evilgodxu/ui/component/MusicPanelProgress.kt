@@ -73,7 +73,13 @@ internal fun ProgressSection(
         }
         var seekFraction by remember { mutableFloatStateOf(progress) }
         var isSeeking by remember { mutableStateOf(false) }
-        val displayProgress = rememberAnimatedProgress(progress, seekFraction, isSeeking)
+        // 以当前曲目为动画作用域：切歌时上一曲显示基准随 trackKey 一并重建，直接贴合新曲起点
+        val displayProgress = rememberAnimatedProgress(
+            trackKey = playbackState.currentTrack?.id,
+            targetFraction = progress,
+            seekFraction = seekFraction,
+            isSeeking = isSeeking,
+        )
         val displayPosition = (displayProgress * playbackState.duration).toLong()
 
         Row(
@@ -155,7 +161,13 @@ internal fun VerticalProgressBar(
     }
     var seekFraction by remember { mutableFloatStateOf(progress) }
     var isSeeking by remember { mutableStateOf(false) }
-    val displayProgress = rememberAnimatedProgress(progress, seekFraction, isSeeking)
+    // 以当前曲目为动画作用域：切歌时上一曲显示基准随 trackKey 一并重建，直接贴合新曲起点
+    val displayProgress = rememberAnimatedProgress(
+        trackKey = playbackState.currentTrack?.id,
+        targetFraction = progress,
+        seekFraction = seekFraction,
+        isSeeking = isSeeking,
+    )
 
     Box(
         modifier = modifier
@@ -250,15 +262,18 @@ private fun formatKhz(rate: Int): String {
 
 // 进度条显示值：正常播放的逐帧小增量直接贴合真实进度，仅当位置大幅跳变时（冷启动还原、
 // 手动拖动定位、切歌重载）以过渡动画平滑到达，避免进度条突兀跳动。拖动中恒跟随手指不插值。
+// 进度以 [trackKey]（当前曲目）为作用域：切歌时旧曲显示基准随之重建，使新曲进度
+// 直接贴合到起点，避免从旧曲中途位置回退到 0 的冗余动画。
 @Composable
 private fun rememberAnimatedProgress(
+    trackKey: Any?,
     targetFraction: Float,
     seekFraction: Float,
     isSeeking: Boolean,
 ): Float {
     val target = if (isSeeking) seekFraction else targetFraction
     // 记录上一帧显示值，用于判定本次变化是否为需动画的大跳变
-    var lastDisplayed by remember { mutableFloatStateOf(0f) }
+    var lastDisplayed by remember(trackKey) { mutableFloatStateOf(target) }
     val displayed by animateFloatAsState(
         targetValue = target,
         animationSpec = if (isSeeking || abs(target - lastDisplayed) <= PROGRESS_SNAP_THRESHOLD) {

@@ -187,7 +187,7 @@ class MusicPanelController(
     }
 
     // 结束整个应用：移除悬浮窗、停止播放前台服务并终止进程
-    private fun exitApplication() {
+    fun exitApplication() {
         dismissMiniPlayer()
         panelManager?.dismiss()
         panelManager = null

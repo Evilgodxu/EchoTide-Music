@@ -169,6 +169,9 @@ class MusicPlaybackState(
             cleanupIdleOnlineTracks()
             // 再次从控制器校正当前曲目，确保 UI 与真实音频一致（在线曲目切换时尤其关键）
             syncPlaybackState()
+            // 切歌后以权威曲目状态刷新系统媒体面板的当前 MediaItem（封面/标题），
+            // 覆盖缓存 MediaItem 中封面补全前的空白或旧封面，避免面板封面与当前歌曲不匹配
+            refreshCurrentMediaItem(this@MusicPlaybackState)
         }
 
         override fun onPositionDiscontinuity(
