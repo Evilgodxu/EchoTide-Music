@@ -74,8 +74,8 @@ import com.yichao.evilgodxu.data.music.panel.performSearch
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
-import com.yichao.evilgodxu.ui.component.HeaderIconButton
-import com.yichao.evilgodxu.ui.component.MusicErrorBanner
+import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
+import com.yichao.evilgodxu.ui.component.player.MusicErrorBanner
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter

@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.ui.component
+package com.yichao.evilgodxu.ui.component.player
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -18,7 +18,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import com.yichao.evilgodxu.data.music.model.MusicTrack
-import com.yichao.evilgodxu.ui.component.AlbumArt
+import com.yichao.evilgodxu.ui.component.player.AlbumArt
 import kotlinx.coroutines.isActive
 
 @Composable

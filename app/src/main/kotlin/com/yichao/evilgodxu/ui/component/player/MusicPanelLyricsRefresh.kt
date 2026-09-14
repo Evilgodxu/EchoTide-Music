@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.ui.component
+package com.yichao.evilgodxu.ui.component.player
 
 import android.content.Context
 import androidx.compose.foundation.BorderStroke

@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.ui.component
+package com.yichao.evilgodxu.ui.component.player
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column

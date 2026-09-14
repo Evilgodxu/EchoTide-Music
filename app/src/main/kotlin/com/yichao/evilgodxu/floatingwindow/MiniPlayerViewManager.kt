@@ -37,11 +37,11 @@ import com.yichao.evilgodxu.ProvideAppDependencies
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.log.CrashLogManager
-import com.yichao.evilgodxu.ui.component.MINI_BUTTON_COUNT
-import com.yichao.evilgodxu.ui.component.MINI_BUTTON_DP
-import com.yichao.evilgodxu.ui.component.MINI_COVER_DP
-import com.yichao.evilgodxu.ui.component.MINI_PADDING_H_DP
-import com.yichao.evilgodxu.ui.component.MiniPlayerOverlay
+import com.yichao.evilgodxu.floatingwindow.miniplayer.MINI_BUTTON_COUNT
+import com.yichao.evilgodxu.floatingwindow.miniplayer.MINI_BUTTON_DP
+import com.yichao.evilgodxu.floatingwindow.miniplayer.MINI_COVER_DP
+import com.yichao.evilgodxu.floatingwindow.miniplayer.MINI_PADDING_H_DP
+import com.yichao.evilgodxu.floatingwindow.miniplayer.MiniPlayerOverlay
 import kotlin.math.max
 import kotlin.math.roundToInt
 

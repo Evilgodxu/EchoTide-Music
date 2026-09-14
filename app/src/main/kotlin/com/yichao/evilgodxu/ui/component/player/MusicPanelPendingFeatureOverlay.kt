@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.ui.component
+package com.yichao.evilgodxu.ui.component.player
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn

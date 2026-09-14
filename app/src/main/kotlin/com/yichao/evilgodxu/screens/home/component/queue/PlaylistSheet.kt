@@ -78,8 +78,8 @@ import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
-import com.yichao.evilgodxu.ui.component.HeaderIconButton
-import com.yichao.evilgodxu.ui.component.PlaylistRow
+import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
+import com.yichao.evilgodxu.ui.component.player.PlaylistRow
 import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
 import com.yichao.evilgodxu.ui.component.SEARCH_ACTION_GAP_DP
 import com.yichao.evilgodxu.ui.component.SEARCH_BAR_REGION_DP

@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.ui.component
+package com.yichao.evilgodxu.ui.component.player
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
@@ -71,27 +71,27 @@ import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaylistRefresher
 import com.yichao.evilgodxu.theme.DarkColorScheme
 import com.yichao.evilgodxu.theme.LightColorScheme
-import com.yichao.evilgodxu.ui.component.ControlBar
-import com.yichao.evilgodxu.ui.component.HeaderRow
-import com.yichao.evilgodxu.ui.component.MusicErrorBanner
-import com.yichao.evilgodxu.ui.component.PendingFeatureOverlay
-import com.yichao.evilgodxu.ui.component.PlaylistOverlay
-import com.yichao.evilgodxu.ui.component.ProgressSection
-import com.yichao.evilgodxu.ui.component.applyLocalCover
-import com.yichao.evilgodxu.ui.component.CoverRefreshOverlay
-import com.yichao.evilgodxu.ui.component.CoverReplaceOverlay
-import com.yichao.evilgodxu.ui.component.CurrentCover
-import com.yichao.evilgodxu.ui.component.loadRecentCovers
-import com.yichao.evilgodxu.ui.component.LocalCoverOverlay
-import com.yichao.evilgodxu.ui.component.TrackInfo
+import com.yichao.evilgodxu.ui.component.player.ControlBar
+import com.yichao.evilgodxu.ui.component.player.HeaderRow
+import com.yichao.evilgodxu.ui.component.player.MusicErrorBanner
+import com.yichao.evilgodxu.ui.component.player.PendingFeatureOverlay
+import com.yichao.evilgodxu.ui.component.player.PlaylistOverlay
+import com.yichao.evilgodxu.ui.component.player.ProgressSection
+import com.yichao.evilgodxu.ui.component.player.applyLocalCover
+import com.yichao.evilgodxu.ui.component.player.CoverRefreshOverlay
+import com.yichao.evilgodxu.ui.component.player.CoverReplaceOverlay
+import com.yichao.evilgodxu.ui.component.player.CurrentCover
+import com.yichao.evilgodxu.ui.component.player.loadRecentCovers
+import com.yichao.evilgodxu.ui.component.player.LocalCoverOverlay
+import com.yichao.evilgodxu.ui.component.player.TrackInfo
 import com.yichao.evilgodxu.ui.component.dialog.DeleteConfirmOverlay
 import com.yichao.evilgodxu.ui.component.dialog.RenameOverlay
 import com.yichao.evilgodxu.ui.component.dialog.SearchOverlay
 import com.yichao.evilgodxu.ui.component.dialog.SearchResultsOverlay
 import com.yichao.evilgodxu.ui.component.dialog.SettingsOverlay
 import com.yichao.evilgodxu.ui.component.dialog.TimerOverlay
-import com.yichao.evilgodxu.ui.component.LyricsPanel
-import com.yichao.evilgodxu.ui.component.LyricsRefreshOverlay
+import com.yichao.evilgodxu.ui.component.player.LyricsPanel
+import com.yichao.evilgodxu.ui.component.player.LyricsRefreshOverlay
 import kotlinx.coroutines.launch
 
 @Composable

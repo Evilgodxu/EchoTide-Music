@@ -56,11 +56,11 @@ import com.yichao.evilgodxu.screens.home.component.player.HomeAlbumArt
 import com.yichao.evilgodxu.screens.home.component.player.MarqueeInfoLine
 import com.yichao.evilgodxu.screens.home.component.player.PlayerControls
 import com.yichao.evilgodxu.screens.home.component.queue.PlaylistSheet
-import com.yichao.evilgodxu.ui.component.currentTrackNeedsLosslessUpgrade
-import com.yichao.evilgodxu.ui.component.TrackFormatInfoSection
-import com.yichao.evilgodxu.ui.component.VerticalProgressBar
-import com.yichao.evilgodxu.ui.component.CoverCarouselOverlay
-import com.yichao.evilgodxu.ui.component.LyricsPanel
+import com.yichao.evilgodxu.ui.component.player.currentTrackNeedsLosslessUpgrade
+import com.yichao.evilgodxu.ui.component.player.TrackFormatInfoSection
+import com.yichao.evilgodxu.ui.component.player.VerticalProgressBar
+import com.yichao.evilgodxu.ui.component.player.CoverCarouselOverlay
+import com.yichao.evilgodxu.ui.component.player.LyricsPanel
 import kotlinx.coroutines.launch
 
 // 横屏播放器：双栏结构（封面视觉区 → 歌词透视区）左右居中，标题栏与控制栏点击弹出

@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.ui.component
+package com.yichao.evilgodxu.ui.component.player
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -50,7 +50,9 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
-import com.yichao.evilgodxu.ui.component.DiscArt
+import com.yichao.evilgodxu.ui.component.rememberSystemThumbnail
+import com.yichao.evilgodxu.ui.component.player.DiscArt
+import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.copyToClipboard
 import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 
@@ -147,12 +149,6 @@ internal fun AlbumArt(track: MusicTrack?, modifier: Modifier = Modifier) {
     // 音乐面板封面（DiscArt 迷你播放器、刷新预览、轮播）：走系统略缩图即时出图；
     // 轮播居中封面最大约面板高度 55%，用 512px 请求保证清晰度，仍远轻于全量内嵌解码
     SystemCoverArt(track, modifier, thumbnailSize = 512, placeholderIconSize = 24.dp)
-}
-
-@Composable
-internal fun PlaylistArt(track: MusicTrack?, modifier: Modifier = Modifier) {
-    // 列表行略缩图很小，256px 系统略缩图已足够
-    SystemCoverArt(track, modifier, thumbnailSize = 256, placeholderIconSize = 12.dp)
 }
 
 // 长按菜单定位：水平居中于父布局，纵向紧贴父布局顶部或底部

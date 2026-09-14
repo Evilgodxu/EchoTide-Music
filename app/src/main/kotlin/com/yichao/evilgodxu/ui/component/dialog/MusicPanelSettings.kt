@@ -39,7 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.AppSwitch
 import com.yichao.evilgodxu.ui.icons.AppIcons
-import com.yichao.evilgodxu.ui.component.HeaderIconButton
+import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
 
 @Composable
 internal fun SettingsOverlay(

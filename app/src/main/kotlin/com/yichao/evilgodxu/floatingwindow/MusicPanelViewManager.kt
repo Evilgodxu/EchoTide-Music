@@ -38,7 +38,7 @@ import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.log.CrashLogManager
-import com.yichao.evilgodxu.ui.component.MusicPanelOverlay
+import com.yichao.evilgodxu.ui.component.player.MusicPanelOverlay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred

@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.ui.component
+package com.yichao.evilgodxu.floatingwindow.miniplayer
 
 // 迷你条紧凑布局常量（窗口宽度与 Compose 布局共用，调整尺寸时需同步）
 internal const val MINI_COVER_DP = 32

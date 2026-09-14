@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.ui.component
+package com.yichao.evilgodxu.ui.component.player
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedContent
@@ -53,6 +53,7 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.PlaylistArt
+import com.yichao.evilgodxu.ui.component.scrollPlaylistTo
 import kotlinx.coroutines.delay
 
 @Composable
