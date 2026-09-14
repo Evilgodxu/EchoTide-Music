@@ -64,6 +64,11 @@ class App : Application() {
         enableStrictModeInDebugBuild()
         // 最先初始化崩溃日志，捕获启动阶段异常
         CrashLogManager.init(this)
+        // 冷启动尽早恢复持久化播放列表：恢复任务由首个调用方触发（见 restoreSavedState），
+        // 此处预触发使首帧渲染时歌单与当前曲目已就绪，避免首页先以空态展示再等待首帧后的恢复
+        appScope.launch {
+            runCatching { stateHolder.state.restoreSavedState(applicationContext) }
+        }
         // 预热设置 DataStore，并把启动语言写入轻量镜像：
         // 下次冷启动 attachBaseContext 即可同步命中镜像，无需等待 DataStore 首次读取
         appScope.launch {

@@ -34,7 +34,9 @@ import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.R
 import java.io.File
 import kotlin.jvm.JvmName
+import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -98,6 +100,10 @@ class MusicPlaybackState(
     private var stateWriteJob: Job? = null
     private var playlistPersistJob: Job? = null
     private val persistenceMutex = Mutex()
+    // 冷启动恢复任务去重：并发调用方共享同一恢复任务并等待完成，
+    // 避免界面、悬浮窗与授权扫描各自触发重复的读盘与解析
+    private val restoreMutex = Mutex()
+    private var restoreJob: Deferred<Unit>? = null
     var appContext: Context? = null
     var mediaController: MediaController? by mutableStateOf(null)
     var player: Player? by mutableStateOf(null)
@@ -674,7 +680,16 @@ class MusicPlaybackState(
     val hasTrack: Boolean get() = currentTrack != null
 
     suspend fun restoreSavedState(context: Context) {
-        appContext = context.applicationContext
+        // 首个调用方负责恢复，其余调用方共享同一任务并等待完成（冷启动由 App 预触发）
+        val job = restoreMutex.withLock {
+            restoreJob ?: playbackScope.async { doRestoreSavedState(context.applicationContext) }
+                .also { restoreJob = it }
+        }
+        job.await()
+    }
+
+    private suspend fun doRestoreSavedState(context: Context) {
+        appContext = context
         searchHistory = withContext(Dispatchers.IO) {
             context.getSharedPreferences(searchHistoryPreferences, Context.MODE_PRIVATE)
                 .getString(searchHistoryKey, "")
