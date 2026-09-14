@@ -19,11 +19,10 @@ import androidx.compose.ui.platform.LocalContext
 import coil3.imageLoader
 import coil3.request.ImageRequest
 import coil3.toBitmap
-import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.theme.md_theme_dark_surface
 import com.yichao.evilgodxu.theme.md_theme_dark_surfaceVariant
-import java.io.File
+import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -39,7 +38,8 @@ internal fun SongGradientBackground(
     val context = LocalContext.current
     val defaultGradient = defaultSongGradient()
     var gradient by remember { mutableStateOf(defaultGradient) }
-    val model = songCoverModel(track)
+    // 封面写入版本号参与模型键：重新写入封面后缓存路径可能不变，需据此重建模型才能重算背景色
+    val model = coverModel(context, track, LocalMusicPanelStateHolder.current.state.coverRevision)
     LaunchedEffect(model, darkenStatusBarArea) {
         if (model != null) {
             val result = songGradient(context, model, darkenStatusBarArea)
@@ -70,23 +70,15 @@ private fun defaultSongGradient(): Brush =
         )
     )
 
-// 当前歌曲封面来源：磁盘缓存优先；
-// 本地音频源在后台提取内嵌封面完成前不触发在线封面请求，在线曲目同样等封面缓存落盘后再处理
-private fun songCoverModel(track: MusicTrack?): Any? {
-    return track?.coverCachePath
-        ?.takeIf { MusicMetadataCache.isValid(it) }
-        ?.let { File(it) }
-}
-
 // 以小尺寸解码封面，取上下半区平均色组成向下渐变并返回顶部主色；
-// 竖屏时顶部压暗保证状态栏区域足够深，横屏系统栏隐藏时跳过该处理
-private suspend fun songGradient(context: Context, model: Any, darkenStatusBarArea: Boolean): Pair<Brush, Color>? = withContext(Dispatchers.IO) {
-    val result = context.imageLoader.execute(
-        ImageRequest.Builder(context)
-            .data(model)
-            .size(32)
-            .build()
-    )
+// 竖屏时顶部压暗保证状态栏区域足够深，横屏系统栏隐藏时跳过该处理。
+// 沿用封面模型自带的缓存键，仅收窄解码尺寸
+private suspend fun songGradient(
+    context: Context,
+    request: ImageRequest,
+    darkenStatusBarArea: Boolean,
+): Pair<Brush, Color>? = withContext(Dispatchers.IO) {
+    val result = context.imageLoader.execute(request.newBuilder().size(32).build())
     val source = result.image?.toBitmap() ?: return@withContext null
     val bitmap = if (source.config == Bitmap.Config.HARDWARE) {
         source.copy(Bitmap.Config.ARGB_8888, false) ?: return@withContext null

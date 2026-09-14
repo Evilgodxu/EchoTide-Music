@@ -17,7 +17,6 @@ import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
-import java.security.MessageDigest
 import kotlin.math.roundToInt
 import org.json.JSONArray
 import org.json.JSONObject
@@ -34,10 +33,11 @@ internal object MusicMetadataCache {
     private const val COVER_DIR = "Cover"
     private const val LYRIC_DIR = "Lyrics"
 
-    // 封面缓存允许的扩展名（WEBP 为主、PNG 兜底两路写入），清理时防误删目录内其他用途文件
-    private val COVER_CACHE_EXTENSIONS = setOf("webp", "png")
+    // 封面缓存允许的扩展名，按写入回退顺序排列（WEBP 为主、PNG 兜底）：
+    // 查找与清理共用同一份事实，避免两处顺序或集合不一致
+    private val COVER_CACHE_EXTENSIONS = listOf("webp", "png")
     // 歌词缓存允许的扩展名
-    private val LYRIC_CACHE_EXTENSIONS = setOf("lrc")
+    private val LYRIC_CACHE_EXTENSIONS = listOf("lrc")
     // 孤儿回收的作用域上限：只认这两个子目录，新增缓存类型须独立建目录 + 独立扩展名白名单
     private val CACHE_DIR_NAMES = listOf(COVER_DIR, LYRIC_DIR)
     // 立即回收的写入竞态宽限期：外部写封面先落盘后写曲目引用，晚于该窗口的缓存可能尚未被引用，跳过避免误删
@@ -68,14 +68,20 @@ internal object MusicMetadataCache {
     // 供缓存台账统计歌词占用：与写入端共用同一路径解析，不另立一份
     internal fun lyricRoot(context: Context): File = File(mediaRoot(context), LYRIC_DIR)
 
-    // 歌词文件按“标题 - 艺术家”命名，空字段自动忽略，保证可读且避免同名覆盖
-    private fun lyricFileName(title: String, artist: String): String {
-        val name = listOf(title, artist)
+    // 缓存索引名：按“标题 - 艺术家”命名，空字段自动忽略，两者皆空回退 unknown。
+    // 封面与歌词共用同一索引，于是文件名可由曲目元数据直接推出——不依赖曲目里记录的引用即可查回，
+    // 代价是标题与艺术家都相同的曲目（含超过 80 字符被截断后同名前缀的曲目）共享同一份缓存文件
+    private fun metadataIndexName(title: String, artist: String): String = sanitizeFileName(
+        listOf(title, artist)
             .filter { it.isNotBlank() }
             .joinToString(" - ")
             .ifBlank { "unknown" }
-        return "${sanitizeFileName(name)}.lrc"
-    }
+    )
+
+    private fun cacheFileName(title: String, artist: String, extension: String): String =
+        "${metadataIndexName(title, artist)}.$extension"
+
+    private fun lyricFileName(title: String, artist: String): String = cacheFileName(title, artist, "lrc")
 
     private fun lyricFile(context: Context, title: String, artist: String): File =
         File(lyricRoot(context), lyricFileName(title, artist))
@@ -204,41 +210,46 @@ internal object MusicMetadataCache {
         }.getOrNull()
     }
 
-    fun saveCover(context: Context, id: Long, originalBytes: ByteArray): String? = try {
+    fun saveCover(context: Context, title: String, artist: String, originalBytes: ByteArray): String? = try {
         val bitmap = decodeSampledBitmap(originalBytes) ?: return null
         try {
-            saveCover(context, id, bitmap)
+            saveCover(context, title, artist, bitmap)
         } finally {
             bitmap.recycle()
         }
     } catch (e: Exception) {
-        CrashLogManager.logException("MusicMetadataCache", "保存封面失败: 来源=${originalBytes.size}B", e)
+        CrashLogManager.logException("MusicMetadataCache", "保存封面失败: 歌曲=$title - $artist 来源=${originalBytes.size}B", e)
         null
     }
 
-    fun saveCover(context: Context, id: Long, bitmap: Bitmap): String? = try {
-        // 先编码到内存并取内容哈希作为文件名：同图共享同一文件，天然去重
+    fun saveCover(context: Context, title: String, artist: String, bitmap: Bitmap): String? = try {
+        // 文件名取自「标题 - 艺术家」索引，与歌词同款：可由曲目元数据直接推出，
+        // 换封面即覆盖同名文件，同名曲共享同一封面（WebP 编码结果不再参与命名，故同一张图
+        // 在不同设备/版本上编码出的字节差异不会再产生第二份文件）
         val webpBytes = ByteArrayOutputStream().use { out ->
             if (bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 92, out)) out.toByteArray() else null
         }
         if (webpBytes != null) {
-            val key = contentKey(webpBytes)
-            val cached = writeCacheFile(context, COVER_DIR, "$key.webp", webpBytes)
+            val cached = writeCacheFile(context, COVER_DIR, cacheFileName(title, artist, "webp"), webpBytes)
             if (cached != null) return cached.absolutePath
         }
-        // WEBP 编码/写入失败，回退为 PNG 原样保存
+        // WEBP 编码/写入失败，回退为 PNG 原样保存（同一索引名、仅扩展名不同）
         val pngBytes = ByteArrayOutputStream().use { out ->
             if (bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) out.toByteArray() else return null
         }
-        writeCacheFile(context, COVER_DIR, "${contentKey(pngBytes)}.png", pngBytes)?.absolutePath
+        writeCacheFile(context, COVER_DIR, cacheFileName(title, artist, "png"), pngBytes)?.absolutePath
     } catch (e: Exception) {
-        CrashLogManager.logException("MusicMetadataCache", "保存封面失败: 封面尺寸=${bitmap.width}x${bitmap.height}", e)
+        CrashLogManager.logException("MusicMetadataCache", "保存封面失败: 歌曲=$title - $artist 封面尺寸=${bitmap.width}x${bitmap.height}", e)
         null
     }
 
-    // 封面内容 SHA-256 前 8 字节的十六进制作为缓存文件名，实现同图去重
-    private fun contentKey(bytes: ByteArray): String =
-        MessageDigest.getInstance("SHA-256").digest(bytes).take(8).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    // 按「标题 - 艺术家」查找已存在的封面缓存文件；查找顺序与写入回退顺序一致，WebP 命中即不再看 PNG
+    fun findCover(context: Context, title: String, artist: String): String? {
+        val root = coverRoot(context)
+        return COVER_CACHE_EXTENSIONS
+            .map { File(root, cacheFileName(title, artist, it)).absolutePath }
+            .firstOrNull { isValid(it) }
+    }
 
     fun saveLyrics(context: Context, title: String, artist: String, lines: List<LyricLine>): String? = try {
         val name = lyricFileName(title, artist)
@@ -377,12 +388,12 @@ internal object MusicMetadataCache {
 
     fun isValid(path: String): Boolean = path.isNotBlank() && File(path).let { it.isFile && it.length() > 0 }
 
-    // 是否为新版内容哈希命名的封面缓存（旧版按歌曲 id 命名，用于一次性迁移为哈希命名）
-    fun isHashKeyFileName(path: String): Boolean = runCatching {
-        File(path).nameWithoutExtension.matches(HASH_KEY_REGEX)
+    // 封面缓存文件名是否由当前「标题 - 艺术家」索引生成。旧版按歌曲 id 或内容哈希命名的文件不匹配，
+    // 会按新索引重新提取并落盘；纯字符串判定，不含文件 IO
+    fun isIndexedCoverName(path: String, title: String, artist: String): Boolean = runCatching {
+        val file = File(path)
+        file.extension in COVER_CACHE_EXTENSIONS && file.name == cacheFileName(title, artist, file.extension)
     }.getOrDefault(false)
-
-    private val HASH_KEY_REGEX = Regex("[0-9a-f]{16}")
 
     fun loadCoverBytes(path: String): ByteArray? = try {
         if (!isValid(path)) null else File(path).readBytes()

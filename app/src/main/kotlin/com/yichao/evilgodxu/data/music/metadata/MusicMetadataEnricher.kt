@@ -155,16 +155,22 @@ class MetadataEnricher {
     private fun plansMetadataFor(track: MusicTrack): Boolean =
         needsCover(track) || needsLyrics(track)
 
-    // 封面缓存是否有效且为哈希命名（新版缓存，无需重新提取）
+    // 封面缓存是否有效且按「标题 - 艺术家」索引命名（当前命名规则，无需重新提取）；
+    // 旧版按歌曲 id / 内容哈希命名的缓存不匹配，会按新索引重建
     private fun coverOwned(track: MusicTrack): Boolean =
         MusicMetadataCache.isValid(track.coverCachePath) &&
-            MusicMetadataCache.isHashKeyFileName(track.coverCachePath)
+            MusicMetadataCache.isIndexedCoverName(track.coverCachePath, track.title, track.artist)
 
-    // 封面缺失即需补全。引用已落盘、如今文件失效（被删 / 被清空）时 coverFailed 不作数：
-    // 曾成功落盘说明封面本可得，失败标记只针对「本地三层均不可得」，不该挡住这里的重建
+    // 封面缺失即需补全。缓存未被当前索引持有时仍要重建的两种情形：一是本轮尚未尝试过
+    // （coverFailed 为假，含旧版命名缓存待迁移）；二是引用已落盘、文件却已失效（被删 / 被清空）
+    // —— 曾成功落盘说明封面本可得，失败标记不该挡住重建。
+    // 文件仍有效时不重试：提取失败只说明当前取不到，缓存本身仍可显示，反复重试会随列表滚动
+    // 反复读音频；旧版命名缓存迁移不到就保留，不影响显示
     private fun needsCover(track: MusicTrack): Boolean =
-        !coverOwned(track) &&
-            (!track.coverFailed || track.coverCachePath.isNotBlank())
+        !coverOwned(track) && (
+            !track.coverFailed ||
+                (track.coverCachePath.isNotBlank() && !MusicMetadataCache.isValid(track.coverCachePath))
+            )
 
     // 歌词未挂载即需处理：有有效缓存路径时必须读回内容；
     // 仅当既无缓存又已标记失败时才跳过，避免 lyricFailed 挡住缓存歌词的恢复
@@ -199,8 +205,8 @@ class MetadataEnricher {
         // 筛选与排序放 IO：封面缓存有效性判定含文件 stat，主线程逐首判定的代价远高于内存比较
         val ordered = withContext(Dispatchers.IO) {
             tracks
-                // 提取条件与 needsCover 同源：封面缓存按内容哈希命名且文件有效才算已具备
-                // （旧版按歌曲 id 命名的缓存不匹配，重新提取时自动迁移为哈希命名，同图去重）；
+                // 提取条件与 needsCover 同源：封面缓存按「标题 - 艺术家」索引命名且文件有效才算已具备
+                // （旧版按歌曲 id 或内容哈希命名的缓存不匹配，重新提取时自动迁移为新索引）；
                 // 另需有可读的本地源——纯在线流曲目无本地文件，直接留占位符
                 .filter { needsCover(it) && (it.path.isNotBlank() || isLocalFileUri(it.audioUri)) }
                 .sortedWith(compareBy { it.id != currentId })
@@ -253,18 +259,23 @@ class MetadataEnricher {
     // 提取单曲本地封面（内嵌原图 → 系统专辑封面 → 系统缩略图）写入本地缓存；
     // 三层均不可得即标记失败转占位显示，不联网补齐
     private suspend fun enrichLocalCover(context: Context, track: MusicTrack): MusicTrack? = try {
+        // 先复用既有索引文件：封面名可由「标题 - 艺术家」直接推出，曲目换 id、重新入库或引用丢失时
+        // 无需再解码一遍音频；与歌词按同一索引复用共享缓存同源
+        MusicMetadataCache.findCover(context, track.title, track.artist)?.let { path ->
+            return track.copy(coverCachePath = path, coverFailed = false)
+        }
         val result = MusicScanner.loadAlbumArt(
             context, context.contentResolver,
             Uri.parse(track.audioUri), track.albumId, track.path
         ) ?: return track.copy(
             coverFailed = true,
-            // 只丢弃已失效的引用；仍可显示的旧式（非哈希命名）缓存保留，避免提取临时失败时抹掉可用封面
+            // 只丢弃已失效的引用；仍可显示的旧版命名缓存保留，避免提取临时失败时抹掉可用封面
             coverCachePath = track.coverCachePath.takeIf { MusicMetadataCache.isValid(it) }.orEmpty(),
         )
         val cover = result.bitmap
         try {
-            val coverPath = MusicMetadataCache.saveCover(context, track.id, cover).orEmpty()
-            // 旧文件若已无引用，由扫描后的窗口回收统一处理（连续数天无引用才删），避免误删被共享的封面
+            val coverPath = MusicMetadataCache.saveCover(context, track.title, track.artist, cover).orEmpty()
+            // 旧索引下的文件若已无引用，由扫描后的窗口回收统一处理（连续数天无引用才删），避免误删共享的封面
             track.copy(coverCachePath = coverPath, coverFailed = false)
         } finally {
             cover.recycle()
@@ -393,7 +404,7 @@ class MetadataEnricher {
     ): MusicTrack? {
         val base = playbackState.playlist.firstOrNull { it.id == cover.id } ?: return cover
         // 路径与失败标记均取本次提取结果：成功时落盘新路径并清闩锁，
-        // 失败时保留仍有效的旧式命名缓存、丢弃已失效引用
+        // 失败时保留仍有效的旧版命名缓存、丢弃已失效引用
         val merged = base.copy(
             coverCachePath = cover.coverCachePath,
             coverFailed = cover.coverFailed,

@@ -255,9 +255,9 @@ internal suspend fun applyCoverCandidate(
             val bytes = NeteaseMusicApi.loadCoverBytes(candidate.coverUrl.orEmpty()) ?: return@withContext null
             // 手动刷新封面：按音频容器格式原生写入元数据
             val writeSuccess = MusicMetadataWriter.writeCover(context, track, bytes)
-            val path = MusicMetadataCache.saveCover(context, candidate.id, bytes).orEmpty()
+            val path = MusicMetadataCache.saveCover(context, track.title, track.artist, bytes).orEmpty()
             if (path.isBlank()) return@withContext null
-            // 旧文件若已无引用，由扫描后的窗口回收统一处理（连续数天无引用才删），避免误删被共享的封面
+            // 旧索引下的文件若已无引用，由扫描后的窗口回收统一处理（连续数天无引用才删），避免误删共享的封面
             track.copy(
                 neteaseId = candidate.id,
                 neteaseCoverUrl = if (writeSuccess) "" else candidate.coverUrl.orEmpty(),
@@ -523,7 +523,8 @@ internal suspend fun downloadAndPlay(
                     NeteaseMusicApi.loadCoverBytes(coverUrl)
                 }
                 ?: return@async null
-            val coverPath = MusicMetadataCache.saveCover(context, result.id, bytes).orEmpty()
+            // 落盘索引名与入库曲目的标题/艺术家一致，缓存才可直接由元数据推出
+            val coverPath = MusicMetadataCache.saveCover(context, result.title, result.artist, bytes).orEmpty()
             if (coverPath.isBlank()) return@async null
             withContext(Dispatchers.Main) {
                 // updateTrack 同步回写并持久化引用：仅改内存态会丢失持久化引用，

@@ -16,7 +16,7 @@ import java.io.FileNotFoundException
  * 因此系统进程能通过此 Provider 读取本地缓存目录下的封面文件。
  *
  * URI 格式: content://{packageName}.musiccover/{文件名不含扩展名}
- * 例如: content://com.yichao.evilgodxu.musiccover/12345
+ * 例如: content://com.yichao.evilgodxu.musiccover/晴天 - 周杰伦
  *
  * 按 webp → png → image(旧版) 顺序查找文件。
  */
@@ -50,11 +50,21 @@ class MusicCoverProvider : ContentProvider() {
     companion object {
         const val AUTHORITY_SUFFIX = ".musiccover"
 
-        /** 根据 coverCachePath 生成 content:// URI */
+        /**
+         * 根据 coverCachePath 生成 content:// URI。
+         *
+         * 缓存文件名取自「标题 - 艺术家」索引，可能含空格、`#`、`%` 等对 URI 有语义的字符，
+         * 故逐段经 Builder 追加（自动转义），不按字符串拼接——拼接会让 `#` 之后的部分被当作
+         * fragment 丢弃，解析回来的路径段与 openFile 要查的文件名不一致
+         */
         fun buildUri(packageName: String, coverCachePath: String): Uri? {
             if (coverCachePath.isBlank()) return null
             val name = File(coverCachePath).nameWithoutExtension
-            return Uri.parse("content://$packageName$AUTHORITY_SUFFIX/$name")
+            return Uri.Builder()
+                .scheme("content")
+                .authority("$packageName$AUTHORITY_SUFFIX")
+                .appendPath(name)
+                .build()
         }
     }
 }

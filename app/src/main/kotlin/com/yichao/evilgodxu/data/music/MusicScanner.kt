@@ -56,7 +56,7 @@ object MusicScanner {
             retriever.embeddedPicture?.let { picture ->
                 MusicMetadataCache.decodeSampledBitmap(picture)?.let { art ->
                     try {
-                        coverCachePath = MusicMetadataCache.saveCover(context, trackId, art).orEmpty()
+                        coverCachePath = MusicMetadataCache.saveCover(context, title, artist, art).orEmpty()
                     } finally {
                         art.recycle()
                     }
