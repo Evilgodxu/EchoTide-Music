@@ -21,6 +21,7 @@ import com.yichao.evilgodxu.data.music.analysis.isLosslessFormatName
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.panel.resolvePlayUrlByQuality
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.data.music.playback.refreshCurrentPlaybackSource
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
 import kotlin.coroutines.resume
@@ -423,8 +424,10 @@ internal suspend fun upgradeTrackToLossless(
     }
     // 写入标题/艺术家；封面沿用旧文件内嵌原图
     embedUpgradeMetadata(context, playbackState, track, candidate)
-    // 无损升级不强制切换当前播放源：旧文件继续播到自然结束，新文件在下次播放该曲目时
-    // 经 playlist 重建队列自然接替。旧文件正被播放则登记延迟删除，避免升级过程中断当前播放
+    // 无损升级自然接替：替换当前播放项指向新无损文件，播放器随即以新文件续播，
+    // 音频信息条（读取实际播放源）同步更新为新格式，避免用户误以为未升级而重复点击
+    refreshCurrentPlaybackSource(playbackState)
+    // 旧文件此刻已被播放器释放（或即将释放），据此登记延迟删除；仍被占用则待播放离开后再删
     scheduleOldFileDeletion(context, playbackState, track, newUri)
     // 触发媒体扫描：新文件入库，旧文件条目同步移除
     if (newPath.isNotBlank()) {

@@ -183,3 +183,29 @@ fun refreshCurrentMediaItem(state: MusicPlaybackState) {
         }
     }
 }
+
+/**
+ * 无损升级完成后把当前播放项替换为指向新无损文件的 MediaItem，实现自然接替：
+ * 播放器随即以新文件继续播出，系统媒体面板与音频信息条（读取实际播放源）同步更新为新格式。
+ * 替换前记录播放状态与进度，替换后据此恢复：播放中续播、暂停中保持暂停，避免从 0 重播或错乱。
+ * 旧文件由调用方延迟删除（播放离开该文件后再删），此处不触碰文件。
+ */
+fun refreshCurrentPlaybackSource(state: MusicPlaybackState) {
+    val controller = state.mediaController ?: return
+    val track = state.currentTrack ?: return
+    val index = state.currentIndex
+    if (index < 0) return
+    state.playbackScope.launch {
+        if (controller.mediaItemCount != state.playlist.size) return@launch
+        val current = controller.currentMediaItem ?: return@launch
+        if (current.mediaId != track.id.toString()) return@launch
+        val newItem = toMediaItem(track)
+        if (current.localConfiguration?.uri?.toString() == newItem.localConfiguration?.uri?.toString()) return@launch
+        // 替换前记录播放状态与进度，替换后据此恢复：本地文件源切换耗时短，续播不中断
+        val wasPlaying = controller.isPlaying
+        val resumePosition = controller.currentPosition.coerceAtLeast(0L)
+        controller.replaceMediaItem(index, newItem)
+        if (resumePosition > 0) controller.seekTo(resumePosition)
+        if (wasPlaying) controller.play() else controller.pause()
+    }
+}
