@@ -14,6 +14,7 @@ import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
+import com.yichao.evilgodxu.data.music.metadata.SystemThumbnailCache
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.analysis.isLosslessFormatName
@@ -402,6 +403,10 @@ internal suspend fun upgradeTrackToLossless(
     if (!track.isLocalAudioSource) return false
     val url = resolvePlayUrlByQuality(context, candidate, MusicQuality.LOSSLESS) ?: return false
     val newUri = downloadLosslessToDownloads(context, candidate, url) ?: return false
+    // 无损升级只换音频文件、封面不变：先承接旧文件的系统略缩图与背景取色结果到新 URI，
+    // 避免 audioUri 切换后封面闪占位符、背景回落默认色（新文件系统略缩图需等媒体扫描就绪）
+    SystemThumbnailCache.remap(track.audioUri, newUri)
+    playbackState.remapGradientUri(track.audioUri, newUri)
     val newPath = queryMediaPath(context, Uri.parse(newUri)).orEmpty()
     // 索引转向新文件：同时更新本地路径，使曲目身份指向新的无损文件
     withContext(Dispatchers.Main) {

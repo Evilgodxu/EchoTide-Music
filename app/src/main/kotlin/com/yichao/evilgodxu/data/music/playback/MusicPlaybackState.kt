@@ -958,6 +958,24 @@ class MusicPlaybackState(
     fun restoredGradientFor(track: MusicTrack?): Pair<Color, Color>? =
         if (track != null && track.audioUri == savedGradientUri) savedGradient else null
 
+    // 无损升级替换音频文件时 URI 变化但封面/背景不变：把已持久化的取色结果改指到新 URI，
+    // 避免升级后背景回落默认色（新文件系统略缩图未就绪前也保持既有背景）
+    fun remapGradientUri(fromUri: String, toUri: String) {
+        if (savedGradientUri != fromUri) return
+        savedGradientUri = toUri
+        val gradient = savedGradient ?: return
+        val context = appContext ?: return
+        playbackScope.launch {
+            withContext(Dispatchers.IO) {
+                context.settingsDataStore.edit { preferences ->
+                    preferences[savedGradientUriKey] = toUri
+                    preferences[savedGradientTopKey] = gradient.first.toArgb()
+                    preferences[savedGradientBottomKey] = gradient.second.toArgb()
+                }
+            }
+        }
+    }
+
     // 首页背景真实取色成功后持久化，供下次冷启动恢复
     fun saveBackgroundGradient(top: Color, bottom: Color) {
         val uri = currentTrack?.audioUri ?: return

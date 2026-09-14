@@ -28,6 +28,15 @@ internal object SystemThumbnailCache {
         cache.put(Key(audioUri, sizePx), bitmap)
     }
 
+    /** 无损升级替换音频文件时 URI 变化但封面不变：把已驻留的略缩图改指到新 URI，
+     *  使新文件系统略缩图就绪前显示端仍承接同一张封面，不闪占位符。 */
+    fun remap(fromUri: String, toUri: String) {
+        for ((key, bitmap) in cache.snapshot().filterKeys { it.audioUri == fromUri }) {
+            cache.remove(key)
+            cache.put(Key(toUri, key.sizePx), bitmap)
+        }
+    }
+
     /** 作废全部驻留结果：封面被重写后，旧位图不再成立 */
     fun clear() {
         cache.evictAll()
