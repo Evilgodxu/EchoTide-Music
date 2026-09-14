@@ -58,19 +58,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 手动 DI：经 Application 容器取依赖，ViewModel 以工厂注入构造参数
-    private val appContainer: AppContainer
-        get() = (application as App).container
+    // 手动 DI：经 Application 取应用级单例，ViewModel 以工厂注入构造参数
+    private val app: App
+        get() = application as App
     private val localizationManager: LocalizationManager
-        get() = appContainer.localizationManager
+        get() = app.localizationManager
     private val musicPanelController: MusicPanelController
-        get() = appContainer.musicPanelController
+        get() = app.musicPanelController
     private val activityViewModel: MainViewModel by viewModels {
         viewModelFactory {
             initializer {
                 MainViewModel(
-                    settingsRepository = appContainer.settingsRepository,
-                    appVersion = appContainer.appVersion,
+                    settingsRepository = app.settingsRepository,
+                    appVersion = app.appVersion,
                 )
             }
         }
@@ -112,7 +112,7 @@ class MainActivity : ComponentActivity() {
         })
 
         setContent {
-            ProvideAppDependencies(appContainer) {
+            ProvideAppDependencies(app) {
                 CompositionLocalProvider(LocalMainViewModel provides activityViewModel) {
                     ProvideLocalizedContext(localizationManager) {
                         ProvideWindowSizeClass {

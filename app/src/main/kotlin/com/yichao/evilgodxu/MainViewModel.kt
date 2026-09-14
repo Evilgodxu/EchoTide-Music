@@ -45,6 +45,14 @@ class MainViewModel(
     }
 }
 
+// 应用级 UI 状态：聚合全局主题、语言与版本，供主题、本地化与各页面 UI 共同消费。
+// 仅被 MainViewModel 占用，随最上层持有者内联于此
+data class AppUiState(
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val language: AppLanguage = AppLanguage.SYSTEM,
+    val version: String = "",
+)
+
 // 供界面树消费的 CompositionLocal，由宿主 Activity 提供
 val LocalMainViewModel = staticCompositionLocalOf<MainViewModel> {
     error("MainViewModel is not provided")

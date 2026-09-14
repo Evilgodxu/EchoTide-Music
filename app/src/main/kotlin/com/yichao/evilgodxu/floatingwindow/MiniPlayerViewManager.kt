@@ -32,7 +32,6 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.yichao.evilgodxu.App
-import com.yichao.evilgodxu.AppContainer
 import com.yichao.evilgodxu.ProvideAppDependencies
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
@@ -73,9 +72,9 @@ class MiniPlayerViewManager(
 
     val isShowing: Boolean get() = composeView != null
 
-    // 悬浮窗组合树所需的应用级 DI 容器：经 Application 单例取用
-    private fun appContainer(): AppContainer =
-        (context.applicationContext as App).container
+    // 悬浮窗组合树所需的应用级单例宿主：经 Application 取用
+    private fun app(): App =
+        context.applicationContext as App
 
     private val lifecycleOwner = object : LifecycleOwner {
         private val lifecycleRegistry = LifecycleRegistry(this)
@@ -124,7 +123,7 @@ class MiniPlayerViewManager(
             setContent {
                 // 悬浮窗独立于 Activity 组合树，须自行为应用级依赖提供值，
                 // 否则内部组件读取组合局部会触发默认 error 崩溃
-                ProvideAppDependencies(appContainer()) {
+                ProvideAppDependencies(app()) {
                     MiniPlayerOverlay(
                         playbackState = playbackState,
                         barHeightPx = barH,

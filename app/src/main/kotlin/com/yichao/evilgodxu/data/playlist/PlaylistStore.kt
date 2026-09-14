@@ -16,7 +16,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 // 自定义歌单存储：JSON 持久化于 SharedPreferences，内存态驱动 Compose 重组。
-// 由 AppContainer 以单例持有，全库共享同一状态实例
+// 由 App 以单例持有，全库共享同一状态实例
 class PlaylistStore {
     companion object {
         private const val PREFS = "music_playlists_preferences"

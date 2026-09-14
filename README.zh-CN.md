@@ -63,7 +63,7 @@
 | UI | Jetpack Compose(BOM 2026.08.00)+ Material 3 |
 | 播放 | Media3 ExoPlayer 1.11.0 + MediaSessionService |
 | 导航 | AndroidX Navigation3 1.1.7(类型安全路由) |
-| 依赖注入 | 手动 DI(AppContainer) |
+| 依赖注入 | 手动 DI(单例挂在 Application) |
 | 持久化 | DataStore Preferences 1.2.1 |
 | 图片加载 | Coil 3.6.2 |
 | 网络 | OkHttp 5.5.0 |
@@ -112,12 +112,10 @@
 │       │   ├── update/                  # 检查更新、应用内更新与 APK 校验
 │       │   ├── utils/                   # 通用工具
 │       │   ├── windowsize/              # 窗口尺寸类判定
-│       │   ├── App.kt                   # Application 入口(持有 AppContainer)
-│       │   ├── AppContainer.kt          # 手动 DI 容器(应用级单例)
+│       │   ├── App.kt                   # Application 入口(持有单例与组合局部)
 │       │   ├── AppContent.kt            # 根可组合项(导航宿主与全局弹窗)
-│       │   ├── AppUiState.kt            # 应用级 UI 状态(主题 / 语言 / 版本)
 │       │   ├── MainActivity.kt          # 唯一 Activity
-│       │   └── MainViewModel.kt         # Activity 专属 ViewModel
+│       │   └── MainViewModel.kt         # Activity 专属 ViewModel(含 AppUiState)
 │       └── res/                         # 资源(values / values-en)
 ├── gradle/
 │   ├── libs.versions.toml               # 版本目录(依赖管理)
@@ -131,7 +129,7 @@
 
 ## 架构
 
-应用遵循 **MVVM + 单向数据流**:状态由 `ViewModel` → `UiState` → UI 自上而下流动,事件由 UI 自下而上传递;共享数据逻辑位于 `data/` 层并通过 Repository 暴露,全部由**手动依赖注入**组装——`Application.onCreate()` 中构建一次 `AppContainer`,持有全部应用级单例,并通过具名组合局部(CompositionLocal)暴露给界面树。
+应用遵循 **MVVM + 单向数据流**:状态由 `ViewModel` → `UiState` → UI 自上而下流动,事件由 UI 自下而上传递;共享数据逻辑位于 `data/` 层并通过 Repository 暴露,全部由**手动依赖注入**组装——每一个应用级单例挂在 `Application` 上,并通过具名组合局部(CompositionLocal)暴露给界面树。
 
 页面代码采用**分形态组装(per-form assembly)模式**:
 

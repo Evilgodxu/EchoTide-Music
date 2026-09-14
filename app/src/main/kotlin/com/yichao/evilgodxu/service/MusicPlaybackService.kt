@@ -29,9 +29,9 @@ import kotlinx.coroutines.launch
 @OptIn(UnstableApi::class)
 class MusicPlaybackService : MediaSessionService() {
     private lateinit var player: ExoPlayer
-    // 系统创建的服务无法构造注入，经 Application 容器取共享单例
+    // 系统创建的服务无法构造注入，经 Application 取共享单例
     private val stateHolder: MusicPanelStateHolder
-        get() = (application as App).container.stateHolder
+        get() = (application as App).stateHolder
     private var mediaSession: MediaSession? = null
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null

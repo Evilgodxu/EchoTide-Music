@@ -63,7 +63,7 @@
 | UI | Jetpack Compose (BOM 2026.08.00) + Material 3 |
 | Playback | Media3 ExoPlayer 1.11.0 + MediaSessionService |
 | Navigation | AndroidX Navigation3 1.1.7 (typed routes) |
-| DI | Manual DI (AppContainer) |
+| DI | Manual DI (singletons on Application) |
 | Persistence | DataStore Preferences 1.2.1 |
 | Image loading | Coil 3.6.2 |
 | Network | OkHttp 5.5.0 |
@@ -112,12 +112,10 @@
 │       │   ├── update/                  # Version check, in-app update & APK hash verification
 │       │   ├── utils/                   # Shared utilities
 │       │   ├── windowsize/              # Window size class detection
-│       │   ├── App.kt                   # Application entry (holds AppContainer)
-│       │   ├── AppContainer.kt          # Manual DI container (app-level singletons)
+│       │   ├── App.kt                   # Application entry (holds singletons + CompositionLocals)
 │       │   ├── AppContent.kt            # Root composable (nav host + global dialogs)
-│       │   ├── AppUiState.kt            # App-level UI state (theme / language / version)
 │       │   ├── MainActivity.kt          # Sole activity
-│       │   └── MainViewModel.kt         # Activity-scoped ViewModel
+│       │   └── MainViewModel.kt         # Activity-scoped ViewModel (incl. AppUiState)
 │       └── res/                         # Resources (values / values-en)
 ├── gradle/
 │   ├── libs.versions.toml               # Version catalog (dependencies)
@@ -131,7 +129,7 @@
 
 ## Architecture
 
-The app follows **MVVM with unidirectional data flow**: state flows down from `ViewModel` → `UiState` → UI, while events flow up from the UI to the `ViewModel`. Shared data logic lives in the `data/` layer behind a repository, and everything is wired together by **manual dependency injection** — an `AppContainer` built once in `Application.onCreate()` holds every app-level singleton and is exposed to the UI through named CompositionLocals.
+The app follows **MVVM with unidirectional data flow**: state flows down from `ViewModel` → `UiState` → UI, while events flow up from the UI to the `ViewModel`. Shared data logic lives in the `data/` layer behind a repository, and everything is wired together by **manual dependency injection** — every app-level singleton lives on the `Application` and is exposed to the UI through named CompositionLocals.
 
 Screens are organized with a **per-form assembly pattern**:
 
