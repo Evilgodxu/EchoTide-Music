@@ -61,6 +61,7 @@ internal fun CurrentCover(
     onClick: () -> Unit,
     onOnlineCover: () -> Unit = {},
     onLocalCover: () -> Unit = {},
+    onSaveCover: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -90,13 +91,17 @@ internal fun CurrentCover(
                 showMenu = false
                 onLocalCover()
             },
+            onSaveCover = {
+                showMenu = false
+                onSaveCover()
+            },
             onDismiss = { showMenu = false }
         )
     }
 }
 
-// 封面显示的唯一来源：系统略缩图（见 rememberSystemThumbnail）。取不到即占位符——
-// 应用不自建封面缓存、不提取内嵌封面兜底，也不回退在线封面地址：
+// 封面显示：索引曲目取系统略缩图，非索引曲目取音频文件的内嵌封面（见 rememberSystemThumbnail）。
+// 取不到即占位符——应用不落盘封面缓存，也不回退在线封面地址：
 // 在线曲目落盘入库后由系统的媒体扫描生成略缩图，此前的最终刷新会驱动本组件重新取图。
 // [thumbnailSize] 按显示尺寸适配：列表行 256px，音乐面板/轮播/迷你播放器 512px。
 @Composable
@@ -182,6 +187,7 @@ internal fun CoverContextMenu(
     visible: Boolean,
     onOnlineCover: () -> Unit,
     onLocalCover: () -> Unit,
+    onSaveCover: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     if (visible) {
@@ -204,6 +210,15 @@ internal fun CoverContextMenu(
                     Surface(shape = RoundedCornerShape(6.dp), color = Color.Transparent, onClick = onLocalCover) {
                         Text(
                             text = stringResource(R.string.music_panel_local_cover),
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                        )
+                    }
+                    Surface(shape = RoundedCornerShape(6.dp), color = Color.Transparent, onClick = onSaveCover) {
+                        Text(
+                            text = stringResource(R.string.music_panel_save_cover),
                             color = MaterialTheme.colorScheme.primary,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,

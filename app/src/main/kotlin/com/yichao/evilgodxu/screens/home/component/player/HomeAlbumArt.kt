@@ -25,11 +25,11 @@ import com.yichao.evilgodxu.theme.md_theme_dark_background
 import com.yichao.evilgodxu.ui.component.rememberSystemThumbnail
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 首页大封面按面板尺寸取图：系统略缩图最大档即为该尺寸，再大也只是插值放大
+// 首页大封面按面板尺寸取图：512 已是可用封面图的最大档，再大也只是插值放大
 private const val HOME_COVER_THUMBNAIL_SIZE = 512
 
-// 首页大封面：与其余封面显示处同源，只取系统略缩图（见 rememberSystemThumbnail）；
-// 系统无略缩图即显示占位符，不回退内嵌原图或在线封面地址
+// 首页大封面：与其余封面显示处同源（见 rememberSystemThumbnail）；
+// 封面图取不到即显示占位符，不回退在线封面地址
 @Composable
 internal fun HomeAlbumArt(track: MusicTrack?, modifier: Modifier = Modifier) {
     val thumbnail = rememberSystemThumbnail(track, HOME_COVER_THUMBNAIL_SIZE)

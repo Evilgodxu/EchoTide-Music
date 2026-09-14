@@ -11,7 +11,7 @@ data class MusicTrack(
     val albumId: Long,
     val albumName: String = "",
     val neteaseId: Long = 0L,
-    // 在线封面地址：仅作在线播放时下载封面原图的凭据，不参与显示（显示统一读系统略缩图）
+    // 在线封面地址：仅作在线播放时下载封面原图的凭据，不参与显示（显示端从音频文件取封面）
     val neteaseCoverUrl: String = "",
     val lyricCachePath: String = "",
     internal val lyricLines: List<LyricLine> = emptyList(),

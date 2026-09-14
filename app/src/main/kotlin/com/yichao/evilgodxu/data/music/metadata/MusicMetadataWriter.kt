@@ -918,7 +918,9 @@ internal object MusicMetadataWriter {
         }
     }
 
-    private fun sniffMimeType(bytes: ByteArray): String = when {
+    // 按文件头嗅探图片类型；无法识别时按 JPEG 处理（内嵌封面绝大多数为 JPEG）。
+    // 封面导出到相册需据此定扩展名，故与写入端共用同一份判定
+    internal fun sniffMimeType(bytes: ByteArray): String = when {
         bytes.size >= 3 && bytes[0] == 0xff.toByte() && bytes[1] == 0xd8.toByte() && bytes[2] == 0xff.toByte() -> "image/jpeg"
         bytes.size >= 8 && bytes.copyOfRange(0, 8).contentEquals(byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) -> "image/png"
         bytes.size >= 12 && String(bytes, 0, 4, StandardCharsets.US_ASCII) == "RIFF" && String(bytes, 8, 4, StandardCharsets.US_ASCII) == "WEBP" -> "image/webp"

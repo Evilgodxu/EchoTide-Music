@@ -1,5 +1,6 @@
 package com.yichao.evilgodxu.ui.component
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -46,6 +47,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yichao.evilgodxu.data.music.metadata.CoverExporter
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
 import com.yichao.evilgodxu.data.music.metadata.isMediaStoreIndexed
 import com.yichao.evilgodxu.data.music.model.MusicTrack
@@ -121,6 +123,9 @@ fun MusicPanelOverlay(
     val scope = rememberCoroutineScope()
     // 在组合阶段解析字符串资源，协程内无法调用 stringResource
     val lyricsRefreshFailedMessage = stringResource(R.string.music_panel_lyrics_refresh_failed)
+    // 保存封面到相册的结果提示：成功与「无内嵌封面」走轻量提示，写入失败复用封面错误横幅
+    val coverSavedMessage = stringResource(R.string.music_panel_save_cover_success)
+    val coverNoEmbeddedMessage = stringResource(R.string.music_panel_save_cover_no_embedded)
 
     // 播放进度由 MusicPlaybackState 全局 ticker 驱动，此处不再独立轮询
     LaunchedEffect(playbackState.timerAutoStopped) {
@@ -323,6 +328,24 @@ fun MusicPanelOverlay(
                                                 selectedLocalCover = null
                                                 showLocalCover = true
                                                 scope.launch { playbackState.setLocalCoverCandidates(loadRecentCovers(context)) }
+                                            },
+                                            // 保存内嵌封面原图到系统相册：不改动曲目元数据，故无目标校验；
+                                            // 无内嵌封面时以提示告知，写入失败仍复用封面错误横幅
+                                            onSaveCover = {
+                                                playbackState.currentTrack?.let { track ->
+                                                    scope.launch {
+                                                        val message = when (CoverExporter.export(context, track)) {
+                                                            CoverExporter.Result.Saved -> coverSavedMessage
+                                                            CoverExporter.Result.NoEmbeddedCover -> coverNoEmbeddedMessage
+                                                            CoverExporter.Result.Failed -> null
+                                                        }
+                                                        if (message != null) {
+                                                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                                        } else {
+                                                            coverSaveFailed = true
+                                                        }
+                                                    }
+                                                }
                                             }
                                         )
                                     }

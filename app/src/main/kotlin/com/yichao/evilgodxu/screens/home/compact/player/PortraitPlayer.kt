@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.screens.home.compact.player
 
 import android.app.Activity
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -58,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yichao.evilgodxu.data.music.metadata.CoverExporter
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.metadata.isMediaStoreIndexed
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
@@ -155,6 +157,9 @@ internal fun PortraitPlayer(
     // 长按功能状态：复用音乐面板的封面/歌词刷新与标题/艺人重命名能力
     val scope = rememberCoroutineScope()
     val lyricsRefreshFailedMessage = stringResource(R.string.music_panel_lyrics_refresh_failed)
+    // 保存封面到相册的结果提示：成功与「无内嵌封面」走轻量提示，写入失败复用封面错误横幅
+    val coverSavedMessage = stringResource(R.string.music_panel_save_cover_success)
+    val coverNoEmbeddedMessage = stringResource(R.string.music_panel_save_cover_no_embedded)
     var showCoverMenu by remember { mutableStateOf(false) }
     var showCoverRefresh by remember { mutableStateOf(false) }
     var showLocalCover by remember { mutableStateOf(false) }
@@ -268,6 +273,25 @@ internal fun PortraitPlayer(
                     selectedLocalCover = null
                     showLocalCover = true
                     scope.launch { playbackState.setLocalCoverCandidates(loadRecentCovers(context)) }
+                },
+                // 保存内嵌封面原图到系统相册：不改动曲目元数据，故无目标校验；
+                // 无内嵌封面时以提示告知，写入失败仍复用封面错误横幅
+                onSaveCover = {
+                    showCoverMenu = false
+                    playbackState.currentTrack?.let { track ->
+                        scope.launch {
+                            val message = when (CoverExporter.export(context, track)) {
+                                CoverExporter.Result.Saved -> coverSavedMessage
+                                CoverExporter.Result.NoEmbeddedCover -> coverNoEmbeddedMessage
+                                CoverExporter.Result.Failed -> null
+                            }
+                            if (message != null) {
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            } else {
+                                coverSaveFailed = true
+                            }
+                        }
+                    }
                 },
                 onDismiss = { showCoverMenu = false },
             )

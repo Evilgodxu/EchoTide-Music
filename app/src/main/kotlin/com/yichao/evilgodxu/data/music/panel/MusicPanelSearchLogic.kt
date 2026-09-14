@@ -253,12 +253,12 @@ internal suspend fun applyCoverCandidate(
         val writeSuccess = withContext(Dispatchers.IO) {
             val bytes = NeteaseMusicApi.loadCoverBytes(candidate.coverUrl.orEmpty()) ?: return@withContext false
             // 手动刷新封面：按音频容器格式原生写入元数据；系统据此重建封面略缩图，
-            // 显示端只读系统略缩图，不再落盘应用自建封面缓存
+            // 显示端据此重新取图（系统略缩图或文件内嵌封面），不再落盘应用自建封面缓存
             MusicMetadataWriter.writeCover(context, track, bytes)
         }
         if (!writeSuccess) return false
         withContext(Dispatchers.Main) {
-            // 封面已写入音频文件：清掉在线封面地址，转由系统略缩图提供显示
+            // 封面已写入音频文件：清掉在线封面地址，转由文件自身的封面提供显示
             playbackState.updateTrack(track.copy(neteaseId = candidate.id, neteaseCoverUrl = ""))
             playbackState.bumpCoverRevision()
             playbackState.coverCandidates = emptyList()

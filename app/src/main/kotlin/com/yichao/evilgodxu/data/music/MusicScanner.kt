@@ -3,13 +3,11 @@ package com.yichao.evilgodxu.data.music
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
-import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import com.yichao.evilgodxu.data.music.api.stableIdFromString
-import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.R
@@ -18,19 +16,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 // 本地音乐扫描器（基于 MediaStore）：无共享可变状态、纯函数集合，以 object 单例形态提供。
-// 封面不在扫描期产出：显示端统一读系统略缩图（随媒体扫描生成），应用不落盘封面缓存
+// 封面不在扫描期产出：显示端按需取系统略缩图或文件内嵌封面，应用不落盘封面缓存
 object MusicScanner {
-
-    // 内嵌封面提取的解码限幅：与内嵌原图可能的最大显示场景对齐（折叠屏/平板横屏）
-    private const val EMBEDDED_COVER_MAX_EDGE = 2048
-
-    // 内嵌封面提取结果。必须区分「文件读不出」与「文件正常但没有内嵌封面」：
-    // 前者才值得换另一条取数路径重试；后者读的是同一文件的同一段标签，重试结果必然相同
-    private sealed interface EmbeddedArt {
-        data class Found(val bitmap: Bitmap) : EmbeddedArt
-        data object Absent : EmbeddedArt
-        data object Unavailable : EmbeddedArt
-    }
 
     suspend fun fromUri(context: Context, uri: Uri): MusicTrack? = withContext(Dispatchers.IO) {
         val retriever = MediaMetadataRetriever()
@@ -140,63 +127,6 @@ object MusicScanner {
             CrashLogManager.logException("MusicScanner", "扫描本地音乐失败", e)
         }
         tracks
-    }
-
-    private fun extractEmbeddedArt(context: Context, audioUri: Uri): EmbeddedArt {
-        val retriever = MediaMetadataRetriever()
-        return try {
-            retriever.setDataSource(context, audioUri)
-            retriever.embeddedPicture
-                ?.let { MusicMetadataCache.decodeSampledBitmap(it, EMBEDDED_COVER_MAX_EDGE) }
-                ?.let { EmbeddedArt.Found(it) }
-                ?: EmbeddedArt.Absent
-        } catch (e: Exception) {
-            CrashLogManager.logException("MusicScanner", "提取内嵌封面失败: $audioUri", e)
-            EmbeddedArt.Unavailable
-        } finally {
-            try {
-                retriever.release()
-            } catch (e: Exception) {
-                CrashLogManager.logException("MusicScanner", "释放元数据读取器失败", e)
-            }
-        }
-    }
-
-    private fun extractEmbeddedArt(path: String): EmbeddedArt {
-        val retriever = MediaMetadataRetriever()
-        return try {
-            retriever.setDataSource(path)
-            retriever.embeddedPicture
-                ?.let { MusicMetadataCache.decodeSampledBitmap(it, EMBEDDED_COVER_MAX_EDGE) }
-                ?.let { EmbeddedArt.Found(it) }
-                ?: EmbeddedArt.Absent
-        } catch (e: Exception) {
-            CrashLogManager.logException("MusicScanner", "提取内嵌封面失败: $path", e)
-            EmbeddedArt.Unavailable
-        } finally {
-            try {
-                retriever.release()
-            } catch (e: Exception) {
-                CrashLogManager.logException("MusicScanner", "释放元数据读取器失败", e)
-            }
-        }
-    }
-
-    // 读取本地音频内嵌封面原图（按内嵌封面限幅采样）：本地文件路径优先，其次 content/file URI；
-    // 纯在线流无内嵌封面返回 null。
-    // 保留能力，当前无调用方：封面显示统一走系统略缩图，内嵌提取不再承担任何兜底职责
-    internal fun loadEmbeddedCover(context: Context, audioUri: Uri, path: String): Bitmap? {
-        if (path.isNotBlank()) {
-            when (val art = extractEmbeddedArt(path)) {
-                is EmbeddedArt.Found -> return art.bitmap
-                // 同一文件已能正常读出且无内嵌封面，换 content URI 再读结果不变，不再重复打开
-                EmbeddedArt.Absent -> return null
-                EmbeddedArt.Unavailable -> Unit
-            }
-        }
-        val scheme = audioUri.scheme
-        if (scheme != "content" && scheme != "file") return null
-        return (extractEmbeddedArt(context, audioUri) as? EmbeddedArt.Found)?.bitmap
     }
 }
 

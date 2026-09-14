@@ -3,9 +3,6 @@ package com.yichao.evilgodxu.data.music.metadata
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.ColorSpace
-import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
@@ -15,13 +12,11 @@ import com.yichao.evilgodxu.data.music.model.LyricWord
 import com.yichao.evilgodxu.data.music.download.sanitizeFileName
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
-import java.nio.ByteBuffer
-import kotlin.math.roundToInt
 import org.json.JSONArray
 import org.json.JSONObject
 
 // 歌词缓存读写工具：全部为无状态静态函数，按需传入 Context，以 object 单例形态提供。
-// 封面不在此列：显示端统一读系统略缩图，应用不落盘封面缓存（内嵌封面由系统媒体扫描生成略缩图）
+// 封面不在此列：封面不落盘缓存，索引曲目读系统略缩图，非索引曲目由 EmbeddedCoverReader 在内存中临时解码
 internal object MusicMetadataCache {
     // 公共下载目录下的应用缓存根目录名，与在线音频缓存 Download/YiChao/Audio 保持同级。
     // 下载器写入在线歌曲条目时按此拼装相对路径，目录名只在此处定义一次
@@ -164,30 +159,6 @@ internal object MusicMetadataCache {
         if (!dir.isDirectory && !dir.mkdirs()) return null
         val file = File(dir, name)
         return if (runCatching { file.writeBytes(bytes) }.isSuccess && file.isFile) file else null
-    }
-
-    /** 按最长边等比高质量解码；maxEdge 由调用方按使用场景显式指定 */
-    fun decodeSampledBitmap(bytes: ByteArray, maxEdge: Int): Bitmap? {
-        // 用 ImageDecoder 替代 BitmapFactory.inSampleSize：
-        // inSampleSize 为最近邻点采样，4K 等高分辨率封面降采样会产生混叠锯齿（解码时即固化）；
-        // ImageDecoder 按目标尺寸高质量滤波缩放，直接解码到目标分辨率，无锯齿且内存可控
-        return runCatching {
-            val source = ImageDecoder.createSource(ByteBuffer.wrap(bytes))
-            ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
-                // 软件位图：保证后续 compress(WEBP/PNG) 与 recycle() 可用
-                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                val longEdge = maxOf(info.size.width, info.size.height)
-                if (longEdge > maxEdge) {
-                    val scale = maxEdge.toFloat() / longEdge
-                    decoder.setTargetSize(
-                        (info.size.width * scale).roundToInt().coerceAtLeast(1),
-                        (info.size.height * scale).roundToInt().coerceAtLeast(1),
-                    )
-                }
-                // 统一 sRGB 输出，避免广色域封面在不同设备上渲染偏差
-                decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB))
-            }
-        }.getOrNull()
     }
 
     fun saveLyrics(context: Context, title: String, artist: String, lines: List<LyricLine>): String? = try {

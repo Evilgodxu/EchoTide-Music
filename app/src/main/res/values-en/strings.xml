@@ -89,6 +89,9 @@
     <string name="music_panel_refresh_cover">Refresh cover</string>
     <string name="music_panel_online_cover">Online cover</string>
     <string name="music_panel_local_cover">Local cover</string>
+    <string name="music_panel_save_cover">Save cover</string>
+    <string name="music_panel_save_cover_success">Cover saved to gallery</string>
+    <string name="music_panel_save_cover_no_embedded">No embedded cover in this track</string>
     <string name="music_panel_refresh_lyrics">Refresh lyrics</string>
     <string name="music_panel_lyrics_no_candidates">No matching lyrics</string>
     <string name="music_panel_lyrics_refresh_failed">Lyrics refresh failed, try again</string>

@@ -24,7 +24,7 @@ import kotlinx.coroutines.withContext
 // 取色只需上下半区的平均色，64px 已足够且解码代价最低
 private const val GRADIENT_SAMPLE_SIZE = 64
 
-// 歌曲封面沉浸式背景：以系统略缩图（与封面显示同源）的小尺寸取上下半区平均色组成向下渐变。
+// 歌曲封面沉浸式背景：以封面图（与封面显示同源，见 rememberSystemThumbnail）的小尺寸取上下半区平均色组成向下渐变。
 // 首页与 3D 封面轮播共用，随传入曲目实时变化；背景代表色经回调暴露供浮层容器复用。
 @Composable
 internal fun SongGradientBackground(

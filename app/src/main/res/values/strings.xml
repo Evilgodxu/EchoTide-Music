@@ -89,6 +89,9 @@
     <string name="music_panel_refresh_cover">刷新封面</string>
     <string name="music_panel_online_cover">在线封面</string>
     <string name="music_panel_local_cover">本地封面</string>
+    <string name="music_panel_save_cover">保存封面</string>
+    <string name="music_panel_save_cover_success">封面已保存到相册</string>
+    <string name="music_panel_save_cover_no_embedded">该曲目无内嵌封面</string>
     <string name="music_panel_refresh_lyrics">刷新歌词</string>
     <string name="music_panel_lyrics_no_candidates">暂无匹配歌词</string>
     <string name="music_panel_lyrics_refresh_failed">歌词刷新失败，请重试</string>
