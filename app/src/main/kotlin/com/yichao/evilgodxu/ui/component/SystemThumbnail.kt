@@ -37,12 +37,15 @@ internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitm
     // 内存缓存命中时同步取回作为初始值，避免进出页面重建后先闪占位符再出图；
     // 未命中时与往常一致先占位，待 produceState 在 IO 上解码回填。
     // 键带 coverRevision：封面重写已清空缓存，避免把旧略缩图作为初始值顶出。
-    val cachedThumbnail = remember(audioUri, sizePx, coverRevision) {
-        if (audioUri != null) {
-            runCatching { SystemThumbnailCache.get(audioUri, sizePx)?.asImageBitmap() }.getOrNull()
-        } else {
-            null
-        }
+    val cachedThumbnail = remember(audioUri, track?.id, sizePx, coverRevision) {
+        val target = track ?: return@remember null
+        runCatching {
+            if (target.isMediaStoreIndexed) {
+                SystemThumbnailCache.get(target.audioUri, sizePx)?.asImageBitmap()
+            } else {
+                EmbeddedCoverCache.peek(target.id, sizePx)?.asImageBitmap()
+            }
+        }.getOrNull()
     }
     val thumbnail by produceState<ImageBitmap?>(
         initialValue = cachedThumbnail,

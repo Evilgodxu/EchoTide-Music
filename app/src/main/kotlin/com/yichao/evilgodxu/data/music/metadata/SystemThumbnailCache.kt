@@ -9,8 +9,10 @@ import android.util.LruCache
 // 封面重写后同一 URI 的略缩图已更新，由 bumpCoverRevision 清空本缓存。
 internal object SystemThumbnailCache {
 
-    // 驻留上限：按解码后位图的真实内存占用计，与 EmbeddedCoverCache 保持一致
-    private const val MAX_BYTES = 12 * 1024 * 1024
+    // 驻留上限：按解码后位图的真实内存占用计，与 EmbeddedCoverCache 保持一致。
+    // 进出页面时列表与其详情页会连续驻留多批略缩图：上限需同时容纳可见列表及展开的详情，
+    // 否则详情解码会顶掉刚展示的列表封面，返回时重新解码造成闪烁。256px 位图约 256KB，64MB 约 250 张。
+    private const val MAX_BYTES = 64 * 1024 * 1024
 
     private data class Key(val audioUri: String, val sizePx: Int)
 

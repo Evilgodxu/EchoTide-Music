@@ -47,6 +47,10 @@ internal object EmbeddedCoverCache {
     // 在飞读取不随任一调用方取消：同一结果可能正被多个等待者共享
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** 同步取已缓存的封面：命中即返回位图，未命中返回 null。供显示端重建时避免先闪占位符 */
+    fun peek(trackId: Long, sizePx: Int): Bitmap? =
+        (cache.get(Key(trackId, sizePx)) as? Entry.Cover)?.bitmap
+
     /** 取曲目的内嵌封面（按最长边 [sizePx] 请求解码）；确无内嵌封面或读取失败时返回 null，由调用方显示占位符 */
     suspend fun cover(context: Context, track: MusicTrack, sizePx: Int): Bitmap? {
         val key = Key(track.id, sizePx)
