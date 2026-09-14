@@ -21,7 +21,7 @@ import com.yichao.evilgodxu.data.music.analysis.isLosslessFormatName
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.panel.resolvePlayUrlByQuality
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
-import com.yichao.evilgodxu.data.music.playback.refreshCurrentPlaybackSource
+import com.yichao.evilgodxu.data.music.playback.playTrackFromProgress
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
 import kotlin.coroutines.resume
@@ -392,8 +392,8 @@ private suspend fun embedCachedMetadata(
     }
 }
 
-// 本地曲目按用户确认的在线候选升级为无损：解析无损直链并下载，成功后删除旧文件、
-// 索引转向新文件并触发媒体扫描，同时刷新当前播放源避免继续占用已删除的旧文件
+// 本地曲目按用户确认的在线候选升级为无损：解析无损直链并下载，新文件替换旧文件后按原进度直接续播。
+// 流程刻意保持线性：下载 → 索引转向新文件 → 写元数据 → 起播 → 删旧文件，不再做播放状态接替与延迟删除
 internal suspend fun upgradeTrackToLossless(
     context: Context,
     playbackState: MusicPlaybackState,
@@ -408,27 +408,36 @@ internal suspend fun upgradeTrackToLossless(
     SystemThumbnailCache.remap(track.audioUri, newUri)
     playbackState.remapGradientUri(track.audioUri, newUri)
     val newPath = queryMediaPath(context, Uri.parse(newUri)).orEmpty()
+    // 升级前的播放进度：新文件起播时还原到同一位置
+    val resumePosition = withContext(Dispatchers.Main) {
+        playbackState.mediaController?.currentPosition?.coerceAtLeast(0L) ?: 0L
+    }
     // 索引转向新文件：同时更新本地路径，使曲目身份指向新的无损文件
-    withContext(Dispatchers.Main) {
+    val upgradedIndex = withContext(Dispatchers.Main) {
         val idx = playbackState.playlist.indexOfFirst { it.id == track.id }
-        if (idx >= 0) {
-            val updated = playbackState.playlist[idx].copy(audioUri = newUri, path = newPath)
-            val list = playbackState.playlist.toMutableList()
-            list[idx] = updated
-            playbackState.playlist = list
-            if (playbackState.currentTrack?.id == track.id) {
-                playbackState.currentTrack = updated
-            }
-            playbackState.persistPlaylist()
+        if (idx < 0) return@withContext -1
+        val updated = playbackState.playlist[idx].copy(audioUri = newUri, path = newPath)
+        val list = playbackState.playlist.toMutableList()
+        list[idx] = updated
+        playbackState.playlist = list
+        if (playbackState.currentTrack?.id == track.id) {
+            playbackState.currentTrack = updated
+        }
+        playbackState.persistPlaylist()
+        idx
+    }
+    // 写入标题/艺术家；封面沿用旧文件内嵌原图。
+    // 先写元数据再起播：避免新文件在播放中被重写导致无声与进度回退
+    embedUpgradeMetadata(context, playbackState, track, candidate)
+    // 替换后按原进度直接起播：播放器以新无损文件续播，音频信息条随之更新为新格式。
+    // 升级期间已切歌时只完成文件替换，不打断当前播放
+    withContext(Dispatchers.Main) {
+        if (upgradedIndex >= 0 && playbackState.currentTrack?.id == track.id) {
+            playTrackFromProgress(context, playbackState, upgradedIndex, resumePosition)
         }
     }
-    // 写入标题/艺术家；封面沿用旧文件内嵌原图
-    embedUpgradeMetadata(context, playbackState, track, candidate)
-    // 无损升级自然接替：替换当前播放项指向新无损文件，播放器随即以新文件续播，
-    // 音频信息条（读取实际播放源）同步更新为新格式，避免用户误以为未升级而重复点击
-    refreshCurrentPlaybackSource(playbackState)
-    // 旧文件此刻已被播放器释放（或即将释放），据此登记延迟删除；仍被占用则待播放离开后再删
-    scheduleOldFileDeletion(context, playbackState, track, newUri)
+    // 播放源已切到新文件，旧文件不再需要，直接删除
+    deleteOldAudioFile(context, track, newUri)
     // 触发媒体扫描：新文件入库，旧文件条目同步移除
     if (newPath.isNotBlank()) {
         MediaScannerConnection.scanFile(context, arrayOf(newPath), null, null)
@@ -521,24 +530,8 @@ private suspend fun downloadLosslessToDownloads(
     }
 }
 
-// 旧文件仍在被当前播放项占用时，登记延迟删除（待播放离开后由播放状态清理）；
-// 否则立即删除。升级后 currentTrack.audioUri 已指向新文件，故用播放器的真实当前 URI 判定
-private suspend fun scheduleOldFileDeletion(
-    context: Context,
-    playbackState: MusicPlaybackState,
-    track: MusicTrack,
-    newUri: String,
-) {
-    val playingUri = playbackState.mediaController?.currentMediaItem
-        ?.localConfiguration?.uri?.toString()
-    if (playingUri == track.audioUri) {
-        playbackState.queueOldFileDelete(track.audioUri, track.path)
-    } else {
-        deleteOldAudioFile(context, track, newUri)
-    }
-}
-
-// 删除升级前的旧本地文件：经 MediaStore 删除并清理媒体条目，失败时直删路径并触发媒体扫描
+// 删除升级前的旧本地文件：经 MediaStore 删除并清理媒体条目，失败时直删路径并触发媒体扫描。
+// 起播后再删：播放源已切到新文件，旧文件即使仍被播放器持有句柄也不影响新文件播放
 private suspend fun deleteOldAudioFile(context: Context, track: MusicTrack, newUri: String) {
     if (track.audioUri == newUri) return
     val scheme = runCatching { Uri.parse(track.audioUri).scheme }.getOrNull()

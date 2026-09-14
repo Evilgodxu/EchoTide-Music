@@ -120,8 +120,6 @@ class MusicPlaybackState(
         }
 
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
-            // 播放已离开旧文件：作废升级后待删的旧本地文件（当前项仍引用则保留，等下次过渡）
-            flushPendingFileDeletes(mediaItem?.localConfiguration?.uri?.toString())
             // 曲目自然播完即计一次完整播放，作为常听收录依据：
             // AUTO=自动续播/单曲结束切下一首；REPEAT=单曲循环重播当前曲目。
             // 手动切歌(SEEK)、列表变更(PLAYLIST_CHANGED)非自然结束，不计入。
@@ -534,31 +532,6 @@ class MusicPlaybackState(
     // 删除音频源文件：先经 MediaStore 删除（同时清理媒体条目），失败则直接删本地路径并通知媒体库同步
     private fun deleteAudioSource(context: Context, track: MusicTrack) {
         deleteAudioSourceByRef(context, track.audioUri, track.path)
-    }
-
-    // 无损升级后待删的旧本地文件：旧文件仍被当前播放项占用时先登记，待播放离开后再删，
-    // 避免升级过程中断当前播放（部分设备上删除正在播放的文件会引发播放失败）
-    private data class PendingFileDelete(val audioUri: String, val path: String?)
-    private val pendingFileDeletes = mutableListOf<PendingFileDelete>()
-
-    // 登记待删的旧本地文件（无损升级替换音频源后用）；真正的删除推迟到播放离开该文件时
-    fun queueOldFileDelete(audioUri: String, path: String?) {
-        if (audioUri.isBlank()) return
-        pendingFileDeletes += PendingFileDelete(audioUri, path)
-    }
-
-    // 播放离开某曲目后作废对应旧文件：当前播放项已不再引用则删除，仍占用则保留待下次过渡
-    private fun flushPendingFileDeletes(playingUri: String?) {
-        if (pendingFileDeletes.isEmpty()) return
-        val context = appContext ?: return
-        val toDelete = pendingFileDeletes.filter { it.audioUri != playingUri }
-        if (toDelete.isEmpty()) return
-        pendingFileDeletes.removeAll(toDelete)
-        playbackScope.launch {
-            withContext(Dispatchers.IO) {
-                toDelete.forEach { deleteAudioSourceByRef(context, it.audioUri, it.path) }
-            }
-        }
     }
 
     // 按 URI 与本地路径删除音频源文件：先经 MediaStore 删除（同时清理媒体条目），
