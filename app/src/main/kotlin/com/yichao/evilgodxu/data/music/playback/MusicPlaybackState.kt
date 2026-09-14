@@ -163,9 +163,17 @@ class MusicPlaybackState(
             val index = playlist.indexOfFirst { it.id == id }
             if (index >= 0) {
                 // 续播锚点：playTrackAt 以保存位置起播时已记录目标位置，本回调（异步派发）据此保留
-                // 已还原的进度，避免把进度清空到 0 再回填；真实切歌（无锚点）才复位到起点
-                val resumePos = resumeAnchorPosition
-                resumeAnchorPosition = -1L
+                // 已还原的进度，避免把进度清空到 0 再回填；真实切歌（无锚点）才复位到起点。
+                // 仅在锚点归属曲目上消费：无损升级就地换源时，旧源的过渡回调可能后到，
+                // 提前消费会使新文件丢失续播位置
+                val resumePos = if (resumeAnchorTrackId == id) {
+                    resumeAnchorPosition.also {
+                        resumeAnchorPosition = -1L
+                        resumeAnchorTrackId = -1L
+                    }
+                } else {
+                    -1L
+                }
                 currentIndex = index
                 currentTrack = playlist[index]
                 isPrepared = false
@@ -1002,6 +1010,11 @@ class MusicPlaybackState(
     // -1 表示无续播锚点（真实切歌/重播），过渡回调按常规复位进度到起点。
     internal var resumeAnchorPosition: Long = -1L
 
+    // 续播锚点归属的曲目 ID：过渡回调只在该曲目的过渡上消费锚点。
+    // 无损升级会就地替换同一曲目的音频源，此时旧源的过渡回调可能后于 playTrackAt 到达，
+    // 若无归属校验会提前消费锚点，导致新文件从 0 起播（表现为升级后不续播）。
+    internal var resumeAnchorTrackId: Long = -1L
+
     fun persistState() {
         val context = appContext ?: return
         val track = currentTrack ?: return
@@ -1035,6 +1048,7 @@ class MusicPlaybackState(
         }
         // 清掉未消费的续播锚点，避免释放后残留锚点被后续非续播的过渡回调误用
         resumeAnchorPosition = -1L
+        resumeAnchorTrackId = -1L
         mediaController?.let { controller ->
             controller.pause()
             controller.stop()
@@ -1057,6 +1071,7 @@ class MusicPlaybackState(
         }
         // 清掉未消费的续播锚点，避免释放后残留锚点被后续非续播的过渡回调误用
         resumeAnchorPosition = -1L
+        resumeAnchorTrackId = -1L
         mediaController?.let { controller ->
             playbackScope.launch {
                 controller.stop()

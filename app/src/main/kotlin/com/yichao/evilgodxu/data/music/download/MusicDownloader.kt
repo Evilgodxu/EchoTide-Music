@@ -21,7 +21,7 @@ import com.yichao.evilgodxu.data.music.analysis.isLosslessFormatName
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.panel.resolvePlayUrlByQuality
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
-import com.yichao.evilgodxu.data.music.playback.playTrackFromProgress
+import com.yichao.evilgodxu.data.music.playback.swapCurrentSourceToUri
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
 import kotlin.coroutines.resume
@@ -429,13 +429,15 @@ internal suspend fun upgradeTrackToLossless(
     // 写入标题/艺术家；封面沿用旧文件内嵌原图。
     // 先写元数据再起播：避免新文件在播放中被重写导致无声与进度回退
     embedUpgradeMetadata(context, playbackState, track, candidate)
-    // 替换后按原进度直接起播：播放器以新无损文件续播，音频信息条随之更新为新格式。
-    // 升级期间已切歌时只完成文件替换，不打断当前播放
+    // 替换后按原进度直接续播：换源不重建播放队列，避免起播被中断
     withContext(Dispatchers.Main) {
         if (upgradedIndex >= 0 && playbackState.currentTrack?.id == track.id) {
-            playTrackFromProgress(context, playbackState, upgradedIndex, resumePosition)
+            swapCurrentSourceToUri(playbackState, upgradedIndex, resumePosition)
         }
     }
+    // 立即持久化新 URI 与续播位置：换源不经过切歌回调，若等周期性存储（3 秒节流）写入，
+    // 用户在窗口内退出会把旧 URI 落盘，重启后旧文件已删除导致曲目不可用、进度丢失
+    playbackState.persistState()
     // 播放源已切到新文件，旧文件不再需要，直接删除
     deleteOldAudioFile(context, track, newUri)
     // 触发媒体扫描：新文件入库，旧文件条目同步移除

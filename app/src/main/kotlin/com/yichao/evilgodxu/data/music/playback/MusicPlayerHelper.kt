@@ -70,9 +70,10 @@ suspend fun playTrackAt(
             } else {
                 0L
             }
-            // 续播锚点：以保存位置起播时记录目标，供异步派发的 onMediaItemTransition 保留已还原进度；
-            // 真实切歌（resumePosition=0）不设锚点，按常规复位进度到起点
+            // 续播锚点：以保存位置起播时记录目标与归属曲目，供异步派发的 onMediaItemTransition
+            // 在该曲目的过渡上保留已还原进度；真实切歌（resumePosition=0）不设锚点，按常规复位到起点
             state.resumeAnchorPosition = if (resumePosition > 0L) resumePosition else -1L
+            state.resumeAnchorTrackId = if (resumePosition > 0L) track.id else -1L
             // 队列一致性同时校验 mediaId 与 URI：在线曲目缓存完成后 URI 已指向本地文件，
             // 仅比较 mediaId 会误判一致，导致播放源无法重定向（这是在线/离线切换失效的根因）
             val sameQueue = controller.mediaItemCount == items.size &&
@@ -185,19 +186,34 @@ fun refreshCurrentMediaItem(state: MusicPlaybackState) {
 }
 
 /**
- * 无损升级完成后按原进度直接起播指定曲目。
- * 播放列表已指向新无损文件，此处重建时间线并从记录位置起播即可：不做播放/暂停状态接替、
- * 不延迟删除旧文件 —— 升级即续播，音频信息条与系统媒体面板随实际播放源更新为新格式。
+ * 无损升级完成后把当前播放项就地换成指向新无损文件的 MediaItem，按原进度继续播放。
+ *
+ * 用 replaceMediaItem 而非重建时间线：媒体 ID 未变，播放器不会离开当前项，
+ * 也就不会进入重新准备流程，播放不中断。这也让音频信息条（读实际播放源）与系统媒体面板
+ * 自然刷新为新格式。播放器尚未就绪时先 prepare，避免替换落在空闲态上不起播。
  */
-suspend fun playTrackFromProgress(
-    context: Context,
-    state: MusicPlaybackState,
-    index: Int,
-    positionMs: Long,
-) {
+fun swapCurrentSourceToUri(state: MusicPlaybackState, index: Int, positionMs: Long) {
+    val controller = state.mediaController ?: return
     val track = state.playlist.getOrNull(index) ?: return
-    // 复用续播锚点：playTrackAt 以该位置起播，异步派发的过渡回调据此保留已还原的进度
-    state.pendingSavedUri = track.audioUri
-    state.pendingResumePosition = positionMs.coerceAtLeast(0L)
-    playTrackAt(context, state, index, autoPlay = true, clearQueue = false)
+    if (controller.mediaItemCount != state.playlist.size) return
+    val current = controller.currentMediaItem ?: return
+    if (current.mediaId != track.id.toString()) return
+    val newItem = toMediaItem(track)
+    if (current.localConfiguration?.uri?.toString() == newItem.localConfiguration?.uri?.toString()) return
+    // 换源期间保持播放意图：正在播放的继续播放，暂停的保持暂停
+    val wasPlaying = controller.isPlaying
+    val resumePosition = positionMs.coerceAtLeast(0L)
+    // replaceMediaItem 会派发列表变更过渡回调，据锚点保留已还原进度，避免进度条清 0 再回填
+    state.resumeAnchorPosition = if (resumePosition > 0L) resumePosition else -1L
+    state.resumeAnchorTrackId = if (resumePosition > 0L) track.id else -1L
+    state.playbackScope.launch {
+        withContext(Dispatchers.Main) {
+            controller.replaceMediaItem(index, newItem)
+            if (resumePosition > 0L) controller.seekTo(resumePosition)
+            if (controller.playbackState == androidx.media3.common.Player.STATE_IDLE) {
+                controller.prepare()
+            }
+            if (wasPlaying) controller.play() else controller.pause()
+        }
+    }
 }
