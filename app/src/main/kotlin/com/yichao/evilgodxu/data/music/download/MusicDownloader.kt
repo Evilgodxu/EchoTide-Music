@@ -21,7 +21,6 @@ import com.yichao.evilgodxu.data.music.analysis.isLosslessFormatName
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.panel.resolvePlayUrlByQuality
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
-import com.yichao.evilgodxu.data.music.playback.refreshCurrentPlaybackSource
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
 import kotlin.coroutines.resume
@@ -424,10 +423,9 @@ internal suspend fun upgradeTrackToLossless(
     }
     // 写入标题/艺术家；封面沿用旧文件内嵌原图
     embedUpgradeMetadata(context, playbackState, track, candidate)
-    // 刷新当前播放源指向新文件，避免播放器继续占用将被删除的旧文件
-    refreshCurrentPlaybackSource(playbackState)
-    // 删除升级前的旧本地文件
-    deleteOldAudioFile(context, track, newUri)
+    // 无损升级不强制切换当前播放源：旧文件继续播到自然结束，新文件在下次播放该曲目时
+    // 经 playlist 重建队列自然接替。旧文件正被播放则登记延迟删除，避免升级过程中断当前播放
+    scheduleOldFileDeletion(context, playbackState, track, newUri)
     // 触发媒体扫描：新文件入库，旧文件条目同步移除
     if (newPath.isNotBlank()) {
         MediaScannerConnection.scanFile(context, arrayOf(newPath), null, null)
@@ -517,6 +515,23 @@ private suspend fun downloadLosslessToDownloads(
     } catch (e: Exception) {
         CrashLogManager.logException("MusicDownloader", "无损升级下载失败: 歌曲=${result.title}", e)
         null
+    }
+}
+
+// 旧文件仍在被当前播放项占用时，登记延迟删除（待播放离开后由播放状态清理）；
+// 否则立即删除。升级后 currentTrack.audioUri 已指向新文件，故用播放器的真实当前 URI 判定
+private suspend fun scheduleOldFileDeletion(
+    context: Context,
+    playbackState: MusicPlaybackState,
+    track: MusicTrack,
+    newUri: String,
+) {
+    val playingUri = playbackState.mediaController?.currentMediaItem
+        ?.localConfiguration?.uri?.toString()
+    if (playingUri == track.audioUri) {
+        playbackState.queueOldFileDelete(track.audioUri, track.path)
+    } else {
+        deleteOldAudioFile(context, track, newUri)
     }
 }
 
