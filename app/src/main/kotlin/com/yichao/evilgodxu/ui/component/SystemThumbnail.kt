@@ -5,6 +5,7 @@ import android.util.Size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -33,8 +34,18 @@ internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitm
     val context = LocalContext.current
     val audioUri = track?.audioUri
     val coverRevision = LocalMusicPanelStateHolder.current.state.coverRevision
+    // 内存缓存命中时同步取回作为初始值，避免进出页面重建后先闪占位符再出图；
+    // 未命中时与往常一致先占位，待 produceState 在 IO 上解码回填。
+    // 键带 coverRevision：封面重写已清空缓存，避免把旧略缩图作为初始值顶出。
+    val cachedThumbnail = remember(audioUri, sizePx, coverRevision) {
+        if (audioUri != null) {
+            runCatching { SystemThumbnailCache.get(audioUri, sizePx)?.asImageBitmap() }.getOrNull()
+        } else {
+            null
+        }
+    }
     val thumbnail by produceState<ImageBitmap?>(
-        initialValue = null,
+        initialValue = cachedThumbnail,
         audioUri,
         coverRevision,
     ) {
