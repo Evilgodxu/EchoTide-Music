@@ -25,10 +25,14 @@ internal fun HomeShell(
     content: @Composable BoxScope.(topInset: Dp) -> Unit,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
+        val playbackState = panelState.playbackState.state
         SongGradientBackground(
-            track = panelState.playbackState.state.currentTrack,
+            track = playbackState.currentTrack,
             darkenStatusBarArea = darkenStatusBarArea,
+            // 冷启动略缩图就绪前先用上次持久化的取色结果，避免首帧闪默认色
+            restoredColors = playbackState.restoredGradientFor(playbackState.currentTrack),
             onBackgroundColor = { panelState.backgroundColor = it },
+            onExtractedColors = { top, bottom -> playbackState.saveBackgroundGradient(top, bottom) },
         )
         Scaffold(
             modifier = Modifier.fillMaxSize(),

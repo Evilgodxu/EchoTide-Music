@@ -26,28 +26,32 @@ private const val GRADIENT_SAMPLE_SIZE = 64
 
 // 歌曲封面沉浸式背景：以封面图（与封面显示同源，见 rememberSystemThumbnail）的小尺寸取上下半区平均色组成向下渐变。
 // 首页与 3D 封面轮播共用，随传入曲目实时变化；背景代表色经回调暴露供浮层容器复用。
+// 冷启动略缩图尚未就绪时，可用 [restoredColors]（上次持久化的取色结果）先行渲染，避免首帧闪默认色。
 @Composable
 internal fun SongGradientBackground(
     track: MusicTrack?,
     modifier: Modifier = Modifier,
     darkenStatusBarArea: Boolean = true,
+    restoredColors: Pair<Color, Color>? = null,
     onBackgroundColor: ((Color) -> Unit)? = null,
+    onExtractedColors: ((Color, Color) -> Unit)? = null,
 ) {
     val defaultGradient = defaultSongGradient()
-    var gradient by remember { mutableStateOf(defaultGradient) }
+    // 真实取色结果；略缩图未就绪时回落恢复色，再回落默认渐变
+    var extracted by remember { mutableStateOf<Pair<Color, Color>?>(null) }
     // 与封面显示同一份系统略缩图：封面重写后系统图随媒体扫描重建，版本号变化即重新取色
     val thumbnail = rememberSystemThumbnail(track, GRADIENT_SAMPLE_SIZE)
-    LaunchedEffect(thumbnail, darkenStatusBarArea) {
-        val source = thumbnail?.asAndroidBitmap()
-        val result = source?.let { songGradient(it, darkenStatusBarArea) }
-        if (result != null) {
-            gradient = result.first
-            onBackgroundColor?.invoke(result.second)
-        } else {
-            gradient = defaultGradient
-            onBackgroundColor?.invoke(md_theme_dark_surface)
-        }
+    LaunchedEffect(thumbnail) {
+        val colors = thumbnail?.asAndroidBitmap()?.let { extractGradientColors(it) }
+        extracted = colors
+        if (colors != null) onExtractedColors?.invoke(colors.first, colors.second)
     }
+    val effective = extracted ?: restoredColors
+    val gradient = effective?.let { (top, bottom) ->
+        buildGradient(top, bottom, darkenStatusBarArea)
+    } ?: defaultGradient
+    val background = effective?.first ?: md_theme_dark_surface
+    LaunchedEffect(background) { onBackgroundColor?.invoke(background) }
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -64,25 +68,28 @@ private fun defaultSongGradient(): Brush =
         )
     )
 
-// 取系统略缩图上下半区的平均色组成向下渐变并返回顶部主色；
-// 竖屏时顶部压暗保证状态栏区域足够深，横屏系统栏隐藏时跳过该处理
-private suspend fun songGradient(
-    source: Bitmap,
-    darkenStatusBarArea: Boolean,
-): Pair<Brush, Color>? = withContext(Dispatchers.IO) {
+// 取系统略缩图上下半区的平均色（近白时轻微压暗）作为渐变顶部与底部色；
+// 与封面显示同源，封面重写后版本号变化即重新取色
+private suspend fun extractGradientColors(source: Bitmap): Pair<Color, Color>? = withContext(Dispatchers.IO) {
     // 硬件位图不可直接 getPixel，复制为软件位图后再取色
     val bitmap = if (source.config == Bitmap.Config.HARDWARE) {
         source.copy(Bitmap.Config.ARGB_8888, false) ?: return@withContext null
     } else source
-    val topColor = bitmap.avgColor(topHalf = true).darkenIfNearWhite()
+    val top = bitmap.avgColor(topHalf = true).darkenIfNearWhite()
+    val bottom = bitmap.avgColor(topHalf = false).darkenIfNearWhite()
+    top to bottom
+}
+
+// 由上下半区平均色组成向下渐变；
+// 竖屏时顶部压暗保证状态栏区域足够深，横屏系统栏隐藏时跳过该处理
+private fun buildGradient(topColor: Color, bottomColor: Color, darkenStatusBarArea: Boolean): Brush =
     Brush.verticalGradient(
         colorStops = arrayOf(
             0f to if (darkenStatusBarArea) topColor.darkenedForStatusBar() else topColor,
             0.12f to topColor,
-            1f to bitmap.avgColor(topHalf = false).darkenIfNearWhite(),
+            1f to bottomColor,
         )
-    ) to topColor
-}
+    )
 
 // 顶部压暗封面色：保留封面色调又足够深，保证状态栏白色图标始终可见
 private fun Color.darkenedForStatusBar(): Color = lerp(this, md_theme_dark_surface, 0.3f)

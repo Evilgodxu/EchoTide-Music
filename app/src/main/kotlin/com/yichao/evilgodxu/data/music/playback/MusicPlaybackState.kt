@@ -10,6 +10,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -82,6 +84,10 @@ class MusicPlaybackState(
     private val savedPositionKey = longPreferencesKey("music_saved_position")
     private val savedModeKey = intPreferencesKey("music_saved_mode")
     private val savedSpeedKey = floatPreferencesKey("music_saved_speed")
+    // 首页背景渐变取色结果持久化键：与播放快照同库写入，冷启动恢复后首帧即可渲染
+    private val savedGradientUriKey = stringPreferencesKey("music_saved_gradient_uri")
+    private val savedGradientTopKey = intPreferencesKey("music_saved_gradient_top")
+    private val savedGradientBottomKey = intPreferencesKey("music_saved_gradient_bottom")
     private val playlistCacheKey = "music_playlist_cache"
     private val playlistCachePreferences = "music_playlist_cache_preferences"
     // 当前歌单来源与默认库备份持久化键，重启后恢复选中状态
@@ -743,6 +749,9 @@ class MusicPlaybackState(
         val savedPosition = preferences[savedPositionKey] ?: 0L
         val savedMode = preferences[savedModeKey] ?: PlayMode.RepeatAll.ordinal
         val savedSpeed = preferences[savedSpeedKey] ?: PLAYBACK_SPEED_DEFAULT
+        val restoredGradientUri = preferences[savedGradientUriKey]
+        val restoredGradientTop = preferences[savedGradientTopKey]
+        val restoredGradientBottom = preferences[savedGradientBottomKey]
         withContext(Dispatchers.Main) {
             // 无保存来源时处于全量播放列表
             playlistSource = savedSource
@@ -759,6 +768,10 @@ class MusicPlaybackState(
             }
             pendingSavedUri = savedUri
             pendingResumePosition = savedPosition
+            savedGradient = if (restoredGradientTop != null && restoredGradientBottom != null) {
+                Color(restoredGradientTop) to Color(restoredGradientBottom)
+            } else null
+            savedGradientUri = restoredGradientUri
             if (currentTrack == null) {
                 currentPosition = savedPosition
             }
@@ -935,6 +948,33 @@ class MusicPlaybackState(
 
     var pendingSavedUri: String? = null
     var pendingResumePosition: Long = 0L
+    // 已持久化的首页背景取色结果及其所属曲目 URI：冷启动首帧、略缩图就绪前供背景直接使用
+    var savedGradient: Pair<Color, Color>? by mutableStateOf(null)
+        private set
+    var savedGradientUri: String? by mutableStateOf(null)
+        private set
+
+    // 仅当曲目与取色结果同源时返回，避免运行时切歌后旧曲目的恢复色闪帧
+    fun restoredGradientFor(track: MusicTrack?): Pair<Color, Color>? =
+        if (track != null && track.audioUri == savedGradientUri) savedGradient else null
+
+    // 首页背景真实取色成功后持久化，供下次冷启动恢复
+    fun saveBackgroundGradient(top: Color, bottom: Color) {
+        val uri = currentTrack?.audioUri ?: return
+        savedGradient = top to bottom
+        savedGradientUri = uri
+        val context = appContext ?: return
+        playbackScope.launch {
+            withContext(Dispatchers.IO) {
+                context.settingsDataStore.edit { preferences ->
+                    preferences[savedGradientUriKey] = uri
+                    preferences[savedGradientTopKey] = top.toArgb()
+                    preferences[savedGradientBottomKey] = bottom.toArgb()
+                }
+            }
+        }
+    }
+
     // 续播锚点：playTrackAt 以保存位置起播时记录该目标，供异步派发的 onMediaItemTransition 保留已还原进度。
     // -1 表示无续播锚点（真实切歌/重播），过渡回调按常规复位进度到起点。
     internal var resumeAnchorPosition: Long = -1L
