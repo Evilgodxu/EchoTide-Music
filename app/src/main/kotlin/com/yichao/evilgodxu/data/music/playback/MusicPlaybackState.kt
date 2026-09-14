@@ -561,6 +561,9 @@ class MusicPlaybackState(
     var audioSignalPathFormat by mutableStateOf<AudioSignalPathFormat?>(null)
     // 音频信息所属曲目：保证格式信息始终与当前曲目对应，后台切歌后再回前台不会错配
     var audioSignalPathTrackId by mutableStateOf<Long?>(null)
+    // 音频信息所属的音频源 URI：无损升级会就地替换同一曲目的文件，曲目 ID 不变而格式已变，
+    // 仅以 ID 判定"已是最新"会漏刷新（信息条停留在旧格式），故与 ID 一并作为归属标识
+    var audioSignalPathSourceUri by mutableStateOf<String?>(null)
 
     // 收藏的歌曲 ID 集合（面板级内存状态）
     var likedIds by mutableStateOf<Set<Long>>(emptySet())
@@ -796,13 +799,13 @@ class MusicPlaybackState(
     // 冷启动未播放时预读当前曲目格式信息，供音频信息条展示；开始播放后由解码头覆盖
     fun refreshIdleTrackFormatInfo(context: Context) {
         val track = currentTrack ?: return
-        if (audioSignalPathTrackId == track.id) return
+        if (isTrackFormatCurrent(track)) return
         playbackScope.launch(Dispatchers.IO) {
             val info = TrackAudioInfoReader.readIdleFormat(context, track) ?: return@launch
-            if (currentTrack?.id == track.id) {
-                audioSignalPathFormat = info
-                audioSignalPathTrackId = track.id
-            }
+            if (isTrackFormatCurrent(track)) return@launch
+            audioSignalPathFormat = info
+            audioSignalPathTrackId = track.id
+            audioSignalPathSourceUri = track.audioUri
         }
     }
 
@@ -815,6 +818,7 @@ class MusicPlaybackState(
             if (currentTrack?.id == track.id) {
                 audioSignalPathFormat = info
                 audioSignalPathTrackId = track.id
+                audioSignalPathSourceUri = track.audioUri
             }
         }
     }
@@ -823,11 +827,20 @@ class MusicPlaybackState(
     // 保证信息条始终对应当前曲目而不依赖解码回调回填
     fun reconcileTrackFormatInfo(context: Context) {
         val track = currentTrack ?: return
-        if (audioSignalPathTrackId == track.id) return
+        if (isTrackFormatCurrent(track)) return
         audioSignalPathFormat = null
         audioSignalPathTrackId = null
+        audioSignalPathSourceUri = null
         refreshIdleTrackFormatInfo(context)
     }
+
+    // 已展示的格式信息是否就属于该曲目的当前音频源：曲目或音频源任一变化都需重算
+    private fun isTrackFormatCurrent(track: MusicTrack): Boolean =
+        audioSignalPathTrackId == track.id && audioSignalPathSourceUri == track.audioUri
+
+    // 格式信息是否对应当前曲目的当前音频源（供信息条判定是否展示，避免换源后短暂错配残留）
+    val isAudioSignalPathCurrent: Boolean
+        get() = currentTrack?.let(::isTrackFormatCurrent) == true
 
     // 持久化播放速度，供重启后恢复
     private fun persistPlaybackSpeed() {

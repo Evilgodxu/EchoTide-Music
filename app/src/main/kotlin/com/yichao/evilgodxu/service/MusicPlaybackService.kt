@@ -107,9 +107,13 @@ class MusicPlaybackService : MediaSessionService() {
                     val sampleRate = format.sampleRate.takeIf { it > 0 } ?: 48000
                     val decodedChannels = format.channelCount.takeIf { it > 0 } ?: 2
                     // 优先沿用源格式预读的位深/声道，保证播放前后展示一致不跳变；
-                    // 位深是源文件属性，不以解码输出位深推算（高解析度曲目解码常以浮点输出）
+                    // 位深是源文件属性，不以解码输出位深推算（高解析度曲目解码常以浮点输出）。
+                    // 归属判定含音频源 URI：无损升级换源后曲目 ID 不变，沿用旧值会把有损位深/声道带过来
                     val sourceFormat = state.audioSignalPathFormat
-                        .takeIf { state.audioSignalPathTrackId == currentTrack?.id }
+                        .takeIf {
+                            state.audioSignalPathTrackId == currentTrack?.id &&
+                                state.audioSignalPathSourceUri == currentTrack?.audioUri
+                        }
                     val bitDepth = sourceFormat?.bitDepth
                         ?: currentTrack?.takeIf { it.isLocalAudioSource }
                             ?.let { TrackAudioInfoReader.readContainerFormat(applicationContext, it)?.bitDepth }
@@ -127,13 +131,17 @@ class MusicPlaybackService : MediaSessionService() {
                             ?.let { it / 1000 } ?: 0,
                     )
                     state.audioSignalPathTrackId = currentTrack?.id
+                    state.audioSignalPathSourceUri = currentTrack?.audioUri
                 }
                 // 解码头未给出比特率时（FLAC/VBR 常见），异步读取真实比特率并回填；
                 // 仅本地音频源读取文件元数据，在线曲目等缓存完成后由 refreshTrackFormatInfoFromLocal 补齐
                 if (state.audioSignalPathFormat?.bitrate == 0) {
                     val track = currentTrack
                     state.playbackScope.launch(Dispatchers.IO) {
-                        if (track != null && track.isLocalAudioSource && state.audioSignalPathTrackId == track.id) {
+                        if (track != null && track.isLocalAudioSource &&
+                            state.audioSignalPathTrackId == track.id &&
+                            state.audioSignalPathSourceUri == track.audioUri
+                        ) {
                             TrackAudioInfoReader.readBitrateKbps(applicationContext, track)?.let { bitrate ->
                                 if (state.audioSignalPathFormat?.bitrate == 0) {
                                     state.audioSignalPathFormat = state.audioSignalPathFormat?.copy(bitrate = bitrate)

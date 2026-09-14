@@ -438,6 +438,11 @@ internal suspend fun upgradeTrackToLossless(
     // 立即持久化新 URI 与续播位置：换源不经过切歌回调，若等周期性存储（3 秒节流）写入，
     // 用户在窗口内退出会把旧 URI 落盘，重启后旧文件已删除导致曲目不可用、进度丢失
     playbackState.persistState()
+    // 换源后重读新文件的源格式刷新音频信息条：换源是同一曲目换 URI，不触发切歌回调，
+    // 且 ExoPlayer 复用同 mediaId 的已选轨道时未必派发 onTracksChanged，需主动补齐
+    withContext(Dispatchers.Main) {
+        playbackState.refreshIdleTrackFormatInfo(context)
+    }
     // 播放源已切到新文件，旧文件不再需要，直接删除
     deleteOldAudioFile(context, track, newUri)
     // 触发媒体扫描：新文件入库，旧文件条目同步移除

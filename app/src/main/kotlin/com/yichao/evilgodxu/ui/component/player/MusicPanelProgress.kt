@@ -219,9 +219,9 @@ internal fun TrackFormatInfoSection(
     contentColor: Color? = null,
     onClick: (() -> Unit)? = null,
 ) {
-    // 仅展示属于当前曲目的格式信息，避免后台切歌后错配残留
+    // 仅展示属于当前曲目当前音频源的格式信息，避免后台切歌或升级换源后错配残留
     val format = playbackState.audioSignalPathFormat
-        .takeIf { playbackState.audioSignalPathTrackId == playbackState.currentTrack?.id }
+        .takeIf { playbackState.isAudioSignalPathCurrent }
     val text = format?.let { formatDisplayLabel(it) }
     // 信息未就绪时渲染空文本，占位保持单行高度，避免底部控制栏随信息条显隐而跳变
     Text(
@@ -248,7 +248,7 @@ internal fun formatDisplayLabel(format: AudioSignalPathFormat): String? {
 // 当前曲目是否触发无损升级：展示格式低于无损且该曲目可升级
 internal fun currentTrackNeedsLosslessUpgrade(playbackState: MusicPlaybackState): Boolean {
     val format = playbackState.audioSignalPathFormat
-        .takeIf { playbackState.audioSignalPathTrackId == playbackState.currentTrack?.id }
+        .takeIf { playbackState.isAudioSignalPathCurrent }
         ?: return false
     if (isLosslessFormat(format)) return false
     return playbackState.currentTrack?.isUpgradableToLossless() == true
