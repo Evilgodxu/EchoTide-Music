@@ -20,6 +20,7 @@ import androidx.media3.session.MediaController
 import com.yichao.evilgodxu.data.music.metadata.EmbeddedCoverCache
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
+import com.yichao.evilgodxu.data.music.metadata.SystemThumbnailCache
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
@@ -1113,9 +1114,10 @@ class MusicPlaybackState(
     }
 
     // 封面写入成功后自增，通知封面组件强制重载最新封面；
-    // 同时作废非索引曲目的内存封面缓存：旧位图与「无内嵌封面」的旧结论均已失效
+    // 同时作废索引曲目的系统略缩图缓存与非索引曲目的内嵌封面缓存：旧位图与旧结论均已失效
     fun bumpCoverRevision() {
         coverRevision++
+        SystemThumbnailCache.clear()
         EmbeddedCoverCache.clear()
     }
 

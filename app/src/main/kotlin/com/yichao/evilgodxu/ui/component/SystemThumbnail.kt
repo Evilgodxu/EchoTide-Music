@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.metadata.EmbeddedCoverCache
+import com.yichao.evilgodxu.data.music.metadata.SystemThumbnailCache
 import com.yichao.evilgodxu.data.music.metadata.isMediaStoreIndexed
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import kotlinx.coroutines.Dispatchers
@@ -43,12 +44,17 @@ internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitm
         } else {
             withContext(Dispatchers.IO) {
                 if (target.isMediaStoreIndexed) {
+                    // 命中内存缓存直接复用；未命中才走媒体库查询与解码，并把结果回填缓存，
+                    // 使滚出再滚入视口的行不再重复执行昂贵的略缩图读取
                     runCatching {
-                        context.contentResolver.loadThumbnail(
-                            Uri.parse(target.audioUri),
-                            Size(sizePx, sizePx),
-                            null,
-                        )
+                        SystemThumbnailCache.get(target.audioUri, sizePx)
+                            ?: context.contentResolver.loadThumbnail(
+                                Uri.parse(target.audioUri),
+                                Size(sizePx, sizePx),
+                                null,
+                            ).also { loaded ->
+                                SystemThumbnailCache.put(target.audioUri, sizePx, loaded)
+                            }
                     }.getOrNull()?.asImageBitmap()
                 } else {
                     // 读取与解码的去重、往返复用由缓存持有，组件只负责按需请求
