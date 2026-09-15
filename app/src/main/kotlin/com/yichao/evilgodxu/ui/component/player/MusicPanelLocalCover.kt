@@ -71,7 +71,7 @@ internal suspend fun applyLocalCover(
 ): Boolean = withContext(Dispatchers.IO) {
     try {
         val bytes = context.contentResolver.openInputStream(cover.uri)?.use { it.readBytes() } ?: return@withContext false
-        // 封面写入音频文件，系统据此重建封面略缩图；显示端据此重新取图（系统略缩图或文件内嵌封面），不落盘应用自建封面缓存
+        // 封面写入音频文件，系统据此重建封面略缩图；显示端据此重新取图（系统略缩图或文件内嵌封面），落盘的旧缩略图由 bumpCoverRevision 一并作废
         val writeSuccess = MusicMetadataWriter.writeCover(context, track, bytes)
         if (!writeSuccess) return@withContext false
         withContext(Dispatchers.Main) {

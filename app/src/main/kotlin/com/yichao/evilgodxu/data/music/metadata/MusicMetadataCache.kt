@@ -16,7 +16,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 // 歌词缓存读写工具：全部为无状态静态函数，按需传入 Context，以 object 单例形态提供。
-// 封面不在此列：封面不落盘缓存，索引曲目读系统略缩图，非索引曲目由 EmbeddedCoverReader 在内存中临时解码
+// 封面不在此列：封面由显示端按需取系统略缩图或音频内嵌封面，仅当前曲目的一张缩略图另行落盘（见 CurrentCoverCache）
 internal object MusicMetadataCache {
     // 公共下载目录下的应用缓存根目录名，与在线音频缓存 Download/YiChao/Audio 保持同级。
     // 下载器写入在线歌曲条目时按此拼装相对路径，目录名只在此处定义一次

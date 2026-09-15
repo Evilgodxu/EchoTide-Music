@@ -243,6 +243,8 @@ class MusicPanelViewManager(
             } else {
                 withContext(Dispatchers.Main) {
                     restoreCurrentTrack()
+                    // 后台预读当前曲目歌词：不阻塞面板首帧，歌词页打开时已就绪
+                    playbackState.requestMetadata(playbackState.currentTrack)
                 }
                 // 封面/歌词由 UI 按需懒加载补齐首屏，全量补全延迟执行，
                 // 避免启动瞬间批量提取抢占按需任务的 IO，拖慢封面与歌词显示

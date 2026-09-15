@@ -66,6 +66,8 @@ fun HomeScreen(
         if (state.duration <= 0L) {
             state.currentTrack?.let { state.duration = it.duration }
         }
+        // 后台预读当前曲目歌词：不阻塞首帧，歌词页打开时已就绪
+        state.requestMetadata(state.currentTrack)
         // 未播放时也预读当前曲目格式信息，重启后音频信息条仍能展示
         state.refreshIdleTrackFormatInfo(context)
     }

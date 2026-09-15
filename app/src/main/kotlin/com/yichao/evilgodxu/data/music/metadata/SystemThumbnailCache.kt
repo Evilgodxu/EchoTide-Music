@@ -4,7 +4,8 @@ import android.graphics.Bitmap
 import android.util.LruCache
 
 // 索引曲目的系统略缩图内存缓存：封面显示每次滚入视口都会重新执行媒体库查询与解码，
-// 以内存换重复读取。只驻留内存，进程结束即失效，不产生任何落盘产出。
+// 以内存换重复读取。本缓存只驻留内存，进程结束即失效，不产生任何落盘产出
+// （当前曲目的一张缩略图由 CurrentCoverCache 另行落盘）。
 // 尺寸参与缓存键：解码输出随请求尺寸变化（与 EmbeddedCoverCache 一致），不同尺寸的结果不可互相顶替。
 // 封面重写后同一 URI 的略缩图已更新，由 bumpCoverRevision 清空本缓存。
 internal object SystemThumbnailCache {

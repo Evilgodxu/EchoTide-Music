@@ -64,6 +64,10 @@ class App : Application() {
         enableStrictModeInDebugBuild()
         // 最先初始化崩溃日志，捕获启动阶段异常
         CrashLogManager.init(this)
+        // 首帧前同步预置上次播放状态：曲目、进度、背景取色与封面/歌词一并就位，
+        // 使首页首帧即是完整内容，不必先渲染空态与占位符再等异步恢复（见 seedFromBootMirror）。
+        // 这是启动关键路径上的刻意读盘，与语言镜像同理，异步化会让空窗又回到首帧上
+        stateHolder.state.seedFromBootMirror(applicationContext)
         // 冷启动尽早恢复持久化播放列表：恢复任务由首个调用方触发（见 restoreSavedState），
         // 此处预触发使首帧渲染时歌单与当前曲目已就绪，避免首页先以空态展示再等待首帧后的恢复
         appScope.launch {

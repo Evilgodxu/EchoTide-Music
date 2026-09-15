@@ -3,7 +3,7 @@ package com.yichao.evilgodxu.data.music.metadata
 import android.net.Uri
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 
-// 系统封面来源：封面取自系统（MediaProvider 的专辑封面缓存），应用不落盘封面。
+// 系统封面来源：封面取自系统（MediaProvider 的专辑封面缓存），应用不为系统面板另存封面。
 // 系统媒体面板与沉浸背景共用此入口，「是否为索引曲目」与「系统封面 URI 如何拼装」只在此定义一次。
 
 private const val MEDIA_STORE_URI_PREFIX = "content://media/"

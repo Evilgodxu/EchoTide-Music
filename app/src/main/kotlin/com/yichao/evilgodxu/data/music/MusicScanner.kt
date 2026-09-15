@@ -16,7 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 // 本地音乐扫描器（基于 MediaStore）：无共享可变状态、纯函数集合，以 object 单例形态提供。
-// 封面不在扫描期产出：显示端按需取系统略缩图或文件内嵌封面，应用不落盘封面缓存
+// 封面不在扫描期产出：显示端按需取系统略缩图或文件内嵌封面（仅当前曲目的一张缩略图落盘，见 CurrentCoverCache）
 object MusicScanner {
 
     suspend fun fromUri(context: Context, uri: Uri): MusicTrack? = withContext(Dispatchers.IO) {

@@ -1,7 +1,6 @@
 package com.yichao.evilgodxu.ui.component
 
-import android.net.Uri
-import android.util.Size
+import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -10,7 +9,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
 import com.yichao.evilgodxu.data.music.metadata.EmbeddedCoverCache
+import com.yichao.evilgodxu.data.music.metadata.MusicCoverLoader
 import com.yichao.evilgodxu.data.music.metadata.SystemThumbnailCache
 import com.yichao.evilgodxu.data.music.metadata.isMediaStoreIndexed
 import com.yichao.evilgodxu.data.music.model.MusicTrack
@@ -18,12 +19,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 系统略缩图：应用内所有封面显示的入口。
+ * 封面显示唯一入口：所有封面显示（列表行、音乐面板、迷你播放器、轮播、首页大封面、沉浸背景取色）都经此处取图。
  *
- * 索引曲目取系统媒体库维护的略缩图（扫描时生成、音频内嵌封面被重写后随媒体扫描重建）；
- * 非索引曲目（外部分享/导入的曲目）不在媒体库中，没有系统略缩图可取，改读音频文件自身的内嵌封面，
- * 解码行为与系统生成音频略缩图的路径保持一致，结果只驻留内存、不落盘。
- * 两条路由都取不到时即由调用方显示占位符。
+ * 取图顺序：内存缓存 → 当前曲目的落盘封面（[CurrentCoverCache]，冷启动时跳过系统略缩图查询与内嵌封面解码）
+ * → [MusicCoverLoader]（索引曲目读系统媒体库略缩图，非索引曲目解码音频文件的内嵌封面）；
+ * 三处都取不到时即由调用方显示占位符。
  * [sizePx] 按显示尺寸适配：列表行 256，音乐面板/轮播/首页大封面 512，沉浸背景取色 64。
  *
  * 重载时机由 [coverRevision] 驱动：封面重写后音频文件的 URI 不变而略缩图已变，
@@ -35,17 +35,13 @@ internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitm
     val audioUri = track?.audioUri
     val coverRevision = LocalMusicPanelStateHolder.current.state.coverRevision
     // 内存缓存命中时同步取回作为初始值，避免进出页面重建后先闪占位符再出图；
-    // 未命中时与往常一致先占位，待 produceState 在 IO 上解码回填。
-    // 键带 coverRevision：封面重写已清空缓存，避免把旧略缩图作为初始值顶出。
+    // 当前曲目另有已落盘的封面（冷启动预读已驻留内存），一并同步取用，使冷启动首帧直接出图。
+    // 键带 coverRevision：封面重写已作废缓存与落盘封面，避免把旧图作为初始值顶出。
     val cachedThumbnail = remember(audioUri, track?.id, sizePx, coverRevision) {
         val target = track ?: return@remember null
         runCatching {
-            if (target.isMediaStoreIndexed) {
-                SystemThumbnailCache.get(target.audioUri, sizePx)?.asImageBitmap()
-            } else {
-                EmbeddedCoverCache.peek(target.id, sizePx)?.asImageBitmap()
-            }
-        }.getOrNull()
+            memoryCover(target, sizePx) ?: CurrentCoverCache.peek(target.audioUri)
+        }.getOrNull()?.asImageBitmap()
     }
     val thumbnail by produceState<ImageBitmap?>(
         initialValue = cachedThumbnail,
@@ -57,25 +53,22 @@ internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitm
             null
         } else {
             withContext(Dispatchers.IO) {
-                if (target.isMediaStoreIndexed) {
-                    // 命中内存缓存直接复用；未命中才走媒体库查询与解码，并把结果回填缓存，
-                    // 使滚出再滚入视口的行不再重复执行昂贵的略缩图读取
-                    runCatching {
-                        SystemThumbnailCache.get(target.audioUri, sizePx)
-                            ?: context.contentResolver.loadThumbnail(
-                                Uri.parse(target.audioUri),
-                                Size(sizePx, sizePx),
-                                null,
-                            ).also { loaded ->
-                                SystemThumbnailCache.put(target.audioUri, sizePx, loaded)
-                            }
-                    }.getOrNull()?.asImageBitmap()
-                } else {
-                    // 读取与解码的去重、往返复用由缓存持有，组件只负责按需请求
-                    EmbeddedCoverCache.cover(context, target, sizePx)?.asImageBitmap()
-                }
+                runCatching {
+                    memoryCover(target, sizePx)
+                        // 当前曲目的落盘封面优先于重新解码：冷启动沿用上次切歌时保存的同一张图
+                        ?: CurrentCoverCache.load(context, target.audioUri)
+                        ?: MusicCoverLoader.load(context, target, sizePx)
+                }.getOrNull()?.asImageBitmap()
             }
         }
     }
     return thumbnail
 }
+
+// 内存缓存中的封面：索引曲目取系统略缩图，非索引曲目取内嵌封面；未命中返回 null
+private fun memoryCover(track: MusicTrack, sizePx: Int): Bitmap? =
+    if (track.isMediaStoreIndexed) {
+        SystemThumbnailCache.get(track.audioUri, sizePx)
+    } else {
+        EmbeddedCoverCache.peek(track.id, sizePx)
+    }

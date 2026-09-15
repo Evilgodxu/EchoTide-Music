@@ -19,10 +19,13 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
+import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
 import com.yichao.evilgodxu.data.music.metadata.EmbeddedCoverCache
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
+import com.yichao.evilgodxu.data.music.metadata.MusicCoverLoader
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.metadata.SystemThumbnailCache
+import com.yichao.evilgodxu.data.music.metadata.extractCoverGradient
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
@@ -187,6 +190,8 @@ class MusicPlaybackState(
                 lastMonoMediaId = null
                 // 切换曲目即持久化最新 URI，确保后台自动下一首也能被冷启动恢复
                 persistState()
+                // 切歌即落盘该曲目封面与背景取色，冷启动首帧可直接出图出背景，不依赖退出时机
+                cacheCurrentCoverAndGradient(playlist[index])
                 // 切歌后主动预读新曲源格式，避免信息条等待解码回填而长时间空白
                 appContext?.let { refreshIdleTrackFormatInfo(it) }
             }
@@ -812,18 +817,29 @@ class MusicPlaybackState(
             if (playlist.isEmpty() && cachedPlaylist.isNotEmpty()) {
                 playlist = orderedCachedPlaylist.map { it.copy(isFavorite = likedIds.contains(it.id)) }
             }
+            // 列表就绪即让首帧预置的当前曲目归位并补齐下标，此后界面不再需要二次定位
+            adoptSeededCurrentTrack()
+            // 播放列表缓存缺失时（如首次安装、缓存被清）首帧预置的曲目无从校验，可能已不在库中：
+            // 撤下交由随后的扫描恢复路径按保存的 URI 重新定位，避免显示一首无法播放的曲目
+            if (playlist.isEmpty()) currentTrack = null
             pendingSavedUri = savedUri
             pendingResumePosition = savedPosition
-            savedGradient = if (restoredGradientTop != null && restoredGradientBottom != null) {
-                Color(restoredGradientTop) to Color(restoredGradientBottom)
-            } else null
-            savedGradientUri = restoredGradientUri
+            // 启动镜像已为同一曲目预置取色时不覆盖：两者写入点相同，镜像可能领先一次
+            // （取色落盘与状态落盘之间存在进程被杀窗口），覆盖会让首帧背景色回退
+            if (restoredGradientUri != savedGradientUri) {
+                savedGradient = if (restoredGradientTop != null && restoredGradientBottom != null) {
+                    Color(restoredGradientTop) to Color(restoredGradientBottom)
+                } else null
+                savedGradientUri = restoredGradientUri
+            }
             if (currentTrack == null) {
                 currentPosition = savedPosition
             }
             playMode = PlayMode.entries.getOrElse(savedMode) { PlayMode.RepeatAll }
             playbackSpeed = savedSpeed.coerceIn(PLAYBACK_SPEED_MIN, PLAYBACK_SPEED_MAX)
         }
+        // 冷启动预读上次曲目的落盘封面：驻留内存后首帧可同步取用，不阻塞本次恢复
+        savedUri?.let { uri -> playbackScope.launch { CurrentCoverCache.load(context, uri) } }
     }
 
     // 冷启动未播放时预读当前曲目格式信息，供音频信息条展示；开始播放后由解码头覆盖
@@ -946,6 +962,11 @@ class MusicPlaybackState(
     private fun loadCachedPlaylist(context: Context, cacheKey: String): List<MusicTrack> {
         val json = context.getSharedPreferences(playlistCachePreferences, Context.MODE_PRIVATE)
             .getString(cacheKey, null) ?: return emptyList()
+        return decodePlaylist(json)
+    }
+
+    // 曲目列表 JSON 反序列化：播放列表缓存与启动镜像共用同一份字段口径，避免两处各写一份解析
+    private fun decodePlaylist(json: String): List<MusicTrack> {
         return try {
             val array = JSONArray(json)
             List(array.length()) { index ->
@@ -1040,8 +1061,15 @@ class MusicPlaybackState(
     // 首页背景真实取色成功后持久化，供下次冷启动恢复
     fun saveBackgroundGradient(top: Color, bottom: Color) {
         val uri = currentTrack?.audioUri ?: return
+        saveBackgroundGradientFor(uri, top, bottom)
+    }
+
+    // 取色结果按所属曲目落盘：显示端取色与切歌后台取色共用，避免退出时才保存而丢失
+    private fun saveBackgroundGradientFor(uri: String, top: Color, bottom: Color) {
         savedGradient = top to bottom
         savedGradientUri = uri
+        // 启动镜像同步更新取色结果：冷启动首帧的背景色同样只能来自镜像
+        if (currentTrack?.audioUri == uri) persistBootMirror()
         val context = appContext ?: return
         playbackScope.launch {
             withContext(Dispatchers.IO) {
@@ -1051,6 +1079,21 @@ class MusicPlaybackState(
                     preferences[savedGradientBottomKey] = bottom.toArgb()
                 }
             }
+        }
+    }
+
+    // 切歌即落盘该曲目封面缩略图并持久化背景取色：冷启动首帧可直读落盘封面出图，
+    // 不必再查系统略缩图或解码音频内嵌封面；后台切歌（首页未展示、无人取色）同样生效
+    private fun cacheCurrentCoverAndGradient(track: MusicTrack) {
+        val context = appContext ?: return
+        playbackScope.launch {
+            val bitmap = CurrentCoverCache.ensure(context, track.audioUri) {
+                MusicCoverLoader.load(context, track, CurrentCoverCache.THUMBNAIL_SIZE)
+            } ?: return@launch
+            // 异步取图期间可能已切走：非当前曲目的取色结果落盘会顶掉当前曲目的恢复色
+            if (currentTrack?.audioUri != track.audioUri) return@launch
+            val (top, bottom) = extractCoverGradient(bitmap) ?: return@launch
+            saveBackgroundGradientFor(track.audioUri, top, bottom)
         }
     }
 
@@ -1068,6 +1111,7 @@ class MusicPlaybackState(
         val track = currentTrack ?: return
         // 调用时刻立即快照：release/softRelease 随后会清空播放状态，异步写入不能再回读内存态
         pendingStateSnapshot = SavedPlaybackState(track.audioUri, currentPosition, playMode.ordinal)
+        persistBootMirror()
         // 写入在途时仅更新快照，由在途任务以最新快照收尾，不再取消旧任务
         if (stateWriteJob?.isActive == true) return
         stateWriteJob = playbackScope.launch {
@@ -1083,6 +1127,102 @@ class MusicPlaybackState(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // ===== 播放启动镜像 =====
+    //
+    // 冷启动首帧必须在主线程同步拿到上次播放的曲目、进度与背景取色：完整恢复要先读 DataStore，
+    // 再解析整份播放列表 JSON 并排序，放在首帧关键路径上就是一段可见的空窗
+    // （首页表现为歌词区先空态、封面先占位）。
+    // 因此另存一份单键轻量副本，只服务首帧；DataStore 与播放列表缓存仍是唯一事实源，
+    // 异步恢复完成后再以它们为准覆盖校正（见 doRestoreSavedState 与 adoptSeededCurrentTrack）。
+    // 写入点为「切歌与周期进度保存」（persistState）与「背景取色落盘」两处，写入时同步 commit，
+    // 与语言镜像同理：异步落盘在进程被杀时会让镜像滞后一次启动。
+    private val bootMirrorPreferences = "music_boot_mirror_preferences"
+    private val bootMirrorKey = "playback_snapshot"
+
+    /**
+     * 同步读取启动镜像并预置首帧状态：曲目、进度、背景取色、封面位图与歌词内容一并就位。
+     *
+     * 只可在冷启动的 Application.onCreate 主线程调用一次。读盘量固定为一个单键偏好、一张封面缩略图
+     * 与一份歌词缓存文件，换取首帧即是完整界面、启动不出现空态与占位符。
+     */
+    fun seedFromBootMirror(context: Context) {
+        appContext = context.applicationContext
+        val json = runCatching {
+            context.getSharedPreferences(bootMirrorPreferences, Context.MODE_PRIVATE)
+                .getString(bootMirrorKey, null)
+        }.getOrNull() ?: return
+        val snapshot = runCatching { JSONObject(json) }.getOrNull() ?: return
+        val track = runCatching { decodePlaylist(snapshot.optString("track", "")) }
+            .getOrNull()?.firstOrNull() ?: return
+        // 歌词内容随首帧一并读出：歌词区不再经历「空白 → 内容」。
+        // 缓存文件保存的始终是原始时间戳，需与补全路径一致地应用手动偏移，否则首帧歌词会错位
+        val lines = track.lyricCachePath
+            .takeIf { MusicMetadataCache.isValid(it) }
+            ?.let { MusicMetadataCache.loadLyrics(it) }
+            ?.let { if (track.lyricOffsetMs != 0L) MusicMetadataCache.shiftLyrics(it, track.lyricOffsetMs) else it }
+            .orEmpty()
+        // 封面位图同步驻留：封面不再经历「占位符 → 图片」
+        CurrentCoverCache.loadBlocking(context, track.audioUri)
+        // 首帧时播放列表尚未恢复，下标先置 -1，由 adoptSeededCurrentTrack 在列表就绪后补齐
+        currentIndex = -1
+        currentTrack = track.copy(lyricLines = lines)
+        currentPosition = snapshot.optLong("position", 0L)
+        duration = track.duration
+        playMode = PlayMode.entries.getOrElse(snapshot.optInt("mode", -1)) { PlayMode.RepeatAll }
+        val gradientUri = snapshot.optString("gradientUri", "")
+        if (gradientUri.isNotBlank()) {
+            savedGradientUri = gradientUri
+            savedGradient = Color(snapshot.optInt("gradientTop")) to Color(snapshot.optInt("gradientBottom"))
+        }
+        pendingSavedUri = track.audioUri
+        pendingResumePosition = currentPosition
+    }
+
+    // 启动镜像预置的当前曲目在播放列表就绪后归位：以列表实例为准并补齐下标（首帧时列表为空，无从定位），
+    // 同时保留首帧已同步读出的歌词内容，避免镜像副本与列表实例长期并存
+    private fun adoptSeededCurrentTrack() {
+        if (playlist.isEmpty()) return
+        val seeded = currentTrack
+        val index = when {
+            seeded != null -> playlist.indexOfFirst { it.id == seeded.id }
+            else -> pendingSavedUri?.let { uri -> playlist.indexOfFirst { it.audioUri == uri } } ?: -1
+        }.takeIf { it >= 0 } ?: 0
+        currentIndex = index
+        val target = playlist[index]
+        currentTrack = if (seeded != null && seeded.id == target.id && seeded.lyricLines.isNotEmpty()) {
+            target.copy(lyricLines = seeded.lyricLines)
+        } else {
+            target
+        }
+    }
+
+    // 同步落盘启动镜像：写入当前曲目、进度、播放模式与背景取色，供下次冷启动首帧同步取用
+    private fun persistBootMirror() {
+        val context = appContext ?: return
+        val track = currentTrack ?: return
+        val position = currentPosition
+        val mode = playMode.ordinal
+        val gradientUri = savedGradientUri.orEmpty()
+        val gradient = savedGradient
+        playbackScope.launch(Dispatchers.IO) {
+            runCatching {
+                val snapshot = JSONObject()
+                    .put("track", encodePlaylist(listOf(track)))
+                    .put("position", position)
+                    .put("mode", mode)
+                    .put("gradientUri", gradientUri)
+                    .put("gradientTop", gradient?.first?.toArgb() ?: 0)
+                    .put("gradientBottom", gradient?.second?.toArgb() ?: 0)
+                context.getSharedPreferences(bootMirrorPreferences, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(bootMirrorKey, snapshot.toString())
+                    .commit()
+            }.onFailure {
+                CrashLogManager.logException("MusicPlaybackState", "写入播放启动镜像失败", it)
             }
         }
     }
@@ -1255,11 +1395,13 @@ class MusicPlaybackState(
     }
 
     // 封面写入成功后自增，通知封面组件强制重载最新封面；
-    // 同时作废索引曲目的系统略缩图缓存与非索引曲目的内嵌封面缓存：旧位图与旧结论均已失效
+    // 同时作废索引曲目的系统略缩图缓存、非索引曲目的内嵌封面缓存与当前曲目的落盘封面：旧图与旧结论均已失效
     fun bumpCoverRevision() {
         coverRevision++
         SystemThumbnailCache.clear()
         EmbeddedCoverCache.clear()
+        // 落盘封面同样是旧图：一并作废，避免冷启动拿旧封面顶出（新封面由下次切歌重新落盘）
+        appContext?.let { context -> playbackScope.launch { CurrentCoverCache.clear(context) } }
     }
 
     // 批量更新曲目元数据（封面等），一次触发重组；

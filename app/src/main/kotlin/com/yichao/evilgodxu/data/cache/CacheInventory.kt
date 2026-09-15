@@ -5,6 +5,7 @@ import android.os.Environment
 import android.util.Log
 import coil3.SingletonImageLoader
 import com.yichao.evilgodxu.data.music.analysis.TrackVerdictCache
+import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
@@ -100,11 +101,17 @@ internal object CacheInventory {
     private const val SHARED_PREFS_DIR = "shared_prefs"
 
     private val ENTRIES: List<CacheEntry> = listOf(
-        // 图片缓存：上限 32MB，超出由 LRU 淘汰；清理在 clearSystemCache 里经 Coil 接口完成以保持索引一致
+        // 图片缓存：Coil 磁盘缓存（上限 32MB，超出由 LRU 淘汰）与当前曲目封面落盘缓存（换歌即覆盖，只留一张）；
+        // 清理随 clearSystemCache 整清 cacheDir 完成（Coil 部分须先经其接口以保持索引一致）
         CacheEntry(
             category = CacheCategory.IMAGE,
             scope = CacheScope.CLEARABLE,
-            resolve = { context -> listOf(File(context.cacheDir, IMAGE_CACHE_DIR_NAME)) },
+            resolve = { context ->
+                listOf(
+                    File(context.cacheDir, IMAGE_CACHE_DIR_NAME),
+                    CurrentCoverCache.location(context),
+                )
+            },
         ),
         // 中转文件：流程结束即删，进程异常中断的残留由冷启动回收
         CacheEntry(

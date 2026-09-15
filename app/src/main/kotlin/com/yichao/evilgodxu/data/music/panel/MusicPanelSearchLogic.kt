@@ -253,7 +253,7 @@ internal suspend fun applyCoverCandidate(
         val writeSuccess = withContext(Dispatchers.IO) {
             val bytes = NeteaseMusicApi.loadCoverBytes(candidate.coverUrl.orEmpty()) ?: return@withContext false
             // 手动刷新封面：按音频容器格式原生写入元数据；系统据此重建封面略缩图，
-            // 显示端据此重新取图（系统略缩图或文件内嵌封面），不再落盘应用自建封面缓存
+            // 显示端据此重新取图（系统略缩图或文件内嵌封面）；落盘的旧缩略图由 bumpCoverRevision 一并作废
             MusicMetadataWriter.writeCover(context, track, bytes)
         }
         if (!writeSuccess) return false
@@ -504,7 +504,7 @@ internal suspend fun downloadAndPlay(
     }
 
     // 在线播放时同步下载封面原图：仅以字节形式交回缓存流程，由其在缓存完成后内嵌进音频文件，
-    // 系统随即为该文件生成封面略缩图（显示端只读系统略缩图，不落盘自建封面缓存）。
+    // 系统随即为该文件生成封面略缩图（显示端只读系统略缩图，仅当前曲目的一张缩略图由 CurrentCoverCache 落盘）。
     // 在线播放由用户主动选择曲目触发，属用户决策下的联网补齐；自动补全路径不联网
     val coverJob = playbackState.playbackScope.async(Dispatchers.IO) {
         try {

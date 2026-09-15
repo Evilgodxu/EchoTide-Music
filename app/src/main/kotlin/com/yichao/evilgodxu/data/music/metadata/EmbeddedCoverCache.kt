@@ -13,7 +13,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-// 非索引曲目的封面临时缓存：只驻留内存，进程结束即失效，不产生任何落盘产出。
+// 非索引曲目的封面临时缓存：本缓存只驻留内存，进程结束即失效，不产生任何落盘产出
+// （当前曲目的一张缩略图由 CurrentCoverCache 另行落盘）。
 // 这类曲目没有系统略缩图可供读取（见 rememberSystemThumbnail），显示端每次重新进入视口都要重读音频文件并解码，
 // 同一首歌还会按列表行与音乐面板两种尺寸各解一次，故以内存换重复读取。
 // 尺寸参与缓存键：解码行为对齐系统略缩图（整数级降采样，输出随请求尺寸变化），不同尺寸的结果不可互相顶替
