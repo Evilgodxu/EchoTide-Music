@@ -437,15 +437,17 @@ internal fun PlaylistSheet(
                                 }
                             }
                             // 面板展开动画完成后：始终将当前曲目滚动到列表居中位置；
-                            // 浏览的歌单不含当前曲目时无需定位
-                            LaunchedEffect(playlistSettled, tracks) {
+                            // 浏览的歌单不含当前曲目时无需定位。
+                            // 以曲目 id 序列而非列表引用为 key：收藏等仅改标记的操作会替换列表实例，
+                            // 用引用作 key 会把这类无关变更误判为列表变化而重新定位
+                            LaunchedEffect(playlistSettled, playlistTrackIds) {
                                 val index = tracks.indexOfFirst { it.id == playbackState.currentTrack?.id }
                                 if (playlistSettled && searchQuery.isBlank() && index >= 0) {
                                     listState.scrollPlaylistTo(index, forceCenter = true)
                                 }
                             }
                             // 切歌时定位：当前曲目不在可视区内才滚动到居中位置，避免反复滚动卡顿
-                            LaunchedEffect(playbackState.currentTrack?.id, tracks) {
+                            LaunchedEffect(playbackState.currentTrack?.id, playlistTrackIds) {
                                 val index = tracks.indexOfFirst { it.id == playbackState.currentTrack?.id }
                                 if (playlistSettled && searchQuery.isBlank() && index >= 0) {
                                     listState.scrollPlaylistTo(index)
