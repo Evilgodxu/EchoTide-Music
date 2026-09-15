@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.data.playlist
 
 import com.yichao.evilgodxu.data.music.model.MusicTrack
+import com.yichao.evilgodxu.data.music.playback.PlaylistSource
 import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
 
 // 按 id 集合从全量曲目中解析曲目，保持集合顺序。
@@ -22,6 +23,48 @@ internal fun smartTrackCount(all: List<MusicTrack>, ids: Collection<Long>): Int 
     if (ids.isEmpty() || all.isEmpty()) return 0
     val existingIds = all.mapTo(HashSet(all.size)) { it.id }
     return ids.count { it in existingIds }
+}
+
+// 按歌单来源 key 从全量库解析曲目，供播放列表面板按来源展示。
+// 分支与生成来源 key 的分组逻辑保持一致：专辑/艺术家按各自分组 key 反查，
+// 自定义歌单按 trackIds 查表，故全量库变化后重新解析即为最新内容
+internal fun resolveSourceTracks(
+    all: List<MusicTrack>,
+    playlists: List<Playlist>,
+    likedIds: Set<Long>,
+    recentPlayedIds: List<Long>,
+    source: PlaylistSource,
+): List<MusicTrack> = when {
+    source.key == "smart:RECENT" -> recentTracks(all, recentPlayedIds)
+    source.key == "smart:FAVORITE" -> resolveTracks(all, likedIds)
+    source.key.startsWith("custom:") -> {
+        val playlistId = source.key.removePrefix("custom:").toLongOrNull()
+        resolveTracks(all, playlists.firstOrNull { it.id == playlistId }?.trackIds.orEmpty())
+    }
+    source.key.startsWith("album:") -> {
+        val albumId = source.key.removePrefix("album:").toLongOrNull()
+        all.filter { albumId != null && it.albumId == albumId }
+    }
+    source.key.startsWith("artist:") -> {
+        val artist = source.key.removePrefix("artist:")
+        all.filter { artist in parseTrackArtists(it.artist) }
+    }
+    else -> emptyList()
+}
+
+// 浏览的来源歌单是否仍然有效。常听/收藏等系统歌单允许为空（无播放记录、无收藏都属正常），
+// 自定义歌单须仍存在（空歌单也是有效状态），专辑/艺术家分组则以其是否还能解析出曲目为准
+internal fun isViewSourceValid(
+    playlists: List<Playlist>,
+    resolved: List<MusicTrack>,
+    source: PlaylistSource,
+): Boolean = when {
+    source.key.startsWith("smart:") -> true
+    source.key.startsWith("custom:") -> {
+        val playlistId = source.key.removePrefix("custom:").toLongOrNull()
+        playlists.any { it.id == playlistId }
+    }
+    else -> resolved.isNotEmpty()
 }
 
 internal fun distinctAlbumCount(all: List<MusicTrack>): Int = all.map { it.albumId }.distinct().size

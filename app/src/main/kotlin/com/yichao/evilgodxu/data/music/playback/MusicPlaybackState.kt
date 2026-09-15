@@ -94,6 +94,10 @@ class MusicPlaybackState(
     private val playlistSourceKeyPref = "music_playlist_source_key"
     private val playlistSourceNamePref = "music_playlist_source_name"
     private val defaultPlaylistCacheKeyPref = "music_default_playlist_cache"
+    // 播放列表面板浏览态持久化键：与播放队列解耦，重启后保持上次浏览的歌单
+    private val viewedFollowsQueuePref = "music_viewed_follows_queue"
+    private val viewedSourceKeyPref = "music_viewed_source_key"
+    private val viewedSourceNamePref = "music_viewed_source_name"
     // 排序规则持久化键
     private val playlistSortFieldPref = "music_playlist_sort_field"
     private val playlistSortDescPref = "music_playlist_sort_descending"
@@ -593,6 +597,13 @@ class MusicPlaybackState(
 
     // 当前播放列表来源歌单（null = 默认全量播放列表）
     var playlistSource by mutableStateOf<PlaylistSource?>(null)
+    // 播放列表面板的浏览态：为 true 时面板展示播放队列，否则展示 viewedSource 指定的歌单。
+    // 浏览态只决定面板展示内容，与播放队列解耦，切换时不触碰播放器
+    var viewedFollowsQueue by mutableStateOf(true)
+        private set
+    // 面板浏览的歌单来源（null = 默认全量播放列表）
+    var viewedSource by mutableStateOf<PlaylistSource?>(null)
+        private set
     // 播放列表排序规则（仅对默认全量播放列表生效），随列表一并持久化
     var playlistSortField by mutableStateOf(PlaylistSortField.DEFAULT)
     var playlistSortDescending by mutableStateOf(false)
@@ -601,6 +612,21 @@ class MusicPlaybackState(
     // 全量库：优先备份，否则为当前播放列表
     val libraryTracks: List<MusicTrack>
         get() = defaultPlaylistBackup ?: playlist
+
+    // 面板切换为浏览指定歌单：只改变列表展示内容，播放队列与播放状态保持不变
+    fun viewPlaylist(source: PlaylistSource?) {
+        viewedFollowsQueue = false
+        viewedSource = source
+        persistPlaylist()
+    }
+
+    // 面板恢复为跟随播放队列展示
+    fun followPlaybackQueue() {
+        if (viewedFollowsQueue) return
+        viewedFollowsQueue = true
+        viewedSource = null
+        persistPlaylist()
+    }
 
     // 记录一次完整播放：追加带时间戳的播放记录，并清理超出 3 天窗口的旧记录
     fun recordPlayed(trackId: Long) {
@@ -744,6 +770,14 @@ class MusicPlaybackState(
                 ?: PlaylistSortField.DEFAULT
             Triple(source, field, prefs.getBoolean(playlistSortDescPref, false))
         }
+        // 恢复面板浏览态：未显式浏览过歌单时跟随播放队列
+        val (savedFollowsQueue, savedViewedSource) = withContext(Dispatchers.IO) {
+            val prefs = context.getSharedPreferences(playlistCachePreferences, Context.MODE_PRIVATE)
+            prefs.getBoolean(viewedFollowsQueuePref, true) to
+                prefs.getString(viewedSourceKeyPref, null)?.let { key ->
+                    PlaylistSource(key, prefs.getString(viewedSourceNamePref, "") ?: "")
+                }
+        }
         // 默认全量播放列表套用保存的排序规则；大库排序开销明显，放 IO 执行
         val orderedCachedPlaylist = withContext(Dispatchers.IO) {
             if (savedSource == null) {
@@ -765,6 +799,8 @@ class MusicPlaybackState(
         withContext(Dispatchers.Main) {
             // 无保存来源时处于全量播放列表
             playlistSource = savedSource
+            viewedFollowsQueue = savedFollowsQueue
+            viewedSource = if (savedFollowsQueue) null else savedViewedSource
             playlistSortField = savedSortField
             playlistSortDescending = savedSortDescending
             defaultPlaylistBackup = cachedBackup.takeIf { it.isNotEmpty() }
@@ -857,10 +893,15 @@ class MusicPlaybackState(
                 // 「列表已更新、来源或备份未更新」的不一致状态
                 val source = playlistSource
                 val backup = defaultPlaylistBackup
+                val followsQueue = viewedFollowsQueue
+                val viewed = viewedSource
                 val editor = context.getSharedPreferences(playlistCachePreferences, Context.MODE_PRIVATE).edit()
                 editor.putString(playlistCacheKey, encodePlaylist(playlist))
                 editor.putString(playlistSourceKeyPref, source?.key)
                 editor.putString(playlistSourceNamePref, source?.name)
+                editor.putBoolean(viewedFollowsQueuePref, followsQueue)
+                editor.putString(viewedSourceKeyPref, viewed?.key)
+                editor.putString(viewedSourceNamePref, viewed?.name)
                 editor.putString(playlistSortFieldPref, playlistSortField.name)
                 editor.putBoolean(playlistSortDescPref, playlistSortDescending)
                 if (backup != null) {

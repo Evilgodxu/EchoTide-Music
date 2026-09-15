@@ -71,10 +71,14 @@ import androidx.compose.ui.window.Dialog
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaylistRefresher
+import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PlaylistSortField
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
+import com.yichao.evilgodxu.data.music.playback.switchToPlaylistQueue
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
+import com.yichao.evilgodxu.data.playlist.isViewSourceValid
+import com.yichao.evilgodxu.data.playlist.resolveSourceTracks
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
@@ -106,16 +110,60 @@ internal fun PlaylistSheet(
     val sheetHeightFraction = if (isPortrait) 0.5f else 1f
     // 歌单副标题点击后的快捷切换弹层
     var showSwitcher by remember { mutableStateOf(false) }
+    // 面板展示的曲目：跟随播放队列时取播放队列，浏览态按来源歌单从全量库解析。
+    // 浏览态只决定展示内容，与播放队列解耦，切换时不动播放器
+    val playlistStore = LocalPlaylistStore.current
+    // 自定义歌单需先完成读盘才能解析，否则浏览态会短暂展示空列表
+    var playlistStoreLoaded by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        playlistStore.awaitLoaded(context)
+        playlistStoreLoaded = true
+    }
+    val followsQueue = playbackState.viewedFollowsQueue
+    val viewedSource = playbackState.viewedSource
+    val library = playbackState.libraryTracks
+    val tracks = remember(
+        followsQueue,
+        viewedSource,
+        library,
+        playlistStore.playlists,
+        playbackState.playlist,
+        playbackState.likedIds,
+        playbackState.recentPlayedIds,
+    ) {
+        when {
+            followsQueue -> playbackState.playlist
+            viewedSource == null -> library
+            else -> resolveSourceTracks(
+                library,
+                playlistStore.playlists,
+                playbackState.likedIds,
+                playbackState.recentPlayedIds,
+                viewedSource,
+            )
+        }
+    }
+    val viewedKey = if (followsQueue) playbackState.playlistSource?.key else viewedSource?.key
+    val viewedName = if (followsQueue) playbackState.playlistSource?.name else viewedSource?.name
+    // 浏览的歌单已失效（被删除、专辑/艺术家分组消失）时回落到默认播放列表，避免面板停留在空列表；
+    // 读盘完成前自定义歌单必然解析为空、扫描期间全量库可能暂时为空，都不作为失效依据
+    LaunchedEffect(playlistStoreLoaded, playbackState.isScanning, followsQueue, viewedSource, tracks) {
+        if (playlistStoreLoaded && !playbackState.isScanning && !followsQueue && viewedSource != null &&
+            !isViewSourceValid(playlistStore.playlists, tracks, viewedSource)
+        ) {
+            playbackState.viewPlaylist(null)
+        }
+    }
     // 排序对话框显隐
     var showSortDialog by remember { mutableStateOf(false) }
     // 长按删除目标：非空时显示确认弹窗
     var deleteTrack by remember { mutableStateOf<MusicTrack?>(null) }
     // 后台预取整个播放列表缩略图：曲目集合变化即触发，不等面板展开逐行懒加载，
     // 展开时封面已就绪；幂等，已缓存/补全中/全量补全中的曲目自动跳过
-    val playlistTrackIds = remember(playbackState.playlist) { playbackState.playlist.map { it.id } }
+    val playlistTrackIds = remember(tracks) { tracks.map { it.id } }
     LaunchedEffect(playlistTrackIds) {
         val currentId = playbackState.currentTrack?.id
-        playbackState.playlist
+        tracks
             .sortedBy { it.id != currentId }
             .forEach { playbackState.requestMetadata(it) }
     }
@@ -174,10 +222,9 @@ internal fun PlaylistSheet(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Spacer(Modifier.width(8.dp))
-                    // 歌单副标题：浅色小字常驻显示，点击快捷切换歌单；默认列表显示默认播放列表
+                    // 歌单副标题：浅色小字常驻显示当前浏览的歌单，点击快捷切换
                     Text(
-                        text = playbackState.playlistSource?.name
-                            ?: stringResource(R.string.playlist_switch_default),
+                        text = viewedName ?: stringResource(R.string.playlist_switch_default),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp,
                         maxLines = 1,
@@ -189,7 +236,7 @@ internal fun PlaylistSheet(
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = stringResource(R.string.music_panel_track_count, playbackState.playlist.size),
+                            text = stringResource(R.string.music_panel_track_count, tracks.size),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
                             modifier = Modifier.padding(end = 4.dp),
@@ -221,7 +268,10 @@ internal fun PlaylistSheet(
                             contentDescription = stringResource(R.string.music_panel_sort),
                             onClick = { showSortDialog = true },
                             modifier = Modifier.size(28.dp),
-                            enabled = playbackState.playlistSource == null && !playbackState.isScanning,
+                            // 排序规则只作用于默认全量播放队列，浏览其它歌单或队列为歌单来源时不可用
+                            enabled = followsQueue &&
+                                playbackState.playlistSource == null &&
+                                !playbackState.isScanning,
                         )
                         IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
                             Icon(
@@ -240,7 +290,7 @@ internal fun PlaylistSheet(
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                     }
-                } else if (playbackState.playlist.isEmpty()) {
+                } else if (tracks.isEmpty()) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
@@ -259,14 +309,14 @@ internal fun PlaylistSheet(
                     var searchQuery by remember { mutableStateOf("") }
                     // 搜索框聚焦状态：键盘展开期间用拦截层接住列表点击，仅收起键盘避免误触播放
                     var searchFocused by remember { mutableStateOf(false) }
-                    // 过滤后仍保留原队列索引：点击播放与定位需回填真实索引
-                    // 索引仅来自当前 playlist 快照；playlist 收缩后布局期可能读到过期索引，须容忍缺失
-                    val filteredIndices = remember(playbackState.playlist, searchQuery) {
+                    // 过滤后仍保留原展示列表索引：点击播放与定位需回填真实索引
+                    // 索引仅来自当前 tracks 快照；列表收缩后布局期可能读到过期索引，须容忍缺失
+                    val filteredIndices = remember(tracks, searchQuery) {
                         if (searchQuery.isBlank()) {
-                            playbackState.playlist.indices.toList()
+                            tracks.indices.toList()
                         } else {
-                            playbackState.playlist.indices.filter { index ->
-                                val track = playbackState.playlist.getOrNull(index) ?: return@filter false
+                            tracks.indices.filter { index ->
+                                val track = tracks.getOrNull(index) ?: return@filter false
                                 track.title.contains(searchQuery, ignoreCase = true) ||
                                     track.artist.contains(searchQuery, ignoreCase = true)
                             }
@@ -344,10 +394,11 @@ internal fun PlaylistSheet(
                             ) {
                                 itemsIndexed(
                                     items = filteredIndices,
-                                    key = { _, index -> playbackState.playlist.getOrNull(index)?.id ?: -1L },
+                                    key = { _, index -> tracks.getOrNull(index)?.id ?: -1L },
                                 ) { _, index ->
-                                    val track = playbackState.playlist.getOrNull(index) ?: return@itemsIndexed
-                                    val isActive = index == playbackState.currentIndex
+                                    val track = tracks.getOrNull(index) ?: return@itemsIndexed
+                                    // 展示列表可能与播放队列不同，播放态按曲目 id 判定而非列表下标
+                                    val isActive = track.id == playbackState.currentTrack?.id
                                     PlaylistRow(
                                         track = track,
                                         isActive = isActive,
@@ -355,10 +406,27 @@ internal fun PlaylistSheet(
                                         isQueued = playbackState.isInPlayNext(track.id),
                                         onClick = {
                                             keyboardController?.hide()
-                                            if (isActive) {
-                                                togglePlayPause(playbackState)
-                                            } else {
-                                                scope.launch { playTrackAt(context, playbackState, index) }
+                                            when {
+                                                // 跟随播放队列：切歌或切换播放/暂停，不动队列
+                                                followsQueue && isActive -> togglePlayPause(playbackState)
+                                                followsQueue -> scope.launch {
+                                                    playTrackAt(context, playbackState, index)
+                                                }
+                                                // 浏览态点击正在播放的曲目：只切换播放/暂停，保持浏览内容不变
+                                                isActive -> togglePlayPause(playbackState)
+                                                // 浏览态点击其它曲目：把该歌单设为播放队列并起播，随后回到跟随播放队列
+                                                else -> {
+                                                    switchToPlaylistQueue(
+                                                        context,
+                                                        playbackState,
+                                                        tracks,
+                                                        viewedSource,
+                                                        metadataEnricher,
+                                                        startTrackId = track.id,
+                                                        autoPlay = true,
+                                                    )
+                                                    playbackState.followPlaybackQueue()
+                                                }
                                             }
                                             onDismiss()
                                         },
@@ -368,28 +436,27 @@ internal fun PlaylistSheet(
                                     )
                                 }
                             }
-                            // 面板展开动画完成后：始终将当前曲目滚动到列表居中位置
-                            LaunchedEffect(playlistSettled) {
-                                if (playlistSettled && searchQuery.isBlank() && playbackState.currentIndex >= 0 && playbackState.playlist.isNotEmpty()) {
-                                    listState.scrollPlaylistTo(
-                                        playbackState.currentIndex.coerceIn(0, playbackState.playlist.size - 1),
-                                        forceCenter = true
-                                    )
+                            // 面板展开动画完成后：始终将当前曲目滚动到列表居中位置；
+                            // 浏览的歌单不含当前曲目时无需定位
+                            LaunchedEffect(playlistSettled, tracks) {
+                                val index = tracks.indexOfFirst { it.id == playbackState.currentTrack?.id }
+                                if (playlistSettled && searchQuery.isBlank() && index >= 0) {
+                                    listState.scrollPlaylistTo(index, forceCenter = true)
                                 }
                             }
                             // 切歌时定位：当前曲目不在可视区内才滚动到居中位置，避免反复滚动卡顿
-                            LaunchedEffect(playbackState.currentTrack?.id) {
-                                if (playlistSettled && searchQuery.isBlank() && playbackState.currentIndex >= 0 && playbackState.playlist.isNotEmpty()) {
-                                    listState.scrollPlaylistTo(
-                                        playbackState.currentIndex.coerceIn(0, playbackState.playlist.size - 1)
-                                    )
+                            LaunchedEffect(playbackState.currentTrack?.id, tracks) {
+                                val index = tracks.indexOfFirst { it.id == playbackState.currentTrack?.id }
+                                if (playlistSettled && searchQuery.isBlank() && index >= 0) {
+                                    listState.scrollPlaylistTo(index)
                                 }
                             }
                             // 手动定位播放：待过滤结果与当前曲目对齐后居中滚动。
-                            // 当前曲目被过滤掉时上游会清空关键词，此处等重组恢复全量队列再定位
+                            // 当前曲目被过滤掉时上游会清空关键词，此处等重组恢复全量列表再定位
                             LaunchedEffect(pendingLocate, filteredIndices) {
                                 if (!pendingLocate) return@LaunchedEffect
-                                val position = filteredIndices.indexOf(playbackState.currentIndex)
+                                val playingIndex = tracks.indexOfFirst { it.id == playbackState.currentTrack?.id }
+                                val position = filteredIndices.indexOf(playingIndex)
                                 if (position < 0) return@LaunchedEffect
                                 listState.scrollPlaylistTo(position, forceCenter = true)
                                 pendingLocate = false
@@ -442,10 +509,14 @@ internal fun PlaylistSheet(
                                 SearchActionButton(
                                     icon = AppIcons.MyLocation,
                                     contentDescription = stringResource(R.string.playlist_locate_playing),
-                                    enabled = playbackState.currentIndex >= 0,
+                                    // 当前曲目不在展示列表内时无从定位
+                                    enabled = tracks.any { it.id == playbackState.currentTrack?.id },
                                     onClick = {
                                         // 当前曲目被过滤掉则先清空关键词，否则该按钮永远定位不到目标
-                                        if (!filteredIndices.contains(playbackState.currentIndex)) {
+                                        val playingIndex = tracks.indexOfFirst {
+                                            it.id == playbackState.currentTrack?.id
+                                        }
+                                        if (!filteredIndices.contains(playingIndex)) {
                                             searchQuery = ""
                                         }
                                         pendingLocate = true
@@ -460,6 +531,9 @@ internal fun PlaylistSheet(
         PlaylistSwitcher(
             visible = showSwitcher,
             playbackState = playbackState,
+            currentKey = viewedKey,
+            // 仅切换面板展示的歌单，不触碰播放器与播放队列；点击歌单内曲目时才切换队列
+            onSwitch = { source -> playbackState.viewPlaylist(source) },
             onDismiss = { showSwitcher = false },
         )
         PlaylistSortDialog(

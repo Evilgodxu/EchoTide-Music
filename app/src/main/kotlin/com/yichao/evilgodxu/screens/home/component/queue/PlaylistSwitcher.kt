@@ -30,14 +30,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.playlist.PlaylistGroup
@@ -45,28 +43,26 @@ import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.playlist.SmartPlaylistType
 import com.yichao.evilgodxu.data.playlist.albumGroups
 import com.yichao.evilgodxu.data.playlist.artistGroups
-import com.yichao.evilgodxu.data.playlist.recentTracks
-import com.yichao.evilgodxu.data.playlist.resolveTracks
 import com.yichao.evilgodxu.data.playlist.smartTrackCount
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PlaylistSource
-import com.yichao.evilgodxu.data.music.playback.switchToPlaylistQueue
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 
 // 播放列表副标题快捷切换歌单弹层：默认 + 系统歌单 + 自定义歌单，专辑/艺术家支持分组二级导航
+// 选择结果仅回调所选来源给调用方切换面板展示内容，不直接改动播放状态
 @Composable
 internal fun PlaylistSwitcher(
     visible: Boolean,
     playbackState: MusicPlaybackState,
+    currentKey: String?,
+    onSwitch: (PlaylistSource?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     if (!visible) return
-    val context = LocalContext.current
     val playlistStore = LocalPlaylistStore.current
-    val metadataEnricher = LocalMetadataEnricher.current
     var showGroups by remember { mutableStateOf<SmartPlaylistType?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -114,8 +110,9 @@ internal fun PlaylistSwitcher(
                 PlaylistSwitchList(
                     playlistStore = playlistStore,
                     playbackState = playbackState,
-                    onSwitch = { tracks, source ->
-                        switchToPlaylistQueue(context, playbackState, tracks, source, metadataEnricher)
+                    currentKey = currentKey,
+                    onSwitch = { source ->
+                        onSwitch(source)
                         onDismiss()
                     },
                     onOpenGroups = { showGroups = it },
@@ -124,8 +121,9 @@ internal fun PlaylistSwitcher(
                 PlaylistSwitchGroups(
                     type = type,
                     playbackState = playbackState,
-                    onSwitch = { tracks, source ->
-                        switchToPlaylistQueue(context, playbackState, tracks, source, metadataEnricher)
+                    currentKey = currentKey,
+                    onSwitch = { source ->
+                        onSwitch(source)
                         onDismiss()
                     },
                 )
@@ -139,13 +137,13 @@ internal fun PlaylistSwitcher(
 private fun PlaylistSwitchList(
     playlistStore: PlaylistStore,
     playbackState: MusicPlaybackState,
-    onSwitch: (List<MusicTrack>, PlaylistSource?) -> Unit,
+    currentKey: String?,
+    onSwitch: (PlaylistSource?) -> Unit,
     onOpenGroups: (SmartPlaylistType) -> Unit,
 ) {
     val library = playbackState.libraryTracks
     // 行内取封面按 id 查表，避免每行线性扫描全库
     val libraryById = remember(library) { library.associateBy { it.id } }
-    val currentKey = playbackState.playlistSource?.key
     val recentLabel = stringResource(R.string.playlist_smart_recent)
     val favoriteLabel = stringResource(R.string.playlist_smart_favorite)
     LazyColumn(
@@ -158,7 +156,7 @@ private fun PlaylistSwitchList(
                 title = stringResource(R.string.playlist_switch_default),
                 subtitle = stringResource(R.string.music_panel_track_count, library.size),
                 isCurrent = currentKey == null,
-                onClick = { onSwitch(playbackState.defaultPlaylistBackup ?: library, null) },
+                onClick = { onSwitch(null) },
             )
         }
         item {
@@ -168,10 +166,7 @@ private fun PlaylistSwitchList(
                 subtitle = stringResource(R.string.music_panel_track_count, smartTrackCount(library, playbackState.recentPlayedIds)),
                 isCurrent = currentKey == "smart:RECENT",
                 onClick = {
-                    onSwitch(
-                        recentTracks(library, playbackState.recentPlayedIds),
-                        PlaylistSource("smart:RECENT", recentLabel),
-                    )
+                    onSwitch(PlaylistSource("smart:RECENT", recentLabel))
                 },
             )
         }
@@ -182,10 +177,7 @@ private fun PlaylistSwitchList(
                 subtitle = stringResource(R.string.music_panel_track_count, smartTrackCount(library, playbackState.likedIds)),
                 isCurrent = currentKey == "smart:FAVORITE",
                 onClick = {
-                    onSwitch(
-                        library.filter { it.id in playbackState.likedIds },
-                        PlaylistSource("smart:FAVORITE", favoriteLabel),
-                    )
+                    onSwitch(PlaylistSource("smart:FAVORITE", favoriteLabel))
                 },
             )
         }
@@ -228,10 +220,7 @@ private fun PlaylistSwitchList(
                 isCurrent = currentKey == "custom:${playlist.id}",
                 coverTrack = playlist.trackIds.firstOrNull()?.let { libraryById[it] },
                 onClick = {
-                    onSwitch(
-                        resolveTracks(library, playlist.trackIds),
-                        PlaylistSource("custom:${playlist.id}", playlist.name),
-                    )
+                    onSwitch(PlaylistSource("custom:${playlist.id}", playlist.name))
                 },
             )
         }
@@ -244,7 +233,8 @@ private fun PlaylistSwitchList(
 private fun PlaylistSwitchGroups(
     type: SmartPlaylistType,
     playbackState: MusicPlaybackState,
-    onSwitch: (List<MusicTrack>, PlaylistSource?) -> Unit,
+    currentKey: String?,
+    onSwitch: (PlaylistSource?) -> Unit,
 ) {
     val library = playbackState.libraryTracks
     val unknownAlbum = stringResource(R.string.playlist_unknown_album)
@@ -259,7 +249,6 @@ private fun PlaylistSwitchGroups(
     }
     val libraryById = remember(library) { library.associateBy { it.id } }
     val icon: ImageVector = if (type == SmartPlaylistType.ALBUM) AppIcons.Album else AppIcons.Person
-    val currentKey = playbackState.playlistSource?.key
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -276,7 +265,7 @@ private fun PlaylistSwitchGroups(
                 subtitle = stringResource(R.string.music_panel_track_count, group.trackIds.size),
                 isCurrent = currentKey == group.key,
                 coverTrack = tracks.firstOrNull(),
-                onClick = { onSwitch(tracks, PlaylistSource(group.key, group.name)) },
+                onClick = { onSwitch(PlaylistSource(group.key, group.name)) },
             )
         }
     }
