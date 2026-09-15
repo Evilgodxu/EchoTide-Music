@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
@@ -233,8 +234,13 @@ internal fun MiniContextMenu(
     onCopy: () -> Unit,
     onRename: () -> Unit,
     onDismiss: () -> Unit,
-    onSearch: (() -> Unit)? = null,
+    // 在线搜索目标：仅一位时直接以其为关键词，多位时先下钻为竖向候选列表
+    searchTargets: List<String> = emptyList(),
+    onSearchTarget: (String) -> Unit = {},
 ) {
+    // 每次唤起都从一级菜单开始；搜索目标多于一位时下钻候选列表
+    var showSearchTargets by remember(visible) { mutableStateOf(false) }
+
     if (visible) {
         Popup(
             properties = PopupProperties(
@@ -251,54 +257,88 @@ internal fun MiniContextMenu(
                 tonalElevation = 4.dp,
                 modifier = Modifier.padding(top = 2.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color.Transparent,
-                        onClick = onCopy
+                if (showSearchTargets) {
+                    // 二级菜单：竖向排列的搜索目标，宽度取最长项，整行可点
+                    Column(
+                        modifier = Modifier
+                            .width(IntrinsicSize.Max)
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
-                        Text(
-                            text = stringResource(R.string.music_panel_copy),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                        )
+                        searchTargets.forEachIndexed { index, target ->
+                            if (index > 0) Spacer(modifier = Modifier.height(2.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color.Transparent,
+                                onClick = { onSearchTarget(target) }
+                            ) {
+                                Text(
+                                    text = target,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                                )
+                            }
+                        }
                     }
-                    Spacer(modifier = Modifier.width(2.dp))
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color.Transparent,
-                        onClick = onRename
+                } else {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        Text(
-                            text = stringResource(R.string.music_panel_rename),
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                        )
-                    }
-                    if (onSearch != null) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color.Transparent,
+                            onClick = onCopy
+                        ) {
+                            Text(
+                                text = stringResource(R.string.music_panel_copy),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                            )
+                        }
                         Spacer(modifier = Modifier.width(2.dp))
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = Color.Transparent,
-                            onClick = onSearch
+                            onClick = onRename
                         ) {
                             Text(
-                                text = stringResource(R.string.music_panel_menu_search),
+                                text = stringResource(R.string.music_panel_rename),
                                 color = MaterialTheme.colorScheme.primary,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                             )
+                        }
+                        if (searchTargets.isNotEmpty()) {
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color.Transparent,
+                                onClick = {
+                                    if (searchTargets.size > 1) {
+                                        showSearchTargets = true
+                                    } else {
+                                        onSearchTarget(searchTargets.first())
+                                    }
+                                }
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.music_panel_menu_search),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                                )
+                            }
                         }
                     }
                 }

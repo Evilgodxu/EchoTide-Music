@@ -75,6 +75,7 @@ import com.yichao.evilgodxu.data.music.panel.applyLyricsLineEdit
 import com.yichao.evilgodxu.data.music.panel.searchCoverCandidates
 import com.yichao.evilgodxu.data.music.panel.searchLyricsCandidates
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
 import com.yichao.evilgodxu.screens.home.component.player.HomeImmersiveCover
@@ -516,9 +517,11 @@ internal fun PortraitPlayer(
                             renameTargetId = playbackState.currentTrack?.id
                             showRename = true
                         },
-                        onSearch = {
+                        // 标题整体作为唯一关键词；艺术家按多歌手分隔符解析，多位时由菜单下钻选择
+                        searchTargets = if (menuIsTitle) listOf(menuText) else parseTrackArtists(menuText),
+                        onSearchTarget = { target ->
                             showMetaMenu = false
-                            onOpenOnlineSearch(menuText)
+                            onOpenOnlineSearch(target)
                         },
                         onDismiss = { showMetaMenu = false },
                     )
