@@ -75,6 +75,7 @@ import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PlaylistSortField
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
+import com.yichao.evilgodxu.data.music.playback.switchPlaylistSource
 import com.yichao.evilgodxu.data.music.playback.switchToPlaylistQueue
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.data.playlist.isViewSourceValid
@@ -534,8 +535,18 @@ internal fun PlaylistSheet(
             visible = showSwitcher,
             playbackState = playbackState,
             currentKey = viewedKey,
-            // 仅切换面板展示的歌单，不触碰播放器与播放队列；点击歌单内曲目时才切换队列
-            onSwitch = { source -> playbackState.viewPlaylist(source) },
+            // 切换歌单即把所选歌单设为播放队列：当前曲目在新歌单中则按新歌单顺序继续播放，
+            // 不在则从新歌单首曲起播；面板同步改为展示所选歌单
+            onSwitch = { source ->
+                switchPlaylistSource(
+                    context = context,
+                    state = playbackState,
+                    source = source,
+                    playlists = playlistStore.playlists,
+                    metadataEnricher = metadataEnricher,
+                )
+                playbackState.viewPlaylist(source)
+            },
             onDismiss = { showSwitcher = false },
         )
         PlaylistSortDialog(

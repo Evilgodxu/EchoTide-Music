@@ -166,6 +166,23 @@ class MusicPlaybackState(
                     }
                 }
             }
+            // 待接入队列（切换歌单时当前曲目仍在播放）：播放器自然接续的曲目仍属旧队列，
+            // 改由新队列的待接入位置接管，避免切歌单后继续播上一个歌单
+            val pendingStart = pendingQueueStartIndex
+            if (pendingStart != null && playlist.isNotEmpty() &&
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
+            ) {
+                pendingQueueStartIndex = null
+                playbackScope.launch {
+                    playTrackAt(
+                        appContext ?: return@launch,
+                        this@MusicPlaybackState,
+                        pendingStart.coerceIn(0, playlist.size - 1),
+                        clearQueue = false,
+                    )
+                }
+                return
+            }
             val id = mediaItem?.mediaId?.toLongOrNull() ?: return
             val index = playlist.indexOfFirst { it.id == id }
             if (index >= 0) {
@@ -663,6 +680,9 @@ class MusicPlaybackState(
     var playNextQueue by mutableStateOf<List<MusicTrack>>(emptyList())
     // 建立队列时记录的当前曲目 ID，队列播完后据此接续原播放位置
     private var queueResumeTrackId: Long? by mutableStateOf(null)
+    // 待接入队列的起播位置（null = 无待接入队列）：切换歌单时正在播放的曲目仍出声，
+    // 新队列暂不装载以免打断播放，待该曲目播完（或用户手动切歌）后从这个位置接入播放器
+    internal var pendingQueueStartIndex: Int? = null
 
     // 曲目是否已在下一首播放队列中
     fun isInPlayNext(trackId: Long): Boolean = playNextQueue.any { it.id == trackId }
@@ -1363,11 +1383,16 @@ class MusicPlaybackState(
         }
     }
 
-    // 切换指定曲目的收藏状态：仅就地更新收藏标记，不改变列表顺序
+    // 切换指定曲目的收藏状态：仅就地更新收藏标记，不改变列表顺序。
+    // 全量库备份须一并更新：面板浏览非播放队列的歌单时曲目取自备份，只改队列会让收藏图标不刷新
     fun toggleFavorite(trackId: Long) {
         val newLiked = if (likedIds.contains(trackId)) likedIds - trackId else likedIds + trackId
         likedIds = newLiked
-        playlist = playlist.map { if (it.id == trackId) it.copy(isFavorite = trackId in newLiked) else it }
+        val replace: (List<MusicTrack>) -> List<MusicTrack> = { list ->
+            list.map { if (it.id == trackId) it.copy(isFavorite = trackId in newLiked) else it }
+        }
+        playlist = replace(playlist)
+        defaultPlaylistBackup = defaultPlaylistBackup?.let(replace)
         persistPlaylist()
     }
 
@@ -1540,15 +1565,19 @@ class MusicPlaybackState(
 
     private fun calculateIndex(direction: Int, repeatOne: Boolean, from: Int = currentIndex): Int {
         if (playlist.isEmpty()) return -1
-        val validCurrentIndex = from.takeIf { it in playlist.indices } ?: 0
+        // 当前曲目不在队列内（如切换歌单后正在播放的曲目已不属于新歌单）：
+        // 下一首取队列首曲、上一首取队尾，而非把缺失下标当作首曲再顺延一首
+        if (from !in playlist.indices) {
+            return if (direction < 0) playlist.lastIndex else 0
+        }
         return when {
-            playMode == PlayMode.RepeatOne && repeatOne -> validCurrentIndex
+            playMode == PlayMode.RepeatOne && repeatOne -> from
             playMode == PlayMode.Shuffle -> {
                 if (playlist.size == 1) 0
-                else playlist.indices.filter { it != validCurrentIndex }.random()
+                else playlist.indices.filter { it != from }.random()
             }
-            direction < 0 -> (validCurrentIndex - 1 + playlist.size) % playlist.size
-            else -> (validCurrentIndex + 1) % playlist.size
+            direction < 0 -> (from - 1 + playlist.size) % playlist.size
+            else -> (from + 1) % playlist.size
         }
     }
 

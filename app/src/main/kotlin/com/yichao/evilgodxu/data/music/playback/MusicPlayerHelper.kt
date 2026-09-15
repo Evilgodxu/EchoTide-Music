@@ -65,10 +65,13 @@ suspend fun playTrackAt(
 
         withContext(Dispatchers.Main) {
             applyPlaybackMode(controller, state.playMode)
-            val resumePosition = if (state.pendingSavedUri == track.audioUri) {
-                state.pendingResumePosition.coerceAtLeast(0L)
-            } else {
-                0L
+            // 播放器当前项即目标曲目：整体替换队列（如切换歌单）时沿用实际进度，
+            // 避免只是换了队列顺序却把正在播放的曲目从头重播
+            val sameTrack = controller.currentMediaItem?.mediaId == track.id.toString()
+            val resumePosition = when {
+                state.pendingSavedUri == track.audioUri -> state.pendingResumePosition.coerceAtLeast(0L)
+                sameTrack -> controller.currentPosition.coerceAtLeast(0L)
+                else -> 0L
             }
             // 续播锚点：以保存位置起播时记录目标与归属曲目，供异步派发的 onMediaItemTransition
             // 在该曲目的过渡上保留已还原进度；真实切歌（resumePosition=0）不设锚点，按常规复位到起点
@@ -82,10 +85,11 @@ suspend fun playTrackAt(
                         old.mediaId == items[i].mediaId &&
                             old.localConfiguration?.uri?.toString() == items[i].localConfiguration?.uri?.toString()
                     }
-            val sameTrack = controller.currentMediaItem?.mediaId == track.id.toString()
 
             state.currentIndex = index
             state.currentTrack = track
+            // 本次加载已把当前状态队列接入播放器，待接入队列随之失效
+            state.pendingQueueStartIndex = null
             state.errorMsg = null
             if (!sameQueue) {
                 controller.setMediaItems(items, index, resumePosition)
