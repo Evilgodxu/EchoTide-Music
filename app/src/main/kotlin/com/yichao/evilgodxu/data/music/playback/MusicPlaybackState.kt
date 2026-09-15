@@ -191,9 +191,6 @@ class MusicPlaybackState(
             cleanupIdleOnlineTracks()
             // 再次从控制器校正当前曲目，确保 UI 与真实音频一致（在线曲目切换时尤其关键）
             syncPlaybackState()
-            // 切歌后以权威曲目状态刷新系统媒体面板的当前 MediaItem（封面/标题），
-            // 覆盖缓存 MediaItem 中封面补全前的空白或旧封面，避免面板封面与当前歌曲不匹配
-            refreshCurrentMediaItem(this@MusicPlaybackState)
         }
 
         override fun onPositionDiscontinuity(
@@ -297,12 +294,9 @@ class MusicPlaybackState(
         set(value) {
             _playlist.value = value
             cachedMediaItems = null
-            mediaItemsDirty = true
         }
     /** 缓存 playlist 对应的 MediaItem 列表，避免切歌时重复构建 */
     var cachedMediaItems by mutableStateOf<List<androidx.media3.common.MediaItem>?>(null)
-    /** 封面更新后需要刷新系统媒体面板的 MediaItem，标记为脏 */
-    var mediaItemsDirty by mutableStateOf(false)
     var currentIndex by mutableIntStateOf(-1)
     var currentTrack by mutableStateOf<MusicTrack?>(null)
     var playMode by mutableStateOf(PlayMode.RepeatAll)

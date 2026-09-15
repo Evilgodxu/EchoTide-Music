@@ -6,7 +6,7 @@ import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import com.yichao.evilgodxu.data.music.metadata.systemCoverUri
+import com.yichao.evilgodxu.data.music.metadata.panelArtworkUri
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.PlayMode
 import com.yichao.evilgodxu.service.MusicPlaybackService
@@ -83,14 +83,11 @@ suspend fun playTrackAt(
                             old.localConfiguration?.uri?.toString() == items[i].localConfiguration?.uri?.toString()
                     }
             val sameTrack = controller.currentMediaItem?.mediaId == track.id.toString()
-            // 封面更新后需要刷新系统媒体面板的 MediaItem
-            val needRefreshItems = state.mediaItemsDirty
 
             state.currentIndex = index
             state.currentTrack = track
             state.errorMsg = null
-            state.mediaItemsDirty = false
-            if (!sameQueue || needRefreshItems) {
+            if (!sameQueue) {
                 controller.setMediaItems(items, index, resumePosition)
                 controller.prepare()
             } else if (!sameTrack) {
@@ -113,11 +110,10 @@ private fun toMediaItem(track: MusicTrack): MediaItem {
     val metadata = androidx.media3.common.MediaMetadata.Builder()
         .setTitle(track.title)
         .setArtist(track.artist)
-    // 系统媒体面板（通知栏/锁屏/Android Auto）的封面与列表同源：只给系统封面 URI
-    // （MediaProvider 的专辑封面缓存，列表略缩图读的是同一份）。非索引曲目（外部分享/在线流）
-    // 没有系统封面，此时不设封面 URI，由系统显示默认图标；在线曲目落盘入库后由媒体扫描生成。
-    val artworkUri = systemCoverUri(track)
-    artworkUri?.let { metadata.setArtworkUri(it) }
+    // 系统媒体面板（通知栏/锁屏/Android Auto）的封面：本地曲目给系统封面 URI（MediaProvider
+    // 的专辑封面缓存，列表略缩图读的是同一份）；在线曲目给在线封面地址，由 media3 的
+    // BitmapLoader 异步下载并在就绪后自动刷新通知，应用侧不自行下载、不落盘
+    panelArtworkUri(track)?.let { metadata.setArtworkUri(it) }
     return MediaItem.Builder()
         .setMediaId(track.id.toString())
         .setUri(Uri.parse(track.audioUri))
@@ -157,30 +153,6 @@ fun seekToAndPlay(state: MusicPlaybackState, positionMs: Long) {
         state.playbackScope.launch {
             controller.seekTo(positionMs)
             controller.play()
-        }
-    }
-}
-
-/**
- * 封面等元数据后台补全后刷新系统媒体面板的当前 MediaItem。
- * 仅当 artworkUri 变化时才替换，替换不中断播放。
- * 替换沿用当前播放项的真实 URI：在线缓存完成后 track.audioUri 已指向本地文件，
- * 但播放器此刻仍使用在线流；若用新 URI 替换，会把正在被重写（内嵌元数据）的缓存文件
- * 接入播放，导致无声音与进度反复回退。保持播放源不变，仅刷新封面。
- */
-fun refreshCurrentMediaItem(state: MusicPlaybackState) {
-    val controller = state.mediaController ?: return
-    val track = state.currentTrack ?: return
-    val index = state.currentIndex
-    if (index < 0) return
-    state.playbackScope.launch {
-        if (controller.mediaItemCount != state.playlist.size) return@launch
-        val current = controller.currentMediaItem ?: return@launch
-        val playingUri = current.localConfiguration?.uri ?: return@launch
-        // 封面刷新不切换播放源：沿用当前播放项的 URI，避免源被换成缓存文件
-        val newItem = toMediaItem(track.copy(audioUri = playingUri.toString()))
-        if (current.mediaMetadata.artworkUri != newItem.mediaMetadata.artworkUri) {
-            controller.replaceMediaItem(index, newItem)
         }
     }
 }
