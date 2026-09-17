@@ -63,7 +63,6 @@
     <string name="music_panel_search_no_results">No songs found</string>
     <string name="music_panel_search_loading">Searching…</string>
     <string name="music_panel_search_loading_more">Loading…</string>
-    <string name="music_panel_search_pull_load">Pull up to load more</string>
     <string name="music_panel_search_release_load">Release to load more</string>
     <string name="music_panel_search_load_all">All results shown</string>
     <string name="music_panel_search_source">Netease</string>
@@ -203,6 +202,8 @@
     <string name="cache_group_user">User data</string>
     <string name="cache_total">Total used %1$s</string>
     <string name="cache_refreshing">Loading…</string>
+    <string name="cache_pull_refresh">Pull down to refresh</string>
+    <string name="cache_release_refresh">Release to refresh</string>
     <string name="cache_clear">Clear cache</string>
     <string name="cache_clearing">Clearing…</string>
     <string name="cache_usage">%1$d items · %2$s</string>

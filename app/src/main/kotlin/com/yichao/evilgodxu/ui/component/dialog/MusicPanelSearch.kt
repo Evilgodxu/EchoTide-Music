@@ -1,7 +1,11 @@
 package com.yichao.evilgodxu.ui.component.dialog
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -19,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
@@ -41,14 +46,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -76,6 +84,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
 import com.yichao.evilgodxu.ui.component.player.MusicErrorBanner
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -437,48 +446,18 @@ internal fun SearchResultRow(
     }
 }
 
-// 搜索结果列表底部脚注：加载更多时显示进度，全部加载完成时显示提示
-@Composable
-internal fun SearchLoadMoreFooter(
-    playbackState: MusicPlaybackState,
-    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-) {
-    when {
-        playbackState.isLoadingMore -> Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 10.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(14.dp),
-                strokeWidth = 2.dp,
-                color = tint
-            )
-            Spacer(modifier = Modifier.size(8.dp))
-            Text(
-                text = stringResource(R.string.music_panel_search_loading_more),
-                color = tint,
-                fontSize = 11.sp
-            )
-        }
-        !playbackState.hasMoreSearchResults && playbackState.searchResults.isNotEmpty() -> Text(
-            text = stringResource(R.string.music_panel_search_load_all),
-            color = tint.copy(alpha = 0.7f),
-            fontSize = 11.sp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 10.dp),
-            textAlign = TextAlign.Center
-        )
-    }
-}
+// 提示行完全展开所需的上拉距离：只决定展开快慢，不参与是否加载的判定
+private val SEARCH_LOAD_ROW_FULL_PULL_DP = 60.dp
 
-// 上拉加载所需的松手触发阈值
-private val SEARCH_PULL_LOAD_THRESHOLD_DP = 60.dp
+// 底部加载提示行完全展开后的行高，展开过程中据此按比例取当前行高
+private val SEARCH_LOAD_ROW_HEIGHT = 40.dp
 
-// 搜索结果列表：触底后继续上拉（overscroll）达到阈值才加载下一页，避免误触；上拉过程展示提示
+// 提示行的最短展开时长：代理音源的分页是在本地缓冲里切分，毫秒级即返回，
+// 若随即收起会让人以为没触发加载，故对展开态做最短保持
+private const val MIN_LOAD_ROW_MS = 500L
+
+// 搜索结果列表：列表已在底部时上拉即展开提示行，松手后加载下一页；
+// 上拉量与加载状态共同驱动提示行展开，列表同步整体上移为其让位
 @Composable
 internal fun SearchResultsLazyList(
     playbackState: MusicPlaybackState,
@@ -492,9 +471,11 @@ internal fun SearchResultsLazyList(
     val uniqueResults = remember(playbackState.searchResults) {
         playbackState.searchResults.distinctBy { it.source to it.id }
     }
-    // 累计的底部上拉距离，达到阈值松手后触发加载下一页
+    // 累计的底部上拉距离：决定提示行展开多少，同时标记本次上拉确有加载意图
     var pullDistance by remember { mutableFloatStateOf(0f) }
-    val loadThreshold = with(LocalDensity.current) { SEARCH_PULL_LOAD_THRESHOLD_DP.toPx() }
+    // 本次触发是否仍在加载：不直接用 playbackState.isLoadingMore，因本地切分的分页不置该标记
+    var loadInProgress by remember { mutableStateOf(false) }
+    val fullPullPx = with(LocalDensity.current) { SEARCH_LOAD_ROW_FULL_PULL_DP.toPx() }
     val connection = remember(listState) {
         object : NestedScrollConnection {
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
@@ -510,46 +491,90 @@ internal fun SearchResultsLazyList(
             }
         }
     }
-    // 手指松开（滚动停止）时按累计距离决定是否加载下一页，并复位累计距离
-    LaunchedEffect(listState, loadThreshold) {
+    // 手指松开（滚动停止）时判定：只要本次上拉在底部拉出过溢出即加载下一页。
+    // 不设距离门槛 —— 列表已在底部时任何上拉都算明确的加载意图，免得同一位置要拉第二次
+    LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }
             .distinctUntilChanged()
             .filter { !it }
             .collect {
-                if (pullDistance >= loadThreshold && playbackState.hasMoreSearchResults &&
+                if (pullDistance > 0f && playbackState.hasMoreSearchResults &&
                     !playbackState.isSearching && playbackState.searchResults.isNotEmpty()
                 ) {
-                    loadMoreSearchResults(playbackState, context)
+                    loadInProgress = true
+                    val startedAt = SystemClock.elapsedRealtime()
+                    try {
+                        loadMoreSearchResults(playbackState, context)
+                        // 补足最短展开时长，使本地切分的秒回分页同样有可见的加载反馈
+                        val remaining = MIN_LOAD_ROW_MS - (SystemClock.elapsedRealtime() - startedAt)
+                        if (remaining > 0) delay(remaining)
+                    } finally {
+                        loadInProgress = false
+                    }
                 }
                 pullDistance = 0f
             }
     }
-    LazyColumn(
-        state = listState,
+    // 展开比例：上拉期间随手指出量，加载中保持完全展开，已无更多可加载时收起
+    val expandFraction by animateFloatAsState(
+        targetValue = when {
+            loadInProgress -> 1f
+            !playbackState.hasMoreSearchResults -> 0f
+            else -> (pullDistance / fullPullPx).coerceIn(0f, 1f)
+        },
+        // 上拉时须紧跟手指，故取高刚度无回弹弹簧；收起同样据此平滑收回
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh),
+        label = "search_load_more_expand",
+    )
+    val expandHeight = with(LocalDensity.current) { SEARCH_LOAD_ROW_HEIGHT.toPx() } * expandFraction
+
+    // 列表为让位而上移，顶部行会被截断 —— 与真实滚动的观感一致，但须裁剪以免画到上方标题区
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .nestedScroll(connection),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+            .clipToBounds()
     ) {
-        itemsIndexed(
-            items = uniqueResults,
-            // 聚合两种来源后 id 可能重复，key 需结合来源保证唯一
-            key = { _, result -> "${result.source}-${result.id}" }
-        ) { _, result ->
-            SearchResultRow(
-                result = result,
-                titleColor = titleColor,
-                onClick = { onResultClick(result) }
-            )
-        }
-        // 底部脚注：加载中 / 上拉加载提示 / 全部加载完成
-        item(key = "load-more-footer") {
-            when {
-                playbackState.isLoadingMore -> SearchLoadMoreFooter(playbackState, tint)
-                playbackState.hasMoreSearchResults -> SearchPullLoadHint(pullDistance, loadThreshold, tint)
-                else -> SearchLoadMoreFooter(playbackState, tint)
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .nestedScroll(connection)
+                // 提示行占多高，列表就上移多少：二者由同一展开比例算出，不会错位或露缝
+                .graphicsLayer { translationY = -expandHeight },
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            itemsIndexed(
+                items = uniqueResults,
+                // 聚合两种来源后 id 可能重复，key 需结合来源保证唯一
+                key = { _, result -> "${result.source}-${result.id}" }
+            ) { _, result ->
+                SearchResultRow(
+                    result = result,
+                    titleColor = titleColor,
+                    onClick = { onResultClick(result) }
+                )
+            }
+            // 底部脚注只留终态；上拉提示与加载中由列表外展开的提示行承担
+            if (!playbackState.hasMoreSearchResults && uniqueResults.isNotEmpty()) {
+                item(key = "search-load-end") {
+                    Text(
+                        text = stringResource(R.string.music_panel_search_load_all),
+                        color = tint.copy(alpha = 0.7f),
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp)
+                    )
+                }
             }
         }
+        SearchLoadMoreRow(
+            fraction = expandFraction,
+            loading = loadInProgress,
+            tint = tint,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 }
 
@@ -560,20 +585,47 @@ private fun LazyListState.isAtBottom(): Boolean {
     return info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 1
 }
 
-// 上拉加载提示：未达阈值提示继续上拉，达到阈值提示松手加载
+// 底部加载提示行：行高随上拉量自列表底部向上展开，加载中保持完全展开；
+// 行内按整行高度布局再整体裁剪，故展开途中内容只是被逐段露出，不会随行高被压扁。
+// 到底部后松手即加载，故展开期间只提示「松开」，不区分是否拉过某个距离
 @Composable
-private fun SearchPullLoadHint(pullDistance: Float, threshold: Float, tint: Color) {
-    val canRelease = pullDistance >= threshold
-    Text(
-        text = stringResource(
-            if (canRelease) R.string.music_panel_search_release_load
-            else R.string.music_panel_search_pull_load
-        ),
-        color = tint.copy(alpha = if (canRelease) 1f else 0.6f),
-        fontSize = 11.sp,
-        textAlign = TextAlign.Center,
-        modifier = Modifier
+private fun SearchLoadMoreRow(
+    fraction: Float,
+    loading: Boolean,
+    tint: Color,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp)
-    )
+            .height(SEARCH_LOAD_ROW_HEIGHT * fraction)
+            .clipToBounds(),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .requiredHeight(SEARCH_LOAD_ROW_HEIGHT),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 转圈只在真正加载时出现：上拉阶段只是提示，不该让人以为已经在加载
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = tint
+                )
+                Spacer(modifier = Modifier.size(8.dp))
+            }
+            Text(
+                text = stringResource(
+                    if (loading) R.string.music_panel_search_loading_more
+                    else R.string.music_panel_search_release_load
+                ),
+                color = tint,
+                fontSize = 11.sp
+            )
+        }
+    }
 }

@@ -67,7 +67,7 @@ internal fun CacheUsageGroups(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // 提示行参与内容布局而非覆盖其上，展开时把明细整体下推
-            RefreshLoadingRow(refreshState)
+            RefreshLoadingRow(refreshState, refreshing)
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -102,13 +102,15 @@ internal fun CacheUsageGroups(
 }
 
 // 刷新提示行：行高随下拉距离自 0 长到 REFRESH_ROW_HEIGHT，随内容一起向下展开；
-// 行内按整行高度布局再整体裁剪，故展开途中文字只是被逐段露出，不会随行高被压扁
+// 行内按整行高度布局再整体裁剪，故展开途中文字只是被逐段露出，不会随行高被压扁。
+// 未达阈值松手并不会刷新，故提示分「下拉」「松开」两段，与搜索列表的上拉加载同一口径
 @Composable
-private fun RefreshLoadingRow(state: PullToRefreshState) {
+private fun RefreshLoadingRow(state: PullToRefreshState, refreshing: Boolean) {
+    val expanded = state.distanceFraction.coerceIn(0f, 1f)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(REFRESH_ROW_HEIGHT * state.distanceFraction.coerceIn(0f, 1f))
+            .height(REFRESH_ROW_HEIGHT * expanded)
             .clipToBounds(),
         contentAlignment = Alignment.Center,
     ) {
@@ -119,14 +121,23 @@ private fun RefreshLoadingRow(state: PullToRefreshState) {
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(14.dp),
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.size(8.dp))
+            // 转圈只在真正刷新时出现：下拉阶段只是提示，不该让人以为已经在加载
+            if (refreshing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.size(8.dp))
+            }
             Text(
-                text = stringResource(R.string.cache_refreshing),
+                text = stringResource(
+                    when {
+                        refreshing -> R.string.cache_refreshing
+                        expanded >= 1f -> R.string.cache_release_refresh
+                        else -> R.string.cache_pull_refresh
+                    }
+                ),
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

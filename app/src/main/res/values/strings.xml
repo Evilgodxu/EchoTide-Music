@@ -63,7 +63,6 @@
     <string name="music_panel_search_no_results">未找到相关歌曲</string>
     <string name="music_panel_search_loading">正在搜索…</string>
     <string name="music_panel_search_loading_more">加载中…</string>
-    <string name="music_panel_search_pull_load">上拉加载更多</string>
     <string name="music_panel_search_release_load">松开加载更多</string>
     <string name="music_panel_search_load_all">已显示全部结果</string>
     <string name="music_panel_search_source">网易云</string>
@@ -203,6 +202,8 @@
     <string name="cache_group_user">用户数据</string>
     <string name="cache_total">共计占用 %1$s</string>
     <string name="cache_refreshing">加载中…</string>
+    <string name="cache_pull_refresh">下拉刷新列表</string>
+    <string name="cache_release_refresh">松开刷新列表</string>
     <string name="cache_clear">清理缓存</string>
     <string name="cache_clearing">正在清理…</string>
     <string name="cache_usage">%1$d 项 · %2$s</string>
