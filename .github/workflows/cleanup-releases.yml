@@ -1,0 +1,16 @@
+# .github/workflows/cleanup-releases.yml
+name: Cleanup Old Releases
+on:
+  schedule:
+    - cron: '0 0 * * 0' # 每周日 00:00 UTC 自动运行
+  workflow_dispatch: # 也支持手动触发
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Nats-ji/delete-old-releases@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keep-count: 5 # 只保留最新的 5 个 release
+          remove-tags: true # 同时删除关联的 tag
