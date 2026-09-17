@@ -24,6 +24,7 @@ internal fun ExpandedAssembly(
     uiState: CacheUiState,
     onBack: () -> Unit,
     onClearCache: () -> Unit,
+    onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -37,6 +38,8 @@ internal fun ExpandedAssembly(
             CacheUsageGroups(
                 usages = uiState.usages,
                 clearing = uiState.clearing,
+                refreshing = uiState.refreshing,
+                onRefresh = onRefresh,
                 onClear = onClearCache,
                 innerPadding = innerPadding,
                 modifier = Modifier.widthIn(max = CACHE_CONTENT_MAX_WIDTH),

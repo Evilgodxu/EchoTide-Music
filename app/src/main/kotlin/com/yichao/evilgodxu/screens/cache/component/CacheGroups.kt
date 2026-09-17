@@ -1,21 +1,32 @@
 package com.yichao.evilgodxu.screens.cache.component
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshState
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -27,44 +38,99 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 import com.yichao.evilgodxu.utils.formatBytes
 
-// 缓存明细：按归属方分卡片展示；合计与清理入口收在末尾，清理只作用于「可清理」卡片
+// 刷新提示完全展开后的行高，展开过程中据此按比例取当前行高
+private val REFRESH_ROW_HEIGHT = 40.dp
+
+// 缓存明细：按归属方分卡片展示；合计与清理入口收在末尾，清理只作用于「可清理」卡片。
+// 明细随内容滚动，故下拉刷新的手势载体也落在此处，两种形态共用同一份刷新行为
 @Composable
 internal fun CacheUsageGroups(
     usages: List<CacheUsage>,
     clearing: Boolean,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
     onClear: () -> Unit,
     innerPadding: PaddingValues,
     modifier: Modifier = Modifier,
 ) {
-    Column(
+    val refreshState = rememberPullToRefreshState()
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = onRefresh,
+        state = refreshState,
+        // 默认是自顶部拉下的圆形图标；此处不用指示器，改由内容顶部的加载行承担提示
+        indicator = {},
         modifier = modifier
             .fillMaxSize()
             .consumeWindowInsets(innerPadding)
-            .padding(innerPadding)
-            // 宿主为 edge-to-edge 且已无底部栏代管，末项须自行避让系统导航栏
-            .navigationBarsPadding()
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState()),
+            .padding(innerPadding),
     ) {
-        CacheUsageCard(R.string.cache_group_system, usages, CacheScope.CLEARABLE)
-        CacheUsageCard(R.string.cache_group_private, usages, CacheScope.APP_DATA)
-        CacheUsageCard(R.string.cache_group_user, usages, CacheScope.USER_DATA)
-        Text(
-            text = stringResource(R.string.cache_total, formatBytes(usages.sumOf { it.sizeBytes })),
+        Column(modifier = Modifier.fillMaxSize()) {
+            // 提示行参与内容布局而非覆盖其上，展开时把明细整体下推
+            RefreshLoadingRow(refreshState)
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    // 宿主为 edge-to-edge 且已无底部栏代管，末项须自行避让系统导航栏
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                CacheUsageCard(R.string.cache_group_system, usages, CacheScope.CLEARABLE)
+                CacheUsageCard(R.string.cache_group_private, usages, CacheScope.APP_DATA)
+                CacheUsageCard(R.string.cache_group_user, usages, CacheScope.USER_DATA)
+                Text(
+                    text = stringResource(R.string.cache_total, formatBytes(usages.sumOf { it.sizeBytes })),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp, bottom = 4.dp),
+                    textAlign = TextAlign.Center,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                )
+                // 与「可清理」卡片同一判定口径：该作用域内一个文件都没有时才算无可清理项
+                val hasClearable = usages.any { it.scope == CacheScope.CLEARABLE && it.fileCount > 0 }
+                CacheClearAction(
+                    clearing = clearing,
+                    hasClearable = hasClearable,
+                    onClear = onClear,
+                )
+            }
+        }
+    }
+}
+
+// 刷新提示行：行高随下拉距离自 0 长到 REFRESH_ROW_HEIGHT，随内容一起向下展开；
+// 行内按整行高度布局再整体裁剪，故展开途中文字只是被逐段露出，不会随行高被压扁
+@Composable
+private fun RefreshLoadingRow(state: PullToRefreshState) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(REFRESH_ROW_HEIGHT * state.distanceFraction.coerceIn(0f, 1f))
+            .clipToBounds(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 12.dp, bottom = 4.dp),
-            textAlign = TextAlign.Center,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-        )
-        // 与「可清理」卡片同一判定口径：该作用域内一个文件都没有时才算无可清理项
-        val hasClearable = usages.any { it.scope == CacheScope.CLEARABLE && it.fileCount > 0 }
-        CacheClearAction(
-            clearing = clearing,
-            hasClearable = hasClearable,
-            onClear = onClear,
-        )
+                .requiredHeight(REFRESH_ROW_HEIGHT),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(
+                text = stringResource(R.string.cache_refreshing),
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

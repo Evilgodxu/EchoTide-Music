@@ -202,6 +202,7 @@
     <string name="cache_group_private">应用数据</string>
     <string name="cache_group_user">用户数据</string>
     <string name="cache_total">共计占用 %1$s</string>
+    <string name="cache_refreshing">加载中…</string>
     <string name="cache_clear">清理缓存</string>
     <string name="cache_clearing">正在清理…</string>
     <string name="cache_usage">%1$d 项 · %2$s</string>

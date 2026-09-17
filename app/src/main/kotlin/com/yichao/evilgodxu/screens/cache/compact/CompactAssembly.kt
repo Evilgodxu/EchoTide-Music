@@ -16,6 +16,7 @@ internal fun CompactAssembly(
     uiState: CacheUiState,
     onBack: () -> Unit,
     onClearCache: () -> Unit,
+    onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -28,6 +29,8 @@ internal fun CompactAssembly(
         CacheUsageGroups(
             usages = uiState.usages,
             clearing = uiState.clearing,
+            refreshing = uiState.refreshing,
+            onRefresh = onRefresh,
             onClear = onClearCache,
             innerPadding = innerPadding,
         )

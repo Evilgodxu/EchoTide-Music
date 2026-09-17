@@ -3,6 +3,8 @@ package com.yichao.evilgodxu.screens.cache
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -30,6 +32,8 @@ fun CacheScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     // 状态栏图标跟随主题：浅色主题深色图标，深色主题白色图标
     StatusBarStyleEffect()
+    // 进入页面即采样一次，回到前台同样重采，使占用不受后台期间缓存涨落影响
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     // 形态分派：旋转状态与窗口宽度尺寸类共同决定显示内容
     if (rememberExpandedForm()) {
@@ -37,6 +41,7 @@ fun CacheScreen(
             uiState = uiState,
             onBack = onBack,
             onClearCache = viewModel::clearSystemCache,
+            onRefresh = viewModel::refresh,
             modifier = modifier,
         )
     } else {
@@ -44,6 +49,7 @@ fun CacheScreen(
             uiState = uiState,
             onBack = onBack,
             onClearCache = viewModel::clearSystemCache,
+            onRefresh = viewModel::refresh,
             modifier = modifier,
         )
     }
