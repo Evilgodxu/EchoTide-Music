@@ -201,10 +201,12 @@ object UpdateManager {
 
     /**
      * 下载 APK 并引导安装（用于对话框点击「下载」）
+     * 文件名包含版本号，若目标版本安装包已下载且校验通过，直接引导安装而不重复下载；
+     * 校验不通过（含期望哈希缺失）说明安装包不可信或已损坏，删除后重新下载
      * 下载到应用私有目录，通过 onProgress 回调进度，完成后通过 FileProvider 打开安装界面
      * 长时间无进度变动（15 秒）判定为超时失败
      *
-     * @return true 表示下载成功并启动了安装界面，false 表示下载失败
+     * @return true 表示已启动安装界面，false 表示下载失败
      */
     suspend fun downloadAndInstall(
         context: Context,
@@ -219,8 +221,15 @@ object UpdateManager {
 
         // 下载、轮询、文件操作全部在 IO 线程执行，避免 DownloadManager IPC 阻塞主线程
         return withContext(Dispatchers.IO) {
-            // 删除已存在的旧文件
-            if (outFile.exists()) outFile.delete()
+            // 复用上次已下载但未安装的同一版本安装包，避免重复下载
+            if (outFile.exists()) {
+                if (verifyApkHash(outFile, updateInfo.sha256)) {
+                    onProgress(1f)
+                    installApk(context, outFile)
+                    return@withContext true
+                }
+                outFile.delete()
+            }
 
             val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             val req = DownloadManager.Request(Uri.parse(requireHttps(updateInfo.downloadUrl)))
@@ -257,18 +266,7 @@ object UpdateManager {
                             return@withContext false
                         }
                         // 下载完成，通过 FileProvider 打开安装界面
-                        val uri = androidx.core.content.FileProvider.getUriForFile(
-                            context,
-                            "${context.packageName}.fileprovider",
-                            outFile
-                        )
-                        val installIntent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, "application/vnd.android.package-archive")
-                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                        context.startActivity(installIntent)
-                        clearPendingUpdate(context)
+                        installApk(context, outFile)
                         return@withContext true
                     }
                     DownloadManager.STATUS_FAILED -> {
@@ -302,6 +300,22 @@ object UpdateManager {
             onProgress(-1f)
             false
         }
+    }
+
+    // 通过 FileProvider 打开系统安装界面，并清理已消费的待更新信息
+    private suspend fun installApk(context: Context, apkFile: java.io.File) {
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            apkFile
+        )
+        val installIntent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(installIntent)
+        clearPendingUpdate(context)
     }
 
     // 校验已下载 APK 的 SHA-256：期望哈希缺失视为不可校验，与不符一律判失败
