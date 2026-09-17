@@ -25,7 +25,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -126,14 +125,6 @@ fun MusicPanelOverlay(
     // 保存封面到相册的结果提示：成功与「无内嵌封面」走轻量提示，写入失败复用封面错误横幅
     val coverSavedMessage = stringResource(R.string.music_panel_save_cover_success)
     val coverNoEmbeddedMessage = stringResource(R.string.music_panel_save_cover_no_embedded)
-
-    // 播放进度由 MusicPlaybackState 全局 ticker 驱动，此处不再独立轮询
-    LaunchedEffect(playbackState.timerAutoStopped) {
-        if (playbackState.timerAutoStopped) {
-            playbackState.setTimerAutoStopped(false)
-            onDismiss()
-        }
-    }
 
     var showPlaylist by remember { mutableStateOf(false) }
     var showTimer by remember { mutableStateOf(false) }

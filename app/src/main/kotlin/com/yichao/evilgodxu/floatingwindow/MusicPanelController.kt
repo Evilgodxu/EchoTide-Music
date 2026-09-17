@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Environment
 import android.os.Process
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.yichao.evilgodxu.permission.mediaAudioPermission
 import com.yichao.evilgodxu.permission.mediaImagePermission
@@ -22,7 +21,6 @@ import com.yichao.evilgodxu.floatingwindow.MusicPanelViewManager
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
@@ -45,7 +43,6 @@ class MusicPanelController(
     private var miniPlayerEnabled = true
     private var appInForeground = true
     private var prefsJob: Job? = null
-    private var exitJob: Job? = null
     private var pendingExternalPlayUri: android.net.Uri? = null
     private var externalBackgroundPlaying = false
 
@@ -57,12 +54,8 @@ class MusicPanelController(
                 if (!enabled) dismissMiniPlayer()
             }
         }
-        // 定时关闭到点且停止播放后，结束整个应用
-        exitJob = scope.launch {
-            snapshotFlow { stateHolder.state.sleepTimerExpired }
-                .filter { it }
-                .collect { exitApplication() }
-        }
+        // 定时关闭到点且当前曲目播毕后，结束整个应用
+        stateHolder.state.onSleepTimerFinished = { exitApplication() }
     }
 
     // 展开完整音乐面板；已显示时再次调用收起
@@ -179,7 +172,6 @@ class MusicPanelController(
 
     fun release() {
         prefsJob?.cancel()
-        exitJob?.cancel()
         scope.cancel()
         dismissMiniPlayer()
         panelManager?.dismiss()
