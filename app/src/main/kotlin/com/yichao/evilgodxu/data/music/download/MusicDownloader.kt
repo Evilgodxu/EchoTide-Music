@@ -137,14 +137,7 @@ private suspend fun registerCachedFileAsLocal(
     playlistRefresher: PlaylistRefresher,
 ) {
     val path = queryMediaPath(context, Uri.parse(audioUri)) ?: return
-    // 等待扫描完成再刷新，确保 MusicScanner 能读到新条目
-    withTimeoutOrNull(SCAN_TIMEOUT_MS) {
-        suspendCancellableCoroutine { cont ->
-            MediaScannerConnection.scanFile(context, arrayOf(path), null) { _, _ ->
-                cont.resume(Unit)
-            }
-        }
-    }
+    scanAndAwait(context, path)
     playlistRefresher.refresh(context, playbackState, restoreCurrent = true)
     withContext(Dispatchers.Main) {
         val current = playbackState.currentTrack ?: return@withContext
@@ -227,7 +220,7 @@ internal suspend fun downloadTrackToLibrary(
                         coverBytes,
                     )
                 }
-                MediaScannerConnection.scanFile(context, arrayOf(path), null, null)
+                scanAndAwait(context, path)
             }
             fileName
         } finally {
@@ -236,6 +229,18 @@ internal suspend fun downloadTrackToLibrary(
     } catch (e: Exception) {
         CrashLogManager.logException("MusicDownloader", "歌单同步下载失败: 歌曲=${result.title}", e)
         null
+    }
+}
+
+// 触发媒体扫描并等待完成：扫描经回调异步返回，不等待就刷新曲库，MusicScanner 读不到新条目
+// （IS_MUSIC/DURATION 由扫描写入，缺失时会被媒体库查询过滤），调用方会因此少歌
+private suspend fun scanAndAwait(context: Context, path: String) {
+    withTimeoutOrNull(SCAN_TIMEOUT_MS) {
+        suspendCancellableCoroutine { cont ->
+            MediaScannerConnection.scanFile(context, arrayOf(path), null) { _, _ ->
+                cont.resume(Unit)
+            }
+        }
     }
 }
 

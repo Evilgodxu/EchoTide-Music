@@ -164,19 +164,29 @@ internal object PlaylistSyncer {
         }
         // 刷新曲库使下载文件成为本地曲目，再按文件名匹配入库 ID
         playlistRefresher.refresh(context, state, restoreCurrent = true)
-        downloadedFiles.mapNotNull { fileName ->
-            state.libraryTracks.firstOrNull { it.path.endsWith(fileName) }?.id
-        }.let { downloadedIds ->
-            trackIds += downloadedIds
-            if (existing == 0 && downloadedIds.isEmpty()) {
-                return PlaylistSyncResult.Failure(SyncFailure.LIBRARY_MATCH_FAILED)
-            }
-            return PlaylistSyncResult.Success(
-                playlistName = fetched.name,
-                trackIds = trackIds.distinct(),
-                stats = SyncStats(existing, downloadedIds.size, failed),
+        val downloadedIds = mutableListOf<Long>()
+        val unmatchedFiles = mutableListOf<String>()
+        downloadedFiles.forEach { fileName ->
+            val id = state.libraryTracks.firstOrNull { it.path.endsWith(fileName) }?.id
+            if (id != null) downloadedIds += id else unmatchedFiles += fileName
+        }
+        trackIds += downloadedIds
+        // 文件已落盘但曲库未收录：计入失败并留痕，避免歌单少歌却无任何提示
+        if (unmatchedFiles.isNotEmpty()) {
+            failed += unmatchedFiles.size
+            CrashLogManager.logException(
+                "PlaylistSyncer",
+                "歌单同步下载完成但曲库未收录: ${unmatchedFiles.joinToString()}",
             )
         }
+        if (existing == 0 && downloadedIds.isEmpty()) {
+            return PlaylistSyncResult.Failure(SyncFailure.LIBRARY_MATCH_FAILED)
+        }
+        return PlaylistSyncResult.Success(
+            playlistName = fetched.name,
+            trackIds = trackIds.distinct(),
+            stats = SyncStats(existing, downloadedIds.size, failed),
+        )
     }
 
     // 逐档解析直链并下载，返回首个成功落盘的文件名。
