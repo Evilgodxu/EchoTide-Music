@@ -1,0 +1,60 @@
+name: Cleanup Old Releases
+
+on:
+  schedule:
+    # 北京时间每周一 03:00，即 UTC 周日 19:00
+    - cron: '0 19 * * 0'
+  workflow_dispatch:
+
+# 删除 Release 与 tag 需要写权限
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Delete old releases keeping only latest 5
+        env:
+          # gh 不读取 GITHUB_REPOSITORY，默认依赖工作区的 git remote 推断仓库；
+          # 显式声明仓库可省去 checkout（发布管理无需克隆代码）
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RETAIN=5
+
+          # 仅草稿外的 Release 参与保留计数，避免误删尚未发布的版本；
+          # --limit 设置为远超当前体量的值，防止默认 100 条截断漏清理
+          OLD_TAGS=$(gh release list --limit 1000 \
+            --json tagName,publishedAt,isDraft \
+            --jq "[.[] | select(.isDraft | not)] | sort_by(.publishedAt) | reverse | .[$RETAIN:] | .[].tagName")
+
+          if [ -z "$OLD_TAGS" ]; then
+            echo "非草稿 Release 不超过 ${RETAIN} 个，无需清理。"
+            exit 0
+          fi
+
+          echo "待清理的 Release："
+          echo "$OLD_TAGS"
+
+          # 逐条删除并累计失败项：单条失败不应中断整轮清理
+          failed=0
+          while IFS= read -r tag; do
+            if [ -z "$tag" ]; then
+              continue
+            fi
+            echo "Deleting release and its tag: $tag"
+            if gh release delete "$tag" --yes --cleanup-tag; then
+              echo "Deleted: $tag"
+            else
+              echo "::warning::Failed to delete $tag"
+              failed=$((failed + 1))
+            fi
+          done <<< "$OLD_TAGS"
+
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::${failed} 个 Release 删除失败"
+            exit 1
+          fi
+
+          echo "清理完成，保留最新 ${RETAIN} 个 Release。"
