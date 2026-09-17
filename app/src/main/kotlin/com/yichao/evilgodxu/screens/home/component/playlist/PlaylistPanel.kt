@@ -101,12 +101,12 @@ internal fun PlaylistPanel(
     val importFetchFailedMessage = stringResource(R.string.playlist_import_fetch_failed)
     val importEmptyMessage = stringResource(R.string.playlist_import_empty)
 
-    fun startSync(link: RemotePlaylistLink, name: String) {
+    fun startSync(link: RemotePlaylistLink, name: String, quality: MusicQuality) {
         syncJob?.cancel()
         syncState = SyncUiState.Running(0, 0, "")
         syncJob = scope.launch {
             val result = PlaylistSyncer.syncToLibrary(
-                context, playbackState, link, playlistRefresher,
+                context, playbackState, link, quality, playlistRefresher,
             ) { done, total, title ->
                 syncState = SyncUiState.Running(total, done, title)
             }
@@ -193,10 +193,10 @@ internal fun PlaylistPanel(
     )
     PlaylistImportDialog(
         visible = showImport,
-        onSyncStart = { link, name ->
+        onSyncStart = { link, name, quality ->
             showImport = false
             // 同步在后台进行，进度显示在歌单面板标题区
-            startSync(link, name)
+            startSync(link, name, quality)
         },
         onDismiss = { showImport = false },
     )

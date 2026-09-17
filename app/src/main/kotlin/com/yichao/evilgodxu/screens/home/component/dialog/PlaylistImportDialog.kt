@@ -28,17 +28,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yichao.evilgodxu.data.music.api.MusicQuality
 import com.yichao.evilgodxu.data.music.proxy.PlaylistSyncer
 import com.yichao.evilgodxu.data.music.proxy.RemotePlaylistLink
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.DialogCard
+import com.yichao.evilgodxu.ui.component.QualitySelectDialog
 import kotlinx.coroutines.launch
 
-// 从平台分享链接导入歌单：输入链接 → 解析预览歌单 → 确认后回调启动后台同步
+// 从平台分享链接导入歌单：输入链接 → 解析预览歌单 → 选定音质 → 确认后回调启动后台同步
 @Composable
 internal fun PlaylistImportDialog(
     visible: Boolean,
-    onSyncStart: (link: RemotePlaylistLink, playlistName: String) -> Unit,
+    onSyncStart: (link: RemotePlaylistLink, playlistName: String, quality: MusicQuality) -> Unit,
     onDismiss: () -> Unit,
 ) {
     if (!visible) return
@@ -53,6 +55,7 @@ internal fun PlaylistImportDialog(
     var playlistName by remember { mutableStateOf("") }
     var totalSongs by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
+    var showQuality by remember { mutableStateOf(false) }
 
     fun startParse() {
         val text = link.trim()
@@ -138,15 +141,28 @@ internal fun PlaylistImportDialog(
                 Spacer(modifier = Modifier.height(10.dp))
                 DialogButtons(
                     confirmText = stringResource(R.string.playlist_import_start),
-                    onConfirm = {
-                        onSyncStart(
-                            remoteLink!!,
-                            playlistName.trim().ifBlank { defaultName },
-                        )
-                    },
+                    onConfirm = { showQuality = true },
                     onDismiss = onDismiss,
                 )
             }
+        }
+    }
+    // 选定音质后再启动同步；复用音质选择对话框，由用户自行决定下载音质
+    if (showQuality) {
+        val link = remoteLink
+        if (link != null) {
+            QualitySelectDialog(
+                title = stringResource(R.string.playlist_import_quality_title),
+                onSelect = { quality ->
+                    showQuality = false
+                    onSyncStart(
+                        link,
+                        playlistName.trim().ifBlank { defaultName },
+                        quality,
+                    )
+                },
+                onDismiss = { showQuality = false },
+            )
         }
     }
 }

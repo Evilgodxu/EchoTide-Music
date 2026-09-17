@@ -69,6 +69,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaylistRefresher
 import com.yichao.evilgodxu.ui.icons.AppIcons
+import com.yichao.evilgodxu.ui.component.QualityOptionCard
 import com.yichao.evilgodxu.ui.component.dialog.SearchResultsLazyList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -578,24 +579,4 @@ private fun QualitySelectDialog(
     )
 }
 
-// 音质选项卡片，样式与代理音源导入方式选项一致
-@Composable
-private fun QualityOptionCard(
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    Text(
-        text = label,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 14.dp),
-        textAlign = TextAlign.Center,
-        color = if (enabled) MaterialTheme.colorScheme.onSurface
-        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-    )
-}
+

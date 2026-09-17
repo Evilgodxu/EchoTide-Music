@@ -117,6 +117,7 @@ internal object PlaylistSyncer {
         context: Context,
         state: MusicPlaybackState,
         link: RemotePlaylistLink,
+        quality: MusicQuality,
         playlistRefresher: PlaylistRefresher,
         onProgress: (done: Int, total: Int, title: String) -> Unit,
     ): PlaylistSyncResult {
@@ -143,7 +144,7 @@ internal object PlaylistSyncer {
                 trackIds += existingTrack.id
                 return@forEachIndexed
             }
-            val url = resolveBestUrl(context, song)
+            val url = resolveBestUrl(context, song, quality)
             if (url == null) {
                 failed++
                 return@forEachIndexed
@@ -173,13 +174,17 @@ internal object PlaylistSyncer {
         }
     }
 
-    // 音质从最高到最低逐档尝试，返回第一个可用的直链；非法地址视为该档失败继续降级
-    private suspend fun resolveBestUrl(context: Context, song: com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult): String? {
-        val qualities = listOf(
-            MusicQuality.LOSSLESS,
-            MusicQuality.HIGH,
-            MusicQuality.STANDARD,
-        )
+    // 从用户选定音质向下降档尝试，返回第一个可用的直链；非法地址视为该档失败继续降级
+    private suspend fun resolveBestUrl(
+        context: Context,
+        song: com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult,
+        requested: MusicQuality,
+    ): String? {
+        val qualities = when (requested) {
+            MusicQuality.LOSSLESS -> listOf(MusicQuality.LOSSLESS, MusicQuality.HIGH, MusicQuality.STANDARD)
+            MusicQuality.HIGH -> listOf(MusicQuality.HIGH, MusicQuality.STANDARD)
+            MusicQuality.STANDARD -> listOf(MusicQuality.STANDARD)
+        }
         for (quality in qualities) {
             resolvePlayUrlByQuality(context, song, quality)
                 ?.takeIf { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) }

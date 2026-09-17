@@ -268,6 +268,7 @@
     <string name="playlist_import_name_hint">歌单名称</string>
     <string name="playlist_import_preview_songs">共 %1$d 首歌曲，将全部下载到本地</string>
     <string name="playlist_import_start">开始同步</string>
+    <string name="playlist_import_quality_title">选择下载音质</string>
     <string name="playlist_import_invalid_link">无法识别该分享链接</string>
     <string name="playlist_import_fetch_failed">解析歌单失败，请检查网络后重试</string>
     <string name="playlist_import_empty">没有可下载的歌曲</string>

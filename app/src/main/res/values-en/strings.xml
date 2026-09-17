@@ -268,6 +268,7 @@
     <string name="playlist_import_name_hint">Playlist name</string>
     <string name="playlist_import_preview_songs">%1$d songs, all will be downloaded locally</string>
     <string name="playlist_import_start">Start sync</string>
+    <string name="playlist_import_quality_title">Select download quality</string>
     <string name="playlist_import_invalid_link">Cannot recognize this share link</string>
     <string name="playlist_import_fetch_failed">Failed to parse playlist, check your network</string>
     <string name="playlist_import_empty">No downloadable songs</string>
