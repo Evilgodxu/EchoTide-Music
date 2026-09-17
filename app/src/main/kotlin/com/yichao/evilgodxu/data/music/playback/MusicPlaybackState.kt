@@ -111,6 +111,9 @@ class MusicPlaybackState(
     // 播放状态写入任务：在途时新调用只更新快照，由在途循环以最新快照收尾，
     // 避免取消旧任务产生"旧任务已取消、新任务未启动"的写入间隙
     private var stateWriteJob: Job? = null
+    // 启动镜像写入任务：定时关闭的退出要等它与播放状态一并落盘后再终止进程，
+    // 否则镜像会停在已播完的那一首，下次启动点击播放就重播它
+    private var bootMirrorJob: Job? = null
     private var playlistPersistJob: Job? = null
     private val persistenceMutex = Mutex()
     // 冷启动恢复任务去重：并发调用方共享同一恢复任务并等待完成，
@@ -138,7 +141,7 @@ class MusicPlaybackState(
             }
             if (stopAfterCurrentTrack && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                 // 定时关闭：当前曲目自然结束 → 停止播放
-                completeSleepTimer()
+                completeSleepTimer(songFinished = true)
                 return
             }
             // 插队队列：仅自然切换时消费队列；队列播完后接续原播放位置
@@ -269,7 +272,7 @@ class MusicPlaybackState(
                     }
                     if (stopAfterCurrentTrack) {
                         // 定时关闭：曲目播毕停止播放
-                        completeSleepTimer()
+                        completeSleepTimer(songFinished = true)
                         return
                     }
                     val next = autoNextIndex()
@@ -444,20 +447,6 @@ class MusicPlaybackState(
             context.settingsDataStore.edit { preferences ->
                 preferences.remove(savedUriKey)
                 preferences.remove(savedPositionKey)
-            }
-        }
-    }
-
-    // 仅清除持久化的播放位置（定时关闭时使用，保留歌曲 URI）。
-    // 写盘失败不影响定时关闭的收尾流程：清位置是尽力而为，退出应用才是既定结果
-    private suspend fun clearSavedPosition(context: Context) {
-        withContext(Dispatchers.IO) {
-            runCatching {
-                context.settingsDataStore.edit { preferences ->
-                    preferences.remove(savedPositionKey)
-                }
-            }.onFailure {
-                CrashLogManager.logException("MusicPlaybackState", "清除持久化播放位置失败", it)
             }
         }
     }
@@ -1232,7 +1221,7 @@ class MusicPlaybackState(
         val mode = playMode.ordinal
         val gradientUri = savedGradientUri.orEmpty()
         val gradient = savedGradient
-        playbackScope.launch(Dispatchers.IO) {
+        bootMirrorJob = playbackScope.launch(Dispatchers.IO) {
             runCatching {
                 val snapshot = JSONObject()
                     .put("track", encodePlaylist(listOf(track)))
@@ -1304,20 +1293,33 @@ class MusicPlaybackState(
         stopTimer()
     }
 
-    // 定时关闭到点收尾：停止播放、清除续播位置后请求结束应用。
-    // 清位置是挂起写盘，必须先于退出完成——退出会终止进程，来不及再落盘
-    private fun completeSleepTimer() {
+    // 定时关闭到点收尾：停止播放并请求结束应用。
+    // songFinished 表示当前曲目已完整播完，此时「当前曲目」要落到它的下一首——
+    // 播完的这一首已不属于待播内容，留作当前曲目会让下次启动点击播放时重播它
+    private fun completeSleepTimer(songFinished: Boolean) {
         stopAfterCurrentTrack = false
+        if (songFinished) adoptNextTrackAfterFinish()
         release()
-        val context = appContext
-        if (context == null) {
-            onSleepTimerFinished?.invoke()
-            return
-        }
         playbackScope.launch {
-            clearSavedPosition(context)
+            // 退出会终止进程：先把续播目标落盘，再请求退出
+            stateWriteJob?.join()
+            bootMirrorJob?.join()
             onSleepTimerFinished?.invoke()
         }
+    }
+
+    // 当前曲目播毕：当前曲目落到下一首（进度归零），下次启动即从这首接着播。
+    // 与自然切歌同口径——此刻播放器已走到下一首，状态随之对齐；列表仅此一首时无下一首可落
+    private fun adoptNextTrackAfterFinish() {
+        val next = nextIndex()
+        val track = playlist.getOrNull(next) ?: return
+        if (track.id == currentTrack?.id) return
+        currentIndex = next
+        currentTrack = track
+        currentPosition = 0L
+        duration = track.duration
+        isPlaying = false
+        isPrepared = false
     }
 
     // 启动定时关闭（分钟）：到点后播完当前整曲即停止播放并退出应用
@@ -1330,7 +1332,7 @@ class MusicPlaybackState(
                 delay(60_000L)
                 timerRemaining--
             }
-            // 计时结束：当前歌曲播放完成后停止并退出；未在播放则直接收尾
+            // 计时结束：当前歌曲播放完成后停止并退出；未在播放则直接收尾（曲目未播完，保留当前位置供下次续播）
             if (isPlaying) {
                 stopAfterCurrentTrack = true
                 withContext(Dispatchers.Main) {
@@ -1341,7 +1343,7 @@ class MusicPlaybackState(
                     }
                 }
             } else {
-                completeSleepTimer()
+                completeSleepTimer(songFinished = false)
             }
         }
     }
