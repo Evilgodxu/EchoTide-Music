@@ -24,6 +24,11 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshState
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -103,10 +108,22 @@ internal fun CacheUsageGroups(
 
 // 刷新提示行：行高随下拉距离自 0 长到 REFRESH_ROW_HEIGHT，随内容一起向下展开；
 // 行内按整行高度布局再整体裁剪，故展开途中文字只是被逐段露出，不会随行高被压扁。
-// 未达阈值松手并不会刷新，故提示分「下拉」「松开」两段，与搜索列表的上拉加载同一口径
+// 未达阈值松手并不会刷新，故下拉提示分「下拉」「松开」两段
 @Composable
 private fun RefreshLoadingRow(state: PullToRefreshState, refreshing: Boolean) {
     val expanded = state.distanceFraction.coerceIn(0f, 1f)
+    // 刷新结束后状态还要动画收回，这段收尾继续按「加载中」呈现：若这时回落到下拉文案，
+    // 看着就像又被拉了一次。行完全收起即复位，下次下拉重新从「下拉」开始
+    var settlingAfterRefresh by remember { mutableStateOf(false) }
+    LaunchedEffect(refreshing, expanded <= 0f) {
+        when {
+            refreshing -> settlingAfterRefresh = true
+            expanded <= 0f -> settlingAfterRefresh = false
+        }
+    }
+    // 下拉由手势直接驱动状态（snapTo），收回才是状态自己在动画，据此区分二者
+    val pulling = !state.isAnimating
+    val loading = refreshing || settlingAfterRefresh
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -121,26 +138,30 @@ private fun RefreshLoadingRow(state: PullToRefreshState, refreshing: Boolean) {
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 转圈只在真正刷新时出现：下拉阶段只是提示，不该让人以为已经在加载
-            if (refreshing) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp),
-                    strokeWidth = 2.dp,
+            when {
+                loading -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text(
+                        text = stringResource(R.string.cache_refreshing),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                // 收回途中（未刷新的取消下拉）不给文案：此时既非下拉也非刷新
+                pulling -> Text(
+                    text = stringResource(
+                        if (expanded >= 1f) R.string.cache_release_refresh
+                        else R.string.cache_pull_refresh
+                    ),
+                    fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(modifier = Modifier.size(8.dp))
             }
-            Text(
-                text = stringResource(
-                    when {
-                        refreshing -> R.string.cache_refreshing
-                        expanded >= 1f -> R.string.cache_release_refresh
-                        else -> R.string.cache_pull_refresh
-                    }
-                ),
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }

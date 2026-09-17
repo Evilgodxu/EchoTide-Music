@@ -527,6 +527,15 @@ internal fun SearchResultsLazyList(
         label = "search_load_more_expand",
     )
     val expandHeight = with(LocalDensity.current) { SEARCH_LOAD_ROW_HEIGHT.toPx() } * expandFraction
+    // 加载结束后提示行还要收拢，收拢途中继续按「加载中」呈现：若这时回落到手势文案，
+    // 看着就像又被拉了一次。行完全收起即复位
+    var settlingAfterLoad by remember { mutableStateOf(false) }
+    LaunchedEffect(loadInProgress, expandFraction <= 0f) {
+        when {
+            loadInProgress -> settlingAfterLoad = true
+            expandFraction <= 0f -> settlingAfterLoad = false
+        }
+    }
 
     // 列表为让位而上移，顶部行会被截断 —— 与真实滚动的观感一致，但须裁剪以免画到上方标题区
     Box(
@@ -571,7 +580,8 @@ internal fun SearchResultsLazyList(
         }
         SearchLoadMoreRow(
             fraction = expandFraction,
-            loading = loadInProgress,
+            loading = loadInProgress || settlingAfterLoad,
+            pulling = pullDistance > 0f,
             tint = tint,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
@@ -587,11 +597,12 @@ private fun LazyListState.isAtBottom(): Boolean {
 
 // 底部加载提示行：行高随上拉量自列表底部向上展开，加载中保持完全展开；
 // 行内按整行高度布局再整体裁剪，故展开途中内容只是被逐段露出，不会随行高被压扁。
-// 到底部后松手即加载，故展开期间只提示「松开」，不区分是否拉过某个距离
+// 到底部后松手即加载，故上拉期间只提示「松开」，不区分是否拉过某个距离
 @Composable
 private fun SearchLoadMoreRow(
     fraction: Float,
     loading: Boolean,
+    pulling: Boolean,
     tint: Color,
     modifier: Modifier = Modifier,
 ) {
@@ -609,7 +620,7 @@ private fun SearchLoadMoreRow(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 转圈只在真正加载时出现：上拉阶段只是提示，不该让人以为已经在加载
+            // 转圈只在加载时出现：上拉阶段只是提示，不该让人以为已经在加载
             if (loading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(14.dp),
@@ -617,15 +628,19 @@ private fun SearchLoadMoreRow(
                     color = tint
                 )
                 Spacer(modifier = Modifier.size(8.dp))
+                Text(
+                    text = stringResource(R.string.music_panel_search_loading_more),
+                    color = tint,
+                    fontSize = 11.sp
+                )
+            } else if (pulling) {
+                Text(
+                    text = stringResource(R.string.music_panel_search_release_load),
+                    color = tint,
+                    fontSize = 11.sp
+                )
             }
-            Text(
-                text = stringResource(
-                    if (loading) R.string.music_panel_search_loading_more
-                    else R.string.music_panel_search_release_load
-                ),
-                color = tint,
-                fontSize = 11.sp
-            )
+            // 两者皆非即收拢途中（取消的上拉），此时既非上拉也非加载，不给文案
         }
     }
 }
