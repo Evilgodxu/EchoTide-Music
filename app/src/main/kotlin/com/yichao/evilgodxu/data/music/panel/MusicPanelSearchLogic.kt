@@ -9,6 +9,7 @@ import com.yichao.evilgodxu.data.music.api.MusicQuality
 import com.yichao.evilgodxu.data.music.api.NeteaseMusicApi
 import com.yichao.evilgodxu.data.music.api.OnlineMusicSource
 import com.yichao.evilgodxu.data.music.api.QQMusicApi
+import com.yichao.evilgodxu.data.music.api.adaptiveCandidates
 import com.yichao.evilgodxu.data.music.api.sourceOf
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
@@ -675,6 +676,18 @@ internal suspend fun resolvePlayUrlByQuality(
     }
 }
 
+// 按用户选定音质自适应解析播放地址：选定档优先，其次向上匹配更高档，最后降级到更低档；
+// 全部档位都无直链才返回 null（此时保留音质对话框供用户改选）
+private suspend fun resolveAdaptivePlayUrl(
+    context: Context,
+    target: NeteaseSongSearchResult,
+    requested: MusicQuality,
+): String? = requested.adaptiveCandidates().firstNotNullOfOrNull { candidate ->
+    resolvePlayUrlByQuality(context, target, candidate)?.takeIf { url ->
+        url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)
+    }
+}
+
 // 按用户选定音质播放在线搜索结果；URL 解析成功即加入播放列表开始播放，
 // 并标记待确认曲目交由播放器回调判定成败（失败时移除曲目、保留音质对话框）
 internal suspend fun playSearchResultWithQuality(
@@ -685,7 +698,7 @@ internal suspend fun playSearchResultWithQuality(
     metadataEnricher: MetadataEnricher,
     playlistRefresher: PlaylistRefresher,
 ): Boolean {
-    val url = resolvePlayUrlByQuality(context, target, quality) ?: return false
+    val url = resolveAdaptivePlayUrl(context, target, quality) ?: return false
     playbackState.pendingQualityPlayTrackId = target.id + 1000000L
     playbackState.closeSearchResultsOnReady = true
     downloadAndPlay(context, playbackState, target, url, metadataEnricher, playlistRefresher)

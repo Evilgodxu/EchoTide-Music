@@ -5,6 +5,7 @@ import android.net.Uri
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
 import com.yichao.evilgodxu.data.music.api.MusicQuality
 import com.yichao.evilgodxu.data.music.api.NeteaseMusicApi
+import com.yichao.evilgodxu.data.music.api.adaptiveCandidates
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
@@ -12,6 +13,7 @@ import com.yichao.evilgodxu.data.music.download.downloadTrackToLibrary
 import com.yichao.evilgodxu.data.music.panel.normalizeTitle
 import com.yichao.evilgodxu.data.music.panel.resolvePlayUrlByQuality
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.log.CrashLogManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
@@ -44,7 +46,7 @@ internal sealed interface PlaylistSyncResult {
 }
 
 // 歌单同步：解析分享链接 → 拉取歌单（代理音源优先，未配置或失败回退内置解析）→
-// 本地同名跳过 → 高音质优先下载入库
+// 本地同名跳过 → 按选定音质自适应匹配可用音质下载入库
 internal object PlaylistSyncer {
 
     // 解析分享链接为平台 + 歌单 ID；直接解析失败时尝试跟随重定向
@@ -112,7 +114,7 @@ internal object PlaylistSyncer {
         return ProxyPlaylistResult(builtin.name, builtin.songs)
     }
 
-    // 同步：拉取歌单 → 本地同名跳过 → 逐首解析直链（高音质优先）并下载 → 刷新曲库 → 返回入库曲目 ID
+    // 同步：拉取歌单 → 本地同名跳过 → 逐首按选定音质自适应解析直链并下载 → 刷新曲库 → 返回入库曲目 ID
     suspend fun syncToLibrary(
         context: Context,
         state: MusicPlaybackState,
@@ -144,15 +146,18 @@ internal object PlaylistSyncer {
                 trackIds += existingTrack.id
                 return@forEachIndexed
             }
-            val url = resolveBestUrl(context, song, quality)
-            if (url == null) {
-                failed++
-                return@forEachIndexed
-            }
             // 封面按代理音源 pic 动作换取，失败不影响下载
             val coverBytes = runCatching { ProxySourceEngine.coverBytes(context, song) }.getOrNull()
-            val fileName = downloadTrackToLibrary(context, song, url, coverBytes)
-            if (fileName != null) downloadedFiles += fileName else failed++
+            val fileName = downloadBestQuality(context, song, quality, coverBytes)
+            if (fileName != null) {
+                downloadedFiles += fileName
+            } else {
+                failed++
+                CrashLogManager.logException(
+                    "PlaylistSyncer",
+                    "歌单同步跳过曲目：各音质档位均不可用, 歌曲=${song.title} - ${song.artist}, 选定音质=$quality",
+                )
+            }
         }
         if (existing == 0 && downloadedFiles.isEmpty()) {
             return PlaylistSyncResult.Failure(SyncFailure.NO_DOWNLOAD)
@@ -174,22 +179,23 @@ internal object PlaylistSyncer {
         }
     }
 
-    // 从用户选定音质向下降档尝试，返回第一个可用的直链；非法地址视为该档失败继续降级
-    private suspend fun resolveBestUrl(
+    // 逐档解析直链并下载，返回首个成功落盘的文件名。
+    // 解析失败、地址非法、下载落盘失败（试听片段、签名过期、接口拒绝）都视为该档不可用并继续下一档，
+    // 避免「解析到地址但实际不可下载」直接判该曲失败而不再尝试其它档位
+    private suspend fun downloadBestQuality(
         context: Context,
-        song: com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult,
+        song: NeteaseSongSearchResult,
         requested: MusicQuality,
+        coverBytes: ByteArray?,
     ): String? {
-        val qualities = when (requested) {
-            MusicQuality.LOSSLESS -> listOf(MusicQuality.LOSSLESS, MusicQuality.HIGH, MusicQuality.STANDARD)
-            MusicQuality.HIGH -> listOf(MusicQuality.HIGH, MusicQuality.STANDARD)
-            MusicQuality.STANDARD -> listOf(MusicQuality.STANDARD)
-        }
-        for (quality in qualities) {
-            resolvePlayUrlByQuality(context, song, quality)
-                ?.takeIf { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) }
-                ?.let { return it }
+        requested.adaptiveCandidates().forEach { candidate ->
+            val url = resolvePlayUrlByQuality(context, song, candidate) ?: return@forEach
+            if (!url.isHttpUrl()) return@forEach
+            downloadTrackToLibrary(context, song, url, coverBytes)?.let { return it }
         }
         return null
     }
+
+    private fun String.isHttpUrl(): Boolean =
+        startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)
 }
