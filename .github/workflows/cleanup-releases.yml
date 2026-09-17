@@ -1,16 +1,36 @@
-# .github/workflows/cleanup-releases.yml
 name: Cleanup Old Releases
 on:
   schedule:
     - cron: '0 0 * * 0' # 每周日 00:00 UTC 自动运行
-  workflow_dispatch: # 也支持手动触发
+  workflow_dispatch: # 支持手动触发
+
+# 必须声明权限，否则 gh 命令无法删除 Release 和 Tag
+permissions:
+  contents: write
 
 jobs:
   cleanup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # 适配 2026 年环境，固定运行系统
     steps:
-      - uses: Nats-ji/delete-old-releases@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          keep-count: 5 # 只保留最新的 5 个 release
-          remove-tags: true # 同时删除关联的 tag
+      - name: Delete old releases keeping only latest 5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Fetching releases..."
+          # 获取最新的5个之外的旧 Release Tag
+          # 如果需要处理超过100个 Release，请将 --limit 100 改为 --limit 1000 等更大值
+          OLD_TAGS=$(gh release list --limit 100 --json tagName,createdAt --jq 'sort_by(.createdAt) | reverse | .[5:] | .[].tagName')
+          
+          if [ -z "$OLD_TAGS" ]; then
+            echo "总 Release 数量不超过 5 个，无需清理。"
+            exit 0
+          fi
+
+          # 循环删除旧 Release 及其关联的 Tag
+          echo "$OLD_TAGS" | while read -r tag; do
+            if [ -n "$tag" ]; then
+              echo "Deleting old release: $tag"
+              gh release delete "$tag" --yes --cleanup-tag
+            fi
+          done
+          echo "清理完成！"
