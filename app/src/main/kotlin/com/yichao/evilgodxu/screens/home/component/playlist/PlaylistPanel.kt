@@ -113,9 +113,10 @@ internal fun PlaylistPanel(
             }
             syncState = when (result) {
                 is PlaylistSyncResult.Success -> {
-                    val created = playlistStore.create(context, name)
-                    if (created != null) {
-                        playlistStore.addTracks(context, created.id, result.trackIds)
+                    // 已存在同名歌单则并入做增量更新，仅无同名时才新建
+                    val target = playlistStore.findOrCreateByName(context, name)
+                    if (target != null) {
+                        playlistStore.addTracks(context, target.id, result.trackIds)
                         SyncUiState.Finished(
                             result.stats.downloadedCount,
                             result.stats.existingCount,

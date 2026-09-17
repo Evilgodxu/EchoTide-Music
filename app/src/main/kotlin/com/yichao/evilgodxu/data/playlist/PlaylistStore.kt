@@ -75,6 +75,14 @@ class PlaylistStore {
         return playlist
     }
 
+    // 按名称取歌单，不存在才新建：歌单同步据此并入同名歌单做增量更新，而非反复建出同名歌单
+    fun findOrCreateByName(context: Context, name: String): Playlist? {
+        ensureLoaded(context)
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return null
+        return playlists.firstOrNull { it.name == trimmed } ?: create(context, trimmed)
+    }
+
     fun rename(context: Context, id: Long, name: String) {
         ensureLoaded(context)
         val trimmed = name.trim()
