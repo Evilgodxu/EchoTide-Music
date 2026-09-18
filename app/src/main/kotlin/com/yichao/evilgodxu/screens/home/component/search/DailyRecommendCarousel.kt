@@ -17,6 +17,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -78,7 +79,8 @@ internal fun DailyRecommendCarousel(
                 Icon(
                     imageVector = AppIcons.Refresh,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = if (loading) 0.5f else 1f),
+                    // 加载中禁用：重复触发只会把在途任务作废重来，白等一轮
+                    tint = Color.White.copy(alpha = if (loading) 0.3f else 1f),
                     modifier = Modifier.size(16.dp),
                 )
             }
@@ -177,7 +179,8 @@ private fun RecommendCard(
     }
 }
 
-// 加载中与空态：占用与轮播项一致的高度，避免状态切换时搜索框位置跳动
+// 加载中与空态：占用与轮播项一致的高度，避免状态切换时搜索框位置跳动。
+// 首次生成要等整池歌词拉完，用圆环给出持续可见的进行中反馈，而非一行静态文案
 @Composable
 private fun CarouselPlaceholder(loading: Boolean) {
     Box(
@@ -189,14 +192,30 @@ private fun CarouselPlaceholder(loading: Boolean) {
             .background(Color.White.copy(alpha = 0.06f)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = stringResource(
-                if (loading) R.string.music_panel_daily_recommend_loading
-                else R.string.music_panel_daily_recommend_empty
-            ),
-            color = Color.White.copy(alpha = 0.6f),
-            fontSize = 12.sp,
-        )
+        if (loading) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                CircularProgressIndicator(
+                    color = Color.White.copy(alpha = 0.9f),
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = stringResource(R.string.music_panel_daily_recommend_loading),
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                )
+            }
+        } else {
+            Text(
+                text = stringResource(R.string.music_panel_daily_recommend_empty),
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 12.sp,
+            )
+        }
     }
 }
 

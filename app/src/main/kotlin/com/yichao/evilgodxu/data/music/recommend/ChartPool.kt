@@ -51,17 +51,20 @@ internal object ChartPool {
     private const val LYRIC_BATCH = 6
 
     /**
-     * 取候选池快照。周内直接读落盘结果；跨周或 [force] 时重新抓取并覆盖。
+     * 取候选池快照。
+     *
+     * @param refresh 是否允许在快照缺失或跨周时联网重抓。收藏等高频重算传 false，
+     *   只读本地落盘结果 —— 用户点一次收藏不该触发整池歌词的重新拉取。
      *
      * 抓取失败（接口变更、风控、断网）时沿用上一次的候选池：一次失败不该让推荐空到下个周更。
      * 快照带回抓取时刻 —— 每日推荐的轮换天数以它为起点，刷新即回到排序榜首。
      */
-    suspend fun snapshot(context: Context, force: Boolean = false): ChartPoolSnapshot =
+    suspend fun snapshot(context: Context, refresh: Boolean = true): ChartPoolSnapshot =
         withContext(Dispatchers.IO) {
             val cached = read(context)
-            if (!force && cached != null && System.currentTimeMillis() - cached.fetchedAt < REFRESH_INTERVAL_MS) {
-                return@withContext cached
-            }
+            val freshEnough = cached != null &&
+                System.currentTimeMillis() - cached.fetchedAt < REFRESH_INTERVAL_MS
+            if (freshEnough || !refresh) return@withContext cached ?: ChartPoolSnapshot(0L, emptyList())
             val fresh = fetch(context)
             // 本轮流为空（四家全挂）而磁盘上还有旧池时保留旧池，但抓取时刻不更新：
             // 轮换天数继续按旧池起点累计，不会因一次失败假装刷新过

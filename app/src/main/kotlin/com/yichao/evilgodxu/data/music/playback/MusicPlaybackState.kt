@@ -421,6 +421,10 @@ class MusicPlaybackState(
     private var dailyRankingEpochMs = 0L
     // 上次生成推荐所用的黑名单快照：与之不一致说明结果已过期
     private var generatedBlacklist: Set<String> = emptySet()
+    // 上次生成推荐所用的收藏快照：画像取收藏曲目，收藏一变即需重算
+    private var generatedLiked: Set<Long> = emptySet()
+    // 本地重算未能产出排序（候选池快照缺失等）：置位后下次进入搜索页按完整路径重算
+    private var dailyPreferencesDirty = false
     // 生成任务代次：用于丢弃被新任务取代的旧结果
     private var dailyRecommendToken = 0
     private var dailyRecommendJob: Job? = null
@@ -1434,7 +1438,8 @@ class MusicPlaybackState(
     }
 
     // 切换指定曲目的收藏状态：仅就地更新收藏标记，不改变列表顺序。
-    // 全量库备份须一并更新：面板浏览非播放队列的歌单时曲目取自备份，只改队列会让收藏图标不刷新
+    // 全量库备份须一并更新：面板浏览非播放队列的歌单时曲目取自备份，只改队列会让收藏图标不刷新。
+    // 收藏是偏好画像的唯一输入，变更后立即在后台重算推荐排序
     fun toggleFavorite(trackId: Long) {
         val newLiked = if (likedIds.contains(trackId)) likedIds - trackId else likedIds + trackId
         likedIds = newLiked
@@ -1444,6 +1449,7 @@ class MusicPlaybackState(
         playlist = replace(playlist)
         defaultPlaylistBackup = defaultPlaylistBackup?.let(replace)
         persistPlaylist()
+        refreshDailyPreferences()
     }
 
     // 按新顺序重排当前播放队列，保持当前曲目与播放索引同步
@@ -1689,25 +1695,60 @@ class MusicPlaybackState(
      *
      * 计算过程不联网：候选池由 ChartPool 按周刷新，周内每次计算都只读落盘结果。
      * 排序整体产出一次，当日展示窗口由 [advanceDailyWindow] 按天切分。
-     * 黑名单快照与上次生成不一致时视为过期，重新计算；手动刷新通过 force 强制重算。
+     * 黑名单或收藏列表与上次生成不一致时视为过期，重新计算；手动刷新通过 force 强制重算。
      */
     fun loadDailyRecommendations(context: Context, force: Boolean = false) {
         val blacklist = BlacklistStore.keys
-        // 在途任务已按当前黑名单计算，或已有结果且未过期：无需重算排序，只需按当天推进窗口。
-        // 反之（黑名单已变或强制刷新）取消在途任务后按新快照重算，避免旧快照的结果写回
-        if (!force && blacklist == generatedBlacklist && (isDailyRecommendLoading || isDailyRecommendReady)) {
+        val liked = likedIds
+        // 在途任务已按当前输入计算，或已有结果且未过期：无需重算排序，只需按当天推进窗口。
+        // 反之（黑名单或收藏已变、或强制刷新）取消在途任务后按新快照重算，避免旧快照的结果写回
+        val upToDate = blacklist == generatedBlacklist && liked == generatedLiked
+        if (!force && upToDate && !dailyPreferencesDirty && (isDailyRecommendLoading || isDailyRecommendReady)) {
             advanceDailyWindow()
             return
         }
+        startDailyRecommendJob(context, liked, blacklist, showLoading = true, refreshPool = true)
+    }
+
+    /**
+     * 收藏变更后立即重算推荐排序。
+     *
+     * 只用本地落盘候选池重算，不联网刷新（`refreshPool = false`）—— 点一次收藏就重拉整池歌词
+     * 既不是用户预期，也会把一次轻量操作变成分钟级等待。
+     *
+     * 不置加载态：面板可能正开着展示上一版结果，重算在后台完成后整体替换，
+     * 否则点一次收藏就把已展示的推荐清成占位。首次尚未生成时无需预热，等进入搜索页再算。
+     */
+    private fun refreshDailyPreferences() {
+        if (!isDailyRecommendReady && !isDailyRecommendLoading) return
+        val context = appContext ?: return
+        startDailyRecommendJob(
+            context,
+            likedIds,
+            BlacklistStore.keys,
+            showLoading = false,
+            refreshPool = false,
+        )
+    }
+
+    private fun startDailyRecommendJob(
+        context: Context,
+        liked: Set<Long>,
+        blacklist: Set<String>,
+        showLoading: Boolean,
+        refreshPool: Boolean,
+    ) {
         dailyRecommendJob?.cancel()
-        val liked = libraryTracks.filter { it.id in likedIds }
+        val preferred = libraryTracks.filter { it.id in liked }
         generatedBlacklist = blacklist
-        isDailyRecommendLoading = true
+        generatedLiked = liked
+        dailyPreferencesDirty = false
+        if (showLoading) isDailyRecommendLoading = true
         // 代次标记：被取代的旧任务即使已越过取消点也会正常返回，按代次丢弃其结果
         val token = ++dailyRecommendToken
         dailyRecommendJob = playbackScope.launch {
             val result = try {
-                MusicRecommender.recommend(context, liked)
+                MusicRecommender.recommend(context, preferred, refreshPool = refreshPool)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1715,6 +1756,12 @@ class MusicPlaybackState(
                 RecommendationResult(emptyList(), 0L)
             }
             if (token != dailyRecommendToken) return@launch
+            // 本地重算只做增量更新：候选池缺失等原因导致算不出排序时保持原样，不把已展示的推荐清空，
+            // 并标记为待重算，下次进入搜索页按完整路径（可联网）重来
+            if (!refreshPool && result.ranking.isEmpty()) {
+                dailyPreferencesDirty = true
+                return@launch
+            }
             dailyRanking = result.ranking
             dailyRankingEpochMs = result.poolFetchedAt
             isDailyRecommendReady = true

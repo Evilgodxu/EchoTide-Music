@@ -41,10 +41,13 @@ internal object MusicRecommender {
      * 生成每日推荐排序。
      *
      * @param tracks 本地偏好基线（收藏曲目），歌词取自曲目内嵌内容或歌词缓存文件
+     * @param refreshPool 是否允许候选池联网重抓。收藏等高频重算传 false，
+     *   只用本地落盘候选池重算 —— 点一次收藏就重拉整池歌词不是用户预期
      */
     suspend fun recommend(
         context: Context,
         tracks: List<MusicTrack>,
+        refreshPool: Boolean = true,
     ): RecommendationResult = withContext(Dispatchers.IO) {
         // ---------- 1. 本地偏好基线提取 ----------
         val samples = tracks.mapNotNull { track ->
@@ -57,7 +60,7 @@ internal object MusicRecommender {
         val sampleStructures = samples.map { LyricFeatures.structure(it) }
 
         // ---------- 2. 候选池：已由 ChartPool 周更落盘，本地已有的歌在此排除，与黑名单无关 ----------
-        val pool = ChartPool.snapshot(context)
+        val pool = ChartPool.snapshot(context, refresh = refreshPool)
         val localKeys = localKeys(tracks)
         val candidates = pool.items.filter {
             BlacklistStore.keyOf(it.result.title, it.result.artist) !in localKeys
@@ -96,10 +99,10 @@ internal object MusicRecommender {
         val profile = structureProfile(structures)
         val sigma = structureSigma(structures)
         val distances = structures.map { LyricFeatures.normalizedDistance(it, profile, sigma) }
-        // 距离越小得分越高：按本次候选池的距离极值归一，保证同一批结果内可比
-        val minDistance = distances.min()
-        val maxDistance = distances.max()
-        val rhythmScores = distances.map { 1.0 - (it - minDistance) / (maxDistance - minDistance + 1e-9) }
+        // 距离越小得分越高，用 1/(1+d) 映射为绝对相似度，而非按本批距离极值 min-max 归一：
+        // min-max 会让节奏分数恒占满 [0,1]，同一条曲目的得分随候选池换血而漂移，
+        // 且与词面/概念（绝对余弦）不同量纲，使名义权重的含义失真
+        val rhythmScores = distances.map { 1.0 / (1.0 + it) }
 
         // ---------- 7. 打分 ----------
         val scored = survivors.mapIndexed { index, candidate ->
