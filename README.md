@@ -2,7 +2,7 @@
 
 <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp" width="96" alt="YiChao Music" />
 
-# YiChao Music
+# YiChao Music / Echo Tide
 
 **A modern Android music player with a floating music panel, mini player, playlist management, multi-platform online search and playback speed control.**
 
