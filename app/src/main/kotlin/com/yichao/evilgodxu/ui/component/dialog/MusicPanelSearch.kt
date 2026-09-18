@@ -14,6 +14,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -45,20 +46,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
@@ -84,9 +82,6 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
 import com.yichao.evilgodxu.ui.component.player.MusicErrorBanner
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -470,63 +465,40 @@ internal fun SearchResultsLazyList(
     val uniqueResults = remember(playbackState.searchResults) {
         playbackState.searchResults.distinctBy { it.source to it.id }
     }
-    // 累计的底部上拉距离：决定提示行展开多少，同时标记本次上拉确有加载意图
+    // 到底后的过拉量：决定提示行展开多少，同时标记本次上拉确有加载意图。
+    // 取自原始指针位移而非滚动量 —— 列表到底后本就不再滚动，滚动量恒为零，方向与幅度都无从取得。
+    // 以进入底部那一刻的手指位置为锚点，其后的净位移即过拉量：手指上移拉开、下移收回
     var pullDistance by remember { mutableFloatStateOf(0f) }
     // 本次触发是否仍在加载：不直接用 playbackState.isLoadingMore，因本地切分的分页不置该标记
     var loadInProgress by remember { mutableStateOf(false) }
+    // 松手时自增以请求加载：加载要耗时，不压在指针回调里做
+    var loadRequest by remember { mutableIntStateOf(0) }
     val fullPullPx = with(LocalDensity.current) { SEARCH_LOAD_ROW_FULL_PULL_DP.toPx() }
-    val connection = remember(listState) {
-        object : NestedScrollConnection {
-            // 反向下拉先收回提示行：按位移逐段扣减，并把这部分就地消费掉 ——
-            // 提示行没收完之前列表不动，收回与手指同步；整段清零会让展开量一步跳回原位
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput) return Offset.Zero
-                if (available.y <= 0f || pullDistance <= 0f) return Offset.Zero
-                val consumed = minOf(pullDistance, available.y)
-                pullDistance -= consumed
-                return Offset(0f, consumed)
-            }
-
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput) return Offset.Zero
-                // 列表仍能继续上滚，说明上拉只是在滚动内容、尚未到底：作废未完成的加载意图。
-                // 可用偏移为零不作判定 —— 到底后的上拉量会被滚动容器的过滚效果吞掉，
-                // 把「这一帧没有溢出」当成「用户离开底部」，会在手指还按着时把提示行中途收回
-                if (listState.canScrollForward) {
-                    pullDistance = 0f
-                } else if (available.y < 0f) {
-                    // 已在底部继续上拉：累计过拉量，只增不减，直到松手或被下拉收回
-                    pullDistance -= available.y
-                }
-                return Offset.Zero
-            }
+    // 手指离开屏幕即结算：本次上拉在底部拉出过溢出就加载下一页。不设距离门槛 ——
+    // 列表已在底部时任何上拉都算明确的加载意图，免得同一位置要拉第二次；
+    // 但此刻仍须确在底部，惯性把列表带离底部后残留的过拉量不该兑现成加载
+    fun settlePull() {
+        // 加载进行中抬手不计入，避免同一页被反复请求
+        val shouldLoad = pullDistance > 0f && !loadInProgress && !listState.canScrollForward &&
+            playbackState.hasMoreSearchResults &&
+            !playbackState.isSearching && playbackState.searchResults.isNotEmpty()
+        if (shouldLoad) {
+            loadInProgress = true
+            loadRequest++
         }
+        pullDistance = 0f
     }
-    // 手指松开（滚动停止）时判定：只要本次上拉在底部拉出过溢出即加载下一页。
-    // 不设距离门槛 —— 列表已在底部时任何上拉都算明确的加载意图，免得同一位置要拉第二次。
-    // 仍要求此刻确在底部：惯性把列表带离底部后残留的上拉量不该兑现成加载
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }
-            .distinctUntilChanged()
-            .filter { !it }
-            .collect {
-                if (pullDistance > 0f && !listState.canScrollForward &&
-                    playbackState.hasMoreSearchResults &&
-                    !playbackState.isSearching && playbackState.searchResults.isNotEmpty()
-                ) {
-                    loadInProgress = true
-                    val startedAt = SystemClock.elapsedRealtime()
-                    try {
-                        loadMoreSearchResults(playbackState, context)
-                        // 补足最短展开时长，使本地切分的秒回分页同样有可见的加载反馈
-                        val remaining = MIN_LOAD_ROW_MS - (SystemClock.elapsedRealtime() - startedAt)
-                        if (remaining > 0) delay(remaining)
-                    } finally {
-                        loadInProgress = false
-                    }
-                }
-                pullDistance = 0f
-            }
+    // 松手后的加载：补足最短展开时长，使本地切分的秒回分页同样有可见的加载反馈
+    LaunchedEffect(loadRequest) {
+        if (loadRequest == 0) return@LaunchedEffect
+        val startedAt = SystemClock.elapsedRealtime()
+        try {
+            loadMoreSearchResults(playbackState, context)
+            val remaining = MIN_LOAD_ROW_MS - (SystemClock.elapsedRealtime() - startedAt)
+            if (remaining > 0) delay(remaining)
+        } finally {
+            loadInProgress = false
+        }
     }
     // 展开比例：上拉期间随手指出量，加载中保持完全展开，已无更多可加载时收起
     val expandFraction by animateFloatAsState(
@@ -555,12 +527,40 @@ internal fun SearchResultsLazyList(
         modifier = Modifier
             .fillMaxSize()
             .clipToBounds()
+            // 过拉手势挂在列表外的容器上：列表自身随展开上移，挂在它身上会让拖动中途丢失指针。
+            // 只读不消费，列表的滚动与结果行的点击都不受影响
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        var anchorY: Float? = null
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            if (listState.canScrollForward) {
+                                // 列表还能继续上滚：内容仍在滚动，过拉尚未成立
+                                anchorY = null
+                                pullDistance = 0f
+                            } else {
+                                val anchor = anchorY
+                                if (anchor == null) {
+                                    anchorY = change.position.y
+                                    pullDistance = 0f
+                                } else {
+                                    pullDistance = (anchor - change.position.y).coerceAtLeast(0f)
+                                }
+                            }
+                        }
+                        settlePull()
+                    }
+                }
+            }
     ) {
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .nestedScroll(connection)
                 // 提示行占多高，列表就上移多少：二者由同一展开比例算出，不会错位或露缝
                 .graphicsLayer { translationY = -expandHeight },
             verticalArrangement = Arrangement.spacedBy(2.dp)
