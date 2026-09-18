@@ -159,6 +159,8 @@ internal fun PlaylistSheet(
     var showSortDialog by remember { mutableStateOf(false) }
     // 长按删除目标：非空时显示确认弹窗
     var deleteTrack by remember { mutableStateOf<MusicTrack?>(null) }
+    // 右滑高级菜单目标：非空时显示菜单对话框
+    var advancedTrack by remember { mutableStateOf<MusicTrack?>(null) }
     // 后台预取整个播放列表缩略图：曲目集合变化即触发，不等面板展开逐行懒加载，
     // 展开时封面已就绪；幂等，已缓存/补全中/全量补全中的曲目自动跳过
     val playlistTrackIds = remember(tracks) { tracks.map { it.id } }
@@ -400,41 +402,49 @@ internal fun PlaylistSheet(
                                     val track = tracks.getOrNull(index) ?: return@itemsIndexed
                                     // 展示列表可能与播放队列不同，播放态按曲目 id 判定而非列表下标
                                     val isActive = track.id == playbackState.currentTrack?.id
-                                    PlaylistRow(
-                                        track = track,
-                                        isActive = isActive,
-                                        isPlaying = isActive && playbackState.isPlaying,
-                                        isQueued = playbackState.isInPlayNext(track.id),
-                                        onClick = {
-                                            keyboardController?.hide()
-                                            when {
-                                                // 跟随播放队列：切歌或切换播放/暂停，不动队列
-                                                followsQueue && isActive -> togglePlayPause(playbackState)
-                                                followsQueue -> scope.launch {
-                                                    playTrackAt(context, playbackState, index)
-                                                }
-                                                // 浏览态点击正在播放的曲目：只切换播放/暂停，保持浏览内容不变
-                                                isActive -> togglePlayPause(playbackState)
-                                                // 浏览态点击其它曲目：把该歌单设为播放队列并起播，随后回到跟随播放队列
-                                                else -> {
-                                                    switchToPlaylistQueue(
-                                                        context,
-                                                        playbackState,
-                                                        tracks,
-                                                        viewedSource,
-                                                        metadataEnricher,
-                                                        startTrackId = track.id,
-                                                        autoPlay = true,
-                                                    )
-                                                    playbackState.followPlaybackQueue()
-                                                }
-                                            }
-                                            onDismiss()
+                                    // 右滑高级菜单、左滑拉黑：拉黑只写入黑名单算法，列表项本身保持可见
+                                    TrackSwipeRow(
+                                        onSwipeBlacklist = {
+                                            playbackState.blacklistTrack(context, track)
                                         },
-                                        onLongClick = { deleteTrack = track },
-                                        onFavoriteClick = { playbackState.toggleFavorite(track.id) },
-                                        onPlayNextClick = { playbackState.togglePlayNext(track) },
-                                    )
+                                        onSwipeAdvanced = { advancedTrack = track },
+                                    ) {
+                                        PlaylistRow(
+                                            track = track,
+                                            isActive = isActive,
+                                            isPlaying = isActive && playbackState.isPlaying,
+                                            isQueued = playbackState.isInPlayNext(track.id),
+                                            onClick = {
+                                                keyboardController?.hide()
+                                                when {
+                                                    // 跟随播放队列：切歌或切换播放/暂停，不动队列
+                                                    followsQueue && isActive -> togglePlayPause(playbackState)
+                                                    followsQueue -> scope.launch {
+                                                        playTrackAt(context, playbackState, index)
+                                                    }
+                                                    // 浏览态点击正在播放的曲目：只切换播放/暂停，保持浏览内容不变
+                                                    isActive -> togglePlayPause(playbackState)
+                                                    // 浏览态点击其它曲目：把该歌单设为播放队列并起播，随后回到跟随播放队列
+                                                    else -> {
+                                                        switchToPlaylistQueue(
+                                                            context,
+                                                            playbackState,
+                                                            tracks,
+                                                            viewedSource,
+                                                            metadataEnricher,
+                                                            startTrackId = track.id,
+                                                            autoPlay = true,
+                                                        )
+                                                        playbackState.followPlaybackQueue()
+                                                    }
+                                                }
+                                                onDismiss()
+                                            },
+                                            onLongClick = { deleteTrack = track },
+                                            onFavoriteClick = { playbackState.toggleFavorite(track.id) },
+                                            onPlayNextClick = { playbackState.togglePlayNext(track) },
+                                        )
+                                    }
                                 }
                             }
                             // 面板展开动画完成后：始终将当前曲目滚动到列表居中位置；
@@ -566,6 +576,10 @@ internal fun PlaylistSheet(
                 deleteTrack = null
             },
             onDismiss = { deleteTrack = null },
+        )
+        TrackAdvancedMenuDialog(
+            visible = advancedTrack != null,
+            onDismiss = { advancedTrack = null },
         )
     }
 }

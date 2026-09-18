@@ -70,6 +70,9 @@
     <string name="music_panel_search_source_kugou">酷狗</string>
     <string name="music_panel_search_source_kuwo">酷我</string>
     <string name="music_panel_search_source_migu">咪咕</string>
+    <string name="music_panel_daily_recommend_title">每日推荐</string>
+    <string name="music_panel_daily_recommend_loading">正在生成每日推荐…</string>
+    <string name="music_panel_daily_recommend_empty">暂无可推荐的新歌</string>
     <string name="music_panel_quality_title">选择音质</string>
     <string name="music_panel_quality_failed">该音质无法播放，请选择其它音质</string>
     <string name="music_quality_lossless">无损</string>
@@ -170,6 +173,23 @@
     <string name="settings_swipe_track_desc">在首页上下滑动切换歌曲</string>
     <string name="settings_typography_title">排版</string>
     <string name="settings_typography_desc">歌词字号与显示行数</string>
+
+    <!-- 黑名单 -->
+    <string name="settings_section_blacklist">黑名单</string>
+    <string name="settings_blacklist_reset_title">重置黑名单</string>
+    <string name="settings_blacklist_reset_desc">已拉黑 %1$d 首，重置后重新参与推荐</string>
+    <string name="settings_blacklist_reset_confirm_title">重置黑名单</string>
+    <string name="settings_blacklist_reset_confirm_message">重置后已拉黑的歌曲与跳过反馈累积的特征将重新参与推荐排序</string>
+    <string name="settings_blacklist_reset_confirm">重置</string>
+    <string name="settings_blacklist_reset_cancel">取消</string>
+    <string name="settings_blacklist_reset_done">黑名单已重置</string>
+
+    <!-- 播放列表滑动操作 -->
+    <string name="playlist_swipe_blacklist">加入黑名单</string>
+    <string name="playlist_swipe_advanced">高级菜单</string>
+    <string name="playlist_advanced_menu_title">高级菜单</string>
+    <string name="playlist_advanced_menu_empty">暂无可用操作</string>
+    <string name="playlist_advanced_menu_close">关闭</string>
 
     <!-- 代理音源 -->
     <string name="settings_section_proxy_source">代理音源</string>

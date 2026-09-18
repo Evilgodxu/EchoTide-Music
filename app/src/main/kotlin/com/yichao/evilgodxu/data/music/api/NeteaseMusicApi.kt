@@ -17,6 +17,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal object NeteaseMusicApi : OnlineMusicSource {
+
+    // 默认榜单：飙升榜
+    private const val CHART_ID = "19723756"
     suspend fun loadCoverBytes(url: String): ByteArray? = withContext(Dispatchers.IO) {
         if (url.isBlank()) return@withContext null
         try {
@@ -74,24 +77,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         }
         val root = request("search/get", body)
         val songs = root.optJSONObject("result")?.optJSONArray("songs") ?: JSONArray()
-        val results = List(songs.length()) { index ->
-            val song = songs.getJSONObject(index)
-            val artists = song.optJSONArray("artists") ?: song.optJSONArray("ar") ?: JSONArray()
-            val artist = List(artists.length()) { artists.getJSONObject(it).optString("name") }
-                .filter { it.isNotBlank() }
-                .joinToString(" / ")
-            val album = song.optJSONObject("album") ?: song.optJSONObject("al")
-            val cover = album?.optString("picUrl")?.takeIf { it.isNotBlank() }
-            val safeCover = cover?.let { ensureHttps(it) }
-            NeteaseSongSearchResult(
-                id = song.optLong("id"),
-                title = song.optString("name"),
-                artist = artist,
-                coverUrl = safeCover,
-                coverThumbUrl = safeCover?.let { thumbUrl(it) },
-                duration = song.optLong("duration", 0L)
-            )
-        }
+        val results = List(songs.length()) { index -> songResult(songs.getJSONObject(index)) }
         // 按与查询关键词的相关性重排，优先展示与原曲(歌名+歌手)更匹配的结果，再补全缺失封面
         fillMissingCovers(rankSearchResults(results, keyword))
     }
@@ -196,25 +182,33 @@ internal object NeteaseMusicApi : OnlineMusicSource {
     suspend fun songDetail(songId: Long): NeteaseSongSearchResult? = withContext(Dispatchers.IO) {
         try {
             val root = request("v3/song/detail", JSONObject().put("c", "[{\"id\":$songId}]"))
-            val item = root.optJSONArray("songs")?.optJSONObject(0) ?: return@withContext null
-            val artists = item.optJSONArray("ar") ?: item.optJSONArray("artists") ?: JSONArray()
-            val artist = List(artists.length()) { artists.getJSONObject(it).optString("name") }
-                .filter { it.isNotBlank() }
-                .joinToString(" / ")
-            val album = item.optJSONObject("al") ?: item.optJSONObject("album")
-            val cover = album?.optString("picUrl")?.takeIf { it.isNotBlank() }
-            NeteaseSongSearchResult(
-                id = item.optLong("id"),
-                title = item.optString("name"),
-                artist = artist,
-                coverUrl = cover,
-                coverThumbUrl = cover?.let { thumbUrl(it) },
-                duration = item.optLong("dt", 0L)
-            )
+            root.optJSONArray("songs")?.optJSONObject(0)?.let { songResult(it) }
         } catch (e: Exception) {
             CrashLogManager.logException("NeteaseMusicApi", "获取歌曲详情失败", e)
             null
         }
+    }
+
+    /**
+     * 曲目字段映射：搜索、详情、歌单与榜单的响应同源（`ar`/`al`/`dt` 或旧版 `artists`/`album`/`duration`），
+     * 统一在此收敛，避免同一组字段在各调用点各写一遍。
+     */
+    private fun songResult(item: JSONObject): NeteaseSongSearchResult {
+        val artists = item.optJSONArray("ar") ?: item.optJSONArray("artists") ?: JSONArray()
+        val artist = List(artists.length()) { artists.getJSONObject(it).optString("name") }
+            .filter { it.isNotBlank() }
+            .joinToString(" / ")
+        val album = item.optJSONObject("al") ?: item.optJSONObject("album")
+        val cover = album?.optString("picUrl")?.takeIf { it.isNotBlank() }?.let { ensureHttps(it) }
+        val duration = item.optLong("dt", 0L).takeIf { it > 0L } ?: item.optLong("duration", 0L)
+        return NeteaseSongSearchResult(
+            id = item.optLong("id"),
+            title = item.optString("name"),
+            artist = artist,
+            coverUrl = cover,
+            coverThumbUrl = cover?.let { thumbUrl(it) },
+            duration = duration,
+        )
     }
 
     // 内置歌单解析：按歌单 ID 拉取名称与全部歌曲
@@ -235,6 +229,39 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         } catch (e: Exception) {
             CrashLogManager.logException("NeteaseMusicApi", "解析歌单失败: $playlistId", e)
             null
+        }
+    }
+
+    /**
+     * 内置榜单解析：飙升榜（官方歌单 [CHART_ID]）。
+     *
+     * 走公开的 playlist/detail：带上 n 参数时响应直接给出前 n 首的完整曲目信息（含专辑封面与时长），
+     * 一次请求即可，无需再为每首补 v3/song/detail。
+     */
+    override suspend fun chart(limit: Int): List<NeteaseSongSearchResult> = withContext(Dispatchers.IO) {
+        if (limit <= 0) return@withContext emptyList()
+        try {
+            val root = getJson("https://music.163.com/api/v6/playlist/detail?id=$CHART_ID&n=$limit")
+            val tracks = root.optJSONObject("playlist")?.optJSONArray("tracks") ?: JSONArray()
+            List(tracks.length()) { index -> songResult(tracks.getJSONObject(index)) }
+                .filter { it.title.isNotBlank() }
+        } catch (e: Exception) {
+            CrashLogManager.logException("NeteaseMusicApi", "解析榜单失败", e)
+            emptyList()
+        }
+    }
+
+    // 公开 REST 接口（榜单等只读数据）：与 weapi 同一站点，免加密，参数直接进查询串
+    private fun getJson(url: String): JSONObject {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", MusicHttpClient.MUSIC_USER_AGENT)
+            .header("Referer", "https://music.163.com")
+            .build()
+        return MusicHttpClient.client.newCall(request).execute().use { resp ->
+            val body = resp.body.string().orEmpty()
+            if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}: $body")
+            JSONObject(body)
         }
     }
 

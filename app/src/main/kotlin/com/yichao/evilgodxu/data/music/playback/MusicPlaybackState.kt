@@ -19,6 +19,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
+import com.yichao.evilgodxu.data.music.blacklist.BlacklistStore
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
 import com.yichao.evilgodxu.data.music.metadata.EmbeddedCoverCache
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
@@ -31,6 +32,8 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.model.PlayMode
 import com.yichao.evilgodxu.data.music.model.RecentCover
+import com.yichao.evilgodxu.data.music.recommend.MusicRecommender
+import com.yichao.evilgodxu.data.music.recommend.RecommendedSong
 import com.yichao.evilgodxu.data.music.trackIdentityKey
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.settings.settingsDataStore
@@ -78,6 +81,8 @@ class MusicPlaybackState(
         // 进度单调复位兜底：未触发切歌/拖动回调但位置大幅回退（如切换歌单重载同 ID 曲目）时视为重置；
         // 小幅回退仍按流媒体回锚处理，保持进度单调
         private const val MONO_REBASELINE_JUMP_MS = 3000L
+        // 跳过判定：已播放进度达到该百分比即视为正常欣赏，不计入逆向反馈
+        private const val SKIP_POSITION_PERCENT = 50L
     }
 
     // 上次持久化播放状态的时刻，用于播放期间节流写入
@@ -130,6 +135,9 @@ class MusicPlaybackState(
         }
 
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            // 逆向反馈：用户主动切走推荐曲目即视为跳过，其特征计入黑名单并落盘。
+            // 须在更新 currentTrack 前判定：此处 currentTrack 仍是被切走的那一首
+            recordRecommendationSkip(mediaItem?.mediaId?.toLongOrNull(), reason)
             // 曲目自然播完即计一次完整播放，作为常听收录依据：
             // AUTO=自动续播/单曲结束切下一首；REPEAT=单曲循环重播当前曲目。
             // 手动切歌(SEEK)、列表变更(PLAYLIST_CHANGED)非自然结束，不计入。
@@ -391,6 +399,20 @@ class MusicPlaybackState(
     // 歌词/封面刷新当前来源：按来源独立搜索，切换来源时轮换并重新搜索
     var lyricsRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
     var coverRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
+
+    // 每日推荐：榜单候选经黑名单算法与偏好打分后的 Top5。进程内只生成一次，黑名单变更时重算
+    var dailyRecommendations by mutableStateOf<List<RecommendedSong>>(emptyList())
+    var isDailyRecommendLoading by mutableStateOf(false)
+    // 轮播展示用：推荐结果中的曲目信息
+    val dailyRecommendedTracks: List<NeteaseSongSearchResult>
+        get() = dailyRecommendations.map { it.result }
+    // 已生成过推荐结果：避免每次进入搜索页重复联网计算
+    var isDailyRecommendReady by mutableStateOf(false)
+    // 上次生成推荐所用的黑名单快照：与之不一致说明结果已过期
+    private var generatedBlacklist: Set<String> = emptySet()
+    // 生成任务代次：用于丢弃被新任务取代的旧结果
+    private var dailyRecommendToken = 0
+    private var dailyRecommendJob: Job? = null
 
     private fun hasUriAccess(context: Context, audioUri: String): Boolean {
         val uri = Uri.parse(audioUri)
@@ -1647,6 +1669,72 @@ class MusicPlaybackState(
         // 拖动进度条直接改写位置：复位单调基准，避免被钳回拖动前的位置
         lastMonoMediaId = null
         currentPosition = position
+    }
+
+    // ===== 每日推荐 =====
+
+    /**
+     * 生成每日推荐。偏好基线取收藏曲目，候选取榜单候选池（周更落盘），黑名单在粗排阶段过滤。
+     *
+     * 计算过程不联网：候选池由 ChartPool 按周刷新，周内每次计算都只读落盘结果。
+     * 黑名单快照与上次生成不一致时视为过期，重新计算；手动刷新通过 force 强制重算。
+     */
+    fun loadDailyRecommendations(context: Context, force: Boolean = false) {
+        val blacklist = BlacklistStore.keys
+        // 在途任务已按当前黑名单计算，或已有结果且未过期：无需重算。
+        // 反之（黑名单已变或强制刷新）取消在途任务后按新快照重算，避免旧快照的结果写回
+        if (!force && blacklist == generatedBlacklist && (isDailyRecommendLoading || isDailyRecommendReady)) {
+            return
+        }
+        dailyRecommendJob?.cancel()
+        val liked = libraryTracks.filter { it.id in likedIds }
+        generatedBlacklist = blacklist
+        isDailyRecommendLoading = true
+        // 代次标记：被取代的旧任务即使已越过取消点也会正常返回，按代次丢弃其结果
+        val token = ++dailyRecommendToken
+        dailyRecommendJob = playbackScope.launch {
+            val results = try {
+                MusicRecommender.recommend(context, liked)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                CrashLogManager.logException("MusicPlaybackState", "生成每日推荐失败", e)
+                emptyList()
+            }
+            if (token != dailyRecommendToken) return@launch
+            dailyRecommendations = results
+            isDailyRecommendReady = true
+            isDailyRecommendLoading = false
+        }
+    }
+
+    // ===== 黑名单 =====
+
+    // 拉黑曲目：黑名单与曲库解耦，曲目删除后条目依然保留，无需随曲库清理。
+    // 拉黑只写入黑名单算法，不改变该曲目在播放列表中的可见性与队列位置
+    fun blacklistTrack(context: Context, track: MusicTrack) {
+        playbackScope.launch { BlacklistStore.add(context, track) }
+    }
+
+    /**
+     * 逆向反馈：切歌即视为对推荐结果不满意，把该曲目的特征计入黑名单（落盘，重启后仍生效）。
+     *
+     * 只对推荐曲目计数，且要求未被听过大半 —— 自然播完、单曲循环、列表增删导致的原地回调
+     * 都不构成跳过信号，否则会把正常播放误判为负反馈。
+     */
+    private fun recordRecommendationSkip(nextMediaId: Long?, reason: Int) {
+        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+            reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+        ) {
+            return
+        }
+        val track = currentTrack ?: return
+        // 曲目未变（列表增删触发的回调）不算切歌
+        if (nextMediaId == track.id) return
+        if (duration > 0L && currentPosition * 100 >= duration * SKIP_POSITION_PERCENT) return
+        val skipped = dailyRecommendations.firstOrNull { it.trackId == track.id } ?: return
+        val context = appContext ?: return
+        playbackScope.launch { BlacklistStore.recordSkip(context, skipped.features) }
     }
 }
 

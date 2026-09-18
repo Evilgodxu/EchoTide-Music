@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.data.settings.AppLanguage
 import com.yichao.evilgodxu.data.settings.ThemeMode
 import com.yichao.evilgodxu.screens.settings.component.appearance.Appearance
+import com.yichao.evilgodxu.screens.settings.component.blacklist.Blacklist
 import com.yichao.evilgodxu.screens.settings.component.cache.Cache
 import com.yichao.evilgodxu.screens.settings.component.dialog.LanguageSelectionDialog
 import com.yichao.evilgodxu.screens.settings.component.dialog.ThemeSelectionDialog
@@ -28,10 +29,12 @@ import com.yichao.evilgodxu.screens.settings.component.playback.Playback
 import com.yichao.evilgodxu.screens.settings.component.proxy.ProxySource
 import com.yichao.evilgodxu.screens.settings.SettingsUiState
 
-// 设置页内容：外观、语言、播放、代理音源、缓存、关于六个分组，以及主题与语言选择对话框
+// 设置页内容：外观、语言、播放、代理音源、缓存、黑名单、关于七个分组，以及主题与语言选择对话框
 @Composable
 internal fun SettingsPane(
     uiState: SettingsUiState,
+    // 已拉黑歌曲数：黑名单存于独立存储，不走 SettingsUiState，由页面直接传入
+    blockedCount: Int,
     // Scaffold 内边距：由形态组装器透传，内容避让标题栏
     innerPadding: PaddingValues,
     onThemeSelected: (ThemeMode) -> Unit,
@@ -47,6 +50,7 @@ internal fun SettingsPane(
     onProxySourceRemove: (String) -> Unit,
     onProxyImportMessageDismiss: () -> Unit,
     onOpenCache: () -> Unit,
+    onResetBlacklist: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showThemeDialog by remember { mutableStateOf(false) }
@@ -98,6 +102,10 @@ internal fun SettingsPane(
         Cache(
             totalBytes = uiState.cacheTotalBytes,
             onClick = onOpenCache,
+        )
+        Blacklist(
+            blockedCount = blockedCount,
+            onReset = onResetBlacklist,
         )
         AppInfo(uiState.version, onVersionClick)
     }

@@ -38,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -60,6 +61,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.api.MusicQuality
+import com.yichao.evilgodxu.data.music.blacklist.BlacklistStore
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.panel.performSearch
 import com.yichao.evilgodxu.data.music.panel.playSearchResultWithQuality
@@ -111,6 +113,24 @@ internal fun OnlineSearchPanel(
                 .imePadding()
         ) {
             PanelHeader()
+            // 黑名单快照在推荐生成前载入：候选过滤与偏好基线都依赖它，未载入会误判为「无黑名单」
+            LaunchedEffect(Unit) { BlacklistStore.ensureLoaded(context) }
+            // 载入完成或黑名单变更时生成：以真实快照为准，避免先按空黑名单算出一版无效结果
+            LaunchedEffect(BlacklistStore.isLoaded, BlacklistStore.keys) {
+                if (BlacklistStore.isLoaded) playbackState.loadDailyRecommendations(context)
+            }
+            DailyRecommendCarousel(
+                songs = playbackState.dailyRecommendedTracks,
+                loading = playbackState.isDailyRecommendLoading,
+                onSongClick = { song ->
+                    // 推荐项与搜索结果同属在线歌曲，同样先由用户选定音质再解析播放地址
+                    playbackState.qualityPickTrack = song
+                    playbackState.qualityBusy = false
+                    playbackState.qualityError = null
+                },
+                onRefresh = { playbackState.loadDailyRecommendations(context, force = true) },
+            )
+            Spacer(modifier = Modifier.height(8.dp))
             SearchInput(
                 playbackState = playbackState,
                 menuBackgroundColor = menuBackgroundColor,

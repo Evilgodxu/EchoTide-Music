@@ -17,6 +17,7 @@ import com.yichao.evilgodxu.ui.component.PageTopBar
 @Composable
 internal fun CompactAssembly(
     uiState: SettingsUiState,
+    blockedCount: Int,
     onBack: () -> Unit,
     onThemeSelected: (ThemeMode) -> Unit,
     onLanguageSelected: (AppLanguage) -> Unit,
@@ -31,6 +32,7 @@ internal fun CompactAssembly(
     onProxySourceRemove: (String) -> Unit,
     onProxyImportMessageDismiss: () -> Unit,
     onOpenCache: () -> Unit,
+    onResetBlacklist: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -42,6 +44,7 @@ internal fun CompactAssembly(
     ) { innerPadding ->
         SettingsPane(
             uiState = uiState,
+            blockedCount = blockedCount,
             innerPadding = innerPadding,
             onThemeSelected = onThemeSelected,
             onLanguageSelected = onLanguageSelected,
@@ -56,6 +59,7 @@ internal fun CompactAssembly(
             onProxySourceRemove = onProxySourceRemove,
             onProxyImportMessageDismiss = onProxyImportMessageDismiss,
             onOpenCache = onOpenCache,
+            onResetBlacklist = onResetBlacklist,
         )
     }
 }

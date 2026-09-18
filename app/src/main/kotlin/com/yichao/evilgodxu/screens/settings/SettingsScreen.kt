@@ -18,6 +18,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.yichao.evilgodxu.LocalApplication
 import com.yichao.evilgodxu.LocalLocalizationManager
 import com.yichao.evilgodxu.LocalSettingsRepository
+import com.yichao.evilgodxu.data.music.blacklist.BlacklistStore
 import com.yichao.evilgodxu.screens.settings.compact.CompactAssembly
 import com.yichao.evilgodxu.screens.settings.expanded.ExpandedAssembly
 import com.yichao.evilgodxu.theme.LocalThemeTransitionController
@@ -75,10 +76,15 @@ fun SettingsScreen(
     // 状态栏图标跟随主题：浅色主题深色图标，深色主题白色图标
     StatusBarStyleEffect()
 
+    // 黑名单条数由独立存储持有，进入设置页载入一次，重置后随快照变更自动刷新
+    LaunchedEffect(Unit) { BlacklistStore.ensureLoaded(context) }
+    val blockedCount = BlacklistStore.keys.size
+
     // 形态分派：旋转状态与窗口宽度尺寸类共同决定显示内容
     if (rememberExpandedForm()) {
         ExpandedAssembly(
             uiState = uiState,
+            blockedCount = blockedCount,
             onBack = onBack,
             onThemeSelected = viewModel::setThemeMode,
             onLanguageSelected = viewModel::setLanguage,
@@ -93,11 +99,13 @@ fun SettingsScreen(
             onProxySourceRemove = viewModel::removeProxySource,
             onProxyImportMessageDismiss = viewModel::clearProxyImportMessage,
             onOpenCache = onOpenCache,
+            onResetBlacklist = viewModel::resetBlacklist,
             modifier = modifier,
         )
     } else {
         CompactAssembly(
             uiState = uiState,
+            blockedCount = blockedCount,
             onBack = onBack,
             onThemeSelected = viewModel::setThemeMode,
             onLanguageSelected = viewModel::setLanguage,
@@ -112,6 +120,7 @@ fun SettingsScreen(
             onProxySourceRemove = viewModel::removeProxySource,
             onProxyImportMessageDismiss = viewModel::clearProxyImportMessage,
             onOpenCache = onOpenCache,
+            onResetBlacklist = viewModel::resetBlacklist,
             modifier = modifier,
         )
     }

@@ -8,6 +8,13 @@ internal data class NeteaseSongMatch(
     val coverUrl: String?
 )
 
+// 在线搜索结果的曲目标识在写入播放列表时统一加该偏移，与本地曲目 ID 分属不同空间避免碰撞
+private const val ONLINE_TRACK_ID_OFFSET = 1_000_000L
+
+// 在线结果对应的播放列表曲目 ID
+internal val NeteaseSongSearchResult.playlistTrackId: Long
+    get() = id + ONLINE_TRACK_ID_OFFSET
+
 // 在线音乐搜索来源
 enum class MusicSearchSource { NETEASE, QQ, KUGOU, KUWO, MIGU }
 

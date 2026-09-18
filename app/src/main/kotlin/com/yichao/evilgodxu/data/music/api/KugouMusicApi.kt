@@ -19,46 +19,96 @@ import org.json.JSONObject
  */
 internal object KugouMusicApi : OnlineMusicSource {
 
+    // 默认榜单：酷狗音乐 TOP500 热门榜
+    private const val CHART_RANK_ID = "8888"
+
     override suspend fun search(keyword: String, page: Int, pageSize: Int): List<NeteaseSongSearchResult> = withContext(Dispatchers.IO) {
         try {
             val url = "https://songsearch.kugou.com/song_search_v2?keyword=${URLEncoder.encode(keyword, "UTF-8")}" +
                     "&page=$page&pagesize=$pageSize&platform=WebFilter&format=json"
             val root = JSONObject(get(url))
             val lists = root.optJSONObject("data")?.optJSONArray("lists") ?: JSONArray()
-            List(lists.length()) { index ->
-                val item = lists.getJSONObject(index)
-                val hash = item.optString("hash").ifBlank { item.optString("FileHash") }
-                val filename = item.optString("filename").ifBlank { item.optString("FileName") }
-                val rawTitle = item.optString("songname").ifBlank { item.optString("SongName") }
-                val artist = item.optString("singername").ifBlank { item.optString("SingerName") }
-                var cover = item.optJSONObject("trans_param")?.optString("union_cover")
-                    ?.takeIf { it.isNotBlank() }
-                    ?: item.optString("cover_url").takeIf { it.isNotBlank() }
-                    ?: item.optString("Image").takeIf { it.isNotBlank() }
-                if (cover != null && cover.contains("{size}")) cover = cover.replace("{size}", "300")
-                // 封面 CDN 返回 http 明文，统一转 https
-                if (cover != null && cover.startsWith("http://")) {
-                    cover = "https://${cover.removePrefix("http://")}"
-                }
-                // duration 为秒，timelen 为毫秒，二者取其一
-                val durationSec = item.optString("duration").toLongOrNull()
-                    ?: item.optLong("Duration", 0L)
-                val timelen = item.optLong("timelen", 0L)
-                NeteaseSongSearchResult(
-                    id = stableIdFromString(hash),
-                    title = rawTitle.ifBlank { titleFromFilename(filename) },
-                    artist = artist,
-                    coverUrl = cover,
-                    coverThumbUrl = cover,
-                    duration = if (durationSec > 0) durationSec * 1000L else timelen,
-                    source = MusicSearchSource.KUGOU,
-                    sourceId = hash
-                )
-            }
+            List(lists.length()) { index -> songResult(lists.getJSONObject(index)) }
         } catch (e: Exception) {
             CrashLogManager.logException("KugouMusicApi", "搜索歌曲失败", e)
             emptyList()
         }
+    }
+
+    /**
+     * 内置榜单解析：TOP500 热门榜。
+     *
+     * 该 CDN 的证书不含本站域名（mobilecdnbj.kugou.com），走 https 会因证书校验直接断连，
+     * 只能按明文 http 请求 —— 应用已全局放行明文，接口本身也只提供 http 站点。
+     */
+    override suspend fun chart(limit: Int): List<NeteaseSongSearchResult> = withContext(Dispatchers.IO) {
+        if (limit <= 0) return@withContext emptyList()
+        try {
+            val url = "http://mobilecdnbj.kugou.com/api/v3/rank/song?rankid=$CHART_RANK_ID" +
+                    "&page=1&pagesize=$limit&version=9108"
+            val info = JSONObject(get(url)).optJSONObject("data")?.optJSONArray("info") ?: JSONArray()
+            List(minOf(info.length(), limit)) { index -> rankSong(info.getJSONObject(index)) }
+                .filter { it.title.isNotBlank() }
+        } catch (e: Exception) {
+            CrashLogManager.logException("KugouMusicApi", "解析榜单失败", e)
+            emptyList()
+        }
+    }
+
+    /** 榜单条目映射：歌手在 `authors`、封面在 `album_sizable_cover`，均与搜索结果的字段名不同 */
+    private fun rankSong(item: JSONObject): NeteaseSongSearchResult {
+        val hash = item.optString("hash").ifBlank { item.optString("320hash") }
+        val authors = item.optJSONArray("authors") ?: JSONArray()
+        val artist = List(authors.length()) { authors.getJSONObject(it).optString("author_name") }
+            .filter { it.isNotBlank() }
+            .joinToString(" / ")
+        // 封面地址带 {size} 占位符，替换为实际尺寸段
+        val cover = item.optString("album_sizable_cover")
+            .takeIf { it.isNotBlank() }
+            ?.replace("{size}", "300")
+            ?.let { if (it.startsWith("http://")) "https://${it.removePrefix("http://")}" else it }
+        return NeteaseSongSearchResult(
+            id = stableIdFromString(hash),
+            title = item.optString("songname").ifBlank { titleFromFilename(item.optString("filename")) },
+            artist = artist,
+            coverUrl = cover,
+            coverThumbUrl = cover,
+            // duration 为秒
+            duration = item.optLong("duration", 0L) * 1000L,
+            source = MusicSearchSource.KUGOU,
+            sourceId = hash,
+        )
+    }
+
+    // 榜单与搜索的歌曲字段同源，统一映射为搜索结果模型
+    private fun songResult(item: JSONObject): NeteaseSongSearchResult {
+        val hash = item.optString("hash").ifBlank { item.optString("FileHash") }
+        val filename = item.optString("filename").ifBlank { item.optString("FileName") }
+        val rawTitle = item.optString("songname").ifBlank { item.optString("SongName") }
+        val artist = item.optString("singername").ifBlank { item.optString("SingerName") }
+        var cover = item.optJSONObject("trans_param")?.optString("union_cover")
+            ?.takeIf { it.isNotBlank() }
+            ?: item.optString("cover_url").takeIf { it.isNotBlank() }
+            ?: item.optString("Image").takeIf { it.isNotBlank() }
+        if (cover != null && cover.contains("{size}")) cover = cover.replace("{size}", "300")
+        // 封面 CDN 返回 http 明文，统一转 https
+        if (cover != null && cover.startsWith("http://")) {
+            cover = "https://${cover.removePrefix("http://")}"
+        }
+        // duration 为秒，timelen 为毫秒，二者取其一
+        val durationSec = item.optString("duration").toLongOrNull()
+            ?: item.optLong("Duration", 0L)
+        val timelen = item.optLong("timelen", 0L)
+        return NeteaseSongSearchResult(
+            id = stableIdFromString(hash),
+            title = rawTitle.ifBlank { titleFromFilename(filename) },
+            artist = artist,
+            coverUrl = cover,
+            coverThumbUrl = cover,
+            duration = if (durationSec > 0) durationSec * 1000L else timelen,
+            source = MusicSearchSource.KUGOU,
+            sourceId = hash
+        )
     }
 
     /** 获取播放地址：trackercdn 的 key 为 hash + "kgcloudv2" 的 MD5 */

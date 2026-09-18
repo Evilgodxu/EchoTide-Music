@@ -5,10 +5,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.provider.Settings
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
+import com.yichao.evilgodxu.data.music.blacklist.BlacklistStore
 import com.yichao.evilgodxu.data.music.proxy.ProxyParseResult
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
 import com.yichao.evilgodxu.permission.OverlayGrantMonitor
@@ -193,6 +195,14 @@ class SettingsViewModel(
 
     fun clearProxyImportMessage() {
         _uiState.update { it.copy(proxyImportMessage = null, proxyImportFailed = false) }
+    }
+
+    // 重置黑名单：条目清空后，已拉黑曲目重新参与播放列表展示与每日推荐候选
+    fun resetBlacklist() {
+        viewModelScope.launch {
+            BlacklistStore.reset(context)
+            Toast.makeText(context, R.string.settings_blacklist_reset_done, Toast.LENGTH_SHORT).show()
+        }
     }
 
     // 采样缓存合计占用：目录遍历为阻塞 IO，先在 IO 线程取结果再回填状态。

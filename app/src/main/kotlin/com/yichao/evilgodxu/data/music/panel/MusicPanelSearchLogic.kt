@@ -18,6 +18,7 @@ import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
+import com.yichao.evilgodxu.data.music.model.playlistTrackId
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceEngine
 import com.yichao.evilgodxu.data.music.download.cacheToDownloads
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
@@ -443,7 +444,7 @@ internal suspend fun downloadAndPlay(
     metadataEnricher: MetadataEnricher,
     playlistRefresher: PlaylistRefresher,
 ) {
-    val trackId = result.id + 1000000L
+    val trackId = result.playlistTrackId
     val track = MusicTrack(
         id = trackId,
         path = "",
@@ -699,7 +700,7 @@ internal suspend fun playSearchResultWithQuality(
     playlistRefresher: PlaylistRefresher,
 ): Boolean {
     val url = resolveAdaptivePlayUrl(context, target, quality) ?: return false
-    playbackState.pendingQualityPlayTrackId = target.id + 1000000L
+    playbackState.pendingQualityPlayTrackId = target.playlistTrackId
     playbackState.closeSearchResultsOnReady = true
     downloadAndPlay(context, playbackState, target, url, metadataEnricher, playlistRefresher)
     return true

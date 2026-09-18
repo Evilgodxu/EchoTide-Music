@@ -70,6 +70,9 @@
     <string name="music_panel_search_source_kugou">Kugou</string>
     <string name="music_panel_search_source_kuwo">Kuwo</string>
     <string name="music_panel_search_source_migu">Migu</string>
+    <string name="music_panel_daily_recommend_title">Daily Mix</string>
+    <string name="music_panel_daily_recommend_loading">Building your daily mix…</string>
+    <string name="music_panel_daily_recommend_empty">No new songs to recommend</string>
     <string name="music_panel_quality_title">Select quality</string>
     <string name="music_panel_quality_failed">This quality is unavailable, try another</string>
     <string name="music_quality_lossless">Lossless</string>
@@ -170,6 +173,23 @@
     <string name="settings_swipe_track_desc">Swipe up/down on the home screen to change tracks</string>
     <string name="settings_typography_title">Typography</string>
     <string name="settings_typography_desc">Lyric font size and visible lines</string>
+
+    <!-- Blacklist -->
+    <string name="settings_section_blacklist">Blacklist</string>
+    <string name="settings_blacklist_reset_title">Reset blacklist</string>
+    <string name="settings_blacklist_reset_desc">%1$d blocked, reset to recommend them again</string>
+    <string name="settings_blacklist_reset_confirm_title">Reset blacklist</string>
+    <string name="settings_blacklist_reset_confirm_message">Blocked songs and features accumulated from skipped tracks will be eligible for recommendations again</string>
+    <string name="settings_blacklist_reset_confirm">Reset</string>
+    <string name="settings_blacklist_reset_cancel">Cancel</string>
+    <string name="settings_blacklist_reset_done">Blacklist reset</string>
+
+    <!-- Playlist swipe actions -->
+    <string name="playlist_swipe_blacklist">Add to blacklist</string>
+    <string name="playlist_swipe_advanced">Advanced menu</string>
+    <string name="playlist_advanced_menu_title">Advanced menu</string>
+    <string name="playlist_advanced_menu_empty">No actions available</string>
+    <string name="playlist_advanced_menu_close">Close</string>
 
     <!-- Proxy source -->
     <string name="settings_section_proxy_source">Proxy Source</string>

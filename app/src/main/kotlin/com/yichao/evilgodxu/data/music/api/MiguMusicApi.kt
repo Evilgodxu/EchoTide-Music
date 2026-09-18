@@ -75,6 +75,14 @@ internal object MiguMusicApi : OnlineMusicSource {
         }
     }
 
+    /**
+     * 内置榜单解析：咪咕官方榜单接口已下线，据实返回空而不伪造数据。
+     *
+     * 原 `content/billlist.do` 现一律返回 `299996 路由请求不支持`，旧版 `cms_list_tag`（m.music.migu.cn）
+     * 亦 301 跳转至网页版 /v5，服务端不再提供榜单 JSON。咪咕因此只参与搜索，不进入推荐候选池。
+     */
+    override suspend fun chart(limit: Int): List<NeteaseSongSearchResult> = emptyList()
+
     /** 获取播放地址；quality 为空时按全部音质组合依次尝试，指定时仅尝试对应档位 */
     suspend fun songUrl(identifier: String, quality: MusicQuality? = null): String? = withContext(Dispatchers.IO) {
         if (identifier.isBlank()) return@withContext null
