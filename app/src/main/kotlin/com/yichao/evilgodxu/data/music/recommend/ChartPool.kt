@@ -7,9 +7,9 @@ import com.yichao.evilgodxu.data.music.api.MiguMusicApi
 import com.yichao.evilgodxu.data.music.api.NeteaseMusicApi
 import com.yichao.evilgodxu.data.music.api.QQMusicApi
 import com.yichao.evilgodxu.data.music.api.sourceOf
-import com.yichao.evilgodxu.data.music.blacklist.BlacklistStore
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
+import com.yichao.evilgodxu.data.music.model.distinctByTrack
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceEngine
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
@@ -81,9 +81,10 @@ internal object ChartPool {
                 async { runCatching { sourceOf(source).chart(CHART_LIMIT) }.getOrDefault(emptyList()) }
             }.awaitAll()
         }
-        val results = charts.flatten()
-            .distinctBy { BlacklistStore.keyOf(it.title, it.artist) }
-            .filter { BlacklistStore.keyOf(it.title, it.artist).isNotEmpty() }
+        // 跨平台去重按音轨身份而非精确文本键：各平台榜单大量交集，且同一首歌的写法不一致
+        // （译名 `VALORANT` / `无畏契约`、合作歌手连接符不同），精确键去不掉，
+        // 同一首歌会占掉多个候选位
+        val results = charts.flatten().distinctByTrack({ it.title }, { it.artist })
 
         val candidates = mutableListOf<ChartCandidate>()
         results.chunked(LYRIC_BATCH).forEach { batch ->

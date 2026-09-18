@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.yichao.evilgodxu.data.music.model.MusicTrack
+import com.yichao.evilgodxu.data.music.model.TrackIdentity
 import com.yichao.evilgodxu.log.CrashLogManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -88,10 +89,8 @@ internal object BlacklistStore {
         return "$normalizedTitle|${normalize(artist)}"
     }
 
-    private fun normalize(value: String): String = value.lowercase()
-        .replace(Regex("\\([^)]*\\)|（[^）]*）|\\[[^]]*]|【[^】]*】"), "")
-        .replace(Regex("[\\s\\p{Punct}、，。！？·—～]+"), "")
-        .trim()
+    // 归一化规则与音轨身份判同共用一份，避免黑名单与推荐各持一套规则后相互漂移
+    private fun normalize(value: String): String = TrackIdentity.normalize(value)
 
     private suspend fun read(context: Context): StoredBlacklist = withContext(Dispatchers.IO) {
         try {

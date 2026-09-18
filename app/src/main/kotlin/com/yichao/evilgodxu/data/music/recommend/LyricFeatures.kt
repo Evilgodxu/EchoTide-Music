@@ -8,7 +8,7 @@ import kotlin.math.sqrt
  * 推荐算法的三个通道在此取原始特征，打分与排序在 [MusicRecommender] 中完成。
  *
  * 覆盖语言：中（简/繁）、英、日、韩、德、俄。各语言的书写系统决定了分词方式 ——
- * 有空格分词的（英/德/俄）整词成词元，中日按 2-gram 切分，谚文整段保留。
+ * 有空格分词的英/德/俄整词成词元，韩语还要剥掉助词与语尾取词干，中日按 2-gram 切分。
  */
 internal object LyricFeatures {
 
@@ -69,6 +69,59 @@ internal object LyricFeatures {
         "про", "какая", "много", "разве", "эту", "моя", "хорошо", "свою", "этой", "перед",
     )
 
+    // 韩语功能词：助词与语尾剥不掉的常用虚词、代词、副词，以及「剥完只剩形素」的功能性词干
+    private val STOP_KO = setOf(
+        "나는", "내가", "나를", "나의", "너는", "너를", "네가", "우리", "저는", "제가",
+        "그는", "그녀", "그것", "이것", "저것", "여기", "거기", "저기",
+        "그리고", "그러나", "하지만", "그래서", "그러면", "그런데", "그럼", "그냥",
+        "정말", "진짜", "너무", "아주", "많이", "조금", "다시", "이제", "아직", "이미",
+        "때문", "때문에", "위해", "통해", "함께", "같이", "모두", "다들", "하나", "둘",
+        "이런", "그런", "저런", "어떤", "무슨", "어디", "언제", "누가", "무엇", "왜", "어떻게",
+        "그대", "당신",
+        // 剥尾后剩下的功能性词干：实词剥尾不会落到这些形态上。
+        // 只收系词、补助动词、存在动词与单位名词，形容词的冠形形（큰/좋은）带情感，保留
+        "있어", "없어", "있는", "없는", "있게", "없게", "같아", "같은", "하는", "하지",
+        "해서", "해도", "한다", "했다", "되고", "되어", "되는", "아무래",
+        "할", "하", "되", "돼", "있", "없", "같", "준",
+        "수", "거", "것", "네", "내", "제", "저", "좀", "잘", "더", "안", "못", "등", "및", "위", "중",
+    )
+
+    /**
+     * 韩语助词与语尾。
+     *
+     * 韩语以「어절」（空格单位）成词，一个 어절 = 词干 + 助词/语尾：사랑 / 사랑을 / 사랑해
+     * 在词面上是三个不同的词元。不剥尾，词面通道在韩语内部就对不上，遑论跨语言。
+     *
+     * 长尾优先匹配：사랑해요 应剥成 사랑（命中「해요」），而不是剥成 사랑해（命中「요」）。
+     */
+    private val KO_SUFFIXES: List<String> = listOf(
+        "에서는", "으로는", "에게서", "이라고", "에서도", "으로도", "에게는", "이라고는",
+        "이라도", "이라서", "이라는", "더라도", "뿐만",
+        "습니다", "세요", "어요", "아요", "해요", "네요", "군요", "나요", "는데", "지만",
+        "면서", "니까", "려고", "러고", "라고", "다고", "에서", "에게", "으로", "이나",
+        "까지", "부터", "처럼", "보다", "마다", "한테", "께서", "밖에", "조차", "마저",
+        "커녕", "이랑", "하고", "이란", "라도", "라는", "한다", "했다", "하는", "하지",
+        "해서", "해도", "되고", "되어", "되는", "든지", "만큼", "대로",
+        "았", "었", "겠", "해", "워", "와", "요", "다", "고", "서",
+        "며", "면", "지", "게", "음", "함", "할", "된", "봐", "줘", "걸", "죠", "데",
+        "은", "는", "이", "가", "을", "를", "에", "의",
+        "도", "만", "로", "과", "랑", "야", "아",
+    ).sortedByDescending { it.length }
+
+    /**
+     * 韩语词干：剥掉一个最长的助词/语尾。
+     *
+     * 剩余长度的下限取决于尾本身：多字尾（이라도/해요）是屈折的确证，剥到单字也认；
+     * 单字尾（랑/가/도）与词根形素同形（사랑 的「랑」），剥到单字就把实词毁了，故要求剩两字。
+     */
+    private fun koreanStem(eojeol: String): String {
+        if (eojeol.length < 3) return eojeol
+        val suffix = KO_SUFFIXES.firstOrNull { eojeol.endsWith(it) } ?: return eojeol
+        val stem = eojeol.dropLast(suffix.length)
+        val minStem = if (suffix.length >= 2) 1 else 2
+        return if (stem.length >= minStem) stem else eojeol
+    }
+
     // 拉丁词形扩展到拉丁补充区与扩展区，覆盖德语 ä ö ü ß 及其它欧洲变音字母；
     // 撇号同时收 ASCII 与排版撇号，否则「don’t」这类会被切成两段
     private val LATIN_RE = Regex("[A-Za-z\\u00C0-\\u024F][A-Za-z\\u00C0-\\u024F'’]*")
@@ -91,7 +144,8 @@ internal object LyricFeatures {
      * 简体、繁体、日文汉字与假名、英文与罗马音 —— 平台歌词接口给的是各语言原文，
      * 只收简体与罗马音会让日文、繁体、德语、俄语歌在概念通道上同样落空。
      *
-     * 无法用整词精确匹配的语言（谚文、德语、俄语）另见 [SUBSTRING_CONCEPTS]。
+     * 无法用整词精确匹配的语言另走两条通道：韩语黏着语按词元前缀（[KOREAN_CONCEPTS]），
+     * 德语复合构词与俄语格变化按子串（[SUBSTRING_CONCEPTS]）。
      */
     private val CONCEPT_LEXICON: Map<String, List<String>> = mapOf(
         "love" to listOf("爱", "愛", "相爱", "相愛", "爱过", "愛過", "爱情", "愛情", "爱着", "愛著", "爱上", "愛上", "恋", "戀", "心动", "心動", "喜欢", "喜歡", "love", "loved", "loving", "ai", "koi", "sarang", "あい", "こい", "すき"),
@@ -159,12 +213,85 @@ internal object LyricFeatures {
     )
 
     /**
-     * 按子串命中的概念词条：谚文、德语、俄语都存不住「整词」这个前提。
+     * 韩语概念词条：按词元前缀匹配，不并入 [SUBSTRING_CONCEPTS]。
      *
-     * - 谚文无空格分词，且词形随助词变化，整词匹配覆盖不到；
+     * 韩语是黏着语，어절 = 词干 + 助词/语尾，词干必在词元开头，故判据是「词元以词条开头」。
+     * 整行包含匹配对韩语不成立：「이별」（离别）会命中「별」（星），「기대어」（倚靠）会命中「기대」（期待）。
+     *
+     * 复合词的词干在词元中段（밤하늘 的 하늘），前缀判据够不到，故把常见复合词单独收录。
+     * 单音节词干与其它词共形者不单收：「비」会被 비밀 命中，「길」会被 길다 命中 —— 改写带尾形态。
+     */
+    private val KOREAN_CONCEPTS: Map<String, String> = mapOf(
+        "사랑" to "love", "연인" to "love",
+        "마음" to "heart", "심장" to "heart", "가슴" to "heart",
+        "그대" to "you", "당신" to "you", "너의" to "you", "네가" to "you", "너를" to "you",
+        "밤" to "night", "어둠" to "night", "한밤" to "night", "새벽" to "night",
+        "빛" to "light", "빛나" to "light", "반짝" to "light", "햇살" to "light",
+        "꿈" to "dream", "꿈결" to "dream",
+        "바람" to "wind", "하늘" to "sky", "밤하늘" to "sky", "하늘빛" to "sky",
+        "별" to "star", "별빛" to "star", "별자리" to "universe",
+        "눈물" to "tears", "울어" to "tears", "울음" to "tears",
+        "아픔" to "pain", "아파" to "pain", "아프" to "pain", "상처" to "pain", "통증" to "pain",
+        "기억" to "memory", "추억" to "memory", "생각" to "memory",
+        "시간" to "time", "순간" to "time", "세월" to "time",
+        "외로" to "lonely", "혼자" to "lonely", "고독" to "lonely",
+        "따뜻" to "warmth", "온기" to "warmth", "다정" to "warmth", "포근" to "warmth",
+        "거짓" to "lie", "속임" to "lie",
+        "안녕" to "goodbye", "이별" to "goodbye", "떠나" to "goodbye", "작별" to "goodbye",
+        "기다" to "wait", "기다림" to "wait",
+        "여름" to "summer", "더위" to "heat", "뜨거" to "heat", "열기" to "heat",
+        "비가" to "rain", "빗물" to "rain", "빗소리" to "rain", "소나기" to "rain",
+        "바다" to "sea", "구름" to "cloud",
+        "길을" to "road", "골목" to "road", "도로" to "road",
+        "멀리" to "distance", "멀어" to "distance",
+        "숨결" to "breath", "호흡" to "breath",
+        "떨어" to "fall", "추락" to "fall",
+        "희망" to "hope", "소망" to "hope", "기대" to "hope",
+        "행복" to "happiness", "기쁨" to "happiness", "기뻐" to "happiness", "즐거" to "happiness",
+        "미래" to "future", "내일" to "future", "앞으로" to "future",
+        "구원" to "salvation", "구해" to "salvation", "살려" to "salvation", "위로" to "salvation",
+        "약하" to "fragile", "부서" to "fragile", "여려" to "fragile",
+        "영원" to "eternity", "언제까지" to "eternity", "영영" to "eternity",
+        "세상" to "world", "세계" to "world", "인간" to "world",
+        "침묵" to "silence", "조용" to "silence", "고요" to "silence",
+        "목소리" to "voice", "노래" to "voice", "소리" to "voice",
+        "불꽃" to "fire", "불빛" to "fire", "화염" to "fire", "타오" to "fire",
+        "꽃" to "flower", "꽃잎" to "flower",
+        "그림자" to "shadow", "그늘" to "shadow",
+        "마비" to "numb", "무감" to "numb", "멍하" to "numb",
+        "모래" to "sand", "파도" to "wave", "물결" to "wave",
+        "눈동자" to "eyes", "눈빛" to "eyes", "시선" to "eyes",
+        "손을" to "hands", "손길" to "hands", "잡아" to "hands",
+        "우주" to "universe", "은하" to "universe",
+        "아침" to "morning", "해돋" to "morning",
+        "실수" to "mistake", "잘못" to "mistake",
+        "후회" to "regret", "아쉬" to "regret", "미련" to "regret",
+        "혼란" to "mess", "엉망" to "mess",
+        "친구" to "friend", "우정" to "friend",
+        "자유" to "freedom", "해방" to "freedom",
+        "약속" to "promise", "맹세" to "promise",
+        // 믿/잃/끝 只有单一词族，无共形问题
+        "믿" to "believe", "신뢰" to "believe",
+        "잃" to "lose", "놓쳐" to "lose",
+        "계속" to "continue", "이어" to "continue",
+        "새로운" to "new", "처음" to "new", "새로" to "new",
+        "끝" to "end", "끝나" to "end", "마지막" to "end",
+        "영혼" to "soul", "운명" to "soul", "정신" to "soul",
+        "차가" to "cold", "추워" to "cold", "시려" to "cold", "얼음" to "cold",
+        "도시" to "city", "거리" to "city", "네온" to "city",
+        "잠들" to "sleep", "잠이" to "sleep", "졸려" to "sleep",
+        "유리" to "glass", "거울" to "glass", "투명" to "glass",
+    )
+
+    /**
+     * 按子串命中的概念词条：德语与俄语存不住「整词」这个前提。
+     *
      * - 德语靠复合构词（Herzschlag 含 Herz、Sonnenuntergang 含 Sonne），整词匹配基本落空；
      * - 俄语每个名词、形容词、动词都按格与时态变形（любовь / любви / любить），
      *   所以存的是词干（любов、любл、люби）而不是词。
+     *
+     * 这两种语言都以空格分隔词、以词形变化承载语法，词干在词内出现，故用包含判据。
+     * 韩语不同（黏着语，词干固定在词元开头），另有 [KOREAN_CONCEPTS] 走前缀判据。
      *
      * 代价是词干短时有误命中（「нов」也会命中 «снова»），但这是该类语言唯一可用的召回通道，
      * 噪声由 IDF 与三通道权重稀释。
@@ -174,13 +301,6 @@ internal object LyricFeatures {
      * 故德语取 `ende` / `endet` / `stille` 这类不会跨语碰撞的形式。
      */
     private val SUBSTRING_CONCEPTS: Map<String, String> = mapOf(
-        // ---- 谚文 ----
-        "사랑" to "love", "별" to "star", "빛" to "light", "꿈" to "dream", "밤" to "night",
-        "시간" to "time", "기억" to "memory", "운명" to "promise", "영원" to "eternity",
-        "눈물" to "tears", "아픔" to "pain", "마음" to "heart", "세상" to "world",
-        "그대" to "you", "너" to "you", "우리" to "friend", "추억" to "memory",
-        "처음" to "new", "다시" to "continue", "무서워" to "lonely", "따뜻" to "warmth",
-        "안아" to "hands", "숨" to "breath", "기다" to "wait",
         // ---- 德语词干 ----
         "lieb" to "love", "herz" to "heart", "brust" to "heart",
         "dich" to "you", "dir" to "you", "dein" to "you",
@@ -299,11 +419,12 @@ internal object LyricFeatures {
 
     /**
      * 分词：拉丁词（含德语变音）保留完整词形，西里尔词整词保留，
-     * 中文切 2-gram，假名切 2-gram，谚文整段保留。
+     * 中文切 2-gram，假名切 2-gram，谚文剥掉助词/语尾后取词干。
      *
      * 中文与日文都用 2-gram 而非词典分词：歌词中新词与专有名词多，词表分词会把它们整段丢弃。
      * 假名必须参与分词 —— 日文实词大量以假名书写（「ゆめ」「なみだ」「きぼう」），
      * 只取汉字段会让日文歌在词面通道上近乎空白。
+     * 韩语不能按整段取词元 —— 一个 어절 含词干与助词，不剥尾则同一词的不同格位互不相识。
      */
     fun tokenize(line: String): List<String> {
         val tokens = mutableListOf<String>()
@@ -330,7 +451,11 @@ internal object LyricFeatures {
                 if (gram.any { it !in STOP_KANA }) tokens += gram
             }
         }
-        HANGUL_RE.findAll(line).forEach { tokens += it.value }
+        HANGUL_RE.findAll(line).forEach { match ->
+            // 韩语剥掉助词/语尾后再成词元：사랑 / 사랑을 / 사랑해 都归到「사랑」
+            val stem = koreanStem(match.value)
+            if (stem.isNotEmpty() && stem !in STOP_KO) tokens += stem
+        }
         return tokens
     }
 
@@ -341,7 +466,7 @@ internal object LyricFeatures {
         return counts
     }
 
-    /** 概念槽计数：拉丁按词匹配，汉字/假名/谚文/德语构词/俄语词干按包含匹配 */
+    /** 概念槽计数：拉丁按词匹配，汉字/假名按包含匹配，韩语按词元前缀，德语/俄语按词干包含 */
     fun conceptCounts(lines: Collection<String>): Map<String, Int> {
         val counts = mutableMapOf<String, Int>()
         lines.forEach { line ->
@@ -354,6 +479,12 @@ internal object LyricFeatures {
             }
             SUBSTRING_CONCEPTS.forEach { (word, concept) ->
                 if (lower.contains(word)) counts[concept] = (counts[concept] ?: 0) + 1
+            }
+            val koreanTokens = HANGUL_RE.findAll(line).map { koreanStem(it.value) }.toList()
+            if (koreanTokens.isNotEmpty()) {
+                KOREAN_CONCEPTS.forEach { (stem, concept) ->
+                    if (koreanTokens.any { it.startsWith(stem) }) counts[concept] = (counts[concept] ?: 0) + 1
+                }
             }
         }
         return counts

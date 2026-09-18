@@ -423,6 +423,9 @@ class MusicPlaybackState(
     private var generatedBlacklist: Set<String> = emptySet()
     // 上次生成推荐所用的收藏快照：画像取收藏曲目，收藏一变即需重算
     private var generatedLiked: Set<Long> = emptySet()
+    // 上次生成推荐所用的本地曲库快照：缓存/下载入库会改变候选排除集合，
+    // 与之不一致说明排序里还留着已拥有的歌
+    private var generatedLibrary: Set<Long> = emptySet()
     // 本地重算未能产出排序（候选池快照缺失等）：置位后下次进入搜索页按完整路径重算
     private var dailyPreferencesDirty = false
     // 生成任务代次：用于丢弃被新任务取代的旧结果
@@ -1731,6 +1734,31 @@ class MusicPlaybackState(
         )
     }
 
+    /**
+     * 本地曲库变化（缓存 / 下载入库）后重算推荐排序。
+     *
+     * 入库改变的是候选排除集合，不是偏好画像 —— 故只用本地候选池重算（`refreshPool = false`），
+     * 不因一次缓存动作触发整池歌词的联网重拉（与收藏变更同一条路径）。
+     *
+     * 曲库未变时直接返回：批量下载会逐首登记入库，不去重就会为每首歌各排一次重算。
+     * 首次尚未生成过时不预热，等进入搜索页按完整路径算（那时曲库已含新入库的歌）。
+     */
+    internal fun onLibraryChanged() {
+        if (!isDailyRecommendReady && !isDailyRecommendLoading) return
+        if (librarySignature() == generatedLibrary) return
+        val context = appContext ?: return
+        startDailyRecommendJob(
+            context,
+            likedIds,
+            BlacklistStore.keys,
+            showLoading = false,
+            refreshPool = false,
+        )
+    }
+
+    /** 本地曲库的身份快照：曲目增删都会改变它，用于判断候选排除集合是否需要重算 */
+    private fun librarySignature(): Set<Long> = libraryTracks.mapTo(HashSet()) { it.id }
+
     private fun startDailyRecommendJob(
         context: Context,
         liked: Set<Long>,
@@ -1739,16 +1767,20 @@ class MusicPlaybackState(
         refreshPool: Boolean,
     ) {
         dailyRecommendJob?.cancel()
+        // 偏好画像取收藏，候选排除取全量曲库：缓存/下载入库的歌大多未被收藏，
+        // 只按收藏排除会让用户已经拥有的歌继续占着推荐位
         val preferred = libraryTracks.filter { it.id in liked }
+        val library = libraryTracks
         generatedBlacklist = blacklist
         generatedLiked = liked
+        generatedLibrary = librarySignature()
         dailyPreferencesDirty = false
         if (showLoading) isDailyRecommendLoading = true
         // 代次标记：被取代的旧任务即使已越过取消点也会正常返回，按代次丢弃其结果
         val token = ++dailyRecommendToken
         dailyRecommendJob = playbackScope.launch {
             val result = try {
-                MusicRecommender.recommend(context, preferred, refreshPool = refreshPool)
+                MusicRecommender.recommend(context, preferred, library, refreshPool = refreshPool)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

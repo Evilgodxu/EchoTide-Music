@@ -150,6 +150,10 @@ private suspend fun registerCachedFileAsLocal(
         // 缓存完成后以本地文件补齐当前曲目信息条，避免在线播放期间空白
         playbackState.refreshTrackFormatInfoFromLocal(context)
     }
+    // 曲库新增了这首歌：通知每日推荐重算，把它从推荐位剔除（走本地候选池，不联网）
+    withContext(Dispatchers.Main) {
+        playbackState.onLibraryChanged()
+    }
 }
 
 internal fun sanitizeFileName(name: String): String {

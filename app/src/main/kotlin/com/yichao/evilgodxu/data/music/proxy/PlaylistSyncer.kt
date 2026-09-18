@@ -164,6 +164,8 @@ internal object PlaylistSyncer {
         }
         // 刷新曲库使下载文件成为本地曲目，再按文件名匹配入库 ID
         playlistRefresher.refresh(context, state, restoreCurrent = true)
+        // 新增曲目已入库：通知每日推荐重算，把已拥有的歌剔除出推荐位（走本地候选池，不联网）
+        withContext(Dispatchers.Main) { state.onLibraryChanged() }
         val downloadedIds = mutableListOf<Long>()
         val unmatchedFiles = mutableListOf<String>()
         downloadedFiles.forEach { fileName ->

@@ -5,6 +5,7 @@ import com.yichao.evilgodxu.data.music.blacklist.BlacklistStore
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
+import com.yichao.evilgodxu.data.music.model.OwnedTrackIndex
 import com.yichao.evilgodxu.data.music.model.playlistTrackId
 import kotlin.math.sqrt
 import kotlinx.coroutines.Dispatchers
@@ -41,12 +42,14 @@ internal object MusicRecommender {
      * 生成每日推荐排序。
      *
      * @param tracks 本地偏好基线（收藏曲目），歌词取自曲目内嵌内容或歌词缓存文件
-     * @param refreshPool 是否允许候选池联网重抓。收藏等高频重算传 false，
-     *   只用本地落盘候选池重算 —— 点一次收藏就重拉整池歌词不是用户预期
+     * @param library 本地全量曲库，仅用于把用户已拥有的歌排除出候选
+     * @param refreshPool 是否允许候选池联网重抓。收藏、缓存入库等高频重算传 false，
+     *   只用本地落盘候选池重算 —— 点一次收藏或缓存一首歌就重拉整池歌词不是用户预期
      */
     suspend fun recommend(
         context: Context,
         tracks: List<MusicTrack>,
+        library: List<MusicTrack>,
         refreshPool: Boolean = true,
     ): RecommendationResult = withContext(Dispatchers.IO) {
         // ---------- 1. 本地偏好基线提取 ----------
@@ -59,12 +62,12 @@ internal object MusicRecommender {
         val sampleConcepts = samples.map { LyricFeatures.conceptCounts(it) }
         val sampleStructures = samples.map { LyricFeatures.structure(it) }
 
-        // ---------- 2. 候选池：已由 ChartPool 周更落盘，本地已有的歌在此排除，与黑名单无关 ----------
+        // ---------- 2. 候选池：已由 ChartPool 周更落盘，本地已有的歌在此排除，与黑名单无关。
+        // 排除依据是全量曲库而非收藏 —— 缓存/下载入库的歌大多未被收藏，
+        // 只按收藏排除会让用户已经拥有的歌继续占着推荐位
         val pool = ChartPool.snapshot(context, refresh = refreshPool)
-        val localKeys = localKeys(tracks)
-        val candidates = pool.items.filter {
-            BlacklistStore.keyOf(it.result.title, it.result.artist) !in localKeys
-        }
+        val owned = OwnedTrackIndex(library)
+        val candidates = pool.items.filterNot { owned.contains(it.result.title, it.result.artist) }
         if (candidates.isEmpty()) return@withContext RecommendationResult(emptyList(), pool.fetchedAt)
 
         // ---------- 3. 黑名单算法（硬过滤）：拉黑对象在粗排阶段直接跳过 ----------
@@ -129,10 +132,6 @@ internal object MusicRecommender {
             .map { RecommendedSong(it.result, it.conceptVector.keys) }
         RecommendationResult(ranking, pool.fetchedAt)
     }
-
-    /** 本地曲目键：候选池据此排除用户已拥有的歌 */
-    private fun localKeys(tracks: List<MusicTrack>): Set<String> =
-        tracks.mapTo(mutableSetOf()) { BlacklistStore.keyOf(it.title, it.artist) }
 
     /** 样本歌词：优先取已加载到内存的歌词，其次读歌词缓存文件 */
     private fun sampleLyricLines(track: MusicTrack): List<String> {
