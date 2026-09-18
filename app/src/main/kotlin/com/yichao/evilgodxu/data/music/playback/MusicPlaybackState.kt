@@ -32,6 +32,7 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.model.PlayMode
 import com.yichao.evilgodxu.data.music.model.RecentCover
+import com.yichao.evilgodxu.data.music.recommend.ChartPool
 import com.yichao.evilgodxu.data.music.recommend.MusicRecommender
 import com.yichao.evilgodxu.data.music.recommend.RecommendationResult
 import com.yichao.evilgodxu.data.music.recommend.RecommendedSong
@@ -44,7 +45,6 @@ import com.yichao.evilgodxu.R
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import kotlin.jvm.JvmName
 import kotlinx.coroutines.async
@@ -1703,9 +1703,14 @@ class MusicPlaybackState(
     fun loadDailyRecommendations(context: Context, force: Boolean = false) {
         val blacklist = BlacklistStore.keys
         val liked = likedIds
+        // 候选池跨过换期刻度后即便偏好与黑名单未变也要重算：排序依据的是上一期候选，
+        // 面板只会按天推进窗口、不会重新联网，不重算就会在跨期的进程上一直用旧榜单。
+        // 排序为空时不作此判定 —— 此时没有会被换期影响的次序，判定恒真只会每次进面板都重抓整池
+        val poolOutdated = dailyRanking.isNotEmpty() && ChartPool.isOutdated(dailyRankingEpochMs)
         // 在途任务已按当前输入计算，或已有结果且未过期：无需重算排序，只需按当天推进窗口。
-        // 反之（黑名单或收藏已变、或强制刷新）取消在途任务后按新快照重算，避免旧快照的结果写回
-        val upToDate = blacklist == generatedBlacklist && liked == generatedLiked
+        // 反之（黑名单或收藏已变、候选池已换期、或强制刷新）取消在途任务后按新快照重算，
+        // 避免旧快照的结果写回
+        val upToDate = blacklist == generatedBlacklist && liked == generatedLiked && !poolOutdated
         if (!force && upToDate && !dailyPreferencesDirty && (isDailyRecommendLoading || isDailyRecommendReady)) {
             advanceDailyWindow()
             return
@@ -1820,10 +1825,10 @@ class MusicPlaybackState(
         dailyRecommendations = dailyRanking.drop(offset).take(DAILY_RECOMMEND_COUNT)
     }
 
-    // 距候选池抓取时刻的自然日数：按本地时区取日界，跨零点即进入下一段窗口
+    // 距候选池抓取时刻的自然日数：日界与候选池换期刻度同一基准（北京时间），跨零点即进入下一段窗口
     private fun daysSince(epochMs: Long): Long {
         if (epochMs <= 0L) return 0L
-        val zone = ZoneId.systemDefault()
+        val zone = ChartPool.TIME_ZONE
         val start = Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
         return ChronoUnit.DAYS.between(start, LocalDate.now(zone)).coerceAtLeast(0L)
     }

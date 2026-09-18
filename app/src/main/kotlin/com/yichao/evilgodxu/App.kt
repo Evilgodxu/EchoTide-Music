@@ -15,6 +15,7 @@ import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
+import com.yichao.evilgodxu.data.music.recommend.ChartPool
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.repository.SettingsRepository
 import com.yichao.evilgodxu.data.settings.bootstrapAppLanguage
@@ -101,6 +102,13 @@ class App : Application() {
         // 冷启动回收上一次进程遗留的中转文件：启动时刻必然不存在本次下载，可整批清理
         appScope.launch {
             runCatching { CacheInventory.reclaimOnColdStart(this@App) }
+        }
+
+        // 候选池换期（北京时间每周四 11:00）后按需预热：晚于换期时刻启动应用也能用上新一期榜单，
+        // 打开每日推荐时不必再等整池歌词拉完。未换期或本机还没有候选池（未用过每日推荐）
+        // 时直接返回，不产生任何网络请求
+        appScope.launch {
+            runCatching { ChartPool.refreshIfOutdated(applicationContext) }
         }
     }
 

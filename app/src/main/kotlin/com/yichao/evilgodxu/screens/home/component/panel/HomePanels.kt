@@ -23,6 +23,8 @@ internal fun HomePanels(
     HorizontalPager(
         state = pagerState,
         modifier = modifier.fillMaxSize(),
+        // 底部播放列表面板是全屏遮罩式弹层：显示期间关闭翻页，面板内的横向滑动与屏幕边缘滑动都不会切页
+        userScrollEnabled = !panelState.playlistVisible,
         // 三页均为重量级常驻视图（歌单页持有全库分组缓存与页面栈），全部保留在合成树，避免切页重建
         beyondViewportPageCount = HomePage.entries.size,
         key = { HomePage.entries[it] },

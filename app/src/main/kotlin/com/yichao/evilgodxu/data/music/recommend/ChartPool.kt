@@ -13,10 +13,16 @@ import com.yichao.evilgodxu.data.music.model.distinctByTrack
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceEngine
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -28,6 +34,10 @@ import org.json.JSONObject
  * 若每次生成推荐都重新联网，一次刷新或一轮切歌就会把整池歌词重拉一遍。
  * 故候选池在此收敛「周更 + 落盘」：周内任何一次推荐计算都只读落盘结果，不再产生网络请求。
  *
+ * 换期时刻定在每周四 11:00（北京时间，见 [refreshTime]），不与实际抓取时刻挂钩。
+ * 换期后不必等应用恰好在换期时刻运行：[refreshIfOutdated] 供启动时预热，生成推荐时亦会按刻度判定，
+ * 晚于换期时刻启动、或进程跨过换期时刻后继续使用，都会用上新一期榜单。
+ *
  * 规模口径：各平台统一取榜单前 [CHART_LIMIT] 首（四家合计约四百首）。榜单容量虽不一致
  * （网易 100 / QQ 300 / 酷狗 500 / 酷我 300），但统一口径更划算 —— 取满全量会把周更刷新
  * 拉成上千次歌词请求，而榜单尾部本就是长尾，收益不抵耗时。
@@ -38,7 +48,18 @@ import org.json.JSONObject
 internal object ChartPool {
 
     private const val FILE_NAME = "recommend_chart_pool.json"
-    private const val REFRESH_INTERVAL_MS = 7L * 24 * 60 * 60 * 1000
+
+    /**
+     * 每日推荐的时间基准：换期刻度与展示窗口的日界都按北京时间判定。
+     *
+     * 取固定时区而非设备本地时区 —— 要对齐的是国内平台按北京时间换榜的节奏，
+     * 设备时区变化不该让换期点与窗口推进的日界跟着漂。
+     */
+    internal val TIME_ZONE = ZoneId.of("Asia/Shanghai")
+
+    // 换期刻度：每周四 11:00 起进入新一期，此后启动预热或生成推荐时重抓整池
+    private val REFRESH_WEEKDAY = DayOfWeek.THURSDAY
+    private const val REFRESH_HOUR = 11
 
     // 各平台统一取榜单前 100 首：榜单容量不一（实测网易 100 / QQ 300 / 酷狗 500 / 酷我 300），
     // 取满全量会把周更刷新拉成上千次歌词请求，且榜单尾部本就是长尾，收益不抵耗时
@@ -50,10 +71,13 @@ internal object ChartPool {
     // 并发拉取歌词的批大小：控制瞬时请求数，避免触发平台风控
     private const val LYRIC_BATCH = 6
 
+    // 换期重抓互斥：启动预热与生成推荐是两个独立触发点，同时到达时只应抓一次
+    private val refreshMutex = Mutex()
+
     /**
      * 取候选池快照。
      *
-     * @param refresh 是否允许在快照缺失或跨周时联网重抓。收藏等高频重算传 false，
+     * @param refresh 是否允许在快照缺失或跨过换期刻度时联网重抓。收藏等高频重算传 false，
      *   只读本地落盘结果 —— 用户点一次收藏不该触发整池歌词的重新拉取。
      *
      * 抓取失败（接口变更、风控、断网）时沿用上一次的候选池：一次失败不该让推荐空到下个周更。
@@ -61,18 +85,64 @@ internal object ChartPool {
      */
     suspend fun snapshot(context: Context, refresh: Boolean = true): ChartPoolSnapshot =
         withContext(Dispatchers.IO) {
-            val cached = read(context)
-            val freshEnough = cached != null &&
-                System.currentTimeMillis() - cached.fetchedAt < REFRESH_INTERVAL_MS
-            if (freshEnough || !refresh) return@withContext cached ?: ChartPoolSnapshot(0L, emptyList())
-            val fresh = fetch(context)
-            // 本轮流为空（四家全挂）而磁盘上还有旧池时保留旧池，但抓取时刻不更新：
-            // 轮换天数继续按旧池起点累计，不会因一次失败假装刷新过
-            if (fresh.isEmpty()) return@withContext cached ?: ChartPoolSnapshot(0L, emptyList())
-            val snapshot = ChartPoolSnapshot(System.currentTimeMillis(), fresh)
-            write(context, snapshot)
-            snapshot
+            if (!refresh) return@withContext read(context) ?: ChartPoolSnapshot(0L, emptyList())
+            refreshMutex.withLock {
+                val cached = read(context)
+                if (cached != null && !isOutdated(cached.fetchedAt)) return@withLock cached
+                refresh(context, cached)
+            }
         }
+
+    /**
+     * 启动预热：已跨换期刻度时按需重抓，不返回候选。
+     *
+     * 只有本机已存在候选池（用户用过每日推荐）才预热 —— 从未生成过推荐的用户不该为一次启动
+     * 付整池抓取的代价。落盘后由生成推荐时的读取路径取用，故预热本身不必返回结果。
+     */
+    suspend fun refreshIfOutdated(context: Context) {
+        withContext(Dispatchers.IO) {
+            refreshMutex.withLock {
+                val cached = read(context) ?: return@withLock
+                if (!isOutdated(cached.fetchedAt)) return@withLock
+                refresh(context, cached)
+            }
+        }
+    }
+
+    /** 候选池是否已跨过换期刻度。启动预热与生成推荐据此判断是否需要联网重抓 */
+    fun isOutdated(fetchedAt: Long): Boolean = fetchedAt < refreshTime(System.currentTimeMillis())
+
+    /**
+     * 重抓整池并落盘。
+     *
+     * 本轮流为空（四家全挂）而磁盘上还有旧池时保留旧池，且抓取时刻不更新：轮换天数继续按
+     * 旧池起点累计，不会因一次失败假装刷新过。
+     */
+    private suspend fun refresh(context: Context, cached: ChartPoolSnapshot?): ChartPoolSnapshot {
+        val fresh = fetch(context)
+        if (fresh.isEmpty()) return cached ?: ChartPoolSnapshot(0L, emptyList())
+        val snapshot = ChartPoolSnapshot(System.currentTimeMillis(), fresh)
+        write(context, snapshot)
+        return snapshot
+    }
+
+    /**
+     * 当前所处的换期刻度：最近一次已到达的周四 11:00（北京时间）。
+     *
+     * 判据取时间轴上的固定刻度，而非「距上次抓取满 7 天」：按间隔计时会让换期点随每次实际
+     * 抓取时刻向后漂移，几轮之后与周四脱钩；固定刻度下抓取失败也不推后换期。
+     */
+    private fun refreshTime(now: Long): Long {
+        val zone = TIME_ZONE
+        val thisWeek = Instant.ofEpochMilli(now).atZone(zone)
+            .toLocalDate()
+            .with(TemporalAdjusters.previousOrSame(REFRESH_WEEKDAY))
+            .atTime(REFRESH_HOUR, 0)
+            .atZone(zone)
+        // 本周四尚未到 11:00 时，本周刻度还没到，当前刻度仍是上周四
+        val boundary = if (thisWeek.toInstant().toEpochMilli() > now) thisWeek.minusWeeks(1) else thisWeek
+        return boundary.toInstant().toEpochMilli()
+    }
 
     /** 抓取各平台榜单并补齐歌词，返回本次可用的候选 */
     private suspend fun fetch(context: Context): List<ChartCandidate> {
