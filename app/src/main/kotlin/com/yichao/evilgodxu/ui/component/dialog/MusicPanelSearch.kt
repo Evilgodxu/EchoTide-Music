@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -480,25 +479,29 @@ internal fun SearchResultsLazyList(
         object : NestedScrollConnection {
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
                 if (source != NestedScrollSource.UserInput) return Offset.Zero
-                // 已滚动到底部且继续上拉（可用偏移为负）时累计距离
-                if (available.y < 0 && listState.isAtBottom()) {
-                    pullDistance -= available.y
-                } else if (pullDistance > 0f) {
-                    // 反向滚动离开底部时取消未完成的上拉加载意图
+                // 只有两种情况作废未完成的上拉加载意图：列表仍能继续上滚（内容还在动，尚未到底）、
+                // 或用户反向下拉。可用偏移为零不在此列 —— 到底后的上拉量会被滚动容器的过滚效果吞掉，
+                // 把「这一帧没有溢出」当成「用户松手离开底部」，会在手指还按着时把提示行中途收回
+                if (listState.canScrollForward || available.y > 0f) {
                     pullDistance = 0f
+                } else if (available.y < 0f) {
+                    // 已在底部继续上拉：累计过拉量，只增不减，直到松手或意图作废
+                    pullDistance -= available.y
                 }
                 return Offset.Zero
             }
         }
     }
     // 手指松开（滚动停止）时判定：只要本次上拉在底部拉出过溢出即加载下一页。
-    // 不设距离门槛 —— 列表已在底部时任何上拉都算明确的加载意图，免得同一位置要拉第二次
+    // 不设距离门槛 —— 列表已在底部时任何上拉都算明确的加载意图，免得同一位置要拉第二次。
+    // 仍要求此刻确在底部：惯性把列表带离底部后残留的上拉量不该兑现成加载
     LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }
             .distinctUntilChanged()
             .filter { !it }
             .collect {
-                if (pullDistance > 0f && playbackState.hasMoreSearchResults &&
+                if (pullDistance > 0f && !listState.canScrollForward &&
+                    playbackState.hasMoreSearchResults &&
                     !playbackState.isSearching && playbackState.searchResults.isNotEmpty()
                 ) {
                     loadInProgress = true
@@ -586,13 +589,6 @@ internal fun SearchResultsLazyList(
             modifier = Modifier.align(Alignment.BottomCenter)
         )
     }
-}
-
-// 列表是否已滚动到底部（最后一项可见）
-private fun LazyListState.isAtBottom(): Boolean {
-    val info = layoutInfo
-    val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-    return info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 1
 }
 
 // 底部加载提示行：行高随上拉量自列表底部向上展开，加载中保持完全展开；
