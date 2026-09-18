@@ -477,15 +477,25 @@ internal fun SearchResultsLazyList(
     val fullPullPx = with(LocalDensity.current) { SEARCH_LOAD_ROW_FULL_PULL_DP.toPx() }
     val connection = remember(listState) {
         object : NestedScrollConnection {
+            // 反向下拉先收回提示行：按位移逐段扣减，并把这部分就地消费掉 ——
+            // 提示行没收完之前列表不动，收回与手指同步；整段清零会让展开量一步跳回原位
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                if (available.y <= 0f || pullDistance <= 0f) return Offset.Zero
+                val consumed = minOf(pullDistance, available.y)
+                pullDistance -= consumed
+                return Offset(0f, consumed)
+            }
+
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
                 if (source != NestedScrollSource.UserInput) return Offset.Zero
-                // 只有两种情况作废未完成的上拉加载意图：列表仍能继续上滚（内容还在动，尚未到底）、
-                // 或用户反向下拉。可用偏移为零不在此列 —— 到底后的上拉量会被滚动容器的过滚效果吞掉，
-                // 把「这一帧没有溢出」当成「用户松手离开底部」，会在手指还按着时把提示行中途收回
-                if (listState.canScrollForward || available.y > 0f) {
+                // 列表仍能继续上滚，说明上拉只是在滚动内容、尚未到底：作废未完成的加载意图。
+                // 可用偏移为零不作判定 —— 到底后的上拉量会被滚动容器的过滚效果吞掉，
+                // 把「这一帧没有溢出」当成「用户离开底部」，会在手指还按着时把提示行中途收回
+                if (listState.canScrollForward) {
                     pullDistance = 0f
                 } else if (available.y < 0f) {
-                    // 已在底部继续上拉：累计过拉量，只增不减，直到松手或意图作废
+                    // 已在底部继续上拉：累计过拉量，只增不减，直到松手或被下拉收回
                     pullDistance -= available.y
                 }
                 return Offset.Zero
