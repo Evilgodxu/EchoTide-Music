@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">YiChao Music</string>
+    <string name="app_name">Echo Tide</string>
 
     <!-- Home -->
     <string name="home_landscape_mode">Landscape mode</string>
@@ -322,6 +322,6 @@
     <string name="update_dialog_open_browser">Open in browser</string>
     <string name="update_toast_up_to_date">You are up to date</string>
     <string name="update_toast_error">Check for update failed, try again later</string>
-    <string name="update_notification_title">YiChao Music Update</string>
+    <string name="update_notification_title">Echo Tide Update</string>
     <string name="update_notification_downloading">Downloading %1$s</string>
 </resources>
