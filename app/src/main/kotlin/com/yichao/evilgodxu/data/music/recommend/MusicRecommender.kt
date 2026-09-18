@@ -16,6 +16,9 @@ import kotlinx.coroutines.withContext
  * 候选池取自各内置平台的榜单（见 [ChartPool]）而非搜索结果：搜索只能召回用户已经想到的歌，
  * 榜单提供与用户历史无关的当期新歌，这是"每日推荐"区别于"搜索"的前提。
  * 候选池已做周更落盘，本类全程不再发起网络请求。
+ *
+ * 输出的是**完整排序**而非当日的若干首：每日推荐按天向下推进展示窗口（第 1 天取第 1–10 首、
+ * 第 2 天取第 11–20 首），需要一段可连续下推的次序；窗口如何切分由调用方按天决定。
  */
 internal object MusicRecommender {
 
@@ -27,43 +30,46 @@ internal object MusicRecommender {
     // 多样性惩罚：越大结果越分散，避免推荐清一色同题材
     private const val MMR_LAMBDA = 0.15
 
-    private const val TOP_K = 5
+    // 排序长度：展示窗口按天推进，周更周期内最多用到 7 段（70 首）。
+    // 取 120 首留一周余量，同时把 MMR 的代价压在可控范围 —— 重排是 O(n³) 的贪心
+    private const val RANKING_LIMIT = 120
 
     // 指称代词概念高频出现但无主题区分力，剔除后概念向量更能反映题材
     private val CONCEPT_DROP = setOf("you")
 
     /**
-     * 生成每日推荐。
+     * 生成每日推荐排序。
      *
      * @param tracks 本地偏好基线（收藏曲目），歌词取自曲目内嵌内容或歌词缓存文件
      */
     suspend fun recommend(
         context: Context,
         tracks: List<MusicTrack>,
-    ): List<RecommendedSong> = withContext(Dispatchers.IO) {
+    ): RecommendationResult = withContext(Dispatchers.IO) {
         // ---------- 1. 本地偏好基线提取 ----------
         val samples = tracks.mapNotNull { track ->
             LyricFeatures.cleanLyrics(sampleLyricLines(track)).takeIf { it.isNotEmpty() }
         }
-        if (samples.isEmpty()) return@withContext emptyList()
+        if (samples.isEmpty()) return@withContext RecommendationResult(emptyList(), 0L)
 
         val sampleTerms = samples.map { LyricFeatures.termCounts(it) }
         val sampleConcepts = samples.map { LyricFeatures.conceptCounts(it) }
         val sampleStructures = samples.map { LyricFeatures.structure(it) }
 
         // ---------- 2. 候选池：已由 ChartPool 周更落盘，本地已有的歌在此排除，与黑名单无关 ----------
+        val pool = ChartPool.snapshot(context)
         val localKeys = localKeys(tracks)
-        val candidates = ChartPool.candidates(context).filter {
+        val candidates = pool.items.filter {
             BlacklistStore.keyOf(it.result.title, it.result.artist) !in localKeys
         }
-        if (candidates.isEmpty()) return@withContext emptyList()
+        if (candidates.isEmpty()) return@withContext RecommendationResult(emptyList(), pool.fetchedAt)
 
         // ---------- 3. 黑名单算法（硬过滤）：拉黑对象在粗排阶段直接跳过 ----------
         val blockedSongs = BlacklistStore.keys
         val survivors = candidates.filterNot {
             MusicBlacklist.isBlocked(blockedSongs, it.result.title, it.result.artist)
         }
-        if (survivors.isEmpty()) return@withContext emptyList()
+        if (survivors.isEmpty()) return@withContext RecommendationResult(emptyList(), pool.fetchedAt)
 
         // ---------- 4. IDF 在（样本 ∪ 候选）上统计 ----------
         val candidateTerms = survivors.map { LyricFeatures.termCounts(it.lines) }
@@ -112,7 +118,13 @@ internal object MusicRecommender {
         }
 
         // ---------- 8. MMR 多样性重排 ----------
-        selectDiverse(scored, TOP_K).map { RecommendedSong(it.result, it.conceptVector.keys) }
+        // 先按得分截出候选次序，再在其上做多样性重排：输出的是完整排序，
+        // 每日展示窗口是这段次序的连续切片，而非各自独立取前 N 首 ——
+        // 否则第 2 天从第 11 首起算的窗口会失去与榜首同一套多样性约束
+        val rotationPool = scored.sortedByDescending { it.score }.take(RANKING_LIMIT)
+        val ranking = selectDiverse(rotationPool, rotationPool.size)
+            .map { RecommendedSong(it.result, it.conceptVector.keys) }
+        RecommendationResult(ranking, pool.fetchedAt)
     }
 
     /** 本地曲目键：候选池据此排除用户已拥有的歌 */
@@ -184,6 +196,18 @@ internal object MusicRecommender {
         val conceptVector: Map<String, Double>,
     )
 }
+
+/**
+ * 每日推荐排序结果。
+ *
+ * [ranking] 是候选池经打分与多样性重排后的完整次序，按天取连续切片即当日展示窗口。
+ * [poolFetchedAt] 是该次序所依据的候选池抓取时刻，也是轮换天数的起点 ——
+ * 候选池刷新后排序回到榜首，窗口重新从第一段开始。
+ */
+data class RecommendationResult(
+    val ranking: List<RecommendedSong>,
+    val poolFetchedAt: Long,
+)
 
 /**
  * 每日推荐结果。

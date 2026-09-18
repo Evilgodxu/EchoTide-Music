@@ -28,8 +28,9 @@ import org.json.JSONObject
  * 若每次生成推荐都重新联网，一次刷新或一轮切歌就会把整池歌词重拉一遍。
  * 故候选池在此收敛「周更 + 落盘」：周内任何一次推荐计算都只读落盘结果，不再产生网络请求。
  *
- * 规模口径：每个平台取榜单前 [CHART_LIMIT] 首，四家平台合计约两百首候选 ——
- * 候选量是推荐质量的前提，候选过少时 MMR 的多样性重排退化为在极少数几首里排序。
+ * 规模口径：各平台统一取榜单前 [CHART_LIMIT] 首（四家合计约四百首）。榜单容量虽不一致
+ * （网易 100 / QQ 300 / 酷狗 500 / 酷我 300），但统一口径更划算 —— 取满全量会把周更刷新
+ * 拉成上千次歌词请求，而榜单尾部本就是长尾，收益不抵耗时。
  *
  * 候选池只负责「该平台当期有哪些可用的新歌」，不参与本地曲库与黑名单的过滤，
  * 后者随用户操作随时变化，需在每次计算推荐时现场判定，不能被固化进周更的快照。
@@ -39,9 +40,9 @@ internal object ChartPool {
     private const val FILE_NAME = "recommend_chart_pool.json"
     private const val REFRESH_INTERVAL_MS = 7L * 24 * 60 * 60 * 1000
 
-    // 每个平台取榜单前 50 首：候选量决定 MMR 能挑出什么，
-    // 候选不足时"多样性"退化为在极少数几首里排个序，推荐结果不可靠
-    private const val CHART_LIMIT = 50
+    // 各平台统一取榜单前 100 首：榜单容量不一（实测网易 100 / QQ 300 / 酷狗 500 / 酷我 300），
+    // 取满全量会把周更刷新拉成上千次歌词请求，且榜单尾部本就是长尾，收益不抵耗时
+    private const val CHART_LIMIT = 100
 
     // 歌词不足的行数视为纯音乐/冷门曲，直接丢弃而非给低分
     private const val MIN_LYRIC_LINES = 5
@@ -50,20 +51,24 @@ internal object ChartPool {
     private const val LYRIC_BATCH = 6
 
     /**
-     * 取候选池。周内直接读落盘结果；跨周或 [force] 时重新抓取并覆盖。
+     * 取候选池快照。周内直接读落盘结果；跨周或 [force] 时重新抓取并覆盖。
      *
      * 抓取失败（接口变更、风控、断网）时沿用上一次的候选池：一次失败不该让推荐空到下个周更。
+     * 快照带回抓取时刻 —— 每日推荐的轮换天数以它为起点，刷新即回到排序榜首。
      */
-    suspend fun candidates(context: Context, force: Boolean = false): List<ChartCandidate> =
+    suspend fun snapshot(context: Context, force: Boolean = false): ChartPoolSnapshot =
         withContext(Dispatchers.IO) {
             val cached = read(context)
             if (!force && cached != null && System.currentTimeMillis() - cached.fetchedAt < REFRESH_INTERVAL_MS) {
-                return@withContext cached.items
+                return@withContext cached
             }
             val fresh = fetch(context)
-            if (fresh.isEmpty()) return@withContext cached?.items.orEmpty()
-            write(context, fresh)
-            fresh
+            // 本轮流为空（四家全挂）而磁盘上还有旧池时保留旧池，但抓取时刻不更新：
+            // 轮换天数继续按旧池起点累计，不会因一次失败假装刷新过
+            if (fresh.isEmpty()) return@withContext cached ?: ChartPoolSnapshot(0L, emptyList())
+            val snapshot = ChartPoolSnapshot(System.currentTimeMillis(), fresh)
+            write(context, snapshot)
+            snapshot
         }
 
     /** 抓取各平台榜单并补齐歌词，返回本次可用的候选 */
@@ -109,14 +114,14 @@ internal object ChartPool {
         emptyList()
     }
 
-    private fun read(context: Context): Snapshot? = try {
+    private fun read(context: Context): ChartPoolSnapshot? = try {
         val file = File(context.filesDir, FILE_NAME)
         if (!file.exists()) {
             null
         } else {
             val root = JSONObject(file.readText())
             val items = root.optJSONArray("items") ?: JSONArray()
-            Snapshot(
+            ChartPoolSnapshot(
                 fetchedAt = root.optLong("fetchedAt"),
                 items = List(items.length()) { index -> itemFrom(items.getJSONObject(index)) },
             )
@@ -127,11 +132,11 @@ internal object ChartPool {
         null
     }
 
-    private fun write(context: Context, items: List<ChartCandidate>) = try {
+    private fun write(context: Context, snapshot: ChartPoolSnapshot) = try {
         val array = JSONArray()
-        items.forEach { array.put(itemTo(it)) }
+        snapshot.items.forEach { array.put(itemTo(it)) }
         val root = JSONObject()
-            .put("fetchedAt", System.currentTimeMillis())
+            .put("fetchedAt", snapshot.fetchedAt)
             .put("items", array)
         File(context.filesDir, FILE_NAME).writeText(root.toString())
     } catch (e: Exception) {
@@ -170,8 +175,17 @@ internal object ChartPool {
         return ChartCandidate(result, List(lines.length()) { lines.optString(it) })
     }
 
-    private data class Snapshot(val fetchedAt: Long, val items: List<ChartCandidate>)
 }
+
+/**
+ * 候选池快照。
+ *
+ * [fetchedAt] 是本期候选的抓取时刻，同时充当每日推荐轮换的起点：候选池刷新即排序回到榜首。
+ */
+internal data class ChartPoolSnapshot(
+    val fetchedAt: Long,
+    val items: List<ChartCandidate>,
+)
 
 /** 候选池中的一首歌：榜单条目 + 已清洗的歌词行 */
 internal data class ChartCandidate(

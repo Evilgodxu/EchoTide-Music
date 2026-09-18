@@ -33,6 +33,7 @@ import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.model.PlayMode
 import com.yichao.evilgodxu.data.music.model.RecentCover
 import com.yichao.evilgodxu.data.music.recommend.MusicRecommender
+import com.yichao.evilgodxu.data.music.recommend.RecommendationResult
 import com.yichao.evilgodxu.data.music.recommend.RecommendedSong
 import com.yichao.evilgodxu.data.music.trackIdentityKey
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
@@ -41,6 +42,10 @@ import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.R
 import java.io.File
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import kotlin.jvm.JvmName
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
@@ -83,6 +88,8 @@ class MusicPlaybackState(
         private const val MONO_REBASELINE_JUMP_MS = 3000L
         // 跳过判定：已播放进度达到该百分比即视为正常欣赏，不计入逆向反馈
         private const val SKIP_POSITION_PERCENT = 50L
+        // 每日推荐每天的展示条数：窗口按该长度逐日向下推进
+        private const val DAILY_RECOMMEND_COUNT = 10
     }
 
     // 上次持久化播放状态的时刻，用于播放期间节流写入
@@ -400,7 +407,7 @@ class MusicPlaybackState(
     var lyricsRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
     var coverRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
 
-    // 每日推荐：榜单候选经黑名单算法与偏好打分后的 Top5。进程内只生成一次，黑名单变更时重算
+    // 每日推荐：榜单候选经黑名单算法与偏好打分后的展示窗口（当日的那 10 首）
     var dailyRecommendations by mutableStateOf<List<RecommendedSong>>(emptyList())
     var isDailyRecommendLoading by mutableStateOf(false)
     // 轮播展示用：推荐结果中的曲目信息
@@ -408,6 +415,10 @@ class MusicPlaybackState(
         get() = dailyRecommendations.map { it.result }
     // 已生成过推荐结果：避免每次进入搜索页重复联网计算
     var isDailyRecommendReady by mutableStateOf(false)
+    // 完整排序：展示窗口是它的连续切片，按天向下推进
+    private var dailyRanking: List<RecommendedSong> = emptyList()
+    // 排序所依据的候选池抓取时刻：轮换天数以它为起点，候选池刷新即回到榜首
+    private var dailyRankingEpochMs = 0L
     // 上次生成推荐所用的黑名单快照：与之不一致说明结果已过期
     private var generatedBlacklist: Set<String> = emptySet()
     // 生成任务代次：用于丢弃被新任务取代的旧结果
@@ -1677,13 +1688,15 @@ class MusicPlaybackState(
      * 生成每日推荐。偏好基线取收藏曲目，候选取榜单候选池（周更落盘），黑名单在粗排阶段过滤。
      *
      * 计算过程不联网：候选池由 ChartPool 按周刷新，周内每次计算都只读落盘结果。
+     * 排序整体产出一次，当日展示窗口由 [advanceDailyWindow] 按天切分。
      * 黑名单快照与上次生成不一致时视为过期，重新计算；手动刷新通过 force 强制重算。
      */
     fun loadDailyRecommendations(context: Context, force: Boolean = false) {
         val blacklist = BlacklistStore.keys
-        // 在途任务已按当前黑名单计算，或已有结果且未过期：无需重算。
+        // 在途任务已按当前黑名单计算，或已有结果且未过期：无需重算排序，只需按当天推进窗口。
         // 反之（黑名单已变或强制刷新）取消在途任务后按新快照重算，避免旧快照的结果写回
         if (!force && blacklist == generatedBlacklist && (isDailyRecommendLoading || isDailyRecommendReady)) {
+            advanceDailyWindow()
             return
         }
         dailyRecommendJob?.cancel()
@@ -1693,19 +1706,47 @@ class MusicPlaybackState(
         // 代次标记：被取代的旧任务即使已越过取消点也会正常返回，按代次丢弃其结果
         val token = ++dailyRecommendToken
         dailyRecommendJob = playbackScope.launch {
-            val results = try {
+            val result = try {
                 MusicRecommender.recommend(context, liked)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 CrashLogManager.logException("MusicPlaybackState", "生成每日推荐失败", e)
-                emptyList()
+                RecommendationResult(emptyList(), 0L)
             }
             if (token != dailyRecommendToken) return@launch
-            dailyRecommendations = results
+            dailyRanking = result.ranking
+            dailyRankingEpochMs = result.poolFetchedAt
             isDailyRecommendReady = true
             isDailyRecommendLoading = false
+            advanceDailyWindow()
         }
+    }
+
+    /**
+     * 取当天的展示窗口：第 1 天取排序第 1–10 首，第 2 天取第 11–20 首，依次向下推进。
+     *
+     * 天数以候选池刷新时刻为起点 —— 定期刷新完成后排序回到榜首，重新从第 1–10 首开始。
+     * 排序长度不足（候选取不满、或候选池长期未刷新）时停在最后一段，不自行回到榜首：
+     * 回到榜首的时机只有一个，就是候选池刷新。
+     */
+    private fun advanceDailyWindow() {
+        if (dailyRanking.isEmpty()) {
+            dailyRecommendations = emptyList()
+            return
+        }
+        val day = daysSince(dailyRankingEpochMs)
+        val maxOffset = (dailyRanking.size - DAILY_RECOMMEND_COUNT).coerceAtLeast(0)
+        val offset = (day * DAILY_RECOMMEND_COUNT).coerceAtMost(maxOffset.toLong()).toInt()
+        dailyRecommendations = dailyRanking.drop(offset).take(DAILY_RECOMMEND_COUNT)
+    }
+
+    // 距候选池抓取时刻的自然日数：按本地时区取日界，跨零点即进入下一段窗口
+    private fun daysSince(epochMs: Long): Long {
+        if (epochMs <= 0L) return 0L
+        val zone = ZoneId.systemDefault()
+        val start = Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
+        return ChronoUnit.DAYS.between(start, LocalDate.now(zone)).coerceAtLeast(0L)
     }
 
     // ===== 黑名单 =====
