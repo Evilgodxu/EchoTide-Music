@@ -77,13 +77,13 @@ internal object ChartPool {
     /**
      * 取候选池快照。
      *
-     * @param refresh 是否允许在快照缺失或跨过换期刻度时联网重抓。收藏等高频重算传 false，
+     * @param refresh 是否允许在快照缺失或跨过换期刻度时联网重抓。收藏、曲库入库等高频重算传 false，
      *   只读本地落盘结果 —— 用户点一次收藏不该触发整池歌词的重新拉取。
      *
      * 抓取失败（接口变更、风控、断网）时沿用上一次的候选池：一次失败不该让推荐空到下个周更。
      * 快照带回抓取时刻 —— 每日推荐的轮换天数以它为起点，刷新即回到排序榜首。
      */
-    suspend fun snapshot(context: Context, refresh: Boolean = true): ChartPoolSnapshot =
+    suspend fun snapshot(context: Context, refresh: Boolean): ChartPoolSnapshot =
         withContext(Dispatchers.IO) {
             if (!refresh) return@withContext read(context) ?: ChartPoolSnapshot(0L, emptyList())
             refreshMutex.withLock {
@@ -94,20 +94,21 @@ internal object ChartPool {
         }
 
     /**
-     * 启动预热：已跨换期刻度时按需重抓，不返回候选。
+     * 启动预热：已跨换期刻度时按需重抓。
      *
      * 只有本机已存在候选池（用户用过每日推荐）才预热 —— 从未生成过推荐的用户不该为一次启动
-     * 付整池抓取的代价。落盘后由生成推荐时的读取路径取用，故预热本身不必返回结果。
+     * 付整池抓取的代价。
+     *
+     * @return 本次落盘后的快照；未发生抓取（本机没有候选池、或仍在本期）时返回 null
      */
-    suspend fun refreshIfOutdated(context: Context) {
+    suspend fun refreshIfOutdated(context: Context): ChartPoolSnapshot? =
         withContext(Dispatchers.IO) {
             refreshMutex.withLock {
-                val cached = read(context) ?: return@withLock
-                if (!isOutdated(cached.fetchedAt)) return@withLock
+                val cached = read(context) ?: return@withLock null
+                if (!isOutdated(cached.fetchedAt)) return@withLock null
                 refresh(context, cached)
             }
         }
-    }
 
     /** 候选池是否已跨过换期刻度。启动预热与生成推荐据此判断是否需要联网重抓 */
     fun isOutdated(fetchedAt: Long): Boolean = fetchedAt < refreshTime(System.currentTimeMillis())
@@ -206,15 +207,25 @@ internal object ChartPool {
         null
     }
 
-    private fun write(context: Context, snapshot: ChartPoolSnapshot) = try {
-        val array = JSONArray()
-        snapshot.items.forEach { array.put(itemTo(it)) }
-        val root = JSONObject()
-            .put("fetchedAt", snapshot.fetchedAt)
-            .put("items", array)
-        File(context.filesDir, FILE_NAME).writeText(root.toString())
-    } catch (e: Exception) {
-        CrashLogManager.logException("ChartPool", "写入候选池失败", e)
+    // 全量快照写盘：先写中转文件再改名，更新期间读池的重算不会读到半截 JSON
+    private fun write(context: Context, snapshot: ChartPoolSnapshot) {
+        try {
+            val array = JSONArray()
+            snapshot.items.forEach { array.put(itemTo(it)) }
+            val root = JSONObject()
+                .put("fetchedAt", snapshot.fetchedAt)
+                .put("items", array)
+            val file = File(context.filesDir, FILE_NAME)
+            val temp = File(file.parentFile, "$FILE_NAME.tmp")
+            val content = root.toString()
+            temp.writeText(content)
+            if (!temp.renameTo(file)) {
+                temp.delete()
+                file.writeText(content)
+            }
+        } catch (e: Exception) {
+            CrashLogManager.logException("ChartPool", "写入候选池失败", e)
+        }
     }
 
     private fun itemTo(candidate: ChartCandidate): JSONObject = JSONObject().apply {

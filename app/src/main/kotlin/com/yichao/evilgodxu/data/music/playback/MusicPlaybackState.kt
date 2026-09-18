@@ -431,6 +431,14 @@ class MusicPlaybackState(
     // 生成任务代次：用于丢弃被新任务取代的旧结果
     private var dailyRecommendToken = 0
     private var dailyRecommendJob: Job? = null
+    // 候选池联网更新：独立于排序计算，筛选操作与重新进面板都不会取消它
+    private var chartPoolJob: Job? = null
+    // 在途排序计算是否正等待候选池更新结束：等待者越过等待点后读到的必是新池，
+    // 更新完成时的补算据此跳过，不做无谓的第二次计算
+    private var dailyRecommendJobAwaitsPool = false
+    // 候选池正在联网更新：期间手动刷新置为禁用，避免白等一轮
+    var isChartPoolRefreshing by mutableStateOf(false)
+        private set
 
     private fun hasUriAccess(context: Context, audioUri: String): Boolean {
         val uri = Uri.parse(audioUri)
@@ -1696,8 +1704,8 @@ class MusicPlaybackState(
     /**
      * 生成每日推荐。偏好基线取收藏曲目，候选取榜单候选池（周更落盘），黑名单在粗排阶段过滤。
      *
-     * 计算过程不联网：候选池由 ChartPool 按周刷新，周内每次计算都只读落盘结果。
-     * 排序整体产出一次，当日展示窗口由 [advanceDailyWindow] 按天切分。
+     * 排序计算只读本地候选池，联网更新由 [startChartPoolRefresh] 独立进行，本方法只负责在计算前
+     * 确保本期候选池就位、并在计算后切出当日窗口（见 [advanceDailyWindow]）。
      * 黑名单或收藏列表与上次生成不一致时视为过期，重新计算；手动刷新通过 force 强制重算。
      */
     fun loadDailyRecommendations(context: Context, force: Boolean = false) {
@@ -1715,13 +1723,13 @@ class MusicPlaybackState(
             advanceDailyWindow()
             return
         }
-        startDailyRecommendJob(context, liked, blacklist, showLoading = true, refreshPool = true)
+        startDailyRecommendJob(context, liked, blacklist, showLoading = true, ensurePool = true)
     }
 
     /**
      * 收藏变更后立即重算推荐排序。
      *
-     * 只用本地落盘候选池重算，不联网刷新（`refreshPool = false`）—— 点一次收藏就重拉整池歌词
+     * 只读本地落盘候选池（`ensurePool = false`），不联网 —— 点一次收藏就重拉整池歌词
      * 既不是用户预期，也会把一次轻量操作变成分钟级等待。
      *
      * 不置加载态：面板可能正开着展示上一版结果，重算在后台完成后整体替换，
@@ -1735,14 +1743,14 @@ class MusicPlaybackState(
             likedIds,
             BlacklistStore.keys,
             showLoading = false,
-            refreshPool = false,
+            ensurePool = false,
         )
     }
 
     /**
      * 本地曲库变化（缓存 / 下载入库）后重算推荐排序。
      *
-     * 入库改变的是候选排除集合，不是偏好画像 —— 故只用本地候选池重算（`refreshPool = false`），
+     * 入库改变的是候选排除集合，不是偏好画像 —— 故只读本地候选池重算（`ensurePool = false`），
      * 不因一次缓存动作触发整池歌词的联网重拉（与收藏变更同一条路径）。
      *
      * 曲库未变时直接返回：批量下载会逐首登记入库，不去重就会为每首歌各排一次重算。
@@ -1757,19 +1765,82 @@ class MusicPlaybackState(
             likedIds,
             BlacklistStore.keys,
             showLoading = false,
-            refreshPool = false,
+            ensurePool = false,
         )
     }
 
     /** 本地曲库的身份快照：曲目增删都会改变它，用于判断候选排除集合是否需要重算 */
     private fun librarySignature(): Set<Long> = libraryTracks.mapTo(HashSet()) { it.id }
 
+    /**
+     * 启动预热候选池：已跨换期刻度且本机已有候选池时联网更新。
+     *
+     * 晚于换期时刻启动应用也能用上新一期榜单，打开每日推荐时不必再等整池歌词拉完。
+     * 未用过每日推荐（本机没有候选池）的用户不预热 —— 不为一次启动付整池抓取的代价。
+     */
+    fun warmChartPool(context: Context) {
+        startChartPoolRefresh(context, onlyIfExisting = true)
+    }
+
+    /**
+     * 联网更新候选池，返回可等待的任务；已在更新中时返回同一个任务，不重复抓取。
+     *
+     * @param onlyIfExisting 仅在本机已有候选池时更新。生成推荐传 false：候选池缺失即抓。
+     *
+     * 更新任务独立于排序计算：整池抓取是分钟级的网络工作，而收藏变更、曲库入库、手动刷新、
+     * 重新进面板都会取消在途的排序计算 —— 抓取若挂在计算任务内，会被这些操作一并作废。
+     */
+    private fun startChartPoolRefresh(context: Context, onlyIfExisting: Boolean): Job {
+        chartPoolJob?.takeIf { it.isActive }?.let { return it }
+        isChartPoolRefreshing = true
+        return playbackScope.launch {
+            try {
+                val refreshed = if (onlyIfExisting) {
+                    ChartPool.refreshIfOutdated(context)
+                } else {
+                    ChartPool.snapshot(context, refresh = true)
+                }
+                // 新池落盘后补一次只读重算：更新期间的收藏变更与曲库入库都只按旧池算过
+                refreshed?.let { catchUpRecommendation(context, it.fetchedAt) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                CrashLogManager.logException("MusicPlaybackState", "更新候选池失败", e)
+            } finally {
+                isChartPoolRefreshing = false
+            }
+        }.also { chartPoolJob = it }
+    }
+
+    /**
+     * 候选池更新完成后补一次只读本地池的重算。
+     *
+     * 更新期间发生的收藏变更与曲库入库只按旧池算过（那两条路径刻意不联网），新池落盘后补算一次
+     * 即可把偏好画像与排除集合同步到新池 —— 故无需在更新期间打断它们。
+     *
+     * 已有计算正等待本次更新结束时不补：那条计算越过等待点后读到的就是新池，本就算在新池上。
+     * 排序尚无内容时也不补：没有会被换期影响的次序，等进入搜索页按完整路径算。
+     * 抓取失败沿用旧池时池起点未变，此处自然跳过。
+     */
+    private fun catchUpRecommendation(context: Context, poolEpochMs: Long) {
+        if (!isDailyRecommendReady && !isDailyRecommendLoading) return
+        if (dailyRecommendJobAwaitsPool) return
+        if (poolEpochMs == dailyRankingEpochMs) return
+        startDailyRecommendJob(
+            context,
+            likedIds,
+            BlacklistStore.keys,
+            showLoading = false,
+            ensurePool = false,
+        )
+    }
+
     private fun startDailyRecommendJob(
         context: Context,
         liked: Set<Long>,
         blacklist: Set<String>,
         showLoading: Boolean,
-        refreshPool: Boolean,
+        ensurePool: Boolean,
     ) {
         dailyRecommendJob?.cancel()
         // 偏好画像取收藏，候选排除取全量曲库：缓存/下载入库的歌大多未被收藏，
@@ -1781,11 +1852,19 @@ class MusicPlaybackState(
         generatedLibrary = librarySignature()
         dailyPreferencesDirty = false
         if (showLoading) isDailyRecommendLoading = true
+        dailyRecommendJobAwaitsPool = ensurePool
         // 代次标记：被取代的旧任务即使已越过取消点也会正常返回，按代次丢弃其结果
         val token = ++dailyRecommendToken
         dailyRecommendJob = playbackScope.launch {
+            // 换期更新在独立任务里进行：本任务被取消（收藏变更、曲库入库、重新进面板）时
+            // 更新照常继续，这里只是等它结束再读池 —— 等待不构成打断
+            if (ensurePool) {
+                startChartPoolRefresh(context, onlyIfExisting = false).join()
+                // 已越过等待点：此后读到的必是新池，更新完成时的补算无需为本任务让路
+                dailyRecommendJobAwaitsPool = false
+            }
             val result = try {
-                MusicRecommender.recommend(context, preferred, library, refreshPool = refreshPool)
+                MusicRecommender.recommend(context, preferred, library)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1795,7 +1874,7 @@ class MusicPlaybackState(
             if (token != dailyRecommendToken) return@launch
             // 本地重算只做增量更新：候选池缺失等原因导致算不出排序时保持原样，不把已展示的推荐清空，
             // 并标记为待重算，下次进入搜索页按完整路径（可联网）重来
-            if (!refreshPool && result.ranking.isEmpty()) {
+            if (!ensurePool && result.ranking.isEmpty()) {
                 dailyPreferencesDirty = true
                 return@launch
             }

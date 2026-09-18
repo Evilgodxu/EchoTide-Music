@@ -48,11 +48,15 @@ private const val LOOP_PAGE_COUNT = Int.MAX_VALUE / 2
  * 每日推荐轮播：左图右文展示榜单候选按本地偏好挑出的歌曲，下方分页点指示当前项。
  *
  * 点击交由调用方处理：推荐项与搜索结果同属在线歌曲，播放前同样需要用户选择音质。
+ *
+ * @param loading 排序计算中
+ * @param refreshing 候选池联网更新中
  */
 @Composable
 internal fun DailyRecommendCarousel(
     songs: List<NeteaseSongSearchResult>,
     loading: Boolean,
+    refreshing: Boolean,
     onSongClick: (NeteaseSongSearchResult) -> Unit,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
@@ -73,14 +77,15 @@ internal fun DailyRecommendCarousel(
             )
             IconButton(
                 onClick = onRefresh,
-                enabled = !loading,
+                enabled = !loading && !refreshing,
                 modifier = Modifier.size(28.dp),
             ) {
                 Icon(
                     imageVector = AppIcons.Refresh,
                     contentDescription = null,
-                    // 加载中禁用：重复触发只会把在途任务作废重来，白等一轮
-                    tint = Color.White.copy(alpha = if (loading) 0.3f else 1f),
+                    // 禁用两种进行中：排序计算中重复触发只会把在途任务作废重来；
+                    // 候选池更新中手动刷新不会打断更新，但算完仍要等同一轮更新，白等一次
+                    tint = Color.White.copy(alpha = if (loading || refreshing) 0.3f else 1f),
                     modifier = Modifier.size(16.dp),
                 )
             }

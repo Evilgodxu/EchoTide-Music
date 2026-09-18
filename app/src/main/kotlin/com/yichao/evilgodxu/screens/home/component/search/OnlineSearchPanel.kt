@@ -122,6 +122,7 @@ internal fun OnlineSearchPanel(
             DailyRecommendCarousel(
                 songs = playbackState.dailyRecommendedTracks,
                 loading = playbackState.isDailyRecommendLoading,
+                refreshing = playbackState.isChartPoolRefreshing,
                 onSongClick = { song ->
                     // 推荐项与搜索结果同属在线歌曲，同样先由用户选定音质再解析播放地址
                     playbackState.qualityPickTrack = song
