@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -92,7 +91,7 @@ internal fun TrackAdvancedMenuDialog(
     }
 }
 
-// 菜单项：图标与文案整体居中，整行可点；置灰时同步降低图标与文字的不透明度
+// 菜单项：图标与文案横排，整行可点；置灰时同步降低图标与文字的不透明度
 @Composable
 private fun AdvancedMenuItem(
     icon: ImageVector,
@@ -110,8 +109,8 @@ private fun AdvancedMenuItem(
             .padding(horizontal = 20.dp, vertical = 2.dp)
             .clip(RoundedCornerShape(12.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 14.dp),
-        horizontalArrangement = Arrangement.Center,
+            .padding(horizontal = 12.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -120,7 +119,6 @@ private fun AdvancedMenuItem(
             tint = contentColor,
             modifier = Modifier.size(20.dp),
         )
-        Spacer(Modifier.width(12.dp))
         Text(
             text = stringResource(labelRes),
             color = contentColor,

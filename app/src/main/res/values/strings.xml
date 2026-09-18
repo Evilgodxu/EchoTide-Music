@@ -321,7 +321,7 @@
     <string name="library_analysis_empty">曲库为空</string>
     <string name="library_analysis_other">其他</string>
     <string name="library_analysis_online">在线</string>
-    <string name="library_analysis_fake_lossless">假无损</string>
+    <string name="library_analysis_fake_lossless">音质异常</string>
     <string name="library_analysis_ai_music">疑似AI</string>
     <string name="library_analysis_checking">正在校验…</string>
     <string name="library_analysis_check_progress">曲库分析中 %1$d/%2$d</string>

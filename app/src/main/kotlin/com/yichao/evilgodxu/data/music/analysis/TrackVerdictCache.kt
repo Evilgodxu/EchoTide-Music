@@ -15,7 +15,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 // 曲目判定结果缓存：内存表 + 持久化 JSON，键含文件大小与时长，文件变化即失效。
-// 假无损与 AI 识别共用：重启后直接复用；仅对新增/变更文件增量解码；
+// 音质异常与 AI 识别共用：重启后直接复用；仅对新增/变更文件增量解码；
 // 无法判定（解码不可用/时长无效）的结果同样入缓存为 false，避免同批文件每次重开反复分析，
 // 识别策略升级后由调用方「刷新」清空缓存强制全量重新校验
 internal class TrackVerdictCache(
@@ -108,7 +108,7 @@ internal class TrackVerdictCache(
     }
 
     companion object {
-        /** 假无损判定缓存文件名 */
+        /** 音质异常判定缓存文件名 */
         internal const val FILE_NAME_FAKE_LOSSLESS = "fake_lossless_cache.json"
 
         /** AI 识别判定缓存文件名 */

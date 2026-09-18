@@ -6,7 +6,7 @@
    See https://developer.android.com/about/versions/12/backup-restore
 -->
 <full-backup-content>
-    <!-- 假无损检测结果缓存：派生数据可重建，不参与云端备份 -->
+    <!-- 音质异常检测结果缓存：派生数据可重建，不参与云端备份 -->
     <exclude domain="file" path="fake_lossless_cache.json"/>
     <exclude domain="file" path="fake_lossless_cache.json.tmp"/>
 </full-backup-content>

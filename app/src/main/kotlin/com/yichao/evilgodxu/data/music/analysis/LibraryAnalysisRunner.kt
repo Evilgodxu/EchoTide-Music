@@ -12,7 +12,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
-// 合并批量分析结果：假无损与 AI 各识别的命中数
+// 合并批量分析结果：音质异常与 AI 各识别的命中数
 internal data class LibraryAnalysisResult(
     val fakeLosslessCount: Int,
     val aiMusicCount: Int,
@@ -26,7 +26,7 @@ private class PendingAnalysis(
     val aiWanted: Boolean,
 )
 
-// 合并单次遍历：假无损与 AI 识别共享一次整库扫描，同一待分析文件仅解码一次，
+// 合并单次遍历：音质异常与 AI 识别共享一次整库扫描，同一待分析文件仅解码一次，
 // 同时产出两类判定并分别写入各自持久化缓存，消除原先两分析器各自全库遍历导致的
 // FLAC 重复解码。进度以「本批需解码文件总数」为基数连续递增，不再出现两段式重跑。
 // 预扫（逐首 stat + 读 FLAC 容器头）与频谱解码都在同一限并发调度器上推进：
@@ -64,7 +64,7 @@ internal suspend fun analyzeLibraryCombined(
                 if (cached != null) {
                     if (cached) cachedFakeCount.incrementAndGet()
                 } else {
-                    // 低规格豁免：读容器头后可免解码判定非假无损（不持久化，下次扫描重检，
+                    // 低规格豁免：读容器头后可免解码判定非音质异常（不持久化，下次扫描重检，
                     // 代价仅为读一次文件头，换取无需引入结果落盘的脏标记）
                     if (!FakeLosslessAnalyzer.isLowSpecFakeLossless(context, track)) {
                         fakeWanted = true

@@ -2,11 +2,11 @@ package com.yichao.evilgodxu.screens.home
 
 import android.app.Activity
 import android.app.Application
-import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
+import com.yichao.evilgodxu.permission.bringAppToFront
 import com.yichao.evilgodxu.permission.PermissionMonitor
 import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
@@ -87,16 +87,5 @@ class HomeViewModel(
     fun stopPermissionMonitor() {
         permissionMonitorJob?.cancel()
         permissionMonitorJob = null
-    }
-
-    // 将应用带回前台，使用户无需手动返回本应用
-    private fun bringAppToFront(activity: Activity) {
-        val intent = activity.packageManager.getLaunchIntentForPackage(activity.packageName)
-        intent?.let {
-            it.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                    Intent.FLAG_ACTIVITY_NEW_TASK
-            activity.startActivity(it)
-        }
     }
 }

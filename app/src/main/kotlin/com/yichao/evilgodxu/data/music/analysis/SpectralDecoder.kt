@@ -15,7 +15,7 @@ import kotlin.math.sqrt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
 
-// 稀疏窗口解码工具：假无损与 AI 音乐识别共享的 MediaCodec 解码 + 平均功率谱管线。
+// 稀疏窗口解码工具：音质异常与 AI 音乐识别共享的 MediaCodec 解码 + 平均功率谱管线。
 // 对候选音频轨解码 3 段探测窗（每窗 4 秒）并 Welch 累计：同一份解码产出平均功率谱
 // （供砖墙/升频/谐波梳判定）与立体声相关性（供 AI 合成痕迹判定），避免两识别器重复解码。
 // 并发由调用方决定：批量分析在限并发调度器上推进（并发上限见 LibraryAnalysisRunner），
@@ -32,7 +32,7 @@ internal object SpectralDecoder {
     private const val STEREO_HP_ALPHA = 0.97f
 
     // 升频死区探带：44.1k 源奈奎斯特（22050Hz）上方的窄带区间，逐 FFT 块记录带内总功率，
-    // 供假无损判定死区动态——真实母带内容随乐句起伏，重采样死区为常量；
+    // 供音质异常判定死区动态——真实母带内容随乐句起伏，重采样死区为常量；
     // 采样率不足以容纳探带（如 44.1k 原生文件）时不启用
     private const val PROBE_LO_HZ = 22150f
     private const val PROBE_HI_HZ = 22850f
@@ -71,7 +71,7 @@ internal object SpectralDecoder {
     }
 
     // 解码候选音频轨并累计平均功率谱与立体声相关性。
-    // expectedMime 非空时仅解码该 mime（假无损限定 FLAC）；为空时取首个可解码音频轨（AI 识别全格式）。
+    // expectedMime 非空时仅解码该 mime（音质异常限定 FLAC）；为空时取首个可解码音频轨（AI 识别全格式）。
     // fallbackSampleRate/FallbackChannels 供提取器未给全参数时回退容器头解析值
     suspend fun decodeTrack(
         track: MusicTrack,

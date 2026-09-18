@@ -140,7 +140,7 @@ internal object TrackAudioInfoReader {
 
     // 解析 FLAC STREAMINFO（fLaC + 块头 + 34 字节流信息）中的采样率、声道与位深。
     // 位域规范：采样率 20 位 + 声道 3 位 + 位深 5 位 + 总采样 36 位。
-    // 供假无损识别在 IO 线程解析头信息
+    // 供音质异常识别在 IO 线程解析头信息
     fun readFlacContainerFormat(context: Context, track: MusicTrack): ContainerFormat? =
         readHeader(context, track, 42) { bytes ->
             if (!bytes.copyOfRange(0, 4).contentEquals(byteArrayOf(0x66, 0x4C, 0x61, 0x43))) return@readHeader null

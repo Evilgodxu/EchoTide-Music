@@ -6,7 +6,7 @@ import kotlin.math.log10
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// 假无损识别器：两级判定。单曲入口（歌单过滤）逐曲执行；整库校验走合并批量分析，
+// 音质异常识别器：两级判定。单曲入口（歌单过滤）逐曲执行；整库校验走合并批量分析，
 // 由调用方在限并发调度器上推进（并发上限见 LibraryAnalysisRunner）。
 // ① 轻量预筛：扩展名 + FLAC 容器头，仅排除非 FLAC 与超低规格（<44.1kHz/<16bit/<2ch）文件；
 //    不设码率压缩比/头部规格免检路径——伪造文件可借量化噪声/上采样令码率虚高，
@@ -14,7 +14,7 @@ import kotlinx.coroutines.withContext
 // ② 频谱判定：全部候选 FLAC 用共享 SpectralDecoder 稀疏窗口解码 3 段（每窗 4 秒），FFT 求平均
 //    功率谱，三条物理证据路径分离判定：
 //    a) 升频判据：内容真实截止落在某源采样率奈奎斯特保护带内 + 过渡带具砖墙陡峭度 +
-//       44.1k 源奈奎斯特上方逐帧能量恒定（死区），三者齐备判升频假无损；
+//       44.1k 源奈奎斯特上方逐帧能量恒定（死区），三者齐备判升频音质异常；
 //       ——不预设墙在固定频率，48k 原生母带自然滚降（截止超出保护带或过渡带平缓）不受误伤；
 //    b) 砖墙判据：CD 级硬截止 + 平坦死区表征有损转码，老录音/窄母带等自然限带
 //       经去相关性与转码特征（编码器截止网格 / 高频掩蔽空洞）两级佐证区分，佐证不足放行；
@@ -23,7 +23,7 @@ import kotlinx.coroutines.withContext
 // 进度由调用方驱动，协程取消即时释放解码器。
 internal object FakeLosslessAnalyzer {
 
-    // 假无损智能歌单过滤键：与本地化展示名解耦，保证序列化歌单 key 跨语言环境稳定
+    // 音质异常智能歌单过滤键：与本地化展示名解耦，保证序列化歌单 key 跨语言环境稳定
     const val FAKE_LOSSLESS_KEY = "fake-lossless"
 
     // 识别结果缓存：键含文件大小与时长，文件变化即失效；供合并批量分析共享复用
@@ -97,18 +97,18 @@ internal object FakeLosslessAnalyzer {
         cache.get(key)?.let { return it }
         val result = withContext(Dispatchers.IO) { analyze(context, track, sizeBytes) }
         // 无法判定的结果也缓存为 false：避免歌单过滤时对未判定文件重复做昂贵的频谱分析，
-        // 导致假无损歌单切换看似无响应；识别策略升级后由「刷新」清空缓存强制重新校验
+        // 导致音质异常歌单切换看似无响应；识别策略升级后由「刷新」清空缓存强制重新校验
         cache.map[key] = result ?: false
         cache.schedulePersist(context)
         return result ?: false
     }
 
     // 清除全部校验缓存（内存 + 落盘）：识别策略升级或用户主动刷新时用于强制全量重新分析，
-    // 避免旧版本判定结果（如放宽标准时的「真无损」）被持久化缓存复用而漏掉假无损
+    // 避免旧版本判定结果（如放宽标准时的「真无损」）被持久化缓存复用而漏掉音质异常
     suspend fun resetCache(context: Context) = cache.reset(context)
 
     // 低规格豁免判断（纯函数）：容器头可读且规格不足（<44.1kHz/<16bit/<2ch）时，
-    // 带宽受限天然带高频截止，非假无损伪装目标，无需解码即可排除；
+    // 带宽受限天然带高频截止，非音质异常伪装目标，无需解码即可排除；
     // 容器头不可读时不豁免，交由频谱分析以解码格式参数兜底
     internal fun isLowSpecFakeLossless(format: TrackAudioInfoReader.ContainerFormat?): Boolean =
         format != null && (format.sampleRate < 44100 || format.bitDepth < 16 || format.channels < 2)
@@ -117,7 +117,7 @@ internal object FakeLosslessAnalyzer {
     internal fun isLowSpecFakeLossless(context: Context, track: MusicTrack): Boolean =
         isLowSpecFakeLossless(TrackAudioInfoReader.readFlacContainerFormat(context, track))
 
-    // 解码摘要判定：假无损判定核心（砖墙 / 升频锚点 + CD 级相关性反驳），
+    // 解码摘要判定：音质异常判定核心（砖墙 / 升频锚点 + CD 级相关性反驳），
     // 供合并批量分析（analyzeLibraryCombined）复用已解码摘要，避免与单曲入口重复解码
     internal fun verdictFromSummary(summary: SpectralDecoder.DecodeSummary): Boolean =
         detectFakeSignals(summary)
@@ -140,13 +140,13 @@ internal object FakeLosslessAnalyzer {
         return detectFakeSignals(summary)
     }
 
-    // 假无损合成判定。三条路径按物理证据分离：
+    // 音质异常合成判定。三条路径按物理证据分离：
     // ① 升频：内容截止落在某个源采样率奈奎斯特保护带内 + 过渡带具砖墙陡峭度 +
-    //    44.1k 源奈奎斯特上方逐帧能量恒定（死区），三条件齐备判升频假无损。
+    //    44.1k 源奈奎斯特上方逐帧能量恒定（死区），三条件齐备判升频音质异常。
     //    完全基于物理量，不预设墙在固定频率——48k 原生母带内容自然滚降
     //    （截止超出保护带或过渡带平缓）不会被误伤，44.1k→48k 升频可被正确捕获。
     //    死区动态共用 22050 上方探带：44.1k 源升频的死区恒定；对 48k/96k 源升频，
-    //    探带若落在真母带内容区则动态大而放行（内容无损、仅采样率虚标的升采样不混入假无损）。
+    //    探带若落在真母带内容区则动态大而放行（内容无损、仅采样率虚标的升采样不混入音质异常）。
     // ② 砖墙转码（CD 级 44.1k/48k）：硬截止 + 平坦死区表征有损转码，
     //    但老录音/窄母带等自然限带也可能撞出硬墙，需依次排除：
     //    a) 左右声道明确去相关（≤0.55）→ 自然限带，放行；
@@ -159,7 +159,7 @@ internal object FakeLosslessAnalyzer {
     //    原生高解析的自然滚降因不满足 detectCliff 的平坦前提而放行，母带滚降不误判。
     private fun detectFakeSignals(s: SpectralDecoder.DecodeSummary): Boolean {
         val stats = computeSpectralStats(s.powerSum, s.blocks, s.sampleRate) ?: return false
-        // ① 升频：物理证据独立判定，命中即假无损，不依赖砖墙命中与否
+        // ① 升频：物理证据独立判定，命中即音质异常，不依赖砖墙命中与否
         if (detectUpsample(stats, s.probe22050)) return true
         // ② ③ 砖墙：先抓「未升频转码」，再按规格做防误判分流
         val cutoffHz = detectCliff(stats)
@@ -366,12 +366,12 @@ internal object FakeLosslessAnalyzer {
         return p95 - p05 <= DEADZONE_FLAT_MAX_SPREAD_DB
     }
 
-    // 升频假无损判据：先测内容真实截止频率，再判断它是否落在某个源采样率奈奎斯特的
+    // 升频音质异常判据：先测内容真实截止频率，再判断它是否落在某个源采样率奈奎斯特的
     // 保护带内（重采样器必有保护带，真实墙总在源奈奎斯特略下方），且过渡带具砖墙陡峭度，
     // 且 44.1k 源奈奎斯特上方探带的逐帧能量恒定（死区）。
     // 三者齐备才判升频——自然滚降的 48k 原生母带（截止超出保护带或过渡带平缓）不命中；
     // 48k/96k 源升频若探带落在真母带内容区（动态大）放行，不把「内容无损、仅采样率虚标」
-    // 的升采样误判为假无损
+    // 的升采样误判为音质异常
     private fun detectUpsample(st: SpectralStats, probe22050: FloatArray): Boolean {
         val cutHz = st.contentCutHz
         if (cutHz <= 0f) return false

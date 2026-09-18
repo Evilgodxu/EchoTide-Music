@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.flowOn
 enum class PermissionType {
     OVERLAY,                 // 悬浮窗（系统特殊权限）
     MANAGE_EXTERNAL_STORAGE, // 全部文件（系统特殊权限）
+    WRITE_SETTINGS,          // 修改系统设置（系统特殊权限）
     MEDIA_AUDIO,             // 音乐访问（运行时权限）
     MEDIA_IMAGES,            // 图片访问（运行时权限）
 }
@@ -32,6 +33,8 @@ class PermissionMonitor(private val context: Context) {
 
     fun isAllFilesGranted(): Boolean = Environment.isExternalStorageManager()
 
+    fun isWriteSettingsGranted(): Boolean = Settings.System.canWrite(context)
+
     fun isMediaAudioGranted(): Boolean =
         context.checkSelfPermission(mediaAudioPermission()) == PackageManager.PERMISSION_GRANTED
 
@@ -41,6 +44,7 @@ class PermissionMonitor(private val context: Context) {
     fun isGranted(permissionType: PermissionType): Boolean = when (permissionType) {
         PermissionType.OVERLAY -> isOverlayGranted()
         PermissionType.MANAGE_EXTERNAL_STORAGE -> isAllFilesGranted()
+        PermissionType.WRITE_SETTINGS -> isWriteSettingsGranted()
         PermissionType.MEDIA_AUDIO -> isMediaAudioGranted()
         PermissionType.MEDIA_IMAGES -> isMediaImageGranted()
     }

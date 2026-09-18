@@ -122,7 +122,7 @@ internal fun LibraryAnalysisSheet(
                     fontSize = 12.sp,
                 )
                 Spacer(Modifier.weight(1f))
-                // 刷新：清空校验缓存后全量重新分析，规避识别策略更新后旧缓存复用导致假无损被放行；
+                // 刷新：清空校验缓存后全量重新分析，规避识别策略更新后旧缓存复用导致音质异常被放行；
                 // 分析进行中置灰不可点，防手抖/重复触发
                 IconButton(
                     onClick = { analysis.onRefresh(playbackState.libraryTracks) },
@@ -157,7 +157,7 @@ internal fun LibraryAnalysisSheet(
                 }
             } else {
                 val total = stats.sumOf { it.count }
-                // 假无损 / AI 音乐为识别算法的补充类目：仅在校验发现的疑似文件并入定位列表
+                // 音质异常 / AI 音乐为识别算法的补充类目：仅在校验发现的疑似文件并入定位列表
                 val fakeCount = analysis.fakeLosslessCount
                 val hasFakeLossless = fakeCount != null && fakeCount > 0
                 val aiCount = analysis.aiMusicCount
@@ -307,7 +307,7 @@ internal fun LibraryAnalysisSheet(
     }
 }
 
-// 切换播放列表为指定格式/识别类目曲目（假无损、AI 音乐按校验结果过滤，其余按格式分类过滤），
+// 切换播放列表为指定格式/识别类目曲目（音质异常、AI 音乐按校验结果过滤，其余按格式分类过滤），
 // 复用歌单切换（备份默认列表 + 加载首曲不自动播放 + 补全元数据）。
 // 在播放器全局作用域执行：识别类目过滤需读文件（缓存命中即瞬时返回），且弹层关闭不取消切换
 private fun switchToFormat(
@@ -464,7 +464,7 @@ private fun FormatStatRow(
 }
 
 // 格式导航项：统一配色规则，供普通 Column 与滚动 LazyColumn 两处复用；
-// specialRowCount 为前置识别类目数（假无损/AI 音乐），用于普通格式行色板索引回退
+// specialRowCount 为前置识别类目数（音质异常/AI 音乐），用于普通格式行色板索引回退
 @Composable
 private fun FormatNavRowItem(
     index: Int,
@@ -557,7 +557,7 @@ internal class LibraryAnalysisController(
     // 分析进度：(已校验数, 总数)，null 表示未在分析或已结束
     var checkingProgress by mutableStateOf<Pair<Int, Int>?>(null)
         private set
-    // 假无损 / AI 音乐识别结果：null 表示对应识别阶段尚未完成
+    // 音质异常 / AI 音乐识别结果：null 表示对应识别阶段尚未完成
     var fakeLosslessCount by mutableStateOf<Int?>(null)
         private set
     var aiMusicCount by mutableStateOf<Int?>(null)
@@ -605,7 +605,7 @@ internal class LibraryAnalysisController(
                     FakeLosslessAnalyzer.resetCache(context)
                     AiMusicAnalyzer.resetCache(context)
                 }
-                // 合并单次遍历：每文件只解码一次，同时产出假无损与 AI 判定；
+                // 合并单次遍历：每文件只解码一次，同时产出音质异常与 AI 判定；
                 // 进度以本批需解码文件数为基数连续递增
                 val result = analyzeLibraryCombined(
                     context = context,

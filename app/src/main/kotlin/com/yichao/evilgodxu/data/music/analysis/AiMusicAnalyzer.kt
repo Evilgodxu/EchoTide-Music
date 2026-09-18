@@ -8,13 +8,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 // AI 音乐识别器：规则启发式多征象从严判定，针对神经声码器/合成链路的统计痕迹，
-// 与假无损的频谱截止判据正交，覆盖全格式本地文件。
+// 与音质异常的频谱截止判据正交，覆盖全格式本地文件。
 // 征象集（均提取自共享 SpectralDecoder 的同一解码摘要）：
 //  ① 立体声相关性：真人混音因摆位/混响左右声道去相关，AI 由单声道骨干扩立体声相关性偏高；
 //  ② 12-18kHz 尖锐缺口 + 上方回升：32k 中间格式升频至 44.1k 的成像缺口，区别于持续滚降；
 //  ③ 1-8kHz 谐波梳：反卷积零插值在平均谱上留下等间距规则峰列。
 // 从严策略：三条征象至少两条同时命中才判定，规避对真实强谐波/单声道内容的误报。
-// 持久化缓存与批量增量校验复用 TrackVerdictCache，与假无损识别同语义。
+// 持久化缓存与批量增量校验复用 TrackVerdictCache，与音质异常识别同语义。
 internal object AiMusicAnalyzer {
 
     // AI 音乐智能歌单过滤键：与本地化展示名解耦，保证序列化歌单 key 跨语言环境稳定
@@ -36,7 +36,7 @@ internal object AiMusicAnalyzer {
     private const val AI_COMB_RESIDUE_DB = 4f
     private const val AI_COMB_MAX_CV = 0.30f
 
-    // 是否为 AI 识别候选：本地文件路径音频（解码需真实路径）；与假无损仅限 FLAC 不同，AI 识别不限格式
+    // 是否为 AI 识别候选：本地文件路径音频（解码需真实路径）；与音质异常仅限 FLAC 不同，AI 识别不限格式
     fun isDecodableCandidate(track: MusicTrack): Boolean = track.path.isNotBlank()
 
     // 缓存键：路径 + 文件大小 + 时长齐备，文件内容变化即失效
@@ -62,7 +62,7 @@ internal object AiMusicAnalyzer {
     suspend fun resetCache(context: Context) = cache.reset(context)
 
     // 解码摘要判定：多征象从严合成，供合并批量分析（analyzeLibraryCombined）复用已解码摘要，
-    // 避免对同一文件与假无损识别各自解码
+    // 避免对同一文件与音质异常识别各自解码
     internal fun verdictFromSummary(summary: SpectralDecoder.DecodeSummary): Boolean =
         detectAiSignals(summary)
 
