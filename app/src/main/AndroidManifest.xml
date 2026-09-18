@@ -24,6 +24,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 应用内更新：拉起系统安装器安装已下载的更新包 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 设为默认来电铃声/闹钟铃声：写入系统设置，需用户在系统设置中单独授权 -->
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
 
     <application
         android:name=".App"

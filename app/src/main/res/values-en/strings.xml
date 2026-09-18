@@ -185,11 +185,17 @@
     <string name="settings_blacklist_reset_done">Blacklist reset</string>
 
     <!-- Playlist swipe actions -->
-    <string name="playlist_swipe_blacklist">Add to blacklist</string>
-    <string name="playlist_swipe_advanced">Advanced menu</string>
     <string name="playlist_advanced_menu_title">Advanced menu</string>
-    <string name="playlist_advanced_menu_empty">No actions available</string>
-    <string name="playlist_advanced_menu_close">Close</string>
+    <string name="playlist_advanced_menu_share">Share music</string>
+    <string name="playlist_advanced_menu_ringtone">Set as ringtone</string>
+    <string name="playlist_advanced_menu_alarm">Set as alarm sound</string>
+    <string name="playlist_advanced_unavailable">Not available for online tracks</string>
+
+    <!-- Default sound -->
+    <string name="default_sound_ringtone_done">Set as ringtone</string>
+    <string name="default_sound_alarm_done">Set as alarm sound</string>
+    <string name="default_sound_failed">Failed to apply, please retry</string>
+    <string name="default_sound_need_write_settings">Allow &quot;modify system settings&quot; to continue</string>
 
     <!-- Proxy source -->
     <string name="settings_section_proxy_source">Proxy Source</string>

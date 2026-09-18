@@ -2,4 +2,7 @@
 <paths>
     <external-files-path name="downloads" path="Download/" />
     <external-files-path name="logs" path="logs/" />
+    <!-- 分享本地曲目：曲库分散在公共存储与可移动卷各处，逐个路径枚举不现实；
+         根路径只扩大可解析范围，实际授权仍由分享时给出的单个 URI 决定 -->
+    <root-path name="shared_audio" path="." />
 </paths>

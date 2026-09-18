@@ -68,6 +68,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.yichao.evilgodxu.data.music.clip.RingtoneUsage
+import com.yichao.evilgodxu.data.music.clip.shareTrack
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaylistRefresher
@@ -161,6 +163,9 @@ internal fun PlaylistSheet(
     var deleteTrack by remember { mutableStateOf<MusicTrack?>(null) }
     // 右滑高级菜单目标：非空时显示菜单对话框
     var advancedTrack by remember { mutableStateOf<MusicTrack?>(null) }
+    // 设为默认铃声的请求：非空时由安装组件提交并在授权往返后自动续做
+    var soundRequest by remember { mutableStateOf<DefaultSoundRequest?>(null) }
+    val shareChooserTitle = stringResource(R.string.playlist_advanced_menu_share)
     // 后台预取整个播放列表缩略图：曲目集合变化即触发，不等面板展开逐行懒加载，
     // 展开时封面已就绪；幂等，已缓存/补全中/全量补全中的曲目自动跳过
     val playlistTrackIds = remember(tracks) { tracks.map { it.id } }
@@ -579,7 +584,25 @@ internal fun PlaylistSheet(
         )
         TrackAdvancedMenuDialog(
             visible = advancedTrack != null,
+            actionsEnabled = advancedTrack?.isLocalAudioSource == true,
+            onShare = {
+                advancedTrack?.let { shareTrack(context, it, shareChooserTitle) }
+                advancedTrack = null
+            },
+            onSetRingtone = {
+                advancedTrack?.let { soundRequest = DefaultSoundRequest(it, RingtoneUsage.RINGTONE) }
+                advancedTrack = null
+            },
+            onSetAlarm = {
+                advancedTrack?.let { soundRequest = DefaultSoundRequest(it, RingtoneUsage.ALARM) }
+                advancedTrack = null
+            },
             onDismiss = { advancedTrack = null },
+        )
+        // 安装不依赖对话框存活：面板收起后授权往返仍能续做
+        DefaultSoundInstallerHost(
+            request = soundRequest,
+            onRequestChange = { soundRequest = it },
         )
     }
 }

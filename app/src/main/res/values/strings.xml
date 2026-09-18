@@ -185,11 +185,17 @@
     <string name="settings_blacklist_reset_done">黑名单已重置</string>
 
     <!-- 播放列表滑动操作 -->
-    <string name="playlist_swipe_blacklist">加入黑名单</string>
-    <string name="playlist_swipe_advanced">高级菜单</string>
     <string name="playlist_advanced_menu_title">高级菜单</string>
-    <string name="playlist_advanced_menu_empty">暂无可用操作</string>
-    <string name="playlist_advanced_menu_close">关闭</string>
+    <string name="playlist_advanced_menu_share">分享音乐</string>
+    <string name="playlist_advanced_menu_ringtone">设为来电铃声</string>
+    <string name="playlist_advanced_menu_alarm">设为闹钟铃声</string>
+    <string name="playlist_advanced_unavailable">在线曲目暂不支持该操作</string>
+
+    <!-- 默认铃声 -->
+    <string name="default_sound_ringtone_done">已设为来电铃声</string>
+    <string name="default_sound_alarm_done">已设为闹钟铃声</string>
+    <string name="default_sound_failed">设置失败，请重试</string>
+    <string name="default_sound_need_write_settings">请允许「修改系统设置」后自动继续</string>
 
     <!-- 代理音源 -->
     <string name="settings_section_proxy_source">代理音源</string>
