@@ -2,6 +2,8 @@ package com.yichao.evilgodxu.data.music.analysis
 
 import com.yichao.evilgodxu.data.music.model.LyricWord
 import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -18,17 +20,23 @@ internal class AlignConfig(
     /** 32ms 窗、10ms 帧移 */
     val nFft: Int = 512,
     val hop: Int = 160,
-    /** 行前后额外取的音频上下文：供中值滤波与 VAD 使用，比 DP 搜索窗口宽 */
+    /** 行前后额外取的音频上下文：供中值滤波取值与频谱估计使用，比 DP 搜索窗口宽 */
     val preCtx: Double = 0.35,
     val postCtx: Double = 0.25,
     /** DP 搜索窗口相对行起止的外扩余量：远小于分析上下文，避免把行间纯伴奏算作歌词 */
     val searchPre: Double = 0.10,
     val searchPost: Double = 0.12,
-    val vadPad: Double = 0.06,
-    /** VAD 阈值 = 噪声底 + thr × (峰值 − 噪声底) */
-    val vadThr: Double = 0.40,
-    /** VAD 允许合并的静音间隙（帧） */
-    val vadGap: Int = 8,
+    /** 起音判决门限 = 噪声底 + gate × (峰值 − 噪声底)。分位阈值会把约三成帧都判成起音，
+     *  故按局部极大值挑峰，该门限只负责把峰挡在噪声之上 */
+    val onsetGate: Double = 0.45,
+    /** 相邻起音的最小间隔：低于一个音节的物理时长即视为同一音的抖动 */
+    val onsetGapMs: Double = 60.0,
+    /** 起音包围盒后扩：起音帧落在辅音爆发点上，后扩吸收收音 */
+    val onsetRelease: Double = 0.15,
+    /** 首字起点相对行时间戳允许的偏移：行时间戳是行起唱的直接标注，首字只该吸收它自身的误差 */
+    val firstSlack: Double = 0.12,
+    /** 首字起点偏离行时间戳的代价系数（每网格） */
+    val wFirst: Double = 0.30,
     /** Mid/Side 自适应泄漏消除：人声居中、伴奏声场更宽，据此从 mid 中减去与 side 相关的成分 */
     val useMs: Boolean = true,
     /** 时间轴/频率轴中值滤波长度（帧 / 频点） */
@@ -51,6 +59,13 @@ internal class AlignConfig(
     val wDur: Double = 1.60,
     val wOnset: Double = 1.00,
     val wEnergy: Double = 0.90,
+    /** 终点偏离「字数 × 字长先验」的代价：行区间留白（句尾伴奏）由此判为不划算 */
+    val wEnd: Double = 0.50,
+    /** 终点相对先验允许的提前 / 延后比例：前者留给提前收尾，后者留给句尾拖腔 */
+    val endSlack: Double = 0.35,
+    val endPad: Double = 0.60,
+    /** 结果可用性下限：低于该置信度说明字边界没落在起音上，逐字时间不可用 */
+    val minConfidence: Double = 0.10,
     /** 起音曲线锐化指数：拉开真边界与假起音的区分度 */
     val onsetSharp: Double = 1.5,
     /** 两轮 DP：第一轮估字长中位数，第二轮用其作先验，抵消句尾拖腔对平均字长的系统性拉偏 */
@@ -68,8 +83,10 @@ internal class AlignConfig(
  * 2. 人声分离两级串联 —— Mid/Side 自适应泄漏消除（时域）削掉与宽声场伴奏相关的成分，
  *    HPSS 软掩码（时频域）沿时间轴中值滤波取谐波分量作为人声主体，并保留少量打击分量留住辅音；
  * 3. 在分离后的人声谱上取能量包络与半波整流谱通量；
- * 4. 区间定位用两套互补策略 —— 能量 VAD 兜住拖腔尾巴，起音包围盒对稳态伴奏免疫、负责定句首句尾；
+ * 4. 跨度默认取行区间（行时间戳标注的整行起止）；只有当行区间长于「字数 × 单字时长上限」、
+ *    不可能再是一句连续演唱时，才改由起音包围盒定跨度；
  * 5. 以「本行有几个音节」为先验，在 20ms 网格上做带时长约束的单调 DP，全局最优地放置字边界。
+ *    首字锚在行时间戳上，其余按起音与能量分布展开；结果不可信时放弃逐字，保持行级歌词。
  *
  * 实例持有全部预计算表（窗函数、旋转因子、频带权重），单次对齐任务内独占使用，不共享可变状态。
  */
@@ -137,57 +154,56 @@ internal class LyricWordAligner(private val cfg: AlignConfig = AlignConfig()) {
         // DP 搜索窗口：行起止各外扩一点，用于吸收 LRC 行时间戳自身的误差
         val search0 = max(0, idxStart - (cfg.searchPre * framesPerSecond).toInt())
         val search1 = min(nf - 1, idxEnd + (cfg.searchPost * framesPerSecond).toInt())
-        val spanDefault = search0 to max(search0 + 4, search1)
+        val msPerGrid = cfg.hopMs * cfg.dtwStep
 
-        // 稳态伴奏（pad/和弦）在能量上与持续人声一样连续，但在谱通量上几乎不动，
-        // 故用起音包围盒定句首句尾、用能量 VAD 兜住拖腔尾巴，两者取并集
-        val (vad0, vad1) = vadSpan(env, spanDefault, search0, search1)
-        val searchOnset = DoubleArray(search1 - search0 + 1) { flux[search0 + it] }
-        val strongThreshold = percentile(searchOnset, 0.72)
-        val strong = ArrayList<Int>()
-        for (i in searchOnset.indices) if (searchOnset[i] >= strongThreshold) strong.add(i)
-        val hasStrong = strong.size >= 2
-        val onset0 = if (hasStrong) search0 + strong.first() - 2 else null
-        val onset1 = if (hasStrong) search0 + strong.last() + (0.15 * framesPerSecond).toInt() else null
+        // 起音峰值即音节边界候选。挑峰数量按本行字数约束，使集合既覆盖音节又不被伴奏子拍淹没
+        val peaks = pickOnsets(flux, search0, search1, tokens.size)
 
-        var s0 = if (onset0 != null) min(vad0, onset0) else vad0
-        s0 = max(search0, s0)
-        // VAD 与起音都明显晚于行时间戳：说明句首是弱起音被漏检，此处改信行时间戳
-        if (s0 > idxStart + (0.30 * framesPerSecond).toInt()) {
-            s0 = max(search0, idxStart - (0.10 * framesPerSecond).toInt())
-        }
-        var s1 = if (onset1 != null) max(vad1, onset1) else vad1
-        s1 = min(search1, s1)
-        if (s1 < idxEnd - (0.20 * framesPerSecond).toInt()) s1 = idxEnd
+        // 跨度默认取行区间：行时间戳标的是整行的起止，在没有可靠人声区间估计的前提下，
+        // 它仍是「本行歌词占据多少时间轴」的最好依据
+        val span0 = search0
+        var span1 = max(search0 + 4, search1)
 
-        var span0 = s0
-        var span1 = max(s0 + 4, min(search1, s1))
-        if (span1 - span0 < 4) {
-            span0 = spanDefault.first
-            span1 = spanDefault.second
+        // 例外：行区间长于「字数 × 单字时长上限」时，它不可能是一句连续演唱的跨度
+        // （行间留白、制作信息行都会如此）。此时单字上限会让 DP 无可行路径而退化成均匀铺满，
+        // 于是同一句歌词在留白不同的两处会得到完全不同的字长；改用起音包围盒收窄跨度末端。
+        // 起点仍取行时间戳 —— 不可信的是留白带来的多余尾巴，不是行的起唱标注。
+        // 包围盒本身也可能落在伴奏上，故仍需末尾的结果校验兜底
+        val phraseGrids = tokens.size * (cfg.maxCharMs / msPerGrid)
+        val longWindow = (search1 - search0) / cfg.dtwStep > phraseGrids
+        if (longWindow && peaks.size >= 2) {
+            val release = (cfg.onsetRelease * framesPerSecond).toInt()
+            val box1 = min(search1, peaks.last() + release)
+            if (box1 - span0 >= tokens.size * (cfg.minCharMs / msPerGrid)) span1 = box1
         }
 
-        // 首轮 DP 的末字锚点取最后一个强起音：拖腔不该把前面的字挤到过短的区间里
-        val anchorLast = if (hasStrong) search0 + strong.last() else null
-        var (edges, conf) = dpAlign(tokens, flux, env, span0, span1, anchorLast, null)
+        // 首轮 DP 的末字锚点取最后一个起音：拖腔不该把前面的字挤到过短的区间里
+        val anchorLast = if (peaks.size >= 2) peaks.last() else null
+        var result = dpAlign(tokens, flux, env, span0, span1, anchorLast, null, idxStart)
         // 次轮：以首轮得到的字长中位数（排除句尾拖腔）作先验重跑，消除拖腔造成的系统性拉偏
-        if (cfg.twoPass && edges.size >= 4) {
-            val durations = ArrayList<Double>(edges.size - 2)
-            for (i in 0 until edges.size - 2) {
-                val d = edges[i + 1] - edges[i]
+        if (cfg.twoPass && result.feasible && result.edges.size >= 4) {
+            val durations = ArrayList<Double>(result.edges.size - 2)
+            for (i in 0 until result.edges.size - 2) {
+                val d = result.edges[i + 1] - result.edges[i]
                 if (d > 0) durations.add(d)
             }
             if (durations.isNotEmpty()) {
                 val sorted = durations.toDoubleArray().apply { sort() }
                 val median = sorted[sorted.size / 2] / cfg.dtwStep
-                val second = dpAlign(tokens, flux, env, span0, span1, null, median)
-                if (second.first.isNotEmpty()) {
-                    edges = second.first
-                    conf = second.second
-                }
+                val second = dpAlign(tokens, flux, env, span0, span1, null, median, idxStart)
+                if (second.feasible) result = second
             }
         }
-        if (edges.isEmpty()) return emptyList()
+        // DP 无可行路径或边界起音强度过低：宁可保持行级歌词，也不写出必然错误的逐字时序
+        if (!result.feasible) return emptyList()
+        if (result.confidence < cfg.minConfidence) return emptyList()
+        val edges = result.edges
+        if (edges.size != tokens.size + 1) return emptyList()
+
+        // 结果校验：跨度与字数不自洽（单个字被迫超过物理时长上限）时，本行的时间戳与
+        // 音频不属于同一段演唱 —— 常见于制作信息行、间奏留白，此时放弃逐字
+        val meanCharMs = (edges.last() - edges.first()) * cfg.hopMs / tokens.size
+        if (meanCharMs > cfg.maxCharMs) return emptyList()
 
         val edgesMs = DoubleArray(edges.size) { baseMs + edges[it] * cfg.hopMs }
         val words = ArrayList<LyricWord>(tokens.size)
@@ -203,17 +219,17 @@ internal class LyricWordAligner(private val cfg: AlignConfig = AlignConfig()) {
                 )
             )
         }
-        // 末字延伸到行末以覆盖尾音拖腔，但不超过「1.5 倍平均字长 + 300ms」，
-        // 否则长拖腔会把最后一个字撑成整行
+        // 末字延伸到句尾拖腔结束，同时受两重上限约束：不超过「1.5 倍平均字长 + 300ms」，
+        // 也不越过行末 —— 越过行末会让上一行的高亮压住下一行的开头
         if (words.size >= 2) {
             var sum = 0L
             for (i in 0 until words.size - 1) sum += words[i].durationMs
             val average = sum.toDouble() / (words.size - 1)
-            val cap = (words.last().startMs + 1.5 * average + 300).toInt()
-            val tail = min(endMs + 60, cap.toLong())
-            if (words.last().startMs + words.last().durationMs < tail) {
-                words[words.size - 1] = words.last().copy(durationMs = (tail - words.last().startMs).coerceAtLeast(1))
-            }
+            val cap = words.last().startMs + 1.5 * average + 300
+            val target = minOf(cap, endMs.toDouble())
+            words[words.size - 1] = words.last().copy(
+                durationMs = (target - words.last().startMs).toLong().coerceAtLeast(1)
+            )
         }
         return words
     }
@@ -519,12 +535,21 @@ internal class LyricWordAligner(private val cfg: AlignConfig = AlignConfig()) {
         }
     }
 
-    /** 半波整流谱通量：能量上升处即新的发音起点，稳态伴奏在此特征上几乎不动。 */
+    /**
+     * 半波整流谱通量：能量上升处即新的发音起点，稳态伴奏在此特征上几乎不动。
+     *
+     * 首帧没有可比的参考帧，逐频点差值之和等于整帧能量，是个必然出现的孤立极大值。
+     * 留着会污染起音挑峰（把它当成全窗最强起音），故首帧恒记 0，前帧基准取首帧自身。
+     */
     private fun spectralFlux(magnitude: DoubleArray): DoubleArray {
         val frameCount = magnitude.size / nbins
         val flux = DoubleArray(frameCount)
-        val previous = DoubleArray(envHiBin - envLoBin + 1)
-        for (f in 0 until frameCount) {
+        val span = envHiBin - envLoBin + 1
+        val previous = DoubleArray(span)
+        if (frameCount > 0) {
+            for (b in 0 until span) previous[b] = magnitude[envLoBin + b]
+        }
+        for (f in 1 until frameCount) {
             val row = f * nbins
             var sum = 0.0
             for (b in envLoBin..envHiBin) {
@@ -562,51 +587,46 @@ internal class LyricWordAligner(private val cfg: AlignConfig = AlignConfig()) {
     }
 
     /**
-     * 在搜索窗口内定位人声活动区间：噪声底加相对阈值二值化 → 合并短间隙 →
-     * 取最长连续段 → 外扩。取最长覆盖段而非首尾超阈点，可避免行间伴奏的孤立峰值把区间撑大。
+     * 在 [from, to] 内挑出起音帧，返回绝对帧号（升序），最多 [expected] 个。
+     *
+     * 判据是「在噪声之上、且彼此间隔不小于一个音节时长」的最强局部极大值 —— 按强度贪心取，
+     * 取满即止。这样做的原因是谱通量里同时存在人声与伴奏的起振，单纯设阈要么漏掉弱起音、
+     * 要么把伴奏的子拍也算进来；而本行的音节数是已知的，用它可以反过来约束检出数量，
+     * 使起音集合既是边界候选、又能直接给出字长估计。
      */
-    private fun vadSpan(env: DoubleArray, default: Pair<Int, Int>, search0: Int, search1: Int): Pair<Int, Int> {
-        if (env.isEmpty()) return default
-        val lo = search0.coerceIn(0, env.size - 1)
-        val hi = search1.coerceIn(0, env.size - 1)
-        // 窗口过窄时不足以估计噪声底与峰值，直接沿用默认区间
-        if (hi - lo < 2) return default
-        val segment = DoubleArray(hi - lo + 1) { env[lo + it] }
-        val smoothed = boxcarSmooth(segment, 5)
-        val floor = percentile(smoothed, 0.20)
+    private fun pickOnsets(flux: DoubleArray, from: Int, to: Int, expected: Int): IntArray {
+        val lo = max(0, from)
+        val hi = min(flux.size - 1, to)
+        val n = hi - lo + 1
+        if (n < 5 || expected <= 0) return IntArray(0)
+        val segment = DoubleArray(n) { flux[lo + it] }
+        val smoothed = boxcarSmooth(segment, 3)
+        val floor = percentile(smoothed, 0.50)
         val top = percentile(smoothed, 0.98)
-        if (top - floor < 1e-9) return default
-        val threshold = floor + cfg.vadThr * (top - floor)
+        if (top - floor < 1e-12) return IntArray(0)
+        val threshold = floor + cfg.onsetGate * (top - floor)
+        val gap = max(1, (cfg.onsetGapMs / cfg.hopMs).toInt())
 
-        val runs = ArrayList<IntArray>()
-        var current: IntArray? = null
-        for (i in smoothed.indices) {
-            if (smoothed[i] >= threshold) {
-                val run = current
-                if (run == null) current = intArrayOf(i, i) else run[1] = i
-            } else if (current != null) {
-                runs.add(current)
-                current = null
+        // 工作量约为 expected × n，行内帧数在千级、字数在十级，代价可忽略
+        val taken = BooleanArray(n)
+        val peaks = ArrayList<Int>(expected)
+        while (peaks.size < expected) {
+            var bestIndex = -1
+            var bestValue = threshold
+            for (i in 1 until n - 1) {
+                if (taken[i]) continue
+                val value = smoothed[i]
+                if (value <= bestValue) continue
+                if (value < smoothed[i - 1] || value < smoothed[i + 1]) continue
+                bestValue = value
+                bestIndex = i
             }
+            if (bestIndex < 0) break
+            peaks.add(lo + bestIndex)
+            for (i in max(0, bestIndex - gap)..min(n - 1, bestIndex + gap)) taken[i] = true
         }
-        current?.let { runs.add(it) }
-        if (runs.isEmpty()) return default
-
-        // 合并间隙不超过 vadGap 的相邻段：人声在字间会有极短停顿，不应把一行切成多段
-        val merged = ArrayList<IntArray>()
-        merged.add(runs.first())
-        for (i in 1 until runs.size) {
-            val run = runs[i]
-            val last = merged.last()
-            if (run[0] - last[1] <= cfg.vadGap) last[1] = run[1] else merged.add(run)
-        }
-        val best = merged.maxByOrNull { it[1] - it[0] } ?: return default
-
-        val pad = (cfg.vadPad * cfg.sr / cfg.hop).toInt()
-        val start = max(0, best[0] - pad) + lo
-        val end = min(env.size - 1, best[1] + pad + lo)
-        if (end - start < 3) return default
-        return start to end
+        peaks.sort()
+        return peaks.toIntArray()
     }
 
     // -----------------------------------------------------------------------
@@ -632,16 +652,29 @@ internal class LyricWordAligner(private val cfg: AlignConfig = AlignConfig()) {
         }
 
     /**
-     * 把 N 个音节对齐到 [span0, span1) 的帧网格上，返回 (边界帧序列, 置信度)。
+     * DP 对齐结果。
+     *
+     * [edges] 满足「首元素为首字起点，其后依次为每个字的终点」（共 N+1 项），仅在
+     * [feasible] 为真时有效；不可行时 [edges] 的内容无意义，调用方必须放弃本行。
+     */
+    private class AlignResult(
+        val edges: DoubleArray,
+        val confidence: Double,
+        val feasible: Boolean,
+    )
+
+    /**
+     * 把 N 个音节对齐到 [span0, span1) 的帧网格上。
      *
      * 目标函数（越小越好）：
      * ```
      * Σ_i [ w_dur · ((d_i − d̄_i)/d̄_i)²      # 时长贴近先验，惩罚被拖腔拉长的字
      *     + w_onset · (1 − onset[b_i])      # 边界落在起音上
      *     + w_energy · (1 − ē_segment) ]    # 段内确实在发声
+     * + w_first · |首字起点 − 行时间戳|        # 首字贴住行起唱标注
+     * + w_end · |终点 − 字数 × 先验| / 先验   # 终点落在先验推算的收尾处附近
      * ```
-     * 用带带宽约束的单调 DP 求全局最优，等价于受限 DTW。返回的序列首元素为首字起点，
-     * 其后依次为每个字的终点（共 N+1 项）。
+     * 用带带宽约束的单调 DP 求全局最优，等价于受限 DTW。[lineStart] 为行时间戳在音频段内的帧位置。
      */
     private fun dpAlign(
         tokens: List<Token>,
@@ -651,7 +684,8 @@ internal class LyricWordAligner(private val cfg: AlignConfig = AlignConfig()) {
         span1: Int,
         anchorLast: Int?,
         avgOverride: Double?,
-    ): Pair<DoubleArray, Double> {
+        lineStart: Int,
+    ): AlignResult {
         val step = cfg.dtwStep
         val onsetDown = downsampleMax(onset, step)
         val envDown = downsampleMean(env, step)
@@ -659,7 +693,7 @@ internal class LyricWordAligner(private val cfg: AlignConfig = AlignConfig()) {
         val g1 = max(g0 + 1, span1 / step)
         val grids = g1 - g0
         val count = tokens.size
-        if (count == 0 || grids < 2) return DoubleArray(0) to 0.0
+        if (count == 0 || grids < 2) return AlignResult(DoubleArray(0), 0.0, false)
 
         val on = DoubleArray(grids) { onsetDown.getOrElse(g0 + it) { 0.0 } }
         val en = DoubleArray(grids) { envDown.getOrElse(g0 + it) { 0.0 } }
@@ -693,27 +727,37 @@ internal class LyricWordAligner(private val cfg: AlignConfig = AlignConfig()) {
         }
         val minGrid = max(1, (cfg.minCharMs / msPerGrid).roundToInt())
         val maxGrid = max(minGrid + 1, (cfg.maxCharMs / msPerGrid).roundToInt())
+        // 跨度与字数不自洽时固定上下界会让 DP 无可行路径：跨度远大于「字数 × 单字上限」时
+        // 需要放宽上界，远小于「字数 × 单字下限」时需要放宽下界，否则只能退化成均匀切分。
+        // 放宽只是保证存在可行解，物理合理性由调用方对结果做校验
+        val maxGridLine = max(maxGrid, ceil(grids.toDouble() / count).toInt())
+        val minGridLine = min(minGrid, max(1, grids / (count + 1)))
 
-        fun averageFor(weight: Double): Double = max(minGrid + 0.5, avgUnits * weight)
+        fun averageFor(weight: Double): Double =
+            (avgUnits * weight).coerceIn(minGridLine + 0.5, maxGridLine - 0.5)
 
         val infinity = Double.POSITIVE_INFINITY
         val dp = Array(count) { DoubleArray(grids) { infinity } }
         val back = Array(count) { IntArray(grids) { -1 } }
 
-        // 首字起点允许在行起点附近小幅滑动，用于吸收 LRC 行时间戳自身的误差
-        val slack = max(1, (0.12 * cfg.sr / cfg.hop / step).toInt())
+        // 首字起点以行时间戳为锚，两侧各留 [firstSlack]。行时间戳是行起唱的直接标注，
+        // 首字只该吸收它自身的误差；若只以跨度起点为限，整行音频的起音分布会把首字
+        // 统一拖到时间戳之前，形成系统性提前
+        val slack = max(1, (cfg.firstSlack * cfg.sr / cfg.hop / step).toInt())
+        val anchorGrid = (lineStart / step - g0).coerceIn(0, grids - 1)
+        val firstFrom = max(0, anchorGrid - slack)
+        val firstTo = min(grids - 2, anchorGrid + slack)
         val firstAverage = averageFor(tokens[0].weight)
-        for (s in 0 until min(slack, grids - 1)) {
-            val from = s + minGrid
-            val to = min(grids, s + maxGrid + 1)
+        for (s in firstFrom..firstTo) {
+            val from = s + minGridLine
+            val to = min(grids, s + maxGridLine + 1)
             for (j in from until to) {
                 val d = (j - s).toDouble()
                 val duration = ((d - firstAverage) / firstAverage).pow(2)
                 val bound = 1.0 - on[s]
                 val meanEnergy = (prefix[j] - prefix[s]) / max(d, 1.0)
                 var cost = cfg.wDur * duration + cfg.wOnset * bound + cfg.wEnergy * (1.0 - meanEnergy)
-                // 推迟起唱要付一点代价：避免弱起句把首字整体后移
-                if (s > 0) cost += 0.5 * s
+                cost += cfg.wFirst * abs(s - anchorGrid)
                 if (cost < dp[0][j]) {
                     dp[0][j] = cost
                     back[0][j] = s
@@ -725,11 +769,11 @@ internal class LyricWordAligner(private val cfg: AlignConfig = AlignConfig()) {
             val current = dp[i]
             val previous = dp[i - 1]
             val currentBack = back[i]
-            for (j in (i + 1) * minGrid until grids) {
+            for (j in (i + 1) * minGridLine until grids) {
                 var best = infinity
                 var bestK = -1
-                val from = max(0, j - maxGrid)
-                val to = j - minGrid
+                val from = max(0, j - maxGridLine)
+                val to = j - minGridLine
                 for (k in from..to) {
                     val prev = previous[k]
                     if (prev == infinity) continue
@@ -748,25 +792,29 @@ internal class LyricWordAligner(private val cfg: AlignConfig = AlignConfig()) {
             }
         }
 
-        // 终点：末字允许提前收尾，但越靠近 VAD 末端越好
+        // 终点围绕「字数 × 字长先验」展开。原先偏好贴着跨度末端，而跨度又被 LRC 区间撑满，
+        // 于是句尾伴奏必须由某些字来消纳，字长被顶到上限；改为围绕先验后，跨度长于实际演唱时
+        // DP 会提前收尾，余下时间留给留白
         val last = count - 1
+        val expectedEnd = count * avgUnits
+        val endLo = max(0, (expectedEnd - cfg.endSlack * expectedEnd).roundToInt())
+        val endHi = min(grids - 1, (expectedEnd + cfg.endPad * expectedEnd).roundToInt())
         var bestEnd = -1
         var bestCost = infinity
-        val tailSlack = max(1, (0.25 * cfg.sr / cfg.hop / step).toInt())
-        for (j in max(0, grids - 1 - tailSlack) until grids) {
+        // 先验窗内无可行解（末字锚点与跨度不自洽）时扩大到整段，故两段候选一并遍历，
+        // 重叠区间被重复评估不影响结果
+        for (j in (endLo..endHi) + (0 until grids)) {
             val cost = dp[last][j]
             if (cost == infinity) continue
-            val total = cost + 0.8 * (grids - 1 - j) / tailSlack
+            val total = cost + cfg.wEnd * abs(j - expectedEnd) / max(avgUnits, 1.0)
             if (total < bestCost) {
                 bestCost = total
                 bestEnd = j
             }
         }
-        if (bestEnd < 0) {
-            // 兜底：DP 无可达路径时退化为均匀切分，置信度给低值提示结果不可信
-            val edges = DoubleArray(count) { i -> (g0 + (grids * (i + 1).toDouble() / count).roundToInt()) * step.toDouble() }
-            return edges to 0.2
-        }
+        // DP 确实无可行路径：返回不可用结果，由调用方放弃本行的逐字时序。
+        // 此处不能退化为均匀切分 —— 那会写出看上去正常、实际全错的逐字时间
+        if (bestEnd < 0) return AlignResult(DoubleArray(0), 0.0, false)
 
         val boundaries = IntArray(count)
         var cursor = bestEnd
@@ -793,7 +841,7 @@ internal class LyricWordAligner(private val cfg: AlignConfig = AlignConfig()) {
         val edges = DoubleArray(count + 1)
         edges[0] = (g0 + startGrid) * step.toDouble()
         for (i in 0 until count) edges[i + 1] = (g0 + boundaries[i]) * step.toDouble()
-        return edges to confidence
+        return AlignResult(edges, confidence, true)
     }
 
     // -----------------------------------------------------------------------

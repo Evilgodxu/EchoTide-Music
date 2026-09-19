@@ -17,6 +17,25 @@ import kotlinx.coroutines.withContext
 // 行级时间戳缺失时的兜底行宽，与歌词解析的同行宽上限保持一致
 private const val MAX_LINE_MS = 12_000L
 
+// 曲目标题行的判定窗口：LRC 习惯把「歌手 - 歌名」放在曲首，其时间戳绑定的是整段前奏
+private const val TITLE_LINE_WINDOW_MS = 2_000L
+
+// 制作信息行：以署名键开头。这些行的时间戳标注的是前奏/间奏的长度，逐字对齐会把字铺满伴奏。
+// 键名后允许跟随「/xxx」，用于「词/曲：xxx」这类合并写法
+private val CREDIT_LINE = Regex(
+    "^\\s*(?:作词|作曲|编曲|填词|词曲|词|曲|制作人|监制|出品人|出品|录音师|录音|混音师|混音|" +
+        "母带师|母带|吉他|贝斯|鼓|键盘|弦乐|和声|统筹|企划|发行|版权|混音|翻译|校对|策划|" +
+        "封面|视觉|导演|总策划|音乐总监|演唱|原唱|旁白|by|op|sp|isrc|lrc)\\s*(?:/[^:：]{1,8})?\\s*[:：]",
+    RegexOption.IGNORE_CASE,
+)
+
+// 无唱词的占位行：整行只由括号与这些词构成，才视为占位
+private val PLACEHOLDER_LINE = Regex(
+    "^\\s*[\\[（(【]?\\s*(?:此歌曲为没有填词的纯音乐|没有填词|纯音乐|请欣赏|间奏|前奏|尾奏|music)" +
+        "\\s*[\\]）)】]?\\s*[，,。.、！!~～]*\\s*$",
+    RegexOption.IGNORE_CASE,
+)
+
 // 逐字对齐的结局：区分「没有可对齐的歌词」与「对齐失败」，两者给用户的提示不同
 internal enum class AlignOutcome { Applied, NoTargets, Failed }
 
@@ -35,8 +54,10 @@ internal suspend fun alignLyricsWords(
 ): AlignOutcome {
     val lines = track.lyricLines
     if (lines.isEmpty()) return AlignOutcome.NoTargets
-    // 纯标点或空白的行没有可对齐的字元，跳过
-    val targets = lines.indices.filter { lines[it].text.isNotBlank() }
+    // 非歌词行不参与对齐：制作信息行与曲目标题行的时间戳标注的是前奏/间奏长度，
+    // 对其逐字会把字均摊到整段伴奏上，产出明显错误的卡拉OK时序
+    val firstIndex = lines.indexOfFirst { it.text.isNotBlank() }
+    val targets = lines.indices.filter { isAlignedLyricLine(lines[it], it == firstIndex) }
     if (targets.isEmpty()) return AlignOutcome.NoTargets
 
     return try {
@@ -102,9 +123,24 @@ private suspend fun runAlignment(
     }
 }
 
-// 行结束时间：取下一条行时间戳，末行与间隔过大的行按上限截断
+/** 行结束时间：取下一条行时间戳，末行与间隔过大的行按上限截断 */
 private fun lineEndMs(lines: List<LyricLine>, index: Int): Long {
     val start = lines[index].timeMs
     val next = lines.getOrNull(index + 1)?.timeMs ?: (start + MAX_LINE_MS)
     return min(next, start + MAX_LINE_MS)
+}
+
+/**
+ * 判断该行是否是可供逐字对齐的歌词正文。
+ *
+ * 纯标点或空白的行没有可对齐的字元；制作信息行与曲首的标题行虽然有字，但其时间戳标注的
+ * 是伴奏长度而非演唱，对齐结果会把字铺满前奏。
+ */
+private fun isAlignedLyricLine(line: LyricLine, isFirst: Boolean): Boolean {
+    val text = line.text.trim()
+    if (text.isBlank()) return false
+    if (CREDIT_LINE.containsMatchIn(text)) return false
+    if (PLACEHOLDER_LINE.matches(text)) return false
+    if (isFirst && line.timeMs <= TITLE_LINE_WINDOW_MS && text.contains(" - ")) return false
+    return true
 }
