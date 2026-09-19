@@ -12,6 +12,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.ui.platform.LocalContext
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisController
+import com.yichao.evilgodxu.screens.home.component.player.LyricsAlignmentController
 import com.yichao.evilgodxu.theme.md_theme_dark_surface
 import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 import kotlinx.coroutines.CoroutineScope
@@ -23,6 +24,8 @@ internal class HomePanelState(
     val playbackState: MusicPanelStateHolder,
     // 曲库分析会话：状态与后台任务常驻首页层，关闭对话框后分析继续执行
     val libraryAnalysis: LibraryAnalysisController,
+    // 逐字对齐会话：同上，进度对话框收起后对齐继续执行并自动应用结果
+    val lyricsAlignment: LyricsAlignmentController,
     // 并列页面位置：页面切换统一由它驱动，页面自身不感知滑动过程
     val pagerState: PagerState,
     private val scope: CoroutineScope,
@@ -64,6 +67,7 @@ internal fun rememberHomePanelState(): HomePanelState {
         HomePanelState(
             playbackState = playbackState,
             libraryAnalysis = LibraryAnalysisController(context, scope),
+            lyricsAlignment = LyricsAlignmentController(context, scope),
             pagerState = pagerState,
             scope = scope,
         )

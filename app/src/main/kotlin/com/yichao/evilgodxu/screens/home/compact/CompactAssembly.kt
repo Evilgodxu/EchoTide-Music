@@ -86,6 +86,7 @@ internal fun CompactAssembly(
                     topBarInset = topInset,
                     swipePreviewText = trackSwipe.previewText,
                     libraryAnalysis = panelState.libraryAnalysis,
+                    lyricsAlignment = panelState.lyricsAlignment,
                     playlistVisible = panelState.playlistVisible,
                     onPlaylistVisibilityChange = { panelState.playlistVisible = it },
                     onSpeedLongClick = { panelState.showSpeed = true },

@@ -37,13 +37,6 @@ internal object SpectralDecoder {
     private const val PROBE_LO_HZ = 22150f
     private const val PROBE_HI_HZ = 22850f
 
-    // MediaCodec 输出 PCM 编码值（KEY_PCM_ENCODING 取值，兼容各 API 层级）
-    private const val PCM_16BIT = 2
-    private const val PCM_8BIT = 3
-    private const val PCM_FLOAT = 4
-    private const val PCM_24BIT_PACKED = 21
-    private const val PCM_32BIT = 22
-
     // 解码摘要：平均功率谱与判据所需全部参数，两识别器在其上提取各自特征
     data class DecodeSummary(
         val powerSum: FloatArray,
@@ -56,14 +49,6 @@ internal object SpectralDecoder {
         // 升频死区探带逐帧功率：44.1k 源奈奎斯特上方窄带；采样率不足以容纳时不适用（空数组）
         val probe22050: FloatArray = FloatArray(0),
     )
-
-    // PCM 编码对应的单样本字节宽：未知编码回退 16 位，避免按错误步长读取解交织
-    private fun pcmBytesPerSample(pcmEncoding: Int): Int = when (pcmEncoding) {
-        PCM_8BIT -> 1
-        PCM_24BIT_PACKED -> 3
-        PCM_FLOAT, PCM_32BIT -> 4
-        else -> 2
-    }
 
     // Hann 窗：预计算避免逐帧重复求余弦
     private val hannWindow = FloatArray(FFT_SIZE) { i ->
@@ -158,7 +143,7 @@ internal object SpectralDecoder {
         probes: List<ProbeAccumulator>,
     ): Int {
         val info = MediaCodec.BufferInfo()
-        var pcmEncoding = PCM_16BIT
+        var pcmEncoding = PcmFormat.ENCODING_16BIT
         var bytesPerSample = 2
         val targetFrames = sampleRate * PROBE_DURATION_US / 1_000_000
         var decodedFrames = 0
@@ -188,8 +173,8 @@ internal object SpectralDecoder {
             when (val outIndex = decoder.dequeueOutputBuffer(info, CODEC_TIMEOUT_US)) {
                 MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                     // 24bit FLAC 在部分设备按 24bit/32bit 输出，字节宽必须跟随编码而非固定 16 位
-                    pcmEncoding = decoder.outputFormat.getInteger(MediaFormat.KEY_PCM_ENCODING, PCM_16BIT)
-                    bytesPerSample = pcmBytesPerSample(pcmEncoding)
+                    pcmEncoding = PcmFormat.encodingOf(decoder.outputFormat)
+                    bytesPerSample = PcmFormat.bytesPerSample(pcmEncoding)
                 }
                 MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
                 else -> if (outIndex >= 0) {
@@ -226,7 +211,7 @@ internal object SpectralDecoder {
         stereo: StereoAccumulator,
         probes: List<ProbeAccumulator>,
     ): Int {
-        val bytesPerSample = pcmBytesPerSample(pcmEncoding)
+        val bytesPerSample = PcmFormat.bytesPerSample(pcmEncoding)
         val frames = size / (channels * bytesPerSample).coerceAtLeast(1)
         if (frames <= 0) return 0
         val mono = FloatArray(frames)
@@ -238,18 +223,7 @@ internal object SpectralDecoder {
             var left = 0f
             var right = 0f
             for (c in 0 until channels) {
-                val sample = when (pcmEncoding) {
-                    PCM_FLOAT -> view.getFloat(cursor)
-                    PCM_32BIT -> view.getInt(cursor) / 2147483648f
-                    PCM_24BIT_PACKED -> {
-                        val b0 = view.get(cursor).toInt() and 0xFF
-                        val b1 = view.get(cursor + 1).toInt() and 0xFF
-                        val b2 = view.get(cursor + 2).toInt() and 0xFF
-                        (((b2 shl 24) or (b1 shl 16) or (b0 shl 8)) shr 8) / 8388608f
-                    }
-                    PCM_8BIT -> ((view.get(cursor).toInt() and 0xFF) - 128) / 128f
-                    else -> view.getShort(cursor).toFloat() / 32768f
-                }
+                val sample = PcmFormat.read(view, cursor, pcmEncoding)
                 cursor += bytesPerSample
                 if (c == 0) left = sample else if (c == 1) right = sample
                 acc += sample

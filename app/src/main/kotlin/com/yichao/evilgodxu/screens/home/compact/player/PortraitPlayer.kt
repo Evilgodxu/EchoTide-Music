@@ -83,6 +83,7 @@ import com.yichao.evilgodxu.screens.home.component.player.MarqueeInfoLine
 import com.yichao.evilgodxu.screens.home.component.player.PlayerControls
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisController
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisSheet
+import com.yichao.evilgodxu.screens.home.component.player.LyricsAlignmentController
 import com.yichao.evilgodxu.screens.home.component.queue.PlaylistSheet
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.player.currentTrackNeedsLosslessUpgrade
@@ -98,6 +99,7 @@ import com.yichao.evilgodxu.ui.component.player.menuEdgePositionProvider
 import com.yichao.evilgodxu.ui.component.player.MiniContextMenu
 import com.yichao.evilgodxu.ui.component.dialog.RenameDialog
 import com.yichao.evilgodxu.ui.component.player.LyricsEditDialog
+import com.yichao.evilgodxu.ui.component.player.LyricsAlignDialog
 import com.yichao.evilgodxu.ui.component.player.LyricsPanel
 import com.yichao.evilgodxu.ui.component.player.LyricsRefreshDialog
 import com.yichao.evilgodxu.ui.copyToClipboard
@@ -115,6 +117,8 @@ internal fun PortraitPlayer(
     swipePreviewText: String? = null,
     // 曲库分析会话：状态与后台分析任务常驻首页层
     libraryAnalysis: LibraryAnalysisController,
+    // 逐字对齐会话：进度对话框收起后对齐仍在后台继续
+    lyricsAlignment: LyricsAlignmentController,
     // 播放列表面板显隐：由首页层持有，显示期间禁用上下滑动切歌
     playlistVisible: Boolean,
     onPlaylistVisibilityChange: (Boolean) -> Unit,
@@ -368,7 +372,8 @@ internal fun PortraitPlayer(
                     }
                     LyricsContextMenu(
                         visible = showLyricsMenu,
-                        editEnabled = playbackState.currentTrack?.lyricLines?.isNotEmpty() == true,
+                        // 编辑与逐字对齐都以「有歌词行」为前提，无歌词时两项均不展示
+                        lyricsAvailable = playbackState.currentTrack?.lyricLines?.isNotEmpty() == true,
                         onEdit = {
                             showLyricsMenu = false
                             val track = playbackState.currentTrack
@@ -394,6 +399,12 @@ internal fun PortraitPlayer(
                         onLocalImport = {
                             showLyricsMenu = false
                             lyricsImportLauncher.launch("*/*")
+                        },
+                        onWordAlign = {
+                            showLyricsMenu = false
+                            playbackState.currentTrack?.let { track ->
+                                lyricsAlignment.start(playbackState, track)
+                            }
                         },
                         onDismiss = { showLyricsMenu = false },
                     )
@@ -601,6 +612,12 @@ internal fun PortraitPlayer(
             onCancel = { showLyricsEdit = false },
         )
 
+        LyricsAlignDialog(
+            visible = lyricsAlignment.visible,
+            progress = lyricsAlignment.progress,
+            onCollapse = { lyricsAlignment.dismiss() },
+        )
+
         // 音频信息条点击触发的无损升级确认对话框
         LosslessUpgradeDialog(
             visible = showLosslessUpgrade,
@@ -785,17 +802,27 @@ internal fun PortraitPlayer(
                 onDismiss = { lyricsEditFailed = false },
             )
         }
+        if (lyricsAlignment.failed) {
+            MusicErrorBanner(
+                message = stringResource(R.string.music_panel_word_align_failed),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(start = 16.dp, top = topBarInset + 10.dp, end = 16.dp),
+                onDismiss = { lyricsAlignment.clearFailed() },
+            )
+        }
     }
 }
 
-// 歌词长按菜单：提供在线搜索、本地歌词导入与原文编辑（有歌词行时才可编辑）
+// 歌词长按菜单：提供在线搜索、本地歌词导入、原文编辑与逐字对齐（有歌词行时才可编辑与对齐）
 @Composable
 private fun LyricsContextMenu(
     visible: Boolean,
-    editEnabled: Boolean,
+    lyricsAvailable: Boolean,
     onEdit: () -> Unit,
     onOnlineSearch: () -> Unit,
     onLocalImport: () -> Unit,
+    onWordAlign: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     if (visible) {
@@ -846,7 +873,7 @@ private fun LyricsContextMenu(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
                         )
                     }
-                    if (editEnabled) {
+                    if (lyricsAvailable) {
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = Color.Transparent,
@@ -854,6 +881,20 @@ private fun LyricsContextMenu(
                         ) {
                             Text(
                                 text = stringResource(R.string.music_panel_edit),
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color.Transparent,
+                            onClick = onWordAlign,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.music_panel_word_align),
                                 color = MaterialTheme.colorScheme.primary,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
