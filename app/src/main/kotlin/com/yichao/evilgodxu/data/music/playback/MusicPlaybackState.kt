@@ -132,6 +132,11 @@ class MusicPlaybackState(
     // 避免界面、悬浮窗与授权扫描各自触发重复的读盘与解析
     private val restoreMutex = Mutex()
     private var restoreJob: Deferred<Unit>? = null
+    // 冷启动恢复（曲库、收藏、面板态）是否已了结：每日推荐的画像与排除集合都取自恢复结果，
+    // 在它了结前生成只能得到空样本，故需据此等待。失败也算了结 —— 否则等待分支会永久拦下生成
+    private var restoreSettled = false
+    // 等待恢复完成后再生成推荐的等待任务：恢复失败时不重复叠加
+    private var awaitRestoreJob: Job? = null
     var appContext: Context? = null
     var mediaController: MediaController? by mutableStateOf(null)
     var player: Player? by mutableStateOf(null)
@@ -901,6 +906,8 @@ class MusicPlaybackState(
         }
         // 冷启动预读上次曲目的落盘封面：驻留内存后首帧可同步取用，不阻塞本次恢复
         savedUri?.let { uri -> playbackScope.launch { CurrentCoverCache.load(context, uri) } }
+        // 曲库与收藏至此可见：等待恢复的每日推荐生成据此放行
+        restoreSettled = true
     }
 
     // 冷启动未播放时预读当前曲目格式信息，供音频信息条展示；开始播放后由解码头覆盖
@@ -1707,8 +1714,27 @@ class MusicPlaybackState(
      * 排序计算只读本地候选池，联网更新由 [startChartPoolRefresh] 独立进行，本方法只负责在计算前
      * 确保本期候选池就位、并在计算后切出当日窗口（见 [advanceDailyWindow]）。
      * 黑名单或收藏列表与上次生成不一致时视为过期，重新计算；手动刷新通过 force 强制重算。
+     *
+     * 冷启动时曲库与收藏由磁盘异步恢复（见 [restoreSavedState]），而搜索面板与恢复流程并行启动 ——
+     * 恢复完成前生成，画像与排除集合都取到空值，算出的空排序又会被当作「已生成」，
+     * 此后自动路径全被早返回跳过，只剩手动刷新能重算。故此处先等恢复完成再走同一入口。
      */
     fun loadDailyRecommendations(context: Context, force: Boolean = false) {
+        if (!restoreSettled) {
+            awaitRestoreJob = awaitRestoreJob?.takeIf { it.isActive } ?: playbackScope.launch {
+                try {
+                    restoreSavedState(context)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    CrashLogManager.logException("MusicPlaybackState", "等待曲库恢复失败", e)
+                }
+                // 失败同样置位：等不到输入时就按当前可见状态生成，不让等待分支永久拦下
+                restoreSettled = true
+                loadDailyRecommendations(context, force)
+            }
+            return
+        }
         val blacklist = BlacklistStore.keys
         val liked = likedIds
         // 候选池跨过换期刻度后即便偏好与黑名单未变也要重算：排序依据的是上一期候选，

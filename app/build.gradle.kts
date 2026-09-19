@@ -21,8 +21,8 @@ android {
         applicationId = "com.yichao.evilgodxu"
         minSdk = 33
         targetSdk = 37
-        versionCode = 44
-        versionName = "3.6.0"
+        versionCode = 45
+        versionName = "3.6.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -105,13 +105,13 @@ android {
     }
 }
 
-// 构建产物统一命名为 YiChaoMusic-<versionName>-arm64.apk
+// 构建产物统一命名为 EchoTideMusic-<versionName>-arm64.apk
 val apkVersionName = android.defaultConfig.versionName ?: "0.0.0"
 
 androidComponents {
     onVariants(selector().all()) { variant ->
         variant.outputs.forEach { output ->
-            output.outputFileName.set("YiChaoMusic-$apkVersionName-arm64.apk")
+            output.outputFileName.set("EchoTideMusic-$apkVersionName-arm64.apk")
         }
     }
 }
