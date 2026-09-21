@@ -132,6 +132,7 @@ internal fun OnlineSearchPanel(
                     playbackState.qualityBusy = false
                     playbackState.qualityError = null
                 },
+                onBlacklist = { song -> playbackState.blacklistTrack(context, song.title, song.artist) },
                 onRefresh = { playbackState.loadDailyRecommendations(context, force = true) },
             )
             Spacer(modifier = Modifier.height(8.dp))

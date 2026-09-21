@@ -73,6 +73,7 @@
     <string name="music_panel_daily_recommend_title">Daily Mix</string>
     <string name="music_panel_daily_recommend_loading">Building your daily mix…</string>
     <string name="music_panel_daily_recommend_empty">No new songs to recommend</string>
+    <string name="music_panel_daily_recommend_blacklist">Don\'t recommend again</string>
     <string name="music_panel_quality_title">Select quality</string>
     <string name="music_panel_quality_failed">This quality is unavailable, try another</string>
     <string name="music_quality_lossless">Lossless</string>

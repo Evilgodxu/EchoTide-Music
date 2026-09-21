@@ -73,6 +73,7 @@
     <string name="music_panel_daily_recommend_title">每日推荐</string>
     <string name="music_panel_daily_recommend_loading">正在生成每日推荐…</string>
     <string name="music_panel_daily_recommend_empty">暂无可推荐的新歌</string>
+    <string name="music_panel_daily_recommend_blacklist">不再推荐</string>
     <string name="music_panel_quality_title">选择音质</string>
     <string name="music_panel_quality_failed">该音质无法播放，请选择其它音质</string>
     <string name="music_quality_lossless">无损</string>

@@ -25,7 +25,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -41,13 +40,10 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
@@ -65,6 +61,7 @@ import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
+import com.yichao.evilgodxu.ui.component.MarqueeText
 import com.yichao.evilgodxu.ui.component.player.DiscArt
 import kotlin.math.min
 import kotlinx.coroutines.delay
@@ -296,7 +293,7 @@ internal fun MiniPlayerBar(
                     .padding(horizontal = 8.dp),
                 verticalArrangement = Arrangement.Center
             ) {
-                MiniPlayerMarqueeText(
+                MarqueeText(
                     text = current?.title.orEmpty(),
                     color = MaterialTheme.colorScheme.onSurface,
                     style = TextStyle(
@@ -401,51 +398,6 @@ private fun MiniPlayerLyricText(
     )
 }
 
-// 迷你条歌曲名：标题超宽时以跑马灯滚动展示，避免硬截断；未溢出时静态左对齐
-@Composable
-private fun MiniPlayerMarqueeText(
-    text: String,
-    color: Color,
-    style: TextStyle,
-    modifier: Modifier = Modifier,
-) {
-    val textMeasurer = rememberTextMeasurer()
-    val density = LocalDensity.current
-    val layout = remember(text, style) { textMeasurer.measure(AnnotatedString(text), style) }
-    var containerWidthPx by remember { mutableFloatStateOf(0f) }
-    val maxScroll = (layout.size.width - containerWidthPx).coerceAtLeast(0f)
-    val offset = remember(text) { Animatable(0f) }
-    LaunchedEffect(text, maxScroll) {
-        if (containerWidthPx <= 0f || maxScroll <= 0f) {
-            offset.snapTo(0f)
-            return@LaunchedEffect
-        }
-        // 按固定速度折算滚动时长，保证不同长度标题速度一致
-        val speedPxPerMs = with(density) { MINI_TITLE_MARQUEE_SPEED.toPx() } / 1000f
-        val scrollMs = (maxScroll / speedPxPerMs).toInt().coerceAtLeast(1)
-        while (isActive) {
-            delay(MINI_TITLE_MARQUEE_PAUSE_MS)
-            offset.animateTo(maxScroll, tween(scrollMs, easing = LinearEasing))
-            delay(MINI_TITLE_MARQUEE_PAUSE_MS)
-            offset.animateTo(0f, tween(scrollMs, easing = LinearEasing))
-        }
-    }
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(with(density) { layout.size.height.toDp() })
-            .onSizeChanged { containerWidthPx = it.width.toFloat() }
-            .drawWithContent {
-                if (layout.size.width <= 0f || size.width <= 0f) return@drawWithContent
-                val translateX = if (layout.size.width <= size.width) 0f else -offset.value
-                clipRect(left = 0f, top = 0f, right = size.width, bottom = size.height) {
-                    drawText(layout, color = color, topLeft = Offset(translateX, 0f))
-                }
-            }
-            .semantics { contentDescription = text }
-    )
-}
-
 // 迷你条控制按钮：视觉圆环小于触控热区，避免在紧凑高度下贴满上下边缘
 @Composable
 private fun MiniControlButton(
@@ -478,7 +430,3 @@ private fun MiniControlButton(
 private const val MINI_LYRIC_REVEAL_SMOOTH_MS = 60
 // 歌词位置回退容差：超过该值视为单曲循环回卷/手动拖动，直接锚定控制器位置
 private const val MINI_LYRIC_SEEK_TOLERANCE_MS = 1500L
-// 跑马灯滚动速度：长标题按此速度匀速平移
-private val MINI_TITLE_MARQUEE_SPEED = 24.dp
-// 跑马灯两端停顿时长：滚动前/后短暂停留便于阅读
-private const val MINI_TITLE_MARQUEE_PAUSE_MS = 1200L

@@ -1912,6 +1912,12 @@ class MusicPlaybackState(
         playbackScope.launch { BlacklistStore.add(context, track) }
     }
 
+    // 推荐项来自在线搜索，没有本地曲目对象，按歌名与歌手拉黑；
+    // 黑名单以归一化文本键存储，两条入口写入的是同一份名单，推荐应用户操作即时重算
+    fun blacklistTrack(context: Context, title: String, artist: String) {
+        playbackScope.launch { BlacklistStore.add(context, title, artist) }
+    }
+
     /**
      * 逆向反馈：切歌即视为对推荐结果不满意，把该曲目的特征计入黑名单（落盘，重启后仍生效）。
      *
