@@ -164,6 +164,25 @@ fun seekToAndPlay(state: MusicPlaybackState, positionMs: Long) {
 }
 
 /**
+ * 换源期间临时关闭随机播放。
+ *
+ * 播放器在随机模式下重建播放顺序时会按随机序前进，替换当前项即跳到别的曲目；
+ * 关闭随机让换源走列表顺序的确定性路径，完成后再恢复原有设置。
+ */
+private fun withoutShuffle(controller: MediaController, block: () -> Unit) {
+    if (!controller.shuffleModeEnabled) {
+        block()
+        return
+    }
+    controller.shuffleModeEnabled = false
+    try {
+        block()
+    } finally {
+        controller.shuffleModeEnabled = true
+    }
+}
+
+/**
  * 无损升级完成后把当前播放项就地换成指向新无损文件的 MediaItem，按原进度继续播放。
  *
  * 用 replaceMediaItem 而非重建时间线：媒体 ID 未变，播放器不会离开当前项，
@@ -195,12 +214,14 @@ suspend fun swapCurrentSourceToUri(state: MusicPlaybackState, index: Int, positi
         state.resumeAnchorTrackId = if (resumePosition > 0L) track.id else -1L
         // 换源在播放作用域内执行，调用方取消不会中断换源；等它结束才算换源生效
         state.playbackScope.launch {
-            controller.replaceMediaItem(playerIndex, newItem)
-            if (resumePosition > 0L) controller.seekTo(resumePosition)
-            if (controller.playbackState == Player.STATE_IDLE) {
-                controller.prepare()
+            withoutShuffle(controller) {
+                controller.replaceMediaItem(playerIndex, newItem)
+                if (resumePosition > 0L) controller.seekTo(resumePosition)
+                if (controller.playbackState == Player.STATE_IDLE) {
+                    controller.prepare()
+                }
+                if (wasPlaying) controller.play() else controller.pause()
             }
-            if (wasPlaying) controller.play() else controller.pause()
         }.join()
         true
     }
