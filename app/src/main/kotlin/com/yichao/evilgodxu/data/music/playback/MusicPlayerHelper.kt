@@ -3,7 +3,9 @@ package com.yichao.evilgodxu.data.music.playback
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.yichao.evilgodxu.data.music.metadata.panelArtworkUri
@@ -39,8 +41,8 @@ fun applyPlaybackSpeed(controller: MediaController, speed: Float) {
 
 fun applyPlaybackMode(controller: MediaController, mode: PlayMode) {
     controller.repeatMode = when (mode) {
-        PlayMode.RepeatOne -> androidx.media3.common.Player.REPEAT_MODE_ONE
-        PlayMode.RepeatAll, PlayMode.Shuffle -> androidx.media3.common.Player.REPEAT_MODE_ALL
+        PlayMode.RepeatOne -> Player.REPEAT_MODE_ONE
+        PlayMode.RepeatAll, PlayMode.Shuffle -> Player.REPEAT_MODE_ALL
     }
     controller.shuffleModeEnabled = mode == PlayMode.Shuffle
 }
@@ -167,29 +169,38 @@ fun seekToAndPlay(state: MusicPlaybackState, positionMs: Long) {
  * 用 replaceMediaItem 而非重建时间线：媒体 ID 未变，播放器不会离开当前项，
  * 也就不会进入重新准备流程，播放不中断。这也让音频信息条（读实际播放源）与系统媒体面板
  * 自然刷新为新格式。播放器尚未就绪时先 prepare，避免替换落在空闲态上不起播。
+ *
+ * 换源以挂起方式执行并回报结果：换源生效前播放器仍在读旧文件，
+ * 返回 false 表示本次未完成换源，调用方不得删除旧文件。
  */
-fun swapCurrentSourceToUri(state: MusicPlaybackState, index: Int, positionMs: Long) {
-    val controller = state.mediaController ?: return
-    val track = state.playlist.getOrNull(index) ?: return
-    if (controller.mediaItemCount != state.playlist.size) return
-    val current = controller.currentMediaItem ?: return
-    if (current.mediaId != track.id.toString()) return
-    val newItem = toMediaItem(track)
-    if (current.localConfiguration?.uri?.toString() == newItem.localConfiguration?.uri?.toString()) return
-    // 换源期间保持播放意图：正在播放的继续播放，暂停的保持暂停
-    val wasPlaying = controller.isPlaying
-    val resumePosition = positionMs.coerceAtLeast(0L)
-    // replaceMediaItem 会派发列表变更过渡回调，据锚点保留已还原进度，避免进度条清 0 再回填
-    state.resumeAnchorPosition = if (resumePosition > 0L) resumePosition else -1L
-    state.resumeAnchorTrackId = if (resumePosition > 0L) track.id else -1L
-    state.playbackScope.launch {
-        withContext(Dispatchers.Main) {
-            controller.replaceMediaItem(index, newItem)
+suspend fun swapCurrentSourceToUri(state: MusicPlaybackState, index: Int, positionMs: Long): Boolean =
+    withContext(Dispatchers.Main) {
+        val controller = state.mediaController ?: return@withContext false
+        val track = state.playlist.getOrNull(index) ?: return@withContext false
+        val current = controller.currentMediaItem ?: return@withContext false
+        // 播放器已离开目标曲目：此时替换会落到别的曲目上
+        if (current.mediaId != track.id.toString()) return@withContext false
+        // 替换下标取播放器自身的当前项：状态层队列收缩过之后两者不再等长，沿用状态层下标会替换错项
+        val playerIndex = controller.currentMediaItemIndex
+        if (playerIndex == C.INDEX_UNSET) return@withContext false
+        val newItem = toMediaItem(track)
+        if (current.localConfiguration?.uri?.toString() == newItem.localConfiguration?.uri?.toString()) {
+            return@withContext false
+        }
+        // 换源期间保持播放意图：正在播放的继续播放，暂停的保持暂停
+        val wasPlaying = controller.isPlaying
+        val resumePosition = positionMs.coerceAtLeast(0L)
+        // replaceMediaItem 会派发列表变更过渡回调，据锚点保留已还原进度，避免进度条清 0 再回填
+        state.resumeAnchorPosition = if (resumePosition > 0L) resumePosition else -1L
+        state.resumeAnchorTrackId = if (resumePosition > 0L) track.id else -1L
+        // 换源在播放作用域内执行，调用方取消不会中断换源；等它结束才算换源生效
+        state.playbackScope.launch {
+            controller.replaceMediaItem(playerIndex, newItem)
             if (resumePosition > 0L) controller.seekTo(resumePosition)
-            if (controller.playbackState == androidx.media3.common.Player.STATE_IDLE) {
+            if (controller.playbackState == Player.STATE_IDLE) {
                 controller.prepare()
             }
             if (wasPlaying) controller.play() else controller.pause()
-        }
+        }.join()
+        true
     }
-}
