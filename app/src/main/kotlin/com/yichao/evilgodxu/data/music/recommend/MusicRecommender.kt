@@ -16,12 +16,15 @@ import kotlinx.coroutines.withContext
  *
  * 候选池取自各内置平台的榜单（见 [ChartPool]）而非搜索结果：搜索只能召回用户已经想到的歌，
  * 榜单提供与用户历史无关的当期新歌，这是"每日推荐"区别于"搜索"的前提。
- * 候选池已做周更落盘，本类全程不再发起网络请求。
+ * 候选池已做日更落盘，本类全程不再发起网络请求。
  *
- * 输出的是**完整排序**而非当日的若干首：每日推荐按天向下推进展示窗口（第 1 天取第 1–10 首、
- * 第 2 天取第 11–20 首），需要一段可连续下推的次序；窗口如何切分由调用方按天决定。
+ * 输出当日的 [DAILY_RECOMMEND_COUNT] 首。候选池每日换期，换期后重算即在当日候选上得到一份新排序，
+ * 取榜首几首即当日结果 —— 次序不再按天向下推进，跨天的新旧差异由候选池换血带来。
  */
 internal object MusicRecommender {
+
+    /** 每日展示的推荐条数：换期后取排序榜首的这几首 */
+    private const val DAILY_RECOMMEND_COUNT = 5
 
     // 三通道权重：概念通道权重最高，跨语言召回只有它能命中
     private const val W_SURFACE = 0.30
@@ -31,15 +34,15 @@ internal object MusicRecommender {
     // 多样性惩罚：越大结果越分散，避免推荐清一色同题材
     private const val MMR_LAMBDA = 0.15
 
-    // 排序长度：展示窗口按天推进，周更周期内最多用到 7 段（70 首）。
-    // 取 120 首留一周余量，同时把 MMR 的代价压在可控范围 —— 重排是 O(n³) 的贪心
-    private const val RANKING_LIMIT = 120
+    // MMR 候选广度：多样性重排只在同一批候选内做取舍，候选面不宽于展示条数时它退化为按分数取前几首。
+    // 广度即多样性预算 —— 面外的高分曲目再像也不会被换下，故取到 120 首，远超每日展示条数
+    private const val MMR_POOL_LIMIT = 120
 
     // 指称代词概念高频出现但无主题区分力，剔除后概念向量更能反映题材
     private val CONCEPT_DROP = setOf("you")
 
     /**
-     * 生成每日推荐排序。
+     * 生成当日推荐。
      *
      * @param tracks 本地偏好基线（收藏曲目），歌词取自曲目内嵌内容或歌词缓存文件
      * @param library 本地全量曲库，仅用于把用户已拥有的歌排除出候选
@@ -124,13 +127,12 @@ internal object MusicRecommender {
         }
 
         // ---------- 8. MMR 多样性重排 ----------
-        // 先按得分截出候选次序，再在其上做多样性重排：输出的是完整排序，
-        // 每日展示窗口是这段次序的连续切片，而非各自独立取前 N 首 ——
-        // 否则第 2 天从第 11 首起算的窗口会失去与榜首同一套多样性约束
-        val rotationPool = scored.sortedByDescending { it.score }.take(RANKING_LIMIT)
-        val ranking = selectDiverse(rotationPool, rotationPool.size)
+        // 先在得分的降序上截出候选面，再在其上贪心挑出当日结果：多样性只能在同一批候选内取舍，
+        // 直接按分数取前几首会让同一题材占满展示位
+        val scoreRanked = scored.sortedByDescending { it.score }.take(MMR_POOL_LIMIT)
+        val picks = selectDiverse(scoreRanked, DAILY_RECOMMEND_COUNT)
             .map { RecommendedSong(it.result, it.conceptVector.keys) }
-        RecommendationResult(ranking, pool.fetchedAt)
+        RecommendationResult(picks, pool.fetchedAt)
     }
 
     /** 样本歌词：优先取已加载到内存的歌词，其次读歌词缓存文件 */
@@ -200,14 +202,13 @@ internal object MusicRecommender {
 }
 
 /**
- * 每日推荐排序结果。
+ * 每日推荐结果。
  *
- * [ranking] 是候选池经打分与多样性重排后的完整次序，按天取连续切片即当日展示窗口。
- * [poolFetchedAt] 是该次序所依据的候选池抓取时刻，也是轮换天数的起点 ——
- * 候选池刷新后排序回到榜首，窗口重新从第一段开始。
+ * [recommendations] 是当日展示的推荐曲目，按打分经多样性重排后的名次排列。
+ * [poolFetchedAt] 是本次结果所依据的候选池抓取时刻，调用方据此判定结果是否仍属当期。
  */
 data class RecommendationResult(
-    val ranking: List<RecommendedSong>,
+    val recommendations: List<RecommendedSong>,
     val poolFetchedAt: Long,
 )
 

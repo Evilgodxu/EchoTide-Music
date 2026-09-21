@@ -81,6 +81,8 @@ import kotlinx.coroutines.launch
 internal fun OnlineSearchPanel(
     playbackState: MusicPlaybackState,
     menuBackgroundColor: Color,
+    // 本页是否在前台可见：自动轮播等持续动效据此决定是否推进
+    visible: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -123,6 +125,7 @@ internal fun OnlineSearchPanel(
                 songs = playbackState.dailyRecommendedTracks,
                 loading = playbackState.isDailyRecommendLoading,
                 refreshing = playbackState.isChartPoolRefreshing,
+                visible = visible,
                 onSongClick = { song ->
                     // 推荐项与搜索结果同属在线歌曲，同样先由用户选定音质再解析播放地址
                     playbackState.qualityPickTrack = song

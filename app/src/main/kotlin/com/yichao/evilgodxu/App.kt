@@ -103,7 +103,7 @@ class App : Application() {
             runCatching { CacheInventory.reclaimOnColdStart(this@App) }
         }
 
-        // 候选池换期（北京时间每周四 11:00）后按需预热：晚于换期时刻启动应用也能用上新一期榜单，
+        // 候选池换期（北京时间每日 11:00）后按需预热：晚于换期时刻启动应用也能用上当日榜单，
         // 打开每日推荐时不必再等整池歌词拉完。未换期或本机还没有候选池（未用过每日推荐）
         // 时直接返回，不产生任何网络请求。更新在状态层独立进行，面板据此把手动刷新置灰
         stateHolder.state.warmChartPool(applicationContext)

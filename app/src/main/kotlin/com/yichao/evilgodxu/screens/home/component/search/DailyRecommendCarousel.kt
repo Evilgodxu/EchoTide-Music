@@ -1,5 +1,6 @@
 package com.yichao.evilgodxu.screens.home.component.search
 
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,23 +42,35 @@ import coil3.request.ImageRequest
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.ui.icons.AppIcons
+import kotlinx.coroutines.delay
 
 // 无限循环轮播的页码范围：起手落在中段，左右均可无限滑动而无需在边界处回弹
 private const val LOOP_PAGE_COUNT = Int.MAX_VALUE / 2
 
+// 自动轮播的停留时长：短于此值会在读完歌名与歌手前就把当前项划走
+private const val AUTO_SCROLL_INTERVAL_MS = 4000L
+
+// 自动翻页的滑动时长：固定时长比弹簧更好预期，也不会与手动跟手滑动的动势混同
+private const val AUTO_SCROLL_DURATION_MS = 450
+
 /**
  * 每日推荐轮播：左图右文展示榜单候选按本地偏好挑出的歌曲，下方分页点指示当前项。
+ *
+ * 项数足够时自动循环滚动。用户拖动期间不与之抢手势；[visible] 为假时不推进 ——
+ * 页面容器把所有页常驻合成树，不可见时仍会照常合成。
  *
  * 点击交由调用方处理：推荐项与搜索结果同属在线歌曲，播放前同样需要用户选择音质。
  *
  * @param loading 排序计算中
  * @param refreshing 候选池联网更新中
+ * @param visible 本页是否在前台可见
  */
 @Composable
 internal fun DailyRecommendCarousel(
     songs: List<NeteaseSongSearchResult>,
     loading: Boolean,
     refreshing: Boolean,
+    visible: Boolean,
     onSongClick: (NeteaseSongSearchResult) -> Unit,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
@@ -98,6 +112,21 @@ internal fun DailyRecommendCarousel(
                     LOOP_PAGE_COUNT - LOOP_PAGE_COUNT % songs.size
                 }
                 val pagerState = rememberPagerState(initialPage = initialPage) { Int.MAX_VALUE }
+                // 自动循环滚动：停留 AUTO_SCROLL_INTERVAL_MS 后推进一项。
+                // 用户正在拖动（含惯性滑动）时跳过本次推进，不抢手势；只有一首时也不推进 ——
+                // 循环推进改变的只是页码，展示内容始终是同一首
+                LaunchedEffect(pagerState, songs.size, visible) {
+                    if (!visible || songs.size < 2) return@LaunchedEffect
+                    while (true) {
+                        delay(AUTO_SCROLL_INTERVAL_MS)
+                        if (!pagerState.isScrollInProgress) {
+                            pagerState.animateScrollToPage(
+                                page = pagerState.currentPage + 1,
+                                animationSpec = tween(AUTO_SCROLL_DURATION_MS),
+                            )
+                        }
+                    }
+                }
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.fillMaxWidth(),

@@ -33,6 +33,8 @@ internal fun HomePanels(
             HomePage.SEARCH -> OnlineSearchPanel(
                 playbackState = panelState.playbackState.state,
                 menuBackgroundColor = panelState.backgroundColor,
+                // 三页常驻合成树，离页不等于离开合成：自动轮播等持续动效据此判定是否推进
+                visible = panelState.currentPage == HomePage.SEARCH,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(top = topInset),

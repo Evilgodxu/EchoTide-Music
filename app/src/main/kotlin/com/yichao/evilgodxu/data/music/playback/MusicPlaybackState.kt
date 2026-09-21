@@ -43,9 +43,6 @@ import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.R
 import java.io.File
-import java.time.Instant
-import java.time.LocalDate
-import java.time.temporal.ChronoUnit
 import kotlin.jvm.JvmName
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
@@ -88,8 +85,6 @@ class MusicPlaybackState(
         private const val MONO_REBASELINE_JUMP_MS = 3000L
         // 跳过判定：已播放进度达到该百分比即视为正常欣赏，不计入逆向反馈
         private const val SKIP_POSITION_PERCENT = 50L
-        // 每日推荐每天的展示条数：窗口按该长度逐日向下推进
-        private const val DAILY_RECOMMEND_COUNT = 10
     }
 
     // 上次持久化播放状态的时刻，用于播放期间节流写入
@@ -412,7 +407,7 @@ class MusicPlaybackState(
     var lyricsRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
     var coverRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
 
-    // 每日推荐：榜单候选经黑名单算法与偏好打分后的展示窗口（当日的那 10 首）
+    // 每日推荐：榜单候选经黑名单算法与偏好打分后的当日结果
     var dailyRecommendations by mutableStateOf<List<RecommendedSong>>(emptyList())
     var isDailyRecommendLoading by mutableStateOf(false)
     // 轮播展示用：推荐结果中的曲目信息
@@ -420,10 +415,8 @@ class MusicPlaybackState(
         get() = dailyRecommendations.map { it.result }
     // 已生成过推荐结果：避免每次进入搜索页重复联网计算
     var isDailyRecommendReady by mutableStateOf(false)
-    // 完整排序：展示窗口是它的连续切片，按天向下推进
-    private var dailyRanking: List<RecommendedSong> = emptyList()
-    // 排序所依据的候选池抓取时刻：轮换天数以它为起点，候选池刷新即回到榜首
-    private var dailyRankingEpochMs = 0L
+    // 当日结果所依据的候选池抓取时刻：与换期刻度比较即可判定结果是否仍属当期
+    private var dailyPoolEpochMs = 0L
     // 上次生成推荐所用的黑名单快照：与之不一致说明结果已过期
     private var generatedBlacklist: Set<String> = emptySet()
     // 上次生成推荐所用的收藏快照：画像取收藏曲目，收藏一变即需重算
@@ -1709,14 +1702,15 @@ class MusicPlaybackState(
     // ===== 每日推荐 =====
 
     /**
-     * 生成每日推荐。偏好基线取收藏曲目，候选取榜单候选池（周更落盘），黑名单在粗排阶段过滤。
+     * 生成每日推荐。偏好基线取收藏曲目，候选取榜单候选池（日更落盘），黑名单在粗排阶段过滤。
      *
-     * 排序计算只读本地候选池，联网更新由 [startChartPoolRefresh] 独立进行，本方法只负责在计算前
-     * 确保本期候选池就位、并在计算后切出当日窗口（见 [advanceDailyWindow]）。
-     * 黑名单或收藏列表与上次生成不一致时视为过期，重新计算；手动刷新通过 force 强制重算。
+     * 计算只读本地候选池，联网更新由 [startChartPoolRefresh] 独立进行，本方法只负责在计算前
+     * 确保当期候选池就位。
+     * 黑名单或收藏列表与上次生成不一致、或结果所依据的候选池已换期时视为过期，重新计算；
+     * 手动刷新通过 force 强制重算。
      *
      * 冷启动时曲库与收藏由磁盘异步恢复（见 [restoreSavedState]），而搜索面板与恢复流程并行启动 ——
-     * 恢复完成前生成，画像与排除集合都取到空值，算出的空排序又会被当作「已生成」，
+     * 恢复完成前生成，画像与排除集合都取到空值，算出的空结果又会被当作「已生成」，
      * 此后自动路径全被早返回跳过，只剩手动刷新能重算。故此处先等恢复完成再走同一入口。
      */
     fun loadDailyRecommendations(context: Context, force: Boolean = false) {
@@ -1737,16 +1731,15 @@ class MusicPlaybackState(
         }
         val blacklist = BlacklistStore.keys
         val liked = likedIds
-        // 候选池跨过换期刻度后即便偏好与黑名单未变也要重算：排序依据的是上一期候选，
-        // 面板只会按天推进窗口、不会重新联网，不重算就会在跨期的进程上一直用旧榜单。
-        // 排序为空时不作此判定 —— 此时没有会被换期影响的次序，判定恒真只会每次进面板都重抓整池
-        val poolOutdated = dailyRanking.isNotEmpty() && ChartPool.isOutdated(dailyRankingEpochMs)
-        // 在途任务已按当前输入计算，或已有结果且未过期：无需重算排序，只需按当天推进窗口。
+        // 候选池跨过换期刻度后即便偏好与黑名单未变也要重算：已有结果依据的是上一期候选，
+        // 不重算就会在跨期的进程上一直用旧榜单。
+        // 结果为空时不作此判定 —— 此时没有被换期影响的内容，判定恒真只会每次进面板都重抓整池
+        val poolOutdated = dailyRecommendations.isNotEmpty() && ChartPool.isOutdated(dailyPoolEpochMs)
+        // 输入与候选池均未变：已有结果即为当期结果，无需重算。
         // 反之（黑名单或收藏已变、候选池已换期、或强制刷新）取消在途任务后按新快照重算，
         // 避免旧快照的结果写回
         val upToDate = blacklist == generatedBlacklist && liked == generatedLiked && !poolOutdated
         if (!force && upToDate && !dailyPreferencesDirty && (isDailyRecommendLoading || isDailyRecommendReady)) {
-            advanceDailyWindow()
             return
         }
         startDailyRecommendJob(context, liked, blacklist, showLoading = true, ensurePool = true)
@@ -1851,7 +1844,7 @@ class MusicPlaybackState(
     private fun catchUpRecommendation(context: Context, poolEpochMs: Long) {
         if (!isDailyRecommendReady && !isDailyRecommendLoading) return
         if (dailyRecommendJobAwaitsPool) return
-        if (poolEpochMs == dailyRankingEpochMs) return
+        if (poolEpochMs == dailyPoolEpochMs) return
         startDailyRecommendJob(
             context,
             likedIds,
@@ -1898,44 +1891,17 @@ class MusicPlaybackState(
                 RecommendationResult(emptyList(), 0L)
             }
             if (token != dailyRecommendToken) return@launch
-            // 本地重算只做增量更新：候选池缺失等原因导致算不出排序时保持原样，不把已展示的推荐清空，
+            // 本地重算只做增量更新：候选池缺失等原因导致算不出结果时保持原样，不把已展示的推荐清空，
             // 并标记为待重算，下次进入搜索页按完整路径（可联网）重来
-            if (!ensurePool && result.ranking.isEmpty()) {
+            if (!ensurePool && result.recommendations.isEmpty()) {
                 dailyPreferencesDirty = true
                 return@launch
             }
-            dailyRanking = result.ranking
-            dailyRankingEpochMs = result.poolFetchedAt
+            dailyPoolEpochMs = result.poolFetchedAt
+            dailyRecommendations = result.recommendations
             isDailyRecommendReady = true
             isDailyRecommendLoading = false
-            advanceDailyWindow()
         }
-    }
-
-    /**
-     * 取当天的展示窗口：第 1 天取排序第 1–10 首，第 2 天取第 11–20 首，依次向下推进。
-     *
-     * 天数以候选池刷新时刻为起点 —— 定期刷新完成后排序回到榜首，重新从第 1–10 首开始。
-     * 排序长度不足（候选取不满、或候选池长期未刷新）时停在最后一段，不自行回到榜首：
-     * 回到榜首的时机只有一个，就是候选池刷新。
-     */
-    private fun advanceDailyWindow() {
-        if (dailyRanking.isEmpty()) {
-            dailyRecommendations = emptyList()
-            return
-        }
-        val day = daysSince(dailyRankingEpochMs)
-        val maxOffset = (dailyRanking.size - DAILY_RECOMMEND_COUNT).coerceAtLeast(0)
-        val offset = (day * DAILY_RECOMMEND_COUNT).coerceAtMost(maxOffset.toLong()).toInt()
-        dailyRecommendations = dailyRanking.drop(offset).take(DAILY_RECOMMEND_COUNT)
-    }
-
-    // 距候选池抓取时刻的自然日数：日界与候选池换期刻度同一基准（北京时间），跨零点即进入下一段窗口
-    private fun daysSince(epochMs: Long): Long {
-        if (epochMs <= 0L) return 0L
-        val zone = ChartPool.TIME_ZONE
-        val start = Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
-        return ChronoUnit.DAYS.between(start, LocalDate.now(zone)).coerceAtLeast(0L)
     }
 
     // ===== 黑名单 =====

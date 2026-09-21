@@ -13,10 +13,8 @@ import com.yichao.evilgodxu.data.music.model.distinctByTrack
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceEngine
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
-import java.time.DayOfWeek
 import java.time.Instant
 import java.time.ZoneId
-import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -28,41 +26,42 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 榜单候选池：各平台当期榜单连同候选歌词，按周刷新后落盘。
+ * 榜单候选池：各平台当期榜单连同候选歌词，按日刷新后落盘。
  *
- * 榜单以周为单位更新，而候选歌词是推荐流程中请求量最大的一环 ——
- * 若每次生成推荐都重新联网，一次刷新或一轮切歌就会把整池歌词重拉一遍。
- * 故候选池在此收敛「周更 + 落盘」：周内任何一次推荐计算都只读落盘结果，不再产生网络请求。
+ * 每日推荐要求当日结果与昨日不同，而候选池不换血、排序就只会重算出同一份次序 ——
+ * 差异只能来自候选本身，故换期定为日更。候选歌词是推荐流程中请求量最大的一环，
+ * 若每次生成推荐都重新联网，一次换期或一轮切歌就会把整池歌词重拉一遍；
+ * 故候选池在此收敛「日更 + 落盘」：当日任何一次推荐计算都只读落盘结果，不再产生网络请求。
  *
- * 换期时刻定在每周四 11:00（北京时间，见 [refreshTime]），不与实际抓取时刻挂钩。
+ * 换期时刻定在每日 11:00（北京时间，见 [refreshTime]），不与实际抓取时刻挂钩。
  * 换期后不必等应用恰好在换期时刻运行：[refreshIfOutdated] 供启动时预热，生成推荐时亦会按刻度判定，
  * 晚于换期时刻启动、或进程跨过换期时刻后继续使用，都会用上新一期榜单。
  *
  * 规模口径：各平台统一取榜单前 [CHART_LIMIT] 首（四家合计约四百首）。榜单容量虽不一致
- * （网易 100 / QQ 300 / 酷狗 500 / 酷我 300），但统一口径更划算 —— 取满全量会把周更刷新
+ * （网易 100 / QQ 300 / 酷狗 500 / 酷我 300），但统一口径更划算 —— 取满全量会把日更刷新
  * 拉成上千次歌词请求，而榜单尾部本就是长尾，收益不抵耗时。
  *
  * 候选池只负责「该平台当期有哪些可用的新歌」，不参与本地曲库与黑名单的过滤，
- * 后者随用户操作随时变化，需在每次计算推荐时现场判定，不能被固化进周更的快照。
+ * 后者随用户操作随时变化，需在每次计算推荐时现场判定，不能被固化进日更的快照。
  */
 internal object ChartPool {
 
     private const val FILE_NAME = "recommend_chart_pool.json"
 
     /**
-     * 每日推荐的时间基准：换期刻度与展示窗口的日界都按北京时间判定。
+     * 每日推荐的时间基准：换期刻度按北京时间判定。
      *
      * 取固定时区而非设备本地时区 —— 要对齐的是国内平台按北京时间换榜的节奏，
-     * 设备时区变化不该让换期点与窗口推进的日界跟着漂。
+     * 设备时区变化不该让换期点跟着漂。
      */
-    internal val TIME_ZONE = ZoneId.of("Asia/Shanghai")
+    private val TIME_ZONE = ZoneId.of("Asia/Shanghai")
 
-    // 换期刻度：每周四 11:00 起进入新一期，此后启动预热或生成推荐时重抓整池
-    private val REFRESH_WEEKDAY = DayOfWeek.THURSDAY
+    // 换期刻度：每日 11:00 起进入新一期，此后启动预热或生成推荐时重抓整池。
+    // 不在零点换期：当日榜单尚未更新完，零点抓到的仍大幅是前一天的榜
     private const val REFRESH_HOUR = 11
 
     // 各平台统一取榜单前 100 首：榜单容量不一（实测网易 100 / QQ 300 / 酷狗 500 / 酷我 300），
-    // 取满全量会把周更刷新拉成上千次歌词请求，且榜单尾部本就是长尾，收益不抵耗时
+    // 取满全量会把日更刷新拉成上千次歌词请求，且榜单尾部本就是长尾，收益不抵耗时
     private const val CHART_LIMIT = 100
 
     // 歌词不足的行数视为纯音乐/冷门曲，直接丢弃而非给低分
@@ -128,20 +127,19 @@ internal object ChartPool {
     }
 
     /**
-     * 当前所处的换期刻度：最近一次已到达的周四 11:00（北京时间）。
+     * 当前所处的换期刻度：最近一次已到达的 11:00（北京时间）。
      *
-     * 判据取时间轴上的固定刻度，而非「距上次抓取满 7 天」：按间隔计时会让换期点随每次实际
-     * 抓取时刻向后漂移，几轮之后与周四脱钩；固定刻度下抓取失败也不推后换期。
+     * 判据取时间轴上的固定刻度，而非「距上次抓取满 24 小时」：按间隔计时会让换期点随每次实际
+     * 抓取时刻向后漂移，几轮之后与 11:00 脱钩；固定刻度下抓取失败也不推后换期。
      */
     private fun refreshTime(now: Long): Long {
         val zone = TIME_ZONE
-        val thisWeek = Instant.ofEpochMilli(now).atZone(zone)
+        val today = Instant.ofEpochMilli(now).atZone(zone)
             .toLocalDate()
-            .with(TemporalAdjusters.previousOrSame(REFRESH_WEEKDAY))
             .atTime(REFRESH_HOUR, 0)
             .atZone(zone)
-        // 本周四尚未到 11:00 时，本周刻度还没到，当前刻度仍是上周四
-        val boundary = if (thisWeek.toInstant().toEpochMilli() > now) thisWeek.minusWeeks(1) else thisWeek
+        // 当日 11:00 尚未到时，当日刻度还没到，当前刻度仍是前一天
+        val boundary = if (today.toInstant().toEpochMilli() > now) today.minusDays(1) else today
         return boundary.toInstant().toEpochMilli()
     }
 
@@ -265,7 +263,8 @@ internal object ChartPool {
 /**
  * 候选池快照。
  *
- * [fetchedAt] 是本期候选的抓取时刻，同时充当每日推荐轮换的起点：候选池刷新即排序回到榜首。
+ * [fetchedAt] 是本期候选的抓取时刻，同时充当换期判定的基准：它与最近一次换期刻度比较，
+ * 即可判断本次排序依据的是否为当期候选。
  */
 internal data class ChartPoolSnapshot(
     val fetchedAt: Long,
