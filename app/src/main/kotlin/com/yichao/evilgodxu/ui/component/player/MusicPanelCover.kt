@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
@@ -234,7 +233,7 @@ internal fun MiniContextMenu(
     onCopy: () -> Unit,
     onRename: () -> Unit,
     onDismiss: () -> Unit,
-    // 在线搜索目标：仅一位时直接以其为关键词，多位时先下钻为竖向候选列表
+    // 在线搜索目标：仅一位时直接以其为关键词，多位时先下钻为横向候选列表
     searchTargets: List<String> = emptyList(),
     onSearchTarget: (String) -> Unit = {},
 ) {
@@ -258,14 +257,13 @@ internal fun MiniContextMenu(
                 modifier = Modifier.padding(top = 2.dp)
             ) {
                 if (showSearchTargets) {
-                    // 二级菜单：竖向排列的搜索目标，宽度取最长项，整行可点
-                    Column(
-                        modifier = Modifier
-                            .width(IntrinsicSize.Max)
-                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    // 二级菜单：横向排列的搜索目标，逐项可点
+                    Row(
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         searchTargets.forEachIndexed { index, target ->
-                            if (index > 0) Spacer(modifier = Modifier.height(2.dp))
+                            if (index > 0) Spacer(modifier = Modifier.width(2.dp))
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
                                 color = Color.Transparent,
@@ -276,9 +274,8 @@ internal fun MiniContextMenu(
                                     color = MaterialTheme.colorScheme.primary,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                                 )
                             }
                         }
