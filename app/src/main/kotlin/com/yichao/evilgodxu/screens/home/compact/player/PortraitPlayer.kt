@@ -374,6 +374,8 @@ internal fun PortraitPlayer(
                         visible = showLyricsMenu,
                         // 编辑与逐字对齐都以「有歌词行」为前提，无歌词时两项均不展示
                         lyricsAvailable = playbackState.currentTrack?.lyricLines?.isNotEmpty() == true,
+                        // 对齐进行中（含后台执行）置灰，防止重复触发
+                        wordAlignEnabled = !lyricsAlignment.aligning,
                         onEdit = {
                             showLyricsMenu = false
                             val track = playbackState.currentTrack
@@ -814,11 +816,13 @@ internal fun PortraitPlayer(
     }
 }
 
-// 歌词长按菜单：提供在线搜索、本地歌词导入、原文编辑与逐字对齐（有歌词行时才可编辑与对齐）
+// 歌词长按菜单：提供在线搜索、本地歌词导入、原文编辑与逐字对齐（有歌词行时才可编辑与对齐；
+// 对齐进行中置灰禁用，避免后台执行期间被重复触发）
 @Composable
 private fun LyricsContextMenu(
     visible: Boolean,
     lyricsAvailable: Boolean,
+    wordAlignEnabled: Boolean,
     onEdit: () -> Unit,
     onOnlineSearch: () -> Unit,
     onLocalImport: () -> Unit,
@@ -891,11 +895,13 @@ private fun LyricsContextMenu(
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = Color.Transparent,
+                            enabled = wordAlignEnabled,
                             onClick = onWordAlign,
                         ) {
                             Text(
                                 text = stringResource(R.string.music_panel_word_align),
-                                color = MaterialTheme.colorScheme.primary,
+                                color = if (wordAlignEnabled) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
                                 textAlign = TextAlign.Center,

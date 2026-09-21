@@ -53,6 +53,14 @@ internal fun CompactAssembly(
     } else {
         null
     }
+    // 逐字对齐转入后台后的进度：与曲库分析同方案在标题区展示，实时反映已对齐行数
+    val wordAlignCenterTitle = if (!panelState.lyricsAlignment.visible && panelState.lyricsAlignment.aligning) {
+        panelState.lyricsAlignment.progress?.let { (done, total) ->
+            stringResource(R.string.music_panel_word_align_progress, done, total)
+        } ?: stringResource(R.string.music_panel_word_align_decoding)
+    } else {
+        null
+    }
 
     HomeShell(
         panelState = panelState,
@@ -63,7 +71,7 @@ internal fun CompactAssembly(
                 playbackState = playbackState,
                 isLiked = isLiked,
                 favoriteEnabled = currentTrackId != null,
-                centerTitle = analysisCenterTitle,
+                centerTitle = wordAlignCenterTitle ?: analysisCenterTitle,
                 onShowTimer = { panelState.showTimer = true },
                 onToggleFavorite = { currentTrackId?.let { playbackState.toggleFavorite(it) } },
                 onToggleLandscape = onToggleLandscape,
