@@ -15,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -49,6 +50,8 @@ internal fun DefaultSoundInstallerHost(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    // 文案经 LocalResources 取值：它随 Configuration 变化失效重组，从 LocalContext 取会读到陈旧资源
+    val resources = LocalResources.current
     // LocalContext 为本地化包装 context，宿主 Activity 需从注册表所有者获取
     val activity = LocalActivityResultRegistryOwner.current as? Activity
     val permissionMonitor = remember { PermissionMonitor(context) }
@@ -60,7 +63,7 @@ internal fun DefaultSoundInstallerHost(
         awaitingGrant = false
         when (setTrackAsDefaultSound(context, target.track, target.usage)) {
             RingtoneInstallResult.Success -> {
-                Toast.makeText(context, context.getString(doneTextRes(target.usage)), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, resources.getString(doneTextRes(target.usage)), Toast.LENGTH_SHORT).show()
                 onRequestChange(null)
             }
 
