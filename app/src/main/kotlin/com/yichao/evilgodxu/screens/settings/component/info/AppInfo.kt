@@ -145,6 +145,6 @@ fun AppInfo(
     }
 }
 
-private const val GITHUB_URL = "https://github.com/Evilgodxu/YiChao-Music"
+private const val GITHUB_URL = "https://github.com/Evilgodxu/EchoTide-Music"
 private const val QQ_GROUP_URL = "https://qm.qq.com/q/VkFPRNmykw"
 private const val QQ_GROUP_DEEP_LINK = "mqqapi://card/show_pslcard?src_type=internal&version=1&uin=923555630&card_type=group&source=qrcode"
