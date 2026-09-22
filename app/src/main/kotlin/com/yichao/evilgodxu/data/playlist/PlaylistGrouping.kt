@@ -104,3 +104,12 @@ internal fun artistGroups(all: List<MusicTrack>, unknownArtist: String): List<Pl
             )
         }
         .sortedBy { it.name }
+
+// 单个艺术家分组：与 artistGroups 同口径按多歌手分隔符归属，供点击歌手信息直达该歌手歌单，
+// 避免为取一个分组而构建全库分组表
+internal fun artistGroup(all: List<MusicTrack>, artist: String): PlaylistGroup =
+    PlaylistGroup(
+        key = "artist:$artist",
+        name = artist,
+        trackIds = all.filter { artist in parseTrackArtists(it.artist) }.map { it.id },
+    )

@@ -51,6 +51,8 @@ import com.yichao.evilgodxu.data.settings.LandscapeLyricLayoutParams
 import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
+import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
+import com.yichao.evilgodxu.screens.home.component.dialog.ArtistPickerDialog
 import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
 import com.yichao.evilgodxu.screens.home.component.player.HomeAlbumArt
 import com.yichao.evilgodxu.screens.home.component.player.MarqueeInfoLine
@@ -77,6 +79,8 @@ fun LandscapePlayer(
     // 3D 封面轮播显隐：由首页层持有，进入沉浸覆盖层时同步隐藏标题栏与控制栏
     coverCarouselVisible: Boolean,
     onCoverCarouselVisibilityChange: (Boolean) -> Unit,
+    // 点击歌手信息：跳转到该歌手的歌单页
+    onOpenArtistPlaylist: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // 无损升级确认对话框显隐
@@ -84,6 +88,10 @@ fun LandscapePlayer(
     // 封面与点击检测层在窗口坐标系下的位置，用于判定点击是否命中封面
     var tapBounds by remember { mutableStateOf<Rect?>(null) }
     var coverBounds by remember { mutableStateOf<Rect?>(null) }
+    // 艺术家行在窗口坐标系下的位置，用于判定点击是否命中艺术家信息
+    var artistBounds by remember { mutableStateOf<Rect?>(null) }
+    // 点击歌手信息时待选择的歌手候选：多位歌手时弹出选择对话框
+    var artistPicker by remember { mutableStateOf<List<String>>(emptyList()) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -109,6 +117,7 @@ fun LandscapePlayer(
                     CoverInfo(
                         track = track,
                         onCoverBounds = { coverBounds = it },
+                        onArtistBounds = { artistBounds = it },
                         modifier = Modifier.fillMaxWidth(LANDSCAPE_COVER_FRACTION),
                     )
                 }
@@ -131,12 +140,22 @@ fun LandscapePlayer(
                     detectTapGestures { offset ->
                         if (coverCarouselVisible) return@detectTapGestures
                         val tap = tapBounds ?: return@detectTapGestures
-                        val cover = coverBounds ?: return@detectTapGestures
                         val windowPoint = Offset(tap.left + offset.x, tap.top + offset.y)
-                        if (cover.contains(windowPoint)) {
-                            onCoverCarouselVisibilityChange(true)
-                        } else {
-                            onToggleChrome()
+                        // 艺术家行位于封面下方，两者不相交：命中艺术家行按歌手信息处理，多位歌手先弹选择对话框
+                        val artist = artistBounds
+                        val cover = coverBounds
+                        when {
+                            artist != null && artist.contains(windowPoint) -> {
+                                val artists = parseTrackArtists(playbackState.currentTrack?.artist.orEmpty())
+                                    .filter { it.isNotBlank() }
+                                if (artists.size > 1) {
+                                    artistPicker = artists
+                                } else {
+                                    artists.firstOrNull()?.let(onOpenArtistPlaylist)
+                                }
+                            }
+                            cover != null && cover.contains(windowPoint) -> onCoverCarouselVisibilityChange(true)
+                            else -> onToggleChrome()
                         }
                     }
                 },
@@ -194,6 +213,16 @@ fun LandscapePlayer(
             visible = playlistVisible,
             playbackState = playbackState,
             onDismiss = { onPlaylistVisibilityChange(false) },
+        )
+
+        // 多位歌手的曲目：点击歌手信息后弹出的歌手选择对话框
+        ArtistPickerDialog(
+            artists = artistPicker,
+            onSelect = { artist ->
+                artistPicker = emptyList()
+                onOpenArtistPlaylist(artist)
+            },
+            onDismiss = { artistPicker = emptyList() },
         )
 
         // 音频信息条点击触发的无损升级确认对话框
@@ -285,6 +314,7 @@ private const val INFO_WIDTH_FRACTION = 0.8f
 private fun CoverInfo(
     track: MusicTrack,
     onCoverBounds: (Rect?) -> Unit,
+    onArtistBounds: (Rect?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -310,7 +340,10 @@ private fun CoverInfo(
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
             color = Color.White.copy(alpha = 0.72f),
-            modifier = Modifier.fillMaxWidth(INFO_WIDTH_FRACTION),
+            modifier = Modifier
+                .fillMaxWidth(INFO_WIDTH_FRACTION)
+                // 全屏点击层覆盖在信息区之上，艺术家行的命中判定交由该层按此范围裁决
+                .onGloballyPositioned { coords -> onArtistBounds(coords.boundsInWindow()) },
         )
     }
 }

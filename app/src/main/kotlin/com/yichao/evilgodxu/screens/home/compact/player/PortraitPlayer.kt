@@ -77,6 +77,7 @@ import com.yichao.evilgodxu.data.music.panel.searchLyricsCandidates
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.screens.home.component.dialog.ArtistPickerDialog
 import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
 import com.yichao.evilgodxu.screens.home.component.player.HomeImmersiveCover
 import com.yichao.evilgodxu.screens.home.component.player.MarqueeInfoLine
@@ -125,6 +126,8 @@ internal fun PortraitPlayer(
     // 长按上一曲/下一曲唤出调速对话框：弹窗宿主在首页对话框层
     onSpeedLongClick: () -> Unit,
     onOpenOnlineSearch: (String) -> Unit = {},
+    // 点击歌手信息：跳转到该歌手的歌单页
+    onOpenArtistPlaylist: (String) -> Unit = {},
 ) {
     val playbackState = LocalMusicPanelStateHolder.current.state
 
@@ -206,6 +209,8 @@ internal fun PortraitPlayer(
     var showMetaMenu by remember { mutableStateOf(false) }
     var menuText by remember { mutableStateOf("") }
     var menuIsTitle by remember { mutableStateOf(true) }
+    // 点击歌手信息时待选择的歌手候选：多位歌手时弹出选择对话框
+    var artistPicker by remember { mutableStateOf<List<String>>(emptyList()) }
     // 无损升级确认对话框显隐
     var showLosslessUpgrade by remember { mutableStateOf(false) }
     // 歌词微调按钮显示状态：点击歌词区切换
@@ -505,7 +510,16 @@ internal fun PortraitPlayer(
                                 .padding(horizontal = 32.dp)
                                 .fillMaxWidth()
                                 .combinedClickable(
-                                    onClick = {},
+                                    // 多位歌手先弹选择对话框，单一时直接进入该歌手的歌单页
+                                    onClick = {
+                                        val artists = parseTrackArtists(playbackState.currentTrack?.artist.orEmpty())
+                                            .filter { it.isNotBlank() }
+                                        if (artists.size > 1) {
+                                            artistPicker = artists
+                                        } else {
+                                            artists.firstOrNull()?.let(onOpenArtistPlaylist)
+                                        }
+                                    },
                                     onLongClick = {
                                         val artist = playbackState.currentTrack?.artist
                                         if (!artist.isNullOrBlank()) {
@@ -618,6 +632,16 @@ internal fun PortraitPlayer(
             visible = lyricsAlignment.visible,
             progress = lyricsAlignment.progress,
             onCollapse = { lyricsAlignment.dismiss() },
+        )
+
+        // 多位歌手的曲目：点击歌手信息后弹出的歌手选择对话框
+        ArtistPickerDialog(
+            artists = artistPicker,
+            onSelect = { artist ->
+                artistPicker = emptyList()
+                onOpenArtistPlaylist(artist)
+            },
+            onDismiss = { artistPicker = emptyList() },
         )
 
         // 音频信息条点击触发的无损升级确认对话框

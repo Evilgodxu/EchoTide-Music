@@ -53,6 +53,7 @@ import com.yichao.evilgodxu.data.playlist.PlaylistGroup
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.playlist.SmartPlaylistType
 import com.yichao.evilgodxu.data.playlist.albumGroups
+import com.yichao.evilgodxu.data.playlist.artistGroup
 import com.yichao.evilgodxu.data.playlist.artistGroups
 import com.yichao.evilgodxu.data.playlist.distinctAlbumCount
 import com.yichao.evilgodxu.data.playlist.distinctArtistCount
@@ -75,6 +76,9 @@ internal fun PlaylistPanel(
     visible: Boolean,
     playbackState: MusicPlaybackState,
     menuBackgroundColor: Color,
+    // 点击播放器歌手信息后请求打开的歌手名：非空时跳转到该歌手的曲目列表
+    pendingArtist: String? = null,
+    onPendingArtistHandled: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -84,6 +88,15 @@ internal fun PlaylistPanel(
     LaunchedEffect(Unit) { playlistStore.awaitLoaded(context) }
     var backStack by remember { mutableStateOf(listOf<PlaylistPage>(PlaylistPage.Overview)) }
     LaunchedEffect(visible) { if (!visible) backStack = listOf(PlaylistPage.Overview) }
+    // 点击歌手信息直达该歌手的曲目列表：与艺术家分组页同构，保留总览页作为回退目标
+    LaunchedEffect(pendingArtist) {
+        val artist = pendingArtist?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        backStack = listOf(
+            PlaylistPage.Overview,
+            PlaylistPage.GroupTracks(SmartPlaylistType.ARTIST, artistGroup(playbackState.libraryTracks, artist)),
+        )
+        onPendingArtistHandled()
+    }
     val page = backStack.last()
     // 二级/三级详情页系统返回键逐级回退；顶层页面由首页 BackHandler 关闭面板
     BackHandler(enabled = visible && backStack.size > 1) {

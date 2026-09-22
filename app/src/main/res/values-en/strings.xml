@@ -172,6 +172,7 @@
     <string name="home_upgrade_lossless_confirm">Upgrade</string>
     <string name="home_upgrade_cancel">Cancel</string>
     <string name="home_upgrade_lossless_failed">Lossless source unavailable, keeping current quality</string>
+    <string name="home_artist_picker_title">Select artist</string>
     <string name="settings_section_player">Playback</string>
     <string name="settings_mini_player_title">Floating player</string>
     <string name="settings_mini_player_desc">Show mini player during background playback</string>

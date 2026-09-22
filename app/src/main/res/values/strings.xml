@@ -172,6 +172,7 @@
     <string name="home_upgrade_lossless_confirm">升级</string>
     <string name="home_upgrade_cancel">取消</string>
     <string name="home_upgrade_lossless_failed">无损音源不可用，已保持原音质</string>
+    <string name="home_artist_picker_title">选择歌手</string>
     <string name="settings_section_player">播放</string>
     <string name="settings_mini_player_title">悬浮播放</string>
     <string name="settings_mini_player_desc">后台播放时显示迷你播放器</string>

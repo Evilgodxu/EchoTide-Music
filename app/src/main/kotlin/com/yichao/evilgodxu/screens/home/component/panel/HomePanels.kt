@@ -45,6 +45,9 @@ internal fun HomePanels(
                 visible = panelState.currentPage == HomePage.PLAYLIST,
                 playbackState = panelState.playbackState.state,
                 menuBackgroundColor = panelState.backgroundColor,
+                // 点击播放器歌手信息后请求打开的歌手歌单
+                pendingArtist = panelState.pendingArtistPlaylist,
+                onPendingArtistHandled = { panelState.pendingArtistPlaylist = null },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(top = topInset),

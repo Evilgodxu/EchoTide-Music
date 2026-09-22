@@ -38,6 +38,8 @@ internal class HomePanelState(
     var showSpeed by mutableStateOf(false)
     // 首页背景代表色：供搜索页与歌单页的浮层容器复用，保持与首页底色一致
     var backgroundColor by mutableStateOf(md_theme_dark_surface)
+    // 点击歌手信息后请求打开的歌手歌单：由歌单面板消费并跳转到该歌手的曲目列表
+    var pendingArtistPlaylist by mutableStateOf<String?>(null)
 
     // 当前落点页面
     val currentPage: HomePage
@@ -51,6 +53,12 @@ internal class HomePanelState(
     // 收起两侧页面回到播放器
     fun closePanels() {
         goToPage(HomePage.PLAYER)
+    }
+
+    // 打开指定歌手的歌单页：切到歌单面板，由面板跳转到该歌手的曲目列表
+    fun openArtistPlaylist(artist: String) {
+        pendingArtistPlaylist = artist
+        goToPage(HomePage.PLAYLIST)
     }
 }
 

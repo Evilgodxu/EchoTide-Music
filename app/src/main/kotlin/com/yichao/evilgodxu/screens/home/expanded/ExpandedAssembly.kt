@@ -94,6 +94,8 @@ internal fun ExpandedAssembly(
                     onSpeedLongClick = { panelState.showSpeed = true },
                     coverCarouselVisible = coverCarouselVisible,
                     onCoverCarouselVisibilityChange = { coverCarouselVisible = it },
+                    // 点击歌手信息：切到歌单面板并进入该歌手的曲目列表
+                    onOpenArtistPlaylist = panelState::openArtistPlaylist,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

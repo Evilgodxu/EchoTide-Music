@@ -105,6 +105,8 @@ internal fun CompactAssembly(
                         panelState.goToPage(HomePage.SEARCH)
                         scope.launch { performSearch(playbackState, context) }
                     },
+                    // 点击歌手信息：切到歌单面板并进入该歌手的曲目列表
+                    onOpenArtistPlaylist = panelState::openArtistPlaylist,
                 )
             }
         }
