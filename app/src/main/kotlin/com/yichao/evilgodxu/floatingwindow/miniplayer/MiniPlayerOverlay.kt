@@ -30,9 +30,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.yichao.evilgodxu.data.settings.settingsFlow
 import com.yichao.evilgodxu.data.settings.ThemeMode
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.LocalSettingsRepository
 import com.yichao.evilgodxu.theme.DarkColorScheme
 import com.yichao.evilgodxu.theme.LightColorScheme
 
@@ -63,7 +63,7 @@ internal fun MiniPlayerOverlay(
     )
 
     // 跟随应用主题：设置项优先，其次系统深色模式
-    val settings by context.settingsFlow().collectAsStateWithLifecycle(initialValue = null)
+    val settings by LocalSettingsRepository.current.settings.collectAsStateWithLifecycle(initialValue = null)
     val isSystemDark = isSystemInDarkTheme()
     val isDarkTheme = when (settings?.themeMode) {
         ThemeMode.DARK -> true

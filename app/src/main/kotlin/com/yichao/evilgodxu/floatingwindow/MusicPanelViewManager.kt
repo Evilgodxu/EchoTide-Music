@@ -257,16 +257,6 @@ class MusicPanelViewManager(
         }
     }
 
-    private fun normalizedAudioUri(audioUri: String): String {
-        return Uri.parse(audioUri)
-            .normalizeScheme()
-            .buildUpon()
-            .clearQuery()
-            .fragment(null)
-            .build()
-            .toString()
-    }
-
     private fun resolveAudioPath(uri: Uri): String? =
         resolveLocalPath(context, uri.toString())
 

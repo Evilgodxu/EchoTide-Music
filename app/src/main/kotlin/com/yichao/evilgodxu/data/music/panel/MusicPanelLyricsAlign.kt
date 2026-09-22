@@ -14,7 +14,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// 行级时间戳缺失时的兜底行宽，与歌词解析的同行宽上限保持一致
+// 单行时长上限：末行无后继时间戳、或下一行相隔过远（长间奏）时按此截断，
+// 避免逐字对齐把字铺满整段伴奏
 private const val MAX_LINE_MS = 12_000L
 
 // 曲目标题行的判定窗口：LRC 习惯把「歌手 - 歌名」放在曲首，其时间戳绑定的是整段前奏

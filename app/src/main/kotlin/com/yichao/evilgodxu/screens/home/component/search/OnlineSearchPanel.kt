@@ -157,7 +157,7 @@ internal fun OnlineSearchPanel(
                 )
             }
             // 音质选择对话框（独立窗口，不参与面板布局）
-            QualitySelectDialog(
+            SearchQualityDialog(
                 playbackState = playbackState,
                 context = context,
                 scope = scope,
@@ -507,9 +507,10 @@ private fun SearchResultList(
     }
 }
 
-// 音质选择对话框：音质尝试失败时不关闭，保留供用户更换音质重试
+// 播放音质选择对话框（与 ui/component 的通用 QualitySelectDialog 是不同实现）：
+// 携带待播曲目信息与尝试中状态，音质尝试失败时不关闭，保留供用户更换音质重试
 @Composable
-private fun QualitySelectDialog(
+private fun SearchQualityDialog(
     playbackState: MusicPlaybackState,
     context: Context,
     scope: CoroutineScope,

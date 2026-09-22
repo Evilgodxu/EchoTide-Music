@@ -55,7 +55,6 @@ import com.yichao.evilgodxu.data.music.model.RecentCover
 import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
 import com.yichao.evilgodxu.data.settings.LyricLayoutParams
 import com.yichao.evilgodxu.data.settings.musicPanelLyricLayoutFlow
-import com.yichao.evilgodxu.data.settings.settingsFlow
 import com.yichao.evilgodxu.data.settings.ThemeMode
 import com.yichao.evilgodxu.data.music.panel.applyCoverCandidate
 import com.yichao.evilgodxu.data.music.panel.applyLyricsCandidate
@@ -68,6 +67,7 @@ import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaylistRefresher
+import com.yichao.evilgodxu.LocalSettingsRepository
 import com.yichao.evilgodxu.theme.DarkColorScheme
 import com.yichao.evilgodxu.theme.LightColorScheme
 import com.yichao.evilgodxu.ui.component.player.ControlBar
@@ -103,7 +103,7 @@ fun MusicPanelOverlay(
     val metadataEnricher = LocalMetadataEnricher.current
     val playlistRefresher = LocalPlaylistRefresher.current
 
-    val settings by context.settingsFlow().collectAsStateWithLifecycle(initialValue = null)
+    val settings by LocalSettingsRepository.current.settings.collectAsStateWithLifecycle(initialValue = null)
     // 音乐面板歌词排版：字号与可见行数独立可调
     val musicPanelLayout by context.musicPanelLyricLayoutFlow()
         .collectAsStateWithLifecycle(
