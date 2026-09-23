@@ -312,7 +312,7 @@ fun MusicPanelOverlay(
                                             onOnlineCover = {
                                                 coverTargetId = playbackState.currentTrack?.id
                                                 showCoverRefresh = true
-                                                scope.launch { searchCoverCandidates(playbackState, playbackState.currentTrack!!, playbackState.coverRefreshSource) }
+                                                scope.launch { searchCoverCandidates(context, playbackState, playbackState.currentTrack!!, playbackState.coverRefreshSource) }
                                             },
                                             onLocalCover = {
                                                 coverTargetId = playbackState.currentTrack?.id
@@ -361,7 +361,7 @@ fun MusicPanelOverlay(
                                     onLyricsRefreshClick = {
                                         lyricsTargetId = playbackState.currentTrack?.id
                                         showLyricsRefresh = true
-                                        playbackState.currentTrack?.let { track -> scope.launch { searchLyricsCandidates(playbackState, track, playbackState.lyricsRefreshSource) } }
+                                        playbackState.currentTrack?.let { track -> scope.launch { searchLyricsCandidates(context, playbackState, track, playbackState.lyricsRefreshSource) } }
                                     }
                                 )
                             }
@@ -505,14 +505,14 @@ fun MusicPanelOverlay(
                             if (track != null && track.id == coverTargetId && source != playbackState.coverRefreshSource) {
                                 playbackState.setCoverRefreshSource(source)
                                 selectedCoverCandidate = null
-                                scope.launch { searchCoverCandidates(playbackState, track, source) }
+                                scope.launch { searchCoverCandidates(context, playbackState, track, source) }
                             }
                         },
                         onRefresh = {
                             val track = playbackState.currentTrack
                             if (track != null && track.id == coverTargetId) {
                                 selectedCoverCandidate = null
-                                scope.launch { searchCoverCandidates(playbackState, track, playbackState.coverRefreshSource) }
+                                scope.launch { searchCoverCandidates(context, playbackState, track, playbackState.coverRefreshSource) }
                             }
                         },
                         onConfirm = {
@@ -556,14 +556,14 @@ fun MusicPanelOverlay(
                             if (track != null && track.id == lyricsTargetId && source != playbackState.lyricsRefreshSource) {
                                 playbackState.setLyricsRefreshSource(source)
                                 selectedLyricsCandidate = null
-                                scope.launch { searchLyricsCandidates(playbackState, track, source) }
+                                scope.launch { searchLyricsCandidates(context, playbackState, track, source) }
                             }
                         },
                         onRefresh = {
                             val track = playbackState.currentTrack
                             if (track != null && track.id == lyricsTargetId) {
                                 selectedLyricsCandidate = null
-                                scope.launch { searchLyricsCandidates(playbackState, track, playbackState.lyricsRefreshSource) }
+                                scope.launch { searchLyricsCandidates(context, playbackState, track, playbackState.lyricsRefreshSource) }
                             }
                         },
                         onConfirm = {

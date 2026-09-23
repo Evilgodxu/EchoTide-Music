@@ -15,8 +15,26 @@ private const val ONLINE_TRACK_ID_OFFSET = 1_000_000L
 internal val NeteaseSongSearchResult.playlistTrackId: Long
     get() = id + ONLINE_TRACK_ID_OFFSET
 
-// 在线音乐搜索来源
-enum class MusicSearchSource { NETEASE, QQ, KUGOU, KUWO, MIGU }
+// 在线音乐搜索来源：以平台键标识，键同时是搜索、代理解析与持久化的唯一身份。
+// 内置平台的键固定为 wy/qq/kg/kw/mg；其余键由代理音源声明，应用内没有对应内置实现，
+// 这类平台的搜索、播放、歌词与封面全部由代理音源承担，无代理即不可用。
+@JvmInline
+value class MusicSearchSource(val key: String) {
+
+    companion object {
+        val NETEASE = MusicSearchSource("wy")
+        val QQ = MusicSearchSource("qq")
+        val KUGOU = MusicSearchSource("kg")
+        val KUWO = MusicSearchSource("kw")
+        val MIGU = MusicSearchSource("mg")
+
+        // 内置平台：顺序即平台切换菜单中的展示顺序
+        val BUILT_IN: List<MusicSearchSource> = listOf(NETEASE, QQ, KUGOU, KUWO, MIGU)
+
+        // 内置平台键集合：判定一个平台键是否具备内置实现
+        val builtInKeys: Set<String> = BUILT_IN.map { it.key }.toSet()
+    }
+}
 
 // 在线搜索结果
 data class NeteaseSongSearchResult(

@@ -13,9 +13,6 @@ internal sealed interface ProxyParseResult {
 // 代理音源解析与校验：严格校验必填字段，宽松处理可选动作
 internal object ProxySourceParser {
 
-    // 应用内支持的平台键（短标识），与 MusicSearchSource.platformKey 对齐
-    val SUPPORTED_PLATFORMS = setOf("wy", "qq", "kg", "kw", "mg")
-
     // 旧版长平台键映射到新短键：已导入的旧音源无需改动即可继续生效
     private val LEGACY_PLATFORM_KEYS = mapOf(
         "netease" to "wy",
@@ -42,14 +39,28 @@ internal object ProxySourceParser {
         val platformsObj = root.optJSONObject("platforms")
             ?: return ProxyParseResult.Failure("缺少必填字段 platforms")
         val platforms = mutableMapOf<String, ProxyPlatformSpec>()
-        platformsObj.keys().forEach { key ->
-            val canonical = LEGACY_PLATFORM_KEYS[key] ?: key
-            if (canonical !in SUPPORTED_PLATFORMS) return@forEach
-            val platformObj = platformsObj.optJSONObject(key) ?: return@forEach
-            parsePlatform(platformObj)?.let { platforms[canonical] = it }
+        val keys = platformsObj.keys()
+        while (keys.hasNext()) {
+            val rawKey = keys.next()
+            // 键先经旧版别名归一：别名与规范键指向同一平台，归一后去重避免同一平台解析成两份
+            val key = (LEGACY_PLATFORM_KEYS[rawKey] ?: rawKey).trim()
+            if (key.isEmpty() || platforms.containsKey(key)) continue
+            val platformObj = platformsObj.optJSONObject(rawKey) ?: continue
+            val builtIn = key in MusicSearchSource.builtInKeys
+            val name = platformObj.optString("name").trim()
+            if (!builtIn) {
+                // 自定义平台没有内置搜索与内置名称，二者都只能由音源提供，缺任一项该平台都不可用
+                if (name.isEmpty()) return ProxyParseResult.Failure("自定义平台 $key 缺少必填字段 name")
+                if (!platformObj.has("search")) return ProxyParseResult.Failure("自定义平台 $key 缺少必填动作 search")
+            }
+            val spec = parsePlatform(platformObj, name.takeIf { !builtIn && name.isNotEmpty() })
+            if (!builtIn && spec?.search == null) {
+                return ProxyParseResult.Failure("自定义平台 $key 的 search 动作缺少必填字段 url")
+            }
+            if (spec != null) platforms[key] = spec
         }
         if (platforms.isEmpty()) {
-            return ProxyParseResult.Failure("未定义受支持平台（wy/qq/kg/kw/mg）")
+            return ProxyParseResult.Failure("未定义可用平台（内置平台 wy/qq/kg/kw/mg，自定义平台需声明 name 与 search）")
         }
 
         return ProxyParseResult.Success(
@@ -65,8 +76,9 @@ internal object ProxySourceParser {
         )
     }
 
-    private fun parsePlatform(platform: JSONObject): ProxyPlatformSpec? {
+    private fun parsePlatform(platform: JSONObject, name: String?): ProxyPlatformSpec? {
         return ProxyPlatformSpec(
+            name = name?.takeIf { it.isNotBlank() },
             search = if (platform.has("search")) parseAction(platform.optJSONObject("search")) else null,
             url = if (platform.has("url")) parseAction(platform.optJSONObject("url")) else null,
             lyric = if (platform.has("lyric")) parseAction(platform.optJSONObject("lyric")) else null,

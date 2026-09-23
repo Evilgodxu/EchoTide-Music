@@ -29,11 +29,11 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
-import com.yichao.evilgodxu.data.music.api.sourceNameRes
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.data.music.proxy.OnlinePlatformRegistry
 import com.yichao.evilgodxu.R
 
 @Composable
@@ -56,7 +56,7 @@ internal fun LyricsRefreshOverlay(
         candidates = playbackState.lyricsCandidates,
         selectedId = selectedId,
         source = playbackState.lyricsRefreshSource,
-        titleText = stringResource(playbackState.lyricsRefreshSource.sourceNameRes()),
+        titleText = OnlinePlatformRegistry.displayName(context, playbackState.lyricsRefreshSource),
         refreshLabel = stringResource(R.string.music_panel_refresh_lyrics),
         noCandidatesText = stringResource(R.string.music_panel_lyrics_no_candidates),
         onSourceSelected = onSourceSelected,
@@ -101,7 +101,7 @@ internal fun LyricsRefreshDialog(
         candidates = playbackState.lyricsCandidates,
         selectedId = selectedId,
         source = playbackState.lyricsRefreshSource,
-        titleText = stringResource(playbackState.lyricsRefreshSource.sourceNameRes()),
+        titleText = OnlinePlatformRegistry.displayName(context, playbackState.lyricsRefreshSource),
         refreshLabel = stringResource(R.string.music_panel_refresh_lyrics),
         noCandidatesText = stringResource(R.string.music_panel_lyrics_no_candidates),
         onSourceSelected = onSourceSelected,
@@ -155,7 +155,7 @@ private fun LyricsCandidateItem(
                     )
                 } else {
                     Text(
-                        stringResource(candidate.source.sourceNameRes()),
+                        OnlinePlatformRegistry.displayName(context, candidate.source),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
                         textAlign = TextAlign.Center,

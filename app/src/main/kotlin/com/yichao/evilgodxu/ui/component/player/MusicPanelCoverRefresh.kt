@@ -41,11 +41,11 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
-import com.yichao.evilgodxu.data.music.api.sourceNameRes
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.data.music.proxy.OnlinePlatformRegistry
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.DialogCard
 
@@ -70,7 +70,7 @@ internal fun CoverRefreshOverlay(
         candidates = playbackState.coverCandidates,
         selectedId = selectedId,
         source = playbackState.coverRefreshSource,
-        titleText = stringResource(playbackState.coverRefreshSource.sourceNameRes()),
+        titleText = OnlinePlatformRegistry.displayName(context, playbackState.coverRefreshSource),
         refreshLabel = stringResource(R.string.music_panel_refresh_cover),
         noCandidatesText = stringResource(R.string.music_panel_cover_no_candidates),
         onSourceSelected = onSourceSelected,
@@ -105,7 +105,7 @@ internal fun CoverRefreshDialog(
         candidates = playbackState.coverCandidates,
         selectedId = selectedId,
         source = playbackState.coverRefreshSource,
-        titleText = stringResource(playbackState.coverRefreshSource.sourceNameRes()),
+        titleText = OnlinePlatformRegistry.displayName(context, playbackState.coverRefreshSource),
         refreshLabel = stringResource(R.string.music_panel_refresh_cover),
         noCandidatesText = stringResource(R.string.music_panel_cover_no_candidates),
         onSourceSelected = onSourceSelected,

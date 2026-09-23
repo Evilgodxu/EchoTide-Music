@@ -7,10 +7,9 @@ import com.yichao.evilgodxu.data.music.api.KuwoMusicApi
 import com.yichao.evilgodxu.data.music.api.MiguMusicApi
 import com.yichao.evilgodxu.data.music.api.MusicQuality
 import com.yichao.evilgodxu.data.music.api.NeteaseMusicApi
-import com.yichao.evilgodxu.data.music.api.OnlineMusicSource
 import com.yichao.evilgodxu.data.music.api.QQMusicApi
 import com.yichao.evilgodxu.data.music.api.adaptiveCandidates
-import com.yichao.evilgodxu.data.music.api.sourceOf
+import com.yichao.evilgodxu.data.music.api.builtInSourceOf
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
@@ -38,21 +37,29 @@ private const val SEARCH_PAGE_SIZE = 20
 // 代理音源一次拉取的条数上限：多数代理不支持分页，一次拿全量后本地按页切分
 private const val PROXY_FETCH_COUNT = 60
 
-// 单来源单次查询候选：每来源对每条查询各取前 10 条，单源失败不影响其它查询
-private suspend fun searchSourceCandidates(source: OnlineMusicSource, query: String): List<NeteaseSongSearchResult> =
-    runCatching { source.search(query, page = 1, pageSize = 10).take(10) }.getOrDefault(emptyList())
+// 单来源单次查询候选：每来源对每条查询各取前 limit 条，单源失败不影响其它查询。
+// 走平台搜索统一入口：代理音源优先，自定义平台没有内置搜索，其候选完全由代理音源提供
+private suspend fun searchSourceCandidates(
+    context: Context,
+    source: MusicSearchSource,
+    query: String,
+    limit: Int = 10,
+): List<NeteaseSongSearchResult> =
+    runCatching { ProxySourceEngine.searchPlatform(context, source, query, page = 1, pageSize = limit).take(limit) }
+        .getOrDefault(emptyList())
 
 // 单来源候选：先以“歌名+歌手”查询、再以纯歌名查询，各取前 10 后合并去重（10+10）
 private suspend fun searchSingleSourceCandidates(
-    source: OnlineMusicSource,
+    context: Context,
+    source: MusicSearchSource,
     title: String,
     artist: String,
 ): List<NeteaseSongSearchResult> {
     val combined = listOf(title, artist).filter { it.isNotBlank() }.joinToString(" ")
-    val occupied = if (combined.isBlank()) emptyList() else searchSourceCandidates(source, combined)
+    val occupied = if (combined.isBlank()) emptyList() else searchSourceCandidates(context, source, combined)
     val occupiedIds = occupied.map { it.id }.toSet()
     val titleOnly = if (title.isBlank()) emptyList() else
-        searchSourceCandidates(source, title).filter { it.id !in occupiedIds }
+        searchSourceCandidates(context, source, title).filter { it.id !in occupiedIds }
     return occupied + titleOnly
 }
 
@@ -65,6 +72,7 @@ private fun matchesTrackTitle(title: String, result: NeteaseSongSearchResult): B
 }
 
 internal suspend fun searchLyricsCandidates(
+    context: Context,
     playbackState: MusicPlaybackState,
     track: MusicTrack,
     source: MusicSearchSource,
@@ -73,7 +81,7 @@ internal suspend fun searchLyricsCandidates(
     playbackState.lyricsCandidates = emptyList()
     playbackState.lyricsRefreshError = null
     try {
-        playbackState.lyricsCandidates = searchSingleSourceCandidates(sourceOf(source), track.title, track.artist)
+        playbackState.lyricsCandidates = searchSingleSourceCandidates(context, source, track.title, track.artist)
             .filter { matchesTrackTitle(track.title, it) }
             .take(30)
     } catch (e: Exception) {
@@ -91,6 +99,8 @@ private suspend fun embedLyricsText(context: Context, track: MusicTrack, lyricsT
     MusicMetadataWriter.writeLyricsToSource(context, track, lyricsText)
 }
 
+// 应用歌词候选：代理音源优先，未配置或失败时回退各平台内置歌词接口。
+// 自定义平台没有内置歌词接口，代理不可用即视为该候选无歌词
 internal suspend fun applyLyricsCandidate(
     context: Context,
     playbackState: MusicPlaybackState,
@@ -101,13 +111,15 @@ internal suspend fun applyLyricsCandidate(
     playbackState.lyricsRefreshError = null
     return try {
         val updated = withContext(Dispatchers.IO) {
-            val lines = when (candidate.source) {
-                MusicSearchSource.QQ -> QQMusicApi.lyricLines(candidate).orEmpty()
-                MusicSearchSource.KUGOU -> KugouMusicApi.lyricLines(candidate).orEmpty()
-                MusicSearchSource.KUWO -> KuwoMusicApi.lyricLines(candidate).orEmpty()
-                MusicSearchSource.MIGU -> MiguMusicApi.lyricLines(candidate).orEmpty()
-                else -> NeteaseMusicApi.lyric(candidate.id).lines
-            }
+            val lines = ProxySourceEngine.lyricLines(context, candidate.source, candidate)
+                ?: when (candidate.source) {
+                    MusicSearchSource.NETEASE -> NeteaseMusicApi.lyric(candidate.id).lines
+                    MusicSearchSource.QQ -> QQMusicApi.lyricLines(candidate).orEmpty()
+                    MusicSearchSource.KUGOU -> KugouMusicApi.lyricLines(candidate).orEmpty()
+                    MusicSearchSource.KUWO -> KuwoMusicApi.lyricLines(candidate).orEmpty()
+                    MusicSearchSource.MIGU -> MiguMusicApi.lyricLines(candidate).orEmpty()
+                    else -> emptyList()
+                }
             if (lines.isEmpty()) return@withContext null
             val path = MusicMetadataCache.saveLyrics(context, track.title, track.artist, lines).orEmpty()
             if (path.isBlank()) return@withContext null
@@ -197,6 +209,7 @@ internal suspend fun applyLyricsLineEdit(
 }
 
 internal suspend fun searchCoverCandidates(
+    context: Context,
     playbackState: MusicPlaybackState,
     track: MusicTrack,
     source: MusicSearchSource,
@@ -204,7 +217,7 @@ internal suspend fun searchCoverCandidates(
     playbackState.isCoverSearching = true
     playbackState.coverCandidates = emptyList()
     try {
-        playbackState.coverCandidates = searchSingleSourceCandidates(sourceOf(source), track.title, track.artist)
+        playbackState.coverCandidates = searchSingleSourceCandidates(context, source, track.title, track.artist)
             .filter { matchesTrackTitle(track.title, it) && !it.coverUrl.isNullOrBlank() }
             .take(30)
     } catch (e: Exception) {
@@ -232,7 +245,7 @@ internal suspend fun searchLosslessUpgradeCandidates(
             ProxySourceEngine.search(context, source, keyword, page = 1, pageSize = 30)
         }.getOrNull()
         val candidates = if (proxyResults.isNullOrEmpty()) {
-            searchSingleSourceCandidates(sourceOf(source), track.title, track.artist)
+            searchSingleSourceCandidates(context, source, track.title, track.artist)
         } else proxyResults
         playbackState.losslessUpgradeCandidates = candidates
             .filter { matchesTrackTitle(track.title, it) }
@@ -253,7 +266,11 @@ internal suspend fun applyCoverCandidate(
 ): Boolean {
     return try {
         val writeSuccess = withContext(Dispatchers.IO) {
-            val bytes = NeteaseMusicApi.loadCoverBytes(candidate.coverUrl.orEmpty()) ?: return@withContext false
+            // 代理音源优先按 coverId 换取封面，未配置或失败时回退候选自带的封面直链；
+            // 自定义平台没有内置封面地址，两者都取不到时视为该候选不可用
+            val bytes = ProxySourceEngine.coverBytes(context, candidate)
+                ?: NeteaseMusicApi.loadCoverBytes(candidate.coverUrl.orEmpty())
+                ?: return@withContext false
             // 手动刷新封面：按音频容器格式原生写入元数据；系统据此重建封面略缩图，
             // 显示端据此重新取图（系统略缩图或文件内嵌封面）；落盘的旧缩略图由 bumpCoverRevision 一并作废
             MusicMetadataWriter.writeCover(context, track, bytes)
@@ -311,9 +328,10 @@ internal suspend fun performSearch(
             playbackState.hasMoreSearchResults =
                 playbackState.searchPending.isNotEmpty() || playbackState.searchPendingFull
         } else {
-            // 内置平台按页请求，首屏一页
-            val results = runCatching { sourceOf(playbackState.searchSource).search(query, 1, SEARCH_PAGE_SIZE) }
-                .getOrDefault(emptyList())
+            // 内置平台按页请求，首屏一页；自定义平台没有内置实现，代理不可用即无结果
+            val results = builtInSourceOf(playbackState.searchSource)
+                ?.let { runCatching { it.search(query, 1, SEARCH_PAGE_SIZE) }.getOrDefault(emptyList()) }
+                .orEmpty()
             playbackState.searchResults = results.distinctBy { it.source to it.id }
             playbackState.hasMoreSearchResults = results.size >= SEARCH_PAGE_SIZE
         }
@@ -353,8 +371,9 @@ private suspend fun fetchSearchPage(
     return if (proxyResults != null) {
         proxyResults
     } else {
-        runCatching { sourceOf(playbackState.searchSource).search(query, page, SEARCH_PAGE_SIZE) }
-            .getOrDefault(emptyList())
+        builtInSourceOf(playbackState.searchSource)
+            ?.let { runCatching { it.search(query, page, SEARCH_PAGE_SIZE) }.getOrDefault(emptyList()) }
+            .orEmpty()
     }.distinctBy { it.source to it.id }
 }
 
@@ -485,6 +504,7 @@ internal suspend fun downloadAndPlay(
                     MusicSearchSource.KUGOU -> KugouMusicApi.lyricLines(result).orEmpty()
                     MusicSearchSource.KUWO -> KuwoMusicApi.lyricLines(result).orEmpty()
                     MusicSearchSource.MIGU -> MiguMusicApi.lyricLines(result).orEmpty()
+                    else -> emptyList()
                 }
             if (lines.isEmpty()) return@async null
             val lyricPath = MusicMetadataCache.saveLyrics(context, result.title, result.artist, lines).orEmpty()
@@ -602,6 +622,18 @@ internal suspend fun tryPlayLocalMatch(
     return true
 }
 
+// 非网易云平台的内置直链解析：自定义平台没有内置实现，返回 null 即解析失败
+private suspend fun builtInPlayUrl(target: NeteaseSongSearchResult): String? =
+    withContext(Dispatchers.IO) {
+        when (target.source) {
+            MusicSearchSource.QQ -> QQMusicApi.songUrl(target.sourceId.orEmpty())
+            MusicSearchSource.KUGOU -> KugouMusicApi.songUrl(target.sourceId.orEmpty())
+            MusicSearchSource.KUWO -> KuwoMusicApi.songUrl(target.sourceId.orEmpty())
+            MusicSearchSource.MIGU -> MiguMusicApi.songUrl(target.sourceId.orEmpty())
+            else -> null
+        }
+    }
+
 internal suspend fun playSearchResult(
     target: NeteaseSongSearchResult,
     playbackState: MusicPlaybackState,
@@ -617,39 +649,20 @@ internal suspend fun playSearchResult(
     // 代理音源优先解析播放地址，失败时回退内置解析；缓存下载沿用同一直链
     val playTarget: NeteaseSongSearchResult
     val url: String?
-    when (target.source) {
-        MusicSearchSource.QQ -> {
-            playTarget = target
-            url = ProxySourceEngine.resolveUrl(context, target, MusicQuality.HIGH)
-                ?: withContext(Dispatchers.IO) { QQMusicApi.songUrl(target.sourceId.orEmpty()) }
-        }
-        MusicSearchSource.KUGOU -> {
-            playTarget = target
-            url = ProxySourceEngine.resolveUrl(context, target, MusicQuality.HIGH)
-                ?: withContext(Dispatchers.IO) { KugouMusicApi.songUrl(target.sourceId.orEmpty()) }
-        }
-        MusicSearchSource.KUWO -> {
-            playTarget = target
-            url = ProxySourceEngine.resolveUrl(context, target, MusicQuality.HIGH)
-                ?: withContext(Dispatchers.IO) { KuwoMusicApi.songUrl(target.sourceId.orEmpty()) }
-        }
-        MusicSearchSource.MIGU -> {
-            playTarget = target
-            url = ProxySourceEngine.resolveUrl(context, target, MusicQuality.HIGH)
-                ?: withContext(Dispatchers.IO) { MiguMusicApi.songUrl(target.sourceId.orEmpty()) }
-        }
-        MusicSearchSource.NETEASE -> {
-            val fullResult = if (target.coverUrl.isNullOrBlank() || target.duration <= 0L) {
-                withContext(Dispatchers.IO) {
-                    NeteaseMusicApi.songDetail(target.id) ?: target
-                }
-            } else target
-            playTarget = fullResult
-            url = ProxySourceEngine.resolveUrl(context, fullResult, MusicQuality.HIGH)
-                ?: withContext(Dispatchers.IO) {
-                    NeteaseMusicApi.getSongUrlWithFallback(fullResult.id)
-                }
-        }
+    if (target.source == MusicSearchSource.NETEASE) {
+        val fullResult = if (target.coverUrl.isNullOrBlank() || target.duration <= 0L) {
+            withContext(Dispatchers.IO) {
+                NeteaseMusicApi.songDetail(target.id) ?: target
+            }
+        } else target
+        playTarget = fullResult
+        url = ProxySourceEngine.resolveUrl(context, fullResult, MusicQuality.HIGH)
+            ?: withContext(Dispatchers.IO) {
+                NeteaseMusicApi.getSongUrlWithFallback(fullResult.id)
+            }
+    } else {
+        playTarget = target
+        url = ProxySourceEngine.resolveUrl(context, target, MusicQuality.HIGH) ?: builtInPlayUrl(target)
     }
 
     if (url != null) {
@@ -674,6 +687,7 @@ internal suspend fun resolvePlayUrlByQuality(
         MusicSearchSource.KUGOU -> KugouMusicApi.songUrl(target.sourceId.orEmpty())
         MusicSearchSource.KUWO -> KuwoMusicApi.songUrl(target.sourceId.orEmpty(), quality)
         MusicSearchSource.MIGU -> MiguMusicApi.songUrl(target.sourceId.orEmpty(), quality)
+        else -> null
     }
 }
 

@@ -72,11 +72,11 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
-import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.panel.loadMoreSearchResults
 import com.yichao.evilgodxu.data.music.panel.performSearch
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.data.music.proxy.OnlinePlatformRegistry
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
@@ -358,6 +358,7 @@ internal fun SearchResultRow(
     onClick: () -> Unit,
     titleColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
+    val context = LocalContext.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -377,7 +378,7 @@ internal fun SearchResultRow(
             val coverModel = (result.coverThumbUrl ?: result.coverUrl)?.takeIf { it.isNotBlank() }
             if (coverModel != null) {
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
+                    model = ImageRequest.Builder(context)
                         .data(coverModel)
                         .diskCachePolicy(CachePolicy.DISABLED)
                         .build(),
@@ -418,15 +419,7 @@ internal fun SearchResultRow(
         }
 
         Text(
-            text = stringResource(
-                when (result.source) {
-                    MusicSearchSource.QQ -> R.string.music_panel_search_source_qq
-                    MusicSearchSource.KUGOU -> R.string.music_panel_search_source_kugou
-                    MusicSearchSource.KUWO -> R.string.music_panel_search_source_kuwo
-                    MusicSearchSource.MIGU -> R.string.music_panel_search_source_migu
-                    MusicSearchSource.NETEASE -> R.string.music_panel_search_source
-                }
-            ),
+            text = OnlinePlatformRegistry.displayName(context, result.source),
             color = Color.White,
             fontSize = 9.sp,
             fontWeight = FontWeight.Medium,

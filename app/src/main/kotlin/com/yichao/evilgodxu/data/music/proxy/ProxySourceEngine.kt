@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.data.music.proxy
 
 import android.content.Context
+import com.yichao.evilgodxu.data.music.api.builtInSourceOf
 import com.yichao.evilgodxu.data.music.api.mergeTranslations
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
 import com.yichao.evilgodxu.data.music.api.MusicQuality
@@ -36,7 +37,7 @@ internal object ProxySourceEngine {
         page: Int = 1,
         pageSize: Int = SEARCH_COUNT,
     ): List<NeteaseSongSearchResult>? = withContext(Dispatchers.IO) {
-        val action = ProxySourceStore.platformSpec(context, source.platformKey())?.search
+        val action = ProxySourceStore.platformSpec(context, source.key)?.search
             ?: return@withContext null
         val body = executeAction(
             action,
@@ -54,13 +55,28 @@ internal object ProxySourceEngine {
             .also { if (it.isEmpty()) return@withContext null }
     }
 
+    // 按平台搜索的统一入口：代理音源优先，未配置或解析失败时回退内置实现。
+    // 自定义平台没有内置实现，代理不可用时只能返回空列表
+    suspend fun searchPlatform(
+        context: Context,
+        source: MusicSearchSource,
+        keyword: String,
+        page: Int = 1,
+        pageSize: Int = SEARCH_COUNT,
+    ): List<NeteaseSongSearchResult> {
+        search(context, source, keyword, page, pageSize)?.let { return it }
+        return builtInSourceOf(source)?.let { builtIn ->
+            runCatching { builtIn.search(keyword, page, pageSize) }.getOrDefault(emptyList())
+        }.orEmpty()
+    }
+
     // 按歌单 ID 拉取歌单歌曲：跨页循环直至拉满或接口无新条目，按 id 去重
     suspend fun fetchPlaylist(
         context: Context,
         source: MusicSearchSource,
         playlistId: String,
     ): ProxyPlaylistResult? {
-        val action = ProxySourceStore.platformSpec(context, source.platformKey())?.playlist
+        val action = ProxySourceStore.platformSpec(context, source.key)?.playlist
             ?: return null
         val songs = mutableListOf<NeteaseSongSearchResult>()
         var name = ""
@@ -104,7 +120,7 @@ internal object ProxySourceEngine {
         target: NeteaseSongSearchResult,
         quality: MusicQuality,
     ): String? = withContext(Dispatchers.IO) {
-        val action = ProxySourceStore.platformSpec(context, target.source.platformKey())?.url
+        val action = ProxySourceStore.platformSpec(context, target.source.key)?.url
             ?: return@withContext null
         val qualityValue = action.qualities[quality]
         // qualities 未声明时任意音质都执行动作（{quality} 渲染为空串），适配固定直链音源
@@ -122,7 +138,7 @@ internal object ProxySourceEngine {
         source: MusicSearchSource,
         target: NeteaseSongSearchResult,
     ): List<LyricLine>? = withContext(Dispatchers.IO) {
-        val action = ProxySourceStore.platformSpec(context, source.platformKey())?.lyric
+        val action = ProxySourceStore.platformSpec(context, source.key)?.lyric
             ?: return@withContext null
         val body = executeAction(action, placeholders(target)) ?: return@withContext null
         val lrc = resolveString(body, action.result.lyric) ?: return@withContext null
@@ -135,7 +151,7 @@ internal object ProxySourceEngine {
         withContext(Dispatchers.IO) {
             target.coverUrl?.takeIf { it.isNotBlank() }?.let { return@withContext it }
             val coverId = target.coverId?.takeIf { it.isNotBlank() } ?: return@withContext null
-            val action = ProxySourceStore.platformSpec(context, target.source.platformKey())?.pic
+            val action = ProxySourceStore.platformSpec(context, target.source.key)?.pic
                 ?: return@withContext null
             val body = executeAction(action, placeholders(target)) ?: return@withContext null
             // 响应体即图片直链时 result.url 同样可省略
@@ -281,13 +297,4 @@ internal object ProxySourceEngine {
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
-}
-
-// 平台键与应用内搜索平台对齐（wy/qq/kg/kw/mg）
-internal fun MusicSearchSource.platformKey(): String = when (this) {
-    MusicSearchSource.NETEASE -> "wy"
-    MusicSearchSource.QQ -> "qq"
-    MusicSearchSource.KUGOU -> "kg"
-    MusicSearchSource.KUWO -> "kw"
-    MusicSearchSource.MIGU -> "mg"
 }

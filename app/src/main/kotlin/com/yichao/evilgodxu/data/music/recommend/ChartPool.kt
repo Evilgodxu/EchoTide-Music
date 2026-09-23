@@ -6,7 +6,7 @@ import com.yichao.evilgodxu.data.music.api.KuwoMusicApi
 import com.yichao.evilgodxu.data.music.api.MiguMusicApi
 import com.yichao.evilgodxu.data.music.api.NeteaseMusicApi
 import com.yichao.evilgodxu.data.music.api.QQMusicApi
-import com.yichao.evilgodxu.data.music.api.sourceOf
+import com.yichao.evilgodxu.data.music.api.builtInSourceOf
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.model.distinctByTrack
@@ -72,6 +72,15 @@ internal object ChartPool {
 
     // 换期重抓互斥：启动预热与生成推荐是两个独立触发点，同时到达时只应抓一次
     private val refreshMutex = Mutex()
+
+    // 旧快照以平台枚举名持久化，读取时映射回平台键以沿用上一期的落盘结果
+    private val LEGACY_PLATFORM_NAMES = mapOf(
+        "NETEASE" to MusicSearchSource.NETEASE.key,
+        "QQ" to MusicSearchSource.QQ.key,
+        "KUGOU" to MusicSearchSource.KUGOU.key,
+        "KUWO" to MusicSearchSource.KUWO.key,
+        "MIGU" to MusicSearchSource.MIGU.key,
+    )
 
     /**
      * 取候选池快照。
@@ -146,9 +155,10 @@ internal object ChartPool {
     /** 抓取各平台榜单并补齐歌词，返回本次可用的候选 */
     private suspend fun fetch(context: Context): List<ChartCandidate> {
         val charts = coroutineScope {
-            MusicSearchSource.entries.map { source ->
-                async { runCatching { sourceOf(source).chart(CHART_LIMIT) }.getOrDefault(emptyList()) }
-            }.awaitAll()
+            // 榜单只取内置平台：自定义平台没有内置实现，规范也未定义榜单动作
+            MusicSearchSource.BUILT_IN.mapNotNull { builtInSourceOf(it) }
+                .map { source -> async { runCatching { source.chart(CHART_LIMIT) }.getOrDefault(emptyList()) } }
+                .awaitAll()
         }
         // 跨平台去重按音轨身份而非精确文本键：各平台榜单大量交集，且同一首歌的写法不一致
         // （译名 `VALORANT` / `无畏契约`、合作歌手连接符不同），精确键去不掉，
@@ -180,6 +190,7 @@ internal object ChartPool {
                 MusicSearchSource.KUGOU -> KugouMusicApi.lyricLines(result).orEmpty()
                 MusicSearchSource.KUWO -> KuwoMusicApi.lyricLines(result).orEmpty()
                 MusicSearchSource.MIGU -> MiguMusicApi.lyricLines(result).orEmpty()
+                else -> emptyList()
             }
         lines.map { it.text }
     } catch (e: Exception) {
@@ -235,14 +246,16 @@ internal object ChartPool {
         put("coverThumbUrl", result.coverThumbUrl ?: "")
         put("coverId", result.coverId ?: "")
         put("duration", result.duration)
-        put("source", result.source.name)
+        put("source", result.source.key)
         put("sourceId", result.sourceId ?: "")
         put("lines", JSONArray(candidate.lines))
     }
 
     private fun itemFrom(json: JSONObject): ChartCandidate {
-        val source = runCatching { MusicSearchSource.valueOf(json.optString("source")) }
-            .getOrDefault(MusicSearchSource.NETEASE)
+        // 旧快照以平台枚举名持久化，先经旧名映射回平台键；两者都认不出时按网易云处理
+        val stored = json.optString("source")
+        val source = MusicSearchSource(LEGACY_PLATFORM_NAMES[stored] ?: stored)
+            .takeIf { it.key.isNotBlank() } ?: MusicSearchSource.NETEASE
         val lines = json.optJSONArray("lines") ?: JSONArray()
         val result = NeteaseSongSearchResult(
             id = json.optLong("id"),

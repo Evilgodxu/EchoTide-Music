@@ -62,7 +62,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.api.MusicQuality
 import com.yichao.evilgodxu.data.music.blacklist.BlacklistStore
-import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.panel.performSearch
 import com.yichao.evilgodxu.data.music.panel.playSearchResultWithQuality
 import com.yichao.evilgodxu.data.music.panel.tryPlayLocalMatch
@@ -72,6 +71,7 @@ import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaylistRefresher
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.QualityOptionCard
+import com.yichao.evilgodxu.ui.component.rememberOnlinePlatformOptions
 import com.yichao.evilgodxu.ui.component.dialog.SearchResultsLazyList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -189,6 +189,10 @@ private fun SearchInput(
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     var sourceMenuExpanded by remember { mutableStateOf(false) }
+    val platformOptions = rememberOnlinePlatformOptions()
+    // 平台展示名：候选里查不到当前平台时（平台已随音源移除）回退平台键
+    val currentPlatformName = platformOptions.firstOrNull { it.source == playbackState.searchSource }?.name
+        ?: playbackState.searchSource.key
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -223,7 +227,7 @@ private fun SearchInput(
                         modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = sourceName(playbackState.searchSource),
+                        text = currentPlatformName,
                         color = Color.White.copy(alpha = 0.75f),
                         fontSize = 12.sp,
                         modifier = Modifier.padding(start = 4.dp)
@@ -240,19 +244,19 @@ private fun SearchInput(
                     onDismissRequest = { sourceMenuExpanded = false },
                     containerColor = menuBackgroundColor,
                 ) {
-                    MusicSearchSource.entries.forEach { source ->
+                    platformOptions.forEach { platform ->
                         DropdownMenuItem(
-                            text = { Text(sourceName(source), color = Color.White) },
+                            text = { Text(platform.name, color = Color.White) },
                             onClick = {
                                 sourceMenuExpanded = false
-                                playbackState.setSearchSource(source)
+                                playbackState.setSearchSource(platform.source)
                                 val query = playbackState.searchQuery.trim()
                                 if (query.isNotBlank()) {
                                     scope.launch { performSearch(playbackState, context) }
                                 }
                             },
                             trailingIcon = {
-                                if (source == playbackState.searchSource) {
+                                if (platform.source == playbackState.searchSource) {
                                     Icon(
                                         imageVector = AppIcons.Check,
                                         contentDescription = null,
@@ -318,18 +322,6 @@ private fun SearchInput(
         }
     }
 }
-
-// 平台名称文本
-@Composable
-private fun sourceName(source: MusicSearchSource): String = stringResource(
-    when (source) {
-        MusicSearchSource.NETEASE -> R.string.music_panel_search_source
-        MusicSearchSource.QQ -> R.string.music_panel_search_source_qq
-        MusicSearchSource.KUGOU -> R.string.music_panel_search_source_kugou
-        MusicSearchSource.KUWO -> R.string.music_panel_search_source_kuwo
-        MusicSearchSource.MIGU -> R.string.music_panel_search_source_migu
-    }
-)
 
 // 搜索历史列表
 @Composable

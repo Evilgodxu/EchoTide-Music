@@ -2,6 +2,7 @@ package com.yichao.evilgodxu.data.music.proxy
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import org.json.JSONArray
 
 // 代理音源持久化：SharedPreferences 存储原始 JSON 列表与启用状态，同名音源重复导入时覆盖
@@ -64,10 +65,22 @@ internal object ProxySourceStore {
     @Synchronized
     fun all(context: Context): List<ProxySourceSpec> {
         val enabled = enabledNames(context)
-        return rawList(context).mapNotNull { rawJson ->
-            val spec = (ProxySourceParser.parse(rawJson) as? ProxyParseResult.Success)?.spec ?: return@mapNotNull null
-            spec.copy(enabled = enabled.contains(spec.name))
+        return parsedSpecs(context).map { it.copy(enabled = enabled.contains(it.name)) }
+    }
+
+    // 自定义搜索平台：平台键 -> 平台名称，供平台切换菜单列举内置平台之外的候选。
+    // 自定义平台没有内置搜索，缺搜索动作的平台选中后必然无结果，故只取声明了搜索动作的音源
+    @Synchronized
+    fun customSearchPlatforms(context: Context): Map<String, String> {
+        val names = mutableMapOf<String, String>()
+        for (spec in all(context)) {
+            if (!spec.enabled) continue
+            for ((key, platform) in spec.platforms) {
+                if (key in MusicSearchSource.builtInKeys || platform.search == null) continue
+                platform.name?.let { names[key] = it }
+            }
         }
+        return names
     }
 
     // 指定平台的生效音源：同一平台多音源时各动作独立取最近配置该动作的音源，
@@ -115,14 +128,31 @@ internal object ProxySourceStore {
         return array.toString()
     }
 
-    private fun rawList(context: Context): List<String> {
-        val raw = prefs(context).getString(KEY_SOURCES, null) ?: return emptyList()
-        return try {
-            val array = JSONArray(raw)
-            List(array.length()) { array.optString(it).trim() }.filter { it.isNotEmpty() }
-        } catch (e: Exception) {
-            emptyList()
+    // 解析结果按原始 JSON 文本缓存：平台候选与展示名读取频繁，逐次重新解析全部音源文本代价过高；
+    // 导入 / 移除会替换原文，缓存键不命中即重新解析
+    private var cachedRawSources: String? = null
+    private var cachedSpecs: List<ProxySourceSpec> = emptyList()
+
+    private fun parsedSpecs(context: Context): List<ProxySourceSpec> {
+        val raw = prefs(context).getString(KEY_SOURCES, null).orEmpty()
+        if (raw == cachedRawSources) return cachedSpecs
+        val specs = decodeRawList(raw).mapNotNull { rawJson ->
+            (ProxySourceParser.parse(rawJson) as? ProxyParseResult.Success)?.spec
         }
+        cachedRawSources = raw
+        cachedSpecs = specs
+        return specs
+    }
+
+    private fun rawList(context: Context): List<String> =
+        decodeRawList(prefs(context).getString(KEY_SOURCES, null).orEmpty())
+
+    // 音源文本列表本身也是 JSON 数组文本，整体损坏时按无音源处理
+    private fun decodeRawList(raw: String): List<String> = try {
+        val array = JSONArray(raw)
+        List(array.length()) { array.optString(it).trim() }.filter { it.isNotEmpty() }
+    } catch (e: Exception) {
+        emptyList()
     }
 
     private fun enabledNames(context: Context): Set<String> {

@@ -38,12 +38,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yichao.evilgodxu.data.music.api.sourceNameRes
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.DialogCard
+import com.yichao.evilgodxu.ui.component.rememberOnlinePlatformOptions
 
 /**
  * 「刷新封面」与「刷新歌词」共用的候选选择组合控件。
@@ -192,6 +192,7 @@ internal fun RefreshCandidateContent(
         // 标题行：居中显示当前来源名，点击弹出来源下拉列表，右侧独立刷新按钮
         Box(Modifier.fillMaxWidth()) {
             var sourceMenuExpanded by remember { mutableStateOf(false) }
+            val platformOptions = rememberOnlinePlatformOptions()
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -216,15 +217,15 @@ internal fun RefreshCandidateContent(
                     expanded = sourceMenuExpanded,
                     onDismissRequest = { sourceMenuExpanded = false },
                 ) {
-                    MusicSearchSource.entries.forEach { src ->
+                    platformOptions.forEach { platform ->
                         DropdownMenuItem(
-                            text = { Text(stringResource(src.sourceNameRes())) },
+                            text = { Text(platform.name) },
                             onClick = {
                                 sourceMenuExpanded = false
-                                onSourceSelected(src)
+                                onSourceSelected(platform.source)
                             },
                             trailingIcon = {
-                                if (src == source) {
+                                if (platform.source == source) {
                                     Icon(
                                         imageVector = AppIcons.Check,
                                         contentDescription = null,

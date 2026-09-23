@@ -44,14 +44,13 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
-import com.yichao.evilgodxu.data.music.api.sourceNameRes
-import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.download.upgradeTrackToLossless
 import com.yichao.evilgodxu.data.music.panel.searchLosslessUpgradeCandidates
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.DialogCard
+import com.yichao.evilgodxu.ui.component.rememberOnlinePlatformOptions
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.launch
 
@@ -89,6 +88,10 @@ internal fun LosslessUpgradeDialog(
             // 标题行：居中显示当前来源名，点击弹出来源下拉列表，右侧独立刷新按钮
             Box(Modifier.fillMaxWidth()) {
                 var sourceMenuExpanded by remember { mutableStateOf(false) }
+                val platformOptions = rememberOnlinePlatformOptions()
+                // 平台展示名：候选里查不到当前平台时（平台已随音源移除）回退平台键
+                val currentPlatformName = platformOptions.firstOrNull { it.source == playbackState.losslessUpgradeSource }?.name
+                    ?: playbackState.losslessUpgradeSource.key
                 Box(
                     modifier = Modifier
                         .align(Alignment.Center)
@@ -100,7 +103,7 @@ internal fun LosslessUpgradeDialog(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = stringResource(playbackState.losslessUpgradeSource.sourceNameRes()),
+                            text = currentPlatformName,
                             color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 16.sp,
                         )
@@ -115,17 +118,17 @@ internal fun LosslessUpgradeDialog(
                         expanded = sourceMenuExpanded,
                         onDismissRequest = { sourceMenuExpanded = false },
                     ) {
-                        MusicSearchSource.entries.forEach { source ->
+                        platformOptions.forEach { platform ->
                             DropdownMenuItem(
-                                text = { Text(stringResource(source.sourceNameRes())) },
+                                text = { Text(platform.name) },
                                 onClick = {
                                     sourceMenuExpanded = false
-                                    if (source != playbackState.losslessUpgradeSource) {
-                                        playbackState.losslessUpgradeSource = source
+                                    if (platform.source != playbackState.losslessUpgradeSource) {
+                                        playbackState.losslessUpgradeSource = platform.source
                                     }
                                 },
                                 trailingIcon = {
-                                    if (source == playbackState.losslessUpgradeSource) {
+                                    if (platform.source == playbackState.losslessUpgradeSource) {
                                         Icon(
                                             imageVector = AppIcons.Check,
                                             contentDescription = null,

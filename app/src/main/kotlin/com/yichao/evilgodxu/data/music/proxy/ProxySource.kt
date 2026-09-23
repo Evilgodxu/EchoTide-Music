@@ -5,7 +5,7 @@ import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import org.json.JSONArray
 import org.json.JSONObject
 
-// 代理音源数据模型：对应「代理音源JSON规范」文档 v1.0.0
+// 代理音源数据模型：对应「忆潮代理音源规范」文档 v1.1.0
 data class ProxySourceSpec(
     val name: String,
     val version: String,
@@ -19,8 +19,10 @@ data class ProxySourceSpec(
     val enabled: Boolean = true,
 )
 
-// 平台定义：动作均可缺省，缺省的动作回退内置解析
+// 平台定义：动作均可缺省（自定义平台的 search 除外），缺省的动作回退内置解析
 data class ProxyPlatformSpec(
+    // 平台名称：仅自定义平台持有，内置平台的名称取应用内字符串资源
+    val name: String? = null,
     val search: ProxyActionSpec? = null,
     val url: ProxyActionSpec? = null,
     val lyric: ProxyActionSpec? = null,

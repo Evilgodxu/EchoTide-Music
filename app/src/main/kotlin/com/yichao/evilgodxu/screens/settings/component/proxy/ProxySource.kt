@@ -176,7 +176,8 @@ private fun ProxySourceRow(
             Text(
                 text = stringResource(
                     R.string.settings_proxy_source_platforms,
-                    source.platforms.keys.joinToString(" / ")
+                    // 自定义平台展示其声明的名称，内置平台无名称则直接展示平台键
+                    source.platforms.entries.joinToString(" / ") { (key, platform) -> platform.name ?: key }
                 ),
                 fontSize = 12.sp,
                 maxLines = 1,
