@@ -88,6 +88,8 @@ internal fun LyricsPanel(
     fontSize: TextUnit = 12.sp,
     contentColor: Color? = null,
     visibleLines: Int = DEFAULT_VISIBLE_LINES,
+    // 上下边缘处理方式：true 用渐隐蒙层（首页竖屏/横屏）；false 改为逐行降低边缘行透明度（音乐面板）
+    edgeFadeMask: Boolean = true,
 ) {
     // 已唱 / 未唱歌词颜色：默认取主题色，传入 contentColor 时（如首页）覆盖为指定色
     val activeColor = contentColor ?: MaterialTheme.colorScheme.primary
@@ -317,12 +319,19 @@ internal fun LyricsPanel(
                 )
             }
         } else {
-            // 窗口容器固定，滚动与渐变都在其内部进行：行溢出与滚出内容经过边缘即被渐隐裁剪
+            // 窗口容器固定：滚动都在其内部进行，行溢出与滚出内容经过边缘即被裁剪
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clipToBounds()
-                    .verticalFadeMask(fadeFraction = FADE_TOTAL_LINES / visibleLines),
+                    // 渐隐蒙层仅用于首页等场景；音乐面板改用逐行降低边缘行透明度
+                    .then(
+                        if (edgeFadeMask) {
+                            Modifier.verticalFadeMask(fadeFraction = FADE_TOTAL_LINES / visibleLines)
+                        } else {
+                            Modifier
+                        }
+                    )
             ) {
                 // 以显示位置所在行为窗口锚点，上下各多渲染 buffer 行：滚动或拖拽时新行已在窗口内、
                 // 被移除的行已完全移出视口，两者在同一坐标系整体平移，因此只会连续上移，不会突兀替换
@@ -358,6 +367,10 @@ internal fun LyricsPanel(
                                 val scale = LYRIC_ROW_SCALE_BASE + LYRIC_ROW_SCALE_AMPLITUDE * emphasis
                                 // 非当前行整体降低不透明度，弱化其视觉存在感；随高亮进度平滑过渡
                                 val rowAlpha = LYRIC_INACTIVE_ALPHA + (1f - LYRIC_INACTIVE_ALPHA) * emphasis
+                                // 不使用渐隐蒙层时（音乐面板）：按行距视口中线的距离额外降低边缘行透明度，
+                                // 行越靠上下边缘越透明，中线行为满不透明度
+                                val lineAlpha = if (edgeFadeMask) rowAlpha
+                                else rowAlpha * edgeLineAlpha(index, displayPosition, offset)
                                 val nextTimeMs = lines.getOrNull(index + 1)?.timeMs ?: line.timeMs + 3000L
                                 LyricText(
                                     line = line,
@@ -372,7 +385,7 @@ internal fun LyricsPanel(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .graphicsLayer {
-                                            alpha = rowAlpha
+                                            alpha = lineAlpha
                                             scaleX = scale
                                             scaleY = scale
                                         }
@@ -680,7 +693,14 @@ private fun alignedScrubRow(position: Float, lastIndex: Int): Int? {
     return candidate.takeIf { abs(position - candidate) <= LYRIC_SCRUB_SNAP_ROWS }
 }
 
-// 上下边缘渐变覆盖的总行数（上下各半）：随可见行数换算比例，行数增减时淡出区间保持一致。
+// 上下边缘行透明度衰减强度：音乐面板以「离视口中线越远越透明」替代渐隐蒙层，
+// 强度为最外行相对中线的透明度降幅
+private const val EDGE_LINE_FADE_STRENGTH = 0.55f
+
+// 边缘行透明度下限：避免最外行过淡而看不清，保证上下边缘歌词仍可读
+private const val EDGE_LINE_MIN_ALPHA = 0.4f
+
+// 上下边缘渐隐蒙层覆盖的总行数（上下各半）：随可见行数换算比例，行数增减时淡出区间保持一致。
 // 取 ≥1.5 行：当容器高度不足以容纳设定行数时，顶部溢出行被裁成一薄片，仅靠窄渐变/单点透明
 // 仍会残留纯色细线，需让渐变区覆盖一整个溢出行，使薄片深陷透明区
 private const val FADE_TOTAL_LINES = 1.6f
@@ -717,4 +737,12 @@ private fun Modifier.verticalFadeMask(fadeFraction: Float = 0.25f): Modifier = d
             canvas.restore()
         }
     }
+}
+
+// 边缘行透明度系数：以视口中线（浮点行号）为基准，行越靠上下边缘透明度越低；中线行为 1。
+// 仅用于不使用渐隐蒙层的场景（音乐面板）
+private fun edgeLineAlpha(index: Int, centerPosition: Float, halfWindow: Int): Float {
+    if (halfWindow <= 0) return 1f
+    val ratio = (abs(index - centerPosition) / halfWindow).coerceIn(0f, 1f)
+    return (1f - EDGE_LINE_FADE_STRENGTH * ratio).coerceAtLeast(EDGE_LINE_MIN_ALPHA)
 }

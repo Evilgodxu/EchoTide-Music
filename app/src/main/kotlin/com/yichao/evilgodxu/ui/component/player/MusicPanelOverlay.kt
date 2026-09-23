@@ -303,6 +303,8 @@ fun MusicPanelOverlay(
                                             onClick = { playbackState.setLyricsVisible(false) },
                                             fontSize = musicPanelLayout.fontSizeSp.sp,
                                             visibleLines = musicPanelLayout.visibleLines,
+                                            // 音乐面板不用渐隐蒙层，改为逐行降低上下边缘行透明度
+                                            edgeFadeMask = false,
                                         )
                                     } else {
                                         CurrentCover(
