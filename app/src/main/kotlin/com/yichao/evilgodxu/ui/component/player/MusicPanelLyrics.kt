@@ -1,5 +1,6 @@
 package com.yichao.evilgodxu.ui.component.player
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.AnimationSpec
@@ -70,6 +71,7 @@ import com.yichao.evilgodxu.data.settings.wordByWordRenderingFlow
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.seekToAndPlay
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.theme.LocalSuccessColor
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.roundToInt
@@ -209,6 +211,9 @@ internal fun LyricsPanel(
         abs(scrollPosition - activeIndex) > LYRIC_SCROLL_MAX_STEP -> activeIndex.toFloat()
         else -> scrollPosition
     }
+    // 拖拽已对齐到某一行：释放即吸附并从此行起播，基准标识据此切换为确认色。
+    // 判定与释放时的吸附条件共用同一个函数，避免标识已确认却回弹
+    val scrubAligned = scrubbing && alignedScrubRow(scrollPosition, lines.lastIndex) != null
 
     Box(
         modifier = modifier
@@ -252,8 +257,8 @@ internal fun LyricsPanel(
                     if (!scrubbing) return
                     scrubbing = false
                     if (currentLines.isEmpty()) return
-                    val candidate = scrollPosition.roundToInt().coerceIn(0, currentLines.lastIndex)
-                    if (!cancelled && abs(scrollPosition - candidate) <= LYRIC_SCRUB_SNAP_ROWS) {
+                    val candidate = alignedScrubRow(scrollPosition, currentLines.lastIndex)
+                    if (!cancelled && candidate != null) {
                         // 对齐：吸附到该行并从该行时间点起播。先把当前行切到目标行并开短时保护窗
                         // 忽略控制器旧位置，避免跟随 Effect 在 seek 回报前把内容拉回拖拽前的行
                         val targetMs = currentLines[candidate].timeMs
@@ -377,8 +382,12 @@ internal fun LyricsPanel(
                         }
                     }
                 }
-                // 拖拽基准标识：固定在视口中线、不随内容滚动，仅拖拽时淡入
-                LyricScrubMarker(visible = scrubbing, color = activeColor)
+                // 拖拽基准标识：固定在视口中线、不随内容滚动，仅拖拽时淡入；对齐后转为确认色
+                LyricScrubMarker(
+                    visible = scrubbing,
+                    color = activeColor,
+                    aligned = scrubAligned,
+                )
             }
         }
     }
@@ -390,23 +399,31 @@ internal fun LyricSpacer(height: Dp) {
 }
 
 // 拖拽调进度的基准标识：视口中线两侧各一段短横线（形如「- 歌词 -」），仅拖拽时淡入，
-// 作为「哪一行与中线对齐会被选中」的参考线
+// 作为「哪一行与中线对齐会被选中」的参考线；已对齐时切换为浅绿色确认态，
+// 用户据此判断此刻松手即会从该行起播
 @Composable
-private fun BoxScope.LyricScrubMarker(visible: Boolean, color: Color) {
+private fun BoxScope.LyricScrubMarker(visible: Boolean, color: Color, aligned: Boolean) {
     val alpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
         animationSpec = tween(LYRIC_SCRUB_MARKER_FADE_MS),
         label = "lyric_scrub_marker",
     )
     if (alpha <= 0.01f) return
+    // 对齐确认色：颜色随对齐状态过渡，跨行擦过时不会闪成不相关的中间色
+    val confirmColor = LocalSuccessColor.current
+    val dashColor by animateColorAsState(
+        targetValue = if (aligned) confirmColor else color,
+        animationSpec = tween(LYRIC_SCRUB_MARKER_CONFIRM_MS),
+        label = "lyric_scrub_marker_aligned",
+    )
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .align(Alignment.Center)
             .graphicsLayer { this.alpha = alpha },
     ) {
-        LyricScrubDash(color = color, modifier = Modifier.align(Alignment.CenterStart))
-        LyricScrubDash(color = color, modifier = Modifier.align(Alignment.CenterEnd))
+        LyricScrubDash(color = dashColor, modifier = Modifier.align(Alignment.CenterStart))
+        LyricScrubDash(color = dashColor, modifier = Modifier.align(Alignment.CenterEnd))
     }
 }
 
@@ -649,10 +666,19 @@ private const val LYRIC_SCRUB_SNAP_MS = 220
 // 避免跟随 Effect 在 seek 回报前把内容拉回拖拽前的行
 private const val LYRIC_SCRUB_SEEK_GUARD_MS = 1000L
 
-// 基准标识（两侧短横线）尺寸与淡入淡出时长
+// 基准标识（两侧短横线）尺寸与淡入淡出时长，以及切换到对齐确认色的过渡时长
 private const val LYRIC_SCRUB_MARKER_FADE_MS = 160
+private const val LYRIC_SCRUB_MARKER_CONFIRM_MS = 120
 private val LYRIC_SCRUB_DASH_WIDTH = 22.dp
 private val LYRIC_SCRUB_DASH_HEIGHT = 2.dp
+
+// 拖拽位置当前对齐到的行下标；偏差超出吸附容差视为未对齐（null）。
+// 释放时的吸附判定与拖拽中的标识确认态共用本函数，两侧口径不会漂移
+private fun alignedScrubRow(position: Float, lastIndex: Int): Int? {
+    if (lastIndex < 0) return null
+    val candidate = position.roundToInt().coerceIn(0, lastIndex)
+    return candidate.takeIf { abs(position - candidate) <= LYRIC_SCRUB_SNAP_ROWS }
+}
 
 // 上下边缘渐变覆盖的总行数（上下各半）：随可见行数换算比例，行数增减时淡出区间保持一致。
 // 取 ≥1.5 行：当容器高度不足以容纳设定行数时，顶部溢出行被裁成一薄片，仅靠窄渐变/单点透明
