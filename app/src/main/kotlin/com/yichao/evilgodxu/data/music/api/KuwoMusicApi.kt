@@ -122,8 +122,9 @@ internal object KuwoMusicApi : OnlineMusicSource {
     suspend fun songUrl(rid: String, quality: MusicQuality = MusicQuality.LOSSLESS): String? = withContext(Dispatchers.IO) {
         if (rid.isBlank()) return@withContext null
         try {
+            // 酷我仅提供 flac 与 mp3 两种格式：无损及以上取 flac，其余取 mp3；跨档降级由调用方逐档驱动
             val formats = when (quality) {
-                MusicQuality.LOSSLESS, MusicQuality.HIGH -> arrayOf("flac", "mp3")
+                MusicQuality.HI_RES, MusicQuality.LOSSLESS, MusicQuality.HIGH -> arrayOf("flac")
                 MusicQuality.STANDARD -> arrayOf("mp3")
             }
             for (format in formats) {

@@ -4,6 +4,7 @@ import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.log.CrashLogManager
+import java.net.URLEncoder
 import java.util.Base64
 import kotlin.random.Random
 import kotlinx.coroutines.delay
@@ -16,7 +17,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * QQ 音乐在线源：官方 musicu.fcg 接口搜索 + GetVkey 获取播放地址 + 歌词接口。
+ * QQ 音乐在线源：网页版搜索接口（客户端接口作兜底）+ GetVkey 获取播放地址 + 歌词接口。
  * 歌曲标识为 songmid 字符串，转成稳定数字 id 存入搜索结果。
  */
 internal object QQMusicApi : OnlineMusicSource {
@@ -24,6 +25,9 @@ internal object QQMusicApi : OnlineMusicSource {
     private const val ENDPOINT = "https://u.y.qq.com/cgi-bin/musicu.fcg"
     private const val MUSIC_DOMAIN = "https://isure.stream.qqmusic.qq.com/"
     private const val TOPLIST_ENDPOINT = "https://c.y.qq.com/v8/fcg-bin/fcg_v8_toplist_cp.fcg"
+    private const val WEB_SEARCH_ENDPOINT = "https://c.y.qq.com/soso/fcgi-bin/search_for_qq_cp"
+    // 网页版搜索接口单页上限，超出会被服务端截断
+    private const val WEB_SEARCH_MAX_PAGE_SIZE = 30
     // 官方接口的 comm 参数需要 QIMEI36，取不到设备标识时用该固定兜底值
     private const val QIMEI36 = "6c9d3cd110abca9b16311cee10001e717614"
     private const val VERSION_CODE = 13020508
@@ -32,9 +36,10 @@ internal object QQMusicApi : OnlineMusicSource {
     // 默认榜单：热歌榜
     private const val CHART_TOP_ID = 26
 
-    // 音质代号 + 扩展名，按从高到低分组：无损 flac / 高品 ogg / 标准 mp3、m4a
+    // 音质代号 + 扩展名，按从高到低分组：无损 flac / 高品 ogg / 标准 mp3、m4a。
+    // 母带、全景声等平台升频代号不参与匹配，故不入表
     private val LOSSLESS_QUALITIES = arrayOf(
-        "AI00" to ".flac", "Q000" to ".flac", "Q001" to ".flac", "F000" to ".flac",
+        "F000" to ".flac",
     )
     private val HIGH_QUALITIES = arrayOf(
         "O801" to ".ogg", "O800" to ".ogg", "O600" to ".ogg", "O400" to ".ogg",
@@ -43,26 +48,39 @@ internal object QQMusicApi : OnlineMusicSource {
         "M800" to ".mp3", "M500" to ".mp3", "C600" to ".m4a", "C400" to ".m4a", "C200" to ".m4a"
     )
 
-    // 音质档位对应的候选编码组合；无损档无法获取时降级处理其它组合保证可播
+    // 音质档位对应的编码组合；只列本档位自身的代号，跨档降级由 adaptiveCandidates 逐档驱动
     private fun qualityCandidates(quality: MusicQuality): Array<Pair<String, String>> = when (quality) {
-        MusicQuality.LOSSLESS -> LOSSLESS_QUALITIES + HIGH_QUALITIES + STANDARD_QUALITIES
-        MusicQuality.HIGH -> HIGH_QUALITIES + STANDARD_QUALITIES
+        // QQ 无独立 Hi-Res 代号，该档回退到无损
+        MusicQuality.HI_RES,
+        MusicQuality.LOSSLESS -> LOSSLESS_QUALITIES
+        MusicQuality.HIGH -> HIGH_QUALITIES
         MusicQuality.STANDARD -> STANDARD_QUALITIES
     }
 
     override suspend fun search(keyword: String, page: Int, pageSize: Int): List<NeteaseSongSearchResult> = withContext(Dispatchers.IO) {
+        // 网页版接口不校验登录票据，作为首选
+        val webResults = runCatching { doWebSearch(keyword, page, pageSize) }
+            .onFailure { CrashLogManager.logException("QQMusicApi", "搜索歌曲失败", it) }
+            .getOrDefault(emptyList())
+        if (webResults.isNotEmpty()) return@withContext webResults
+        // 客户端接口对未登录请求一律返回空列表，仅在其风控放行时段可用，故只作兜底
         try {
-            var results = doSearch(keyword, page, pageSize)
-            // QQ 搜索对陌生 IP 偶发返回空列表（风控软封），重试一次再判空
-            if (results.isEmpty()) {
-                delay(300)
-                results = doSearch(keyword, page, pageSize)
-            }
-            results
+            delay(300)
+            doSearch(keyword, page, pageSize)
         } catch (e: Exception) {
             CrashLogManager.logException("QQMusicApi", "搜索歌曲失败", e)
             emptyList()
         }
+    }
+
+    // 网页版搜索接口：无需登录票据，条目字段与客户端接口同源，复用 [songResult] 映射
+    private fun doWebSearch(keyword: String, page: Int, pageSize: Int): List<NeteaseSongSearchResult> {
+        val count = pageSize.coerceIn(1, WEB_SEARCH_MAX_PAGE_SIZE)
+        val query = URLEncoder.encode(keyword, Charsets.UTF_8.name())
+        val url = "$WEB_SEARCH_ENDPOINT?w=$query&format=json&p=$page&n=$count&cr=1&new_json=1"
+        val list = JSONObject(get(url)).optJSONObject("data")
+            ?.optJSONObject("song")?.optJSONArray("list") ?: JSONArray()
+        return List(list.length()) { index -> songResult(list.getJSONObject(index)) }
     }
 
     private fun doSearch(keyword: String, page: Int, pageSize: Int): List<NeteaseSongSearchResult> {
@@ -150,7 +168,7 @@ internal object QQMusicApi : OnlineMusicSource {
         }
     }
 
-    /** 获取指定音质的播放地址；无损档自动降级高品/标准，保证尽可能可播 */
+    /** 获取指定音质的播放地址；只尝试该档位的候选代号，跨档降级由调用方逐档驱动 */
     suspend fun songUrl(mid: String, quality: MusicQuality = MusicQuality.LOSSLESS): String? = withContext(Dispatchers.IO) {
         if (mid.isBlank()) return@withContext null
         try {

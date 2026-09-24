@@ -43,10 +43,12 @@ internal fun QualitySelectDialog(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(modifier = Modifier.height(8.dp))
-            MusicQuality.entries.forEach { quality ->
+            // 仅列出用户可选档位；Hi-Res 由无损档在解析时自动优先
+            MusicQuality.entries.filter { it.userSelectable }.forEach { quality ->
                 QualityOptionCard(
                     label = stringResource(
                         when (quality) {
+                            MusicQuality.HI_RES,
                             MusicQuality.LOSSLESS -> R.string.music_quality_lossless
                             MusicQuality.HIGH -> R.string.music_quality_high
                             MusicQuality.STANDARD -> R.string.music_quality_standard

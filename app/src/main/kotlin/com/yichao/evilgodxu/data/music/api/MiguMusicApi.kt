@@ -97,9 +97,10 @@ internal object MiguMusicApi : OnlineMusicSource {
                     if (pair.size == 2) pair[0] to pair[1] else null
                 }
                 .ifEmpty { listOf("SQ" to "2", "HQ" to "2", "PQ" to "2", "LQ" to "2") }
-            // 指定音质时仅匹配对应档位；标准档优先 PQ，缺省时退而求其次使用 LQ
+            // 指定音质时仅匹配对应档位；标准档优先 PQ，缺省时退而求其次使用 LQ；
+            // 咪咕无 Hi-Res 档位，该档回退到无损
             val targets = when (quality) {
-                MusicQuality.LOSSLESS -> formats.filter { it.first == "SQ" }
+                MusicQuality.HI_RES, MusicQuality.LOSSLESS -> formats.filter { it.first == "SQ" }
                 MusicQuality.HIGH -> formats.filter { it.first == "HQ" }
                 MusicQuality.STANDARD -> formats.filter { it.first == "PQ" }
                     .ifEmpty { formats.filter { it.first == "LQ" } }

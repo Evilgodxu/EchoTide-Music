@@ -171,6 +171,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
     // 按音质档位解析播放地址；返回 null 表示该层级不可用（无版权/试听受限等）
     suspend fun songUrl(songId: Long, quality: MusicQuality): String? {
         val level = when (quality) {
+            MusicQuality.HI_RES -> "hires"
             MusicQuality.LOSSLESS -> "lossless"
             MusicQuality.HIGH -> "exhigh"
             MusicQuality.STANDARD -> "standard"

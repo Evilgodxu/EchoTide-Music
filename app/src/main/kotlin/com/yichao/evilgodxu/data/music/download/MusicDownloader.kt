@@ -8,8 +8,8 @@ import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import com.yichao.evilgodxu.data.cache.CacheInventory
+import com.yichao.evilgodxu.data.music.api.LOSSLESS_TIERS
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
-import com.yichao.evilgodxu.data.music.api.MusicQuality
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
@@ -410,7 +410,9 @@ internal suspend fun upgradeTrackToLossless(
     candidate: NeteaseSongSearchResult,
 ): Boolean {
     if (!track.isLocalAudioSource) return false
-    val url = resolvePlayUrlByQuality(context, candidate, MusicQuality.LOSSLESS) ?: return false
+    // 无损档内先试 Hi-Res，其次普通无损；两者都不可得即判定升级失败，不降级到有损
+    val url = LOSSLESS_TIERS.firstNotNullOfOrNull { resolvePlayUrlByQuality(context, candidate, it) }
+        ?: return false
     val newUri = downloadLosslessToDownloads(context, candidate, url) ?: return false
     // 无损升级只换音频文件、封面不变：先承接旧文件的系统略缩图与背景取色结果到新 URI，
     // 避免 audioUri 切换后封面闪占位符、背景回落默认色（新文件系统略缩图需等媒体扫描就绪）

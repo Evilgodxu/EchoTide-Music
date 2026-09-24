@@ -541,11 +541,12 @@ private fun SearchQualityDialog(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
-                // 音质档位卡片：尝试中整体禁用，防止并发重复尝试
-                MusicQuality.entries.forEach { quality ->
+                // 音质档位卡片：尝试中整体禁用，防止并发重复尝试；仅列用户可选档位
+                MusicQuality.entries.filter { it.userSelectable }.forEach { quality ->
                     QualityOptionCard(
                         label = stringResource(
                             when (quality) {
+                                MusicQuality.HI_RES,
                                 MusicQuality.LOSSLESS -> R.string.music_quality_lossless
                                 MusicQuality.HIGH -> R.string.music_quality_high
                                 MusicQuality.STANDARD -> R.string.music_quality_standard
