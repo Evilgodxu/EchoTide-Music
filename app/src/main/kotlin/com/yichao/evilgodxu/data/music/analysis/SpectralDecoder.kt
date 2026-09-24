@@ -22,6 +22,9 @@ internal object SpectralDecoder {
     // 判定网格：4096 点 FFT（44.1k 下约 10.8Hz/桶）。
     // 砖墙/升频/谐波梳的全部阈值按该分辨率标定，两条解码路径必须沿用同一尺寸
     const val FFT_SIZE = 4096
+
+    // Welch 帧的滑动步长：半窗即 50% 重叠，帧间不留缝
+    private const val HOP_SIZE = FFT_SIZE / 2
     private const val PROBE_DURATION_US = 4_000_000L
     private val PROBE_POSITIONS = floatArrayOf(0.15f, 0.45f, 0.75f)
     private const val CODEC_TIMEOUT_US = 10_000L
@@ -85,6 +88,8 @@ internal object SpectralDecoder {
             for (pos in PROBE_POSITIONS) {
                 decoder.flush()
                 extractor.seekTo((durationUs * pos).toLong(), MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+                // 本窗起点与上一窗不连续：丢弃残留样本，避免拼出跨越接缝的伪帧
+                accumulator.reset()
                 decodeProbe(decoder, extractor, sr, accumulator)
             }
             // 三窗均未解出有效块时返回 null，由调用方按无法判定处理
@@ -161,6 +166,8 @@ internal object SpectralDecoder {
     // 判决摘要累加器：PCM 缓冲 → 平均功率谱 + 立体声相关性 + 升频死区探带。
     // 稀疏窗口（本对象，3 窗）与全曲（SpectrogramDecoder，整曲逐帧）两条路径共用同一实现，
     // 使「分段快速采样」与「完整分析」只在取样范围上不同，判据输入的结构与刻度完全一致。
+    // 分帧跨缓冲连续：解码器单次输出常不足一窗（有损格式约千帧），残留样本留待后续缓冲续接，
+    // 否则每缓冲都凑不满一窗、累计不出任何块，凡输入皆不可判定。
     // 单实例只由一条解码循环喂入，无需内部同步
     internal class Accumulator(
         private val sampleRate: Int,
@@ -173,18 +180,25 @@ internal object SpectralDecoder {
         private val powerSum = FloatArray(FFT_SIZE / 2 + 1)
         private val scratchRe = FloatArray(FFT_SIZE)
         private val scratchIm = FloatArray(FFT_SIZE)
+        // 滑动窗：未满一窗的样本留在窗内，与后续缓冲拼接使用
+        private val window = FloatArray(FFT_SIZE)
+        private var filled = 0
         private val stereo = StereoAccumulator()
         private val probe = ProbeAccumulator(PROBE_LO_HZ, PROBE_HI_HZ, sampleRate)
         private var blocks = 0
 
-        // 喂入一个输出缓冲：解交织单声道并做 Welch 帧累加，帧内逐通路喂入立体声相关性，
-        // 返回本次消费的采样帧数。按编码区分样本解释方式：24bit 打包为 3 字节有符号小端，
-        // 32bit 为有符号整型（非浮点）
+        // 丢弃未成帧的残留样本：探测窗经 seek 后样本不连续，残留不得与下一窗拼成伪帧
+        fun reset() {
+            filled = 0
+        }
+
+        // 喂入一个输出缓冲：解交织单声道并逐样本入窗，满一窗即做 Welch 帧累加，
+        // 同时逐样本喂入立体声相关性；返回本次消费的采样帧数。
+        // 按编码区分样本解释方式：24bit 打包为 3 字节有符号小端，32bit 为有符号整型（非浮点）
         fun feed(buffer: ByteBuffer, offset: Int, size: Int, pcmEncoding: Int): Int {
             val bytesPerSample = PcmFormat.bytesPerSample(pcmEncoding)
             val frames = size / (channels * bytesPerSample).coerceAtLeast(1)
             if (frames <= 0) return 0
-            val mono = FloatArray(frames)
             val view = buffer.duplicate()
             view.order(ByteOrder.LITTLE_ENDIAN)
             var cursor = offset
@@ -198,25 +212,27 @@ internal object SpectralDecoder {
                     if (c == 0) left = sample else if (c == 1) right = sample
                     acc += sample
                 }
-                mono[i] = acc / channels
+                window[filled++] = acc / channels
                 if (channels == 2) stereo.feed(left, right)
-            }
-            // 50% 重叠滑动窗：最大限度利用每段解码输入，稳定噪声底估计
-            val step = FFT_SIZE / 2
-            var start = 0
-            while (start + FFT_SIZE <= frames) {
-                for (i in 0 until FFT_SIZE) {
-                    scratchRe[i] = mono[start + i] * hannWindow[i]
-                    scratchIm[i] = 0f
-                }
-                Fft.transform(scratchRe, scratchIm)
-                Fft.accumulatePower(scratchRe, scratchIm, powerSum)
-                // 探带功率在同一 FFT 块频谱上顺带累计，零额外 FFT
-                probe.addBlock(scratchRe, scratchIm)
-                blocks++
-                start += step
+                if (filled < FFT_SIZE) continue
+                // 50% 重叠滑动窗：最大限度利用解码输入，稳定噪声底估计
+                accumulateWindow()
+                System.arraycopy(window, HOP_SIZE, window, 0, FFT_SIZE - HOP_SIZE)
+                filled = FFT_SIZE - HOP_SIZE
             }
             return frames
+        }
+
+        // 当前窗的功率谱：加窗变换后累加平均谱；探带功率在同一块频谱上顺带累计，零额外 FFT
+        private fun accumulateWindow() {
+            for (i in 0 until FFT_SIZE) {
+                scratchRe[i] = window[i] * hannWindow[i]
+                scratchIm[i] = 0f
+            }
+            Fft.transform(scratchRe, scratchIm)
+            Fft.accumulatePower(scratchRe, scratchIm, powerSum)
+            probe.addBlock(scratchRe, scratchIm)
+            blocks++
         }
 
         // 收摘要：未解出任何 FFT 块时返回 null（无法判定），由调用方按各自语义处理
