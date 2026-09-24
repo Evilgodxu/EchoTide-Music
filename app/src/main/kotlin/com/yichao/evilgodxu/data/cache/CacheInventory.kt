@@ -5,6 +5,7 @@ import android.os.Environment
 import android.util.Log
 import coil3.SingletonImageLoader
 import com.yichao.evilgodxu.data.music.analysis.TrackVerdictCache
+import com.yichao.evilgodxu.data.music.clip.SpectrumImageSharing
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.log.CrashLogManager
@@ -85,8 +86,8 @@ internal object CacheInventory {
     /** 歌曲缓存目录名：与公共下载目录下音频条目的落点一致 */
     const val AUDIO_DIR_NAME = "Audio"
 
-    /** 中转文件前缀：与 File.createTempFile 的 prefix 参数对应 */
-    val TEMP_FILE_PREFIXES = listOf("download", "upgrade")
+    /** 中转文件前缀：与 File.createTempFile 的 prefix 参数及频谱图分享中转文件名的前缀对应 */
+    val TEMP_FILE_PREFIXES = listOf("download", "upgrade", SpectrumImageSharing.SHARE_FILE_PREFIX)
 
     private const val TAG = "CacheInventory"
 

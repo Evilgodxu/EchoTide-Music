@@ -22,8 +22,8 @@ import com.yichao.evilgodxu.data.music.analysis.SPECTROGRAM_DYNAMIC_RANGE_DB
 private val BAR_WIDTH = 8.dp
 private val LABEL_GAP = 4.dp
 
-// 刻度档数：把量程等分，与动态范围的整十分档对齐
-private const val SCALE_INTERVALS = 4
+// 刻度档数：把量程等分，与动态范围的整十分档对齐；导出图按同一档数标注
+internal const val SCALE_INTERVALS = 4
 
 // dB 色标：竖直渐变条自上而下由满强度降至量程下限，右侧标注各档分贝值。
 // 取色与频谱图同源，条上任意高度取到的颜色即图中同一强度对应的颜色

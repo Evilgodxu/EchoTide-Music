@@ -224,6 +224,14 @@
     <string name="spectrum_analysis_fake_detected">疑似异常</string>
     <string name="spectrum_analysis_ai_detected">疑似 AI</string>
     <string name="spectrum_analysis_not_applicable">不适用</string>
+    <string name="spectrum_menu_share_image">分享图片</string>
+    <string name="spectrum_menu_save_image">保存图片</string>
+    <string name="spectrum_image_saved">图片已保存到相册</string>
+    <string name="spectrum_image_save_failed">保存图片失败</string>
+    <string name="spectrum_image_share_failed">分享图片失败</string>
+    <string name="spectrum_export_disclaimer">检测结果未必准确</string>
+    <string name="spectrum_export_name_suffix">频谱图</string>
+    <string name="spectrum_share_chooser_title">分享频谱图</string>
 
     <!-- 默认铃声 -->
     <string name="default_sound_ringtone_done">已设为来电铃声</string>

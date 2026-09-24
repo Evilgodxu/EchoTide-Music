@@ -96,13 +96,13 @@ import com.yichao.evilgodxu.ui.component.player.CoverRefreshDialog
 import com.yichao.evilgodxu.ui.component.player.CoverReplaceDialog
 import com.yichao.evilgodxu.ui.component.player.loadRecentCovers
 import com.yichao.evilgodxu.ui.component.player.LocalCoverDialog
-import com.yichao.evilgodxu.ui.component.player.menuEdgePositionProvider
 import com.yichao.evilgodxu.ui.component.player.MiniContextMenu
 import com.yichao.evilgodxu.ui.component.dialog.RenameDialog
 import com.yichao.evilgodxu.ui.component.player.LyricsEditDialog
 import com.yichao.evilgodxu.ui.component.player.LyricsAlignDialog
 import com.yichao.evilgodxu.ui.component.player.LyricsPanel
 import com.yichao.evilgodxu.ui.component.player.LyricsRefreshDialog
+import com.yichao.evilgodxu.ui.component.menuEdgePositionProvider
 import com.yichao.evilgodxu.ui.copyToClipboard
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch

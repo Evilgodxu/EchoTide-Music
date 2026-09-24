@@ -50,12 +50,7 @@ internal fun SpectrumFrequencyAxis(
         val axisX = size.width - 1f
         drawLine(axisColor, Offset(axisX, 0f), Offset(axisX, size.height), strokeWidth = 1f)
         val height = size.height.coerceAtLeast(1f)
-        // 自上而下布点：顶端奈奎斯特刻度优先纳入，距上一档不足最小间距的档位省略
-        var lastY = -Float.MAX_VALUE
-        ticks.asReversed().forEach { tick ->
-            val y = height * (1f - scale.fractionOf(tick.hertz))
-            if (y - lastY < minTickGapPx) return@forEach
-            lastY = y
+        layoutFrequencyTicks(ticks, scale, height, minTickGapPx).forEach { (tick, y) ->
             drawLine(axisColor, Offset(axisX - tickLinePx, y), Offset(axisX, y), strokeWidth = 1f)
             val layout = textMeasurer.measure(AnnotatedString(tick.label), labelStyle)
             // 首末刻度与轴端重合，标签向内收以免被容器裁掉
@@ -69,9 +64,12 @@ internal fun SpectrumFrequencyAxis(
     }
 }
 
-// 频率刻度集合：1-2-5 系列落在量程内的取值，顶端恒为奈奎斯特频率。
-// 档位给满，实际是否绘制由轴向的间距过滤决定
-private fun frequencyTicks(scale: FrequencyAxisScale): List<FrequencyTick> {
+// 频率刻度项：位置由频率值经轴刻度换算，标签仅作展示
+internal class FrequencyTick(val hertz: Float, val label: String)
+
+// 频率刻度候选：1-2-5 系列落在轴量程内的取值，顶端恒为奈奎斯特频率。
+// 档位给满，实际是否绘制由 layoutFrequencyTicks 的间距过滤决定
+internal fun frequencyTicks(scale: FrequencyAxisScale): List<FrequencyTick> {
     val ticks = ArrayList<FrequencyTick>()
     var decade = 1
     while (decade <= MAX_TICK_DECADE_HZ) {
@@ -87,12 +85,29 @@ private fun frequencyTicks(scale: FrequencyAxisScale): List<FrequencyTick> {
     return ticks
 }
 
+// 按最小间距挑选实际绘制的档位：自顶向下推进，顶端奈奎斯特刻度优先纳入，
+// 与上一档距离不足的档位省略。返回各档位自绘图区顶端的纵向像素位置；
+// 频率轴与导出图共用同一套挑选规则，两处刻度密度因此一致
+internal fun layoutFrequencyTicks(
+    ticks: List<FrequencyTick>,
+    scale: FrequencyAxisScale,
+    plotHeightPx: Float,
+    minGapPx: Float,
+): List<Pair<FrequencyTick, Float>> {
+    val laidOut = ArrayList<Pair<FrequencyTick, Float>>(ticks.size)
+    var lastY = -Float.MAX_VALUE
+    ticks.asReversed().forEach { tick ->
+        val y = plotHeightPx * (1f - scale.fractionOf(tick.hertz))
+        if (y - lastY < minGapPx) return@forEach
+        lastY = y
+        laidOut.add(tick to y)
+    }
+    return laidOut
+}
+
 // 刻度标签：1kHz 以下按赫兹、整千按整数千赫兹，其余保留一位小数（奈奎斯特常带小数）
 private fun formatHertz(hertz: Float): String = when {
     hertz < 1000f -> "${hertz.toInt()} Hz"
     hertz % 1000f == 0f -> "${(hertz / 1000f).toInt()} kHz"
     else -> "%.1f kHz".format(hertz / 1000f)
 }
-
-// 频率刻度项：位置由频率值经轴刻度换算，标签仅作展示
-private data class FrequencyTick(val hertz: Float, val label: String)

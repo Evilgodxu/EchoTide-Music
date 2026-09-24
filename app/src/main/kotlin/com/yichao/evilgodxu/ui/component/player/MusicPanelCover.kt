@@ -31,25 +31,20 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
+import com.yichao.evilgodxu.ui.component.menuEdgePositionProvider
 import com.yichao.evilgodxu.ui.component.rememberSystemThumbnail
 import com.yichao.evilgodxu.ui.component.player.DiscArt
 import com.yichao.evilgodxu.ui.component.PlaylistArt
@@ -149,33 +144,6 @@ internal fun AlbumArt(track: MusicTrack?, modifier: Modifier = Modifier) {
     // 音乐面板封面（DiscArt 迷你播放器、刷新预览、轮播）：走系统略缩图即时出图；
     // 轮播居中封面最大约面板高度 55%，用 512px 请求保证清晰度，仍远轻于全量内嵌解码
     SystemCoverArt(track, modifier, thumbnailSize = 512, placeholderIconSize = 24.dp)
-}
-
-// 长按菜单定位：水平居中于父布局，纵向紧贴父布局顶部或底部
-@Composable
-internal fun menuEdgePositionProvider(atTop: Boolean): PopupPositionProvider {
-    val density = LocalDensity.current
-    return remember(density, atTop) {
-        object : PopupPositionProvider {
-            override fun calculatePosition(
-                anchorBounds: IntRect,
-                windowSize: IntSize,
-                layoutDirection: LayoutDirection,
-                popupContentSize: IntSize,
-            ): IntOffset {
-                val gapPx = with(density) { 2.dp.roundToPx() }
-                val y = if (atTop) {
-                    anchorBounds.top - popupContentSize.height - gapPx
-                } else {
-                    anchorBounds.bottom + gapPx
-                }
-                return IntOffset(
-                    x = anchorBounds.left + (anchorBounds.width - popupContentSize.width) / 2,
-                    y = y,
-                )
-            }
-        }
-    }
 }
 
 @Composable

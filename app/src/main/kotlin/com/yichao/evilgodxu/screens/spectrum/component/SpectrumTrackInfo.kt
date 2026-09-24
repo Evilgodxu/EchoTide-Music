@@ -1,11 +1,12 @@
 package com.yichao.evilgodxu.screens.spectrum.component
 
+import android.content.Context
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
@@ -23,13 +24,30 @@ internal fun SpectrumTrackInfo(
     sizeBytes: Long,
     modifier: Modifier = Modifier,
 ) {
+    val text = spectrumInfoText(LocalContext.current, format, sizeBytes)
+    if (text.isBlank()) return
+    Text(
+        text = text,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontSize = 11.sp,
+        textAlign = TextAlign.Center,
+        modifier = modifier.fillMaxWidth(),
+    )
+}
+
+// 参数行文案：界面与导出图共用，避免两处口径漂移；无可展示项时返回空串由调用方跳过该行
+internal fun spectrumInfoText(
+    context: Context,
+    format: AudioSignalPathFormat?,
+    sizeBytes: Long,
+): String {
     val channelText = when {
         format == null -> ""
-        format.channels == 1 -> stringResource(R.string.spectrum_info_mono)
-        format.channels == 2 -> stringResource(R.string.spectrum_info_stereo)
-        else -> stringResource(R.string.spectrum_info_channel_count, format.channels)
+        format.channels == 1 -> context.getString(R.string.spectrum_info_mono)
+        format.channels == 2 -> context.getString(R.string.spectrum_info_stereo)
+        else -> context.getString(R.string.spectrum_info_channel_count, format.channels)
     }
-    val text = buildString {
+    return buildString {
         if (format != null) {
             if (format.format.isNotBlank()) append(format.format).append(ITEM_SEPARATOR)
             append(formatSampleRate(format.sampleRate)).append(ITEM_SEPARATOR)
@@ -39,14 +57,6 @@ internal fun SpectrumTrackInfo(
         }
         if (sizeBytes > 0L) append(formatBytes(sizeBytes)).append(ITEM_SEPARATOR)
     }.removeSuffix(ITEM_SEPARATOR)
-    if (text.isBlank()) return
-    Text(
-        text = text,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontSize = 11.sp,
-        textAlign = TextAlign.Center,
-        modifier = modifier.fillMaxWidth(),
-    )
 }
 
 // 采样率按千赫兹展示，整千时省去小数位

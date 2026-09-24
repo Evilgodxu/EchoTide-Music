@@ -51,7 +51,7 @@ internal fun SpectrogramImage(
         // 重采样与像素填充是纯计算，放默认调度器执行，避免长音频分析后再次卡住主线程
         LaunchedEffect(spectrogram, scale, widthPx, heightPx) {
             image = withContext(Dispatchers.Default) {
-                renderSpectrogram(spectrogram, scale, widthPx, heightPx)
+                renderSpectrogramBitmap(spectrogram, scale, widthPx, heightPx).asImageBitmap()
             }
         }
         val rendered = image
@@ -73,13 +73,14 @@ internal fun SpectrogramImage(
 // 把时频矩阵重采样为目标像素尺寸的位图：横向为时间、纵向为频率，低频贴底、高频在顶。
 // 纵向按轴刻度取行：源矩阵按频率等距分布，对数轴上高层行覆盖更宽的频带，故按该行覆盖的矩阵区间取均值，
 // 使图内每一行都与左侧同一高度的刻度读数对应。
-// 目标像素稀于源数据时同样按数据块取均值，避免长音频压缩到窄位图时出现摩尔纹
-private fun renderSpectrogram(
+// 目标像素稀于源数据时同样按数据块取均值，避免长音频压缩到窄位图时出现摩尔纹。
+// 屏幕图与导出的高清图共用本函数，仅目标尺寸不同；重采样为纯计算，调用方须在后台线程调用
+internal fun renderSpectrogramBitmap(
     spectrogram: Spectrogram,
     scale: FrequencyAxisScale,
     widthPx: Int,
     heightPx: Int,
-): ImageBitmap {
+): Bitmap {
     val pixelScale = sqrt(MAX_IMAGE_PIXELS.toFloat() / (widthPx.toFloat() * heightPx)).coerceAtMost(1f)
     val bitmapWidth = (widthPx * pixelScale).toInt().coerceAtLeast(1)
     val bitmapHeight = (heightPx * pixelScale).toInt().coerceAtLeast(1)
@@ -113,5 +114,5 @@ private fun renderSpectrogram(
     }
     val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
     bitmap.setPixels(pixels, 0, bitmapWidth, 0, 0, bitmapWidth, bitmapHeight)
-    return bitmap.asImageBitmap()
+    return bitmap
 }

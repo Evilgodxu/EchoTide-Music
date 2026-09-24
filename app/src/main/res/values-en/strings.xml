@@ -224,6 +224,14 @@
     <string name="spectrum_analysis_fake_detected">Suspected</string>
     <string name="spectrum_analysis_ai_detected">Suspected AI</string>
     <string name="spectrum_analysis_not_applicable">N/A</string>
+    <string name="spectrum_menu_share_image">Share image</string>
+    <string name="spectrum_menu_save_image">Save image</string>
+    <string name="spectrum_image_saved">Image saved to gallery</string>
+    <string name="spectrum_image_save_failed">Failed to save image</string>
+    <string name="spectrum_image_share_failed">Failed to share image</string>
+    <string name="spectrum_export_disclaimer">Detection results may be inaccurate</string>
+    <string name="spectrum_export_name_suffix">spectrum</string>
+    <string name="spectrum_share_chooser_title">Share spectrum image</string>
 
     <!-- Default sound -->
     <string name="default_sound_ringtone_done">Set as ringtone</string>
