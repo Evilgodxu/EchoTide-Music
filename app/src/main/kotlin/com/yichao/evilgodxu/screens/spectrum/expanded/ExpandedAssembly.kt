@@ -13,10 +13,11 @@ import com.yichao.evilgodxu.screens.spectrum.SpectrumUiState
 import com.yichao.evilgodxu.screens.spectrum.component.SpectrumBody
 import com.yichao.evilgodxu.ui.component.PageTopBar
 
-// 宽屏下内容四周留白：可视区充裕，让时频图与屏幕边缘分离
+// 宽屏下内容左右与底部留白：可视区充裕，让时频图与屏幕边缘分离
 private val EXPANDED_CONTENT_PADDING = 12.dp
 
-// 宽屏组装器：常驻标题栏 + 留白内铺满的频谱图
+// 宽屏组装器：常驻标题栏 + 留白内的频谱内容。
+// 顶部不留白：图与标题区的间距由内容区自身固定为 4dp
 @Composable
 internal fun ExpandedAssembly(
     uiState: SpectrumUiState,
@@ -38,7 +39,11 @@ internal fun ExpandedAssembly(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(EXPANDED_CONTENT_PADDING),
+                .padding(
+                    start = EXPANDED_CONTENT_PADDING,
+                    end = EXPANDED_CONTENT_PADDING,
+                    bottom = EXPANDED_CONTENT_PADDING,
+                ),
         )
     }
 }

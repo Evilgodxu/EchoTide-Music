@@ -5,7 +5,8 @@ package com.yichao.evilgodxu.data.music.analysis
 const val SPECTROGRAM_DYNAMIC_RANGE_DB = 120f
 
 // 时频强度矩阵：整首音频的短时分析结果，供频谱图渲染。
-// values 以时间为主序按下标 frame * rows + row 存放，row 沿频率自低到高，取值 0..1。
+// values 以时间为主序按下标 frame * rows + row 存放，row 沿频率自低到高、等频率间隔分布，
+// 第 row 行对应 row / rows · 奈奎斯特频率（渲染端换算频率位置时以该关系为准），取值 0..1。
 // 不带 equals/hashCode：矩阵规模大且只作只读传递，值比较没有意义
 class Spectrogram(
     val values: FloatArray,

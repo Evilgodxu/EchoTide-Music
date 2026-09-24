@@ -1,10 +1,12 @@
 package com.yichao.evilgodxu.screens.spectrum.component
 
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.playback.AudioSignalPathFormat
@@ -13,7 +15,7 @@ import com.yichao.evilgodxu.utils.formatBytes
 // 参数项之间的分隔符
 private const val ITEM_SEPARATOR = " · "
 
-// 音频参数行：格式、规格与体积串成一行，宽度不足时自然换行。
+// 音频参数行：格式、规格与体积串成一行并居中显示，宽度不足时自然换行。
 // 置于图下方而非侧边，避免挤占频谱图的横向空间
 @Composable
 internal fun SpectrumTrackInfo(
@@ -42,7 +44,8 @@ internal fun SpectrumTrackInfo(
         text = text,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         fontSize = 11.sp,
-        modifier = modifier,
+        textAlign = TextAlign.Center,
+        modifier = modifier.fillMaxWidth(),
     )
 }
 

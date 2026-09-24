@@ -16,8 +16,9 @@ import com.yichao.evilgodxu.ui.component.PageTopBar
 // 窄屏下内容底缘留白
 private val COMPACT_BOTTOM_PADDING = 8.dp
 
-// 窄屏组装器：常驻标题栏 + 铺满内容区的频谱图。
-// 窄屏横向空间本就紧张，图不设左右边距，只在底部留出余量
+// 窄屏组装器：常驻标题栏 + 内容区的频谱内容。
+// 窄屏横向空间本就紧张，图不设左右边距，只在底部留出余量；
+// 顶部不留白：图与标题区的间距由内容区自身固定为 4dp，两处叠加会拉大间距
 @Composable
 internal fun CompactAssembly(
     uiState: SpectrumUiState,
