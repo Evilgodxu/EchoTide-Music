@@ -17,6 +17,7 @@ import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
 import com.yichao.evilgodxu.data.music.metadata.SystemThumbnailCache
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
+import com.yichao.evilgodxu.data.music.analysis.FullAnalysisLock
 import com.yichao.evilgodxu.data.music.analysis.isLosslessFormatName
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.panel.resolvePlayUrlByQuality
@@ -61,7 +62,7 @@ internal suspend fun cacheToDownloads(
         if (existingUri != null) {
             withContext(Dispatchers.Main) {
                 // 复用已有缓存：仅把播放列表索引指向本地文件，当前播放仍保持在线流
-                updateTrackAudioUri(playbackState, trackId, existingUri)
+                updateTrackAudioUri(context, playbackState, trackId, existingUri)
             }
             // 等待在线封面下载就绪后再内嵌：让下载到的封面原图与标题/艺术家一并写入缓存文件，
             // 写入触发的媒体扫描会为该文件生成系统封面略缩图
@@ -109,7 +110,7 @@ internal suspend fun cacheToDownloads(
         if (audioUri == null) return
 
         withContext(Dispatchers.Main) {
-            updateTrackAudioUri(playbackState, trackId, audioUri)
+            updateTrackAudioUri(context, playbackState, trackId, audioUri)
         }
         // 等待在线封面下载协程结束再内嵌：确保封面原图字节已就绪，
         // 消除“封面未就绪即触发写入导致元数据整体丢失”的时序竞态
@@ -347,8 +348,10 @@ internal suspend fun findExistingDownload(
     null
 }
 
-// 缓存完成后把曲目的播放地址指向本地文件
-internal fun updateTrackAudioUri(
+// 缓存完成后把曲目的播放地址指向本地文件。
+// 播放源由在线流换为本地文件属换源：一并解除该曲的全曲分析锁定，使新来源重新参与曲库分析
+internal suspend fun updateTrackAudioUri(
+    context: Context,
     playbackState: MusicPlaybackState,
     trackId: Long,
     audioUri: String,
@@ -363,6 +366,7 @@ internal fun updateTrackAudioUri(
         playbackState.currentTrack = updated
     }
     playbackState.persistPlaylist()
+    FullAnalysisLock.unlock(context, updated.path)
 }
 
 // 缓存完成后把在线播放时的标题/艺术家与封面原图写入本地文件。
@@ -437,6 +441,8 @@ internal suspend fun upgradeTrackToLossless(
         playbackState.persistPlaylist()
         idx
     }
+    // 音频内容已换为下载到的无损文件：该曲移出全曲分析锁定集合，重新参与曲库分析
+    FullAnalysisLock.unlock(context, track.path)
     // 写入标题/艺术家；封面沿用旧文件内嵌原图。
     // 先写元数据再起播：避免新文件在播放中被重写导致无声与进度回退
     embedUpgradeMetadata(context, playbackState, track, candidate)

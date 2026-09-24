@@ -9,6 +9,8 @@ import kotlinx.coroutines.withContext
 
 // AI 音乐识别器：规则启发式多征象从严判定，针对神经声码器/合成链路的统计痕迹，
 // 与音质异常的频谱截止判据正交，覆盖全格式本地文件。
+// 单曲入口与批量分析走共享 SpectralDecoder 的分段采样（3 段每段 4 秒）；用户查看过频谱的曲目
+// 由 FullSpectrumAnalyzer 在全曲解码上复用同一征象集重跑并锁定，此后分段采样不再改写其结论。
 // 征象集（均提取自共享 SpectralDecoder 的同一解码摘要）：
 //  ① 立体声相关性：真人混音因摆位/混响左右声道去相关，AI 由单声道骨干扩立体声相关性偏高；
 //  ② 12-18kHz 尖锐缺口 + 上方回升：32k 中间格式升频至 44.1k 的成像缺口，区别于持续滚降；
@@ -23,7 +25,7 @@ internal object AiMusicAnalyzer {
     // 识别结果缓存：键含文件大小与时长，文件变化即失效；供合并批量分析共享复用
     internal val cache = TrackVerdictCache(TrackVerdictCache.FILE_NAME_AI_MUSIC)
 
-    // ---- 征象阈值（识别策略升级时经「刷新」清缓存强制全量重扫后生效）----
+    // ---- 征象阈值（识别策略升级时经「刷新」对未锁定曲目强制重扫后生效）----
     // 征象①：中高频左右声道相关性下界
     private const val AI_STEREO_CORRELATION_MIN = 0.93f
     // 征象①相关性统计所需最少样本数（约 0.1 秒），不足视为无证据
@@ -50,16 +52,33 @@ internal object AiMusicAnalyzer {
         val sizeBytes = TrackAudioInfoReader.readFileSize(context, track) ?: return false
         val key = cacheKey(track, sizeBytes)
         cache.get(key)?.let { return it }
+        // 全曲分析锁定的曲目不再参与分段快速采样：结论只由 FullSpectrumAnalyzer 写入，
+        // 缓存意外缺失时按未检出处理，不用分段结论顶替完整分析结论
+        FullAnalysisLock.awaitLoaded(context)
+        if (FullAnalysisLock.isLocked(track, sizeBytes)) return false
         val result = withContext(Dispatchers.IO) { analyze(track, sizeBytes) }
         // 无法判定的结果也缓存为 false：避免歌单过滤时对未判定文件重复做昂贵的频谱分析；
-        // 识别策略升级后由「刷新」清空缓存强制重新校验
+        // 识别策略升级后由「刷新」对未锁定曲目强制重算
         cache.map[key] = result ?: false
         cache.schedulePersist(context)
         return result ?: false
     }
 
-    // 清除全部校验缓存（内存 + 落盘）：识别策略升级或用户主动刷新时用于强制全量重新分析
-    suspend fun resetCache(context: Context) = cache.reset(context)
+    // 全曲分析的判定写入入口：把频谱页完整分析的结论落为可复用判定。
+    // 返回 null 表示不适用（无本地路径，或文件体积不可读而无从建立缓存键）
+    suspend fun recordFullAnalysisVerdict(
+        context: Context,
+        track: MusicTrack,
+        summary: SpectralDecoder.DecodeSummary,
+    ): Boolean? {
+        if (!isDecodableCandidate(track)) return null
+        cache.awaitLoaded(context)
+        val sizeBytes = TrackAudioInfoReader.readFileSize(context, track) ?: return null
+        val verdict = verdictFromSummary(summary)
+        cache.map[cacheKey(track, sizeBytes)] = verdict
+        cache.schedulePersist(context)
+        return verdict
+    }
 
     // 解码摘要判定：多征象从严合成，供合并批量分析（analyzeLibraryCombined）复用已解码摘要，
     // 避免对同一文件与音质异常识别各自解码

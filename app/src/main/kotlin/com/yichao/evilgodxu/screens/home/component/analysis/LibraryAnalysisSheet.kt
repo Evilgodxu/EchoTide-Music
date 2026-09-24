@@ -122,7 +122,8 @@ internal fun LibraryAnalysisSheet(
                     fontSize = 12.sp,
                 )
                 Spacer(Modifier.weight(1f))
-                // 刷新：清空校验缓存后全量重新分析，规避识别策略更新后旧缓存复用导致音质异常被放行；
+                // 刷新：忽略既有判定重新分析，规避识别策略更新后旧判定复用导致音质异常被放行；
+                // 已由全曲分析锁定的曲目保持其完整分析结论，不随刷新降级为分段采样；
                 // 分析进行中置灰不可点，防手抖/重复触发
                 IconButton(
                     onClick = { analysis.onRefresh(playbackState.libraryTracks) },
@@ -582,16 +583,17 @@ internal class LibraryAnalysisController(
     // 后台任务进行中再次打开沿用当前进度，不重复启动
     fun onSheetOpen(tracks: List<MusicTrack>) {
         if (analyzedTracks !== tracks || !analyzing) {
-            startAnalysis(tracks, refreshed = false)
+            startAnalysis(tracks, forceRecompute = false)
         }
     }
 
-    // 手动刷新：清空校验缓存（旧版本判定结果不可复用）后强制全量重新分析
+    // 手动刷新：强制忽略既有判定重新分析未锁定曲目（旧版本判定结果不可复用）；
+    // 已由全曲分析锁定的曲目保持其完整分析结论，不随刷新降级为分段采样
     fun onRefresh(tracks: List<MusicTrack>) {
-        startAnalysis(tracks, refreshed = true)
+        startAnalysis(tracks, forceRecompute = true)
     }
 
-    private fun startAnalysis(tracks: List<MusicTrack>, refreshed: Boolean) {
+    private fun startAnalysis(tracks: List<MusicTrack>, forceRecompute: Boolean) {
         analysisJob?.cancel()
         analyzedTracks = tracks
         analysisJob = scope.launch {
@@ -601,15 +603,12 @@ internal class LibraryAnalysisController(
             fakeLosslessCount = null
             aiMusicCount = null
             try {
-                if (refreshed) {
-                    FakeLosslessAnalyzer.resetCache(context)
-                    AiMusicAnalyzer.resetCache(context)
-                }
                 // 合并单次遍历：每文件只解码一次，同时产出音质异常与 AI 判定；
                 // 进度以本批需解码文件数为基数连续递增
                 val result = analyzeLibraryCombined(
                     context = context,
                     tracks = tracks,
+                    forceRecompute = forceRecompute,
                     onProgress = { checked, total ->
                         if (total > 0) checkingProgress = checked to total
                     },

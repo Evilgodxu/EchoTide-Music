@@ -12,13 +12,16 @@ import kotlinx.coroutines.withContext
 //    不设码率压缩比/头部规格免检路径——伪造文件可借量化噪声/上采样令码率虚高，
 //    头部参数亦不可信，任何候选文件都不得绕过频谱判定；
 // ② 频谱判定：全部候选 FLAC 用共享 SpectralDecoder 稀疏窗口解码 3 段（每窗 4 秒），FFT 求平均
-//    功率谱，三条物理证据路径分离判定：
+//    功率谱，三条物理证据路径分离判定（用户查看过频谱的曲目改由 ③ 全曲判定，本路径跳过）：
 //    a) 升频判据：内容真实截止落在某源采样率奈奎斯特保护带内 + 过渡带具砖墙陡峭度 +
 //       44.1k 源奈奎斯特上方逐帧能量恒定（死区），三者齐备判升频音质异常；
 //       ——不预设墙在固定频率，48k 原生母带自然滚降（截止超出保护带或过渡带平缓）不受误伤；
 //    b) 砖墙判据：CD 级硬截止 + 平坦死区表征有损转码，老录音/窄母带等自然限带
 //       经去相关性与转码特征（编码器截止网格 / 高频掩蔽空洞）两级佐证区分，佐证不足放行；
 //    c) 高解析：非升频的硬墙视为自然滚降，直接放行，避免把母带高频滚降误判为转码。
+// ③ 全曲判定：用户在频谱页查看该曲时，由 FullSpectrumAnalyzer 复用同一 Accumulator 与同一判据
+//    在全曲平均谱上重跑（取样范围从 3 段 4 秒扩到整曲），结论写入同一缓存并锁定该曲；
+//    锁定后本文的分段采样不再改写该结论（见 FullAnalysisLock）。
 // 结果持久化缓存与批量增量校验复用 TrackVerdictCache；
 // 进度由调用方驱动，协程取消即时释放解码器。
 internal object FakeLosslessAnalyzer {
@@ -95,17 +98,34 @@ internal object FakeLosslessAnalyzer {
         val sizeBytes = TrackAudioInfoReader.readFileSize(context, track) ?: return false
         val key = cacheKey(track, sizeBytes)
         cache.get(key)?.let { return it }
+        // 全曲分析锁定的曲目不再参与分段快速采样：结论只由 FullSpectrumAnalyzer 写入，
+        // 缓存意外缺失时按未检出处理，不用分段结论顶替完整分析结论
+        FullAnalysisLock.awaitLoaded(context)
+        if (FullAnalysisLock.isLocked(track, sizeBytes)) return false
         val result = withContext(Dispatchers.IO) { analyze(context, track, sizeBytes) }
         // 无法判定的结果也缓存为 false：避免歌单过滤时对未判定文件重复做昂贵的频谱分析，
-        // 导致音质异常歌单切换看似无响应；识别策略升级后由「刷新」清空缓存强制重新校验
+        // 导致音质异常歌单切换看似无响应；识别策略升级后由「刷新」对未锁定曲目强制重算
         cache.map[key] = result ?: false
         cache.schedulePersist(context)
         return result ?: false
     }
 
-    // 清除全部校验缓存（内存 + 落盘）：识别策略升级或用户主动刷新时用于强制全量重新分析，
-    // 避免旧版本判定结果（如放宽标准时的「真无损」）被持久化缓存复用而漏掉音质异常
-    suspend fun resetCache(context: Context) = cache.reset(context)
+    // 全曲分析的判定写入入口：把频谱页完整分析的结论落为两路共用判定。
+    // 返回 null 表示不适用（非 FLAC，或文件体积不可读而无从建立缓存键）。
+    // 低规格豁免与单曲入口同口径，保证两条路径对同一文件的适用性判定一致
+    suspend fun recordFullAnalysisVerdict(
+        context: Context,
+        track: MusicTrack,
+        summary: SpectralDecoder.DecodeSummary,
+    ): Boolean? {
+        if (!isFlacCandidate(track)) return null
+        cache.awaitLoaded(context)
+        val sizeBytes = TrackAudioInfoReader.readFileSize(context, track) ?: return null
+        val verdict = if (isLowSpecFakeLossless(context, track)) false else verdictFromSummary(summary)
+        cache.map[cacheKey(track, sizeBytes)] = verdict
+        cache.schedulePersist(context)
+        return verdict
+    }
 
     // 低规格豁免判断（纯函数）：容器头可读且规格不足（<44.1kHz/<16bit/<2ch）时，
     // 带宽受限天然带高频截止，非音质异常伪装目标，无需解码即可排除；

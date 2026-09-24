@@ -19,7 +19,8 @@ import com.yichao.evilgodxu.screens.spectrum.SpectrumAnalysis
 private val LABEL_GAP = 6.dp
 
 // 曲目分析结论区：音质异常与 AI 合成两路判定横向并排，各占一半宽度。
-// 判据与缓存复用曲库分析的同一条路径，两处结论必然一致
+// 结论取本页全曲解码的完整分析，并与曲库分析共用同一份判定缓存：该结论一旦产出即锁定本曲，
+// 曲库分析的分段快速采样不再改写，故两处口径一致
 @Composable
 internal fun SpectrumAnalysisPanel(
     analysis: SpectrumAnalysis,

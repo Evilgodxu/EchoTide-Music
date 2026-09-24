@@ -31,21 +31,27 @@ private class PendingAnalysis(
 // FLAC 重复解码。进度以「本批需解码文件总数」为基数连续递增，不再出现两段式重跑。
 // 预扫（逐首 stat + 读 FLAC 容器头）与频谱解码都在同一限并发调度器上推进：
 // 解码独占 MediaCodec 实例，串行执行会让整库耗时随文件数线性增长。
+// 已由全曲分析锁定的曲目在排期阶段即排除：其结论是完整分析的产物，分段采样不得改写（见 FullAnalysisLock）。
+// forceRecompute 用于「刷新」：忽略既有判定重新分析未锁定曲目，锁定曲目照旧跳过。
 internal suspend fun analyzeLibraryCombined(
     context: Context,
     tracks: List<MusicTrack>,
+    forceRecompute: Boolean = false,
     onProgress: suspend (checked: Int, total: Int) -> Unit,
 ): LibraryAnalysisResult {
     val fakeCache = FakeLosslessAnalyzer.cache
     val aiCache = AiMusicAnalyzer.cache
+    val lockCache = FullAnalysisLock.cache
     fakeCache.awaitLoaded(context)
     aiCache.awaitLoaded(context)
+    FullAnalysisLock.awaitLoaded(context)
     return withContext(Dispatchers.IO) io@{
         // 预扫与解码共用一个限并发调度器：分池会让预扫的全部任务排在解码任务之前，
         // 在「预扫空等解码池」与「解码空等预扫池」之间来回切换，重新退化为两段串行
         val dispatcher = Dispatchers.IO.limitedParallelism(decodeParallelism(context))
         val keepFake = ConcurrentHashMap.newKeySet<String>()
         val keepAi = ConcurrentHashMap.newKeySet<String>()
+        val keepLock = ConcurrentHashMap.newKeySet<String>()
         // 缓存命中数：并发排期下逐首累加，须用原子计数
         val cachedFakeCount = AtomicInteger()
         val cachedAiCount = AtomicInteger()
@@ -56,19 +62,35 @@ internal suspend fun analyzeLibraryCombined(
             val isAiCandidate = AiMusicAnalyzer.isDecodableCandidate(track)
             if (!isFlac && !isAiCandidate) return null
             val sizeBytes = TrackAudioInfoReader.readFileSize(context, track) ?: return null
+            // 全曲分析锁定：跳过解码，只并入保留集合并按既有结论计数——
+            // 既不覆盖权威结论，也不让剪枝误删它
+            if (FullAnalysisLock.isLocked(track, sizeBytes)) {
+                keepLock.add(FullAnalysisLock.cacheKey(track, sizeBytes))
+                if (isFlac) {
+                    val key = FakeLosslessAnalyzer.cacheKey(track, sizeBytes)
+                    keepFake.add(key)
+                    if (fakeCache.get(key) == true) cachedFakeCount.incrementAndGet()
+                }
+                if (isAiCandidate) {
+                    val key = AiMusicAnalyzer.cacheKey(track, sizeBytes)
+                    keepAi.add(key)
+                    if (aiCache.get(key) == true) cachedAiCount.incrementAndGet()
+                }
+                return null
+            }
             var fakeWanted = false
             if (isFlac) {
                 val key = FakeLosslessAnalyzer.cacheKey(track, sizeBytes)
                 keepFake.add(key)
                 val cached = fakeCache.get(key)
-                if (cached != null) {
+                // 强制重算（刷新）时既有判定不可复用：识别策略升级后旧结论须重新校验
+                if (cached != null && !forceRecompute) {
                     if (cached) cachedFakeCount.incrementAndGet()
-                } else {
-                    // 低规格豁免：读容器头后可免解码判定非音质异常（不持久化，下次扫描重检，
-                    // 代价仅为读一次文件头，换取无需引入结果落盘的脏标记）
-                    if (!FakeLosslessAnalyzer.isLowSpecFakeLossless(context, track)) {
-                        fakeWanted = true
-                    }
+                } else if (!FakeLosslessAnalyzer.isLowSpecFakeLossless(context, track)) {
+                    fakeWanted = true
+                } else if (forceRecompute) {
+                    // 低规格豁免不产出新结论，强制重算时一并丢弃旧结论，避免策略升级后残留
+                    fakeCache.map.remove(key)
                 }
             }
             var aiWanted = false
@@ -76,7 +98,7 @@ internal suspend fun analyzeLibraryCombined(
                 val key = AiMusicAnalyzer.cacheKey(track, sizeBytes)
                 keepAi.add(key)
                 val cached = aiCache.get(key)
-                if (cached != null) {
+                if (cached != null && !forceRecompute) {
                     if (cached) cachedAiCount.incrementAndGet()
                 } else {
                     aiWanted = true
@@ -96,8 +118,9 @@ internal suspend fun analyzeLibraryCombined(
         if (pending.isEmpty()) {
             val staleFake = fakeCache.map.size > keepFake.size
             val staleAi = aiCache.map.size > keepAi.size
+            val staleLock = lockCache.map.size > keepLock.size
             // 无待解码文件：仅当存在已删除文件的残留条目时清理，避免无谓写盘
-            if (staleFake || staleAi) {
+            if (staleFake || staleAi || staleLock) {
                 withContext(NonCancellable) {
                     if (staleFake) {
                         fakeCache.map.keys.removeAll { key -> key !in keepFake }
@@ -105,8 +128,12 @@ internal suspend fun analyzeLibraryCombined(
                     if (staleAi) {
                         aiCache.map.keys.removeAll { key -> key !in keepAi }
                     }
+                    if (staleLock) {
+                        lockCache.map.keys.removeAll { key -> key !in keepLock }
+                    }
                     fakeCache.flush(context)
                     aiCache.flush(context)
+                    lockCache.flush(context)
                 }
             }
             return@io LibraryAnalysisResult(cachedFakeCount.get(), cachedAiCount.get())
@@ -157,8 +184,12 @@ internal suspend fun analyzeLibraryCombined(
                 if (aiCache.map.size > keepAi.size) {
                     aiCache.map.keys.removeAll { key -> key !in keepAi }
                 }
+                if (lockCache.map.size > keepLock.size) {
+                    lockCache.map.keys.removeAll { key -> key !in keepLock }
+                }
                 fakeCache.flush(context)
                 aiCache.flush(context)
+                lockCache.flush(context)
             }
         }
         LibraryAnalysisResult(

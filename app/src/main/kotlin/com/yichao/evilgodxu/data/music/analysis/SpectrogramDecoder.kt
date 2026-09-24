@@ -12,9 +12,18 @@ import kotlin.math.log10
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
 
+// 全曲解码产物：渲染矩阵与判定摘要出自同一次解码。两者都可能为 null——
+// 前者表示音频不可解码/无有效帧，后者表示未累计到任何 FFT 块
+internal class FullSpectrumDecode(
+    val spectrogram: Spectrogram?,
+    val summary: SpectralDecoder.DecodeSummary?,
+)
+
 // 全曲时频分析：把整首音频解码为 PCM，逐窗做短时傅里叶变换，
-// 产出可直接渲染成频谱图的强度矩阵。与 SpectralDecoder 的分工在于取样范围与产出形态——
-// 后者只取 3 段探测窗求平均功率谱，本解码器覆盖全曲并保留逐帧频谱，故不复用其解码循环。
+// 产出可直接渲染成频谱图的强度矩阵；同一份 PCM 同时喂入 SpectralDecoder.Accumulator，
+// 产出覆盖整曲的判定摘要。与 SpectralDecoder 的分工在于取样范围与产出形态——
+// 后者只取 3 段探测窗求平均功率谱，本解码器覆盖全曲并保留逐帧频谱，故不复用其解码循环，
+// 但两者共用同一份判定摘要累加器，判据输入的刻度完全一致。
 internal object SpectrogramDecoder {
 
     // 分析参数：2048 点 FFT，44.1k 下约 21.5Hz/桶；跳步取半窗保 50% 重叠，
@@ -32,11 +41,11 @@ internal object SpectrogramDecoder {
     private const val PROGRESS_STEPS = 50
 
     // 解码并分析整首音频；进度取已解码采样数相对容器时长的比例，协程取消时即时释放解码器。
-    // 无法解出任何有效帧时返回 null，由调用方按失败处理
+    // 无法解出任何有效帧时两项产物均为 null，由调用方按失败处理
     suspend fun decode(
         track: MusicTrack,
         onProgress: (Float) -> Unit = {},
-    ): Spectrogram? {
+    ): FullSpectrumDecode {
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
         return try {
@@ -49,13 +58,13 @@ internal object SpectrogramDecoder {
                     break
                 }
             }
-            if (trackIndex < 0) return null
+            if (trackIndex < 0) return FullSpectrumDecode(null, null)
             val mediaFormat = extractor.getTrackFormat(trackIndex)
             extractor.selectTrack(trackIndex)
-            val mime = mediaFormat.getString(MediaFormat.KEY_MIME) ?: return null
+            val mime = mediaFormat.getString(MediaFormat.KEY_MIME) ?: return FullSpectrumDecode(null, null)
             val sampleRate = mediaFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE, 0)
             val channels = mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT, 0)
-            if (sampleRate <= 0 || channels <= 0) return null
+            if (sampleRate <= 0 || channels <= 0) return FullSpectrumDecode(null, null)
 
             decoder = MediaCodec.createDecoderByType(mime)
             decoder.configure(mediaFormat, null, null, 0)
@@ -69,6 +78,9 @@ internal object SpectrogramDecoder {
             val expectedSamples = (durationUs * sampleRate / 1_000_000L).coerceAtLeast(1L)
 
             val collector = FrameCollector()
+            // 判定摘要与渲染矩阵共用同一份 PCM：判定走 4096 点网格，渲染走 2048 点，
+            // 故两条累加各自独立，但都来自这一次解码，不再为出判定另开一路解码器
+            val accumulator = SpectralDecoder.Accumulator(sampleRate, channels)
             val info = MediaCodec.BufferInfo()
             var pcmEncoding = PcmFormat.ENCODING_16BIT
             var inputEos = false
@@ -112,6 +124,7 @@ internal object SpectrogramDecoder {
                             decodedSamples += collector.feedBuffer(
                                 outputBuffer, info.offset, info.size, channels, pcmEncoding,
                             )
+                            accumulator.feed(outputBuffer, info.offset, info.size, pcmEncoding)
                             val step = (decodedSamples * PROGRESS_STEPS / expectedSamples).toInt()
                             if (step != progressStep) {
                                 progressStep = step
@@ -127,13 +140,16 @@ internal object SpectrogramDecoder {
                     }
                 }
             }
-            collector.build(sampleRate)
+            FullSpectrumDecode(
+                spectrogram = collector.build(sampleRate),
+                summary = accumulator.summary(),
+            )
         } catch (e: CancellationException) {
             // 协程取消（如退出页面）属正常流程：不记日志，重新抛出
             throw e
         } catch (e: Exception) {
             CrashLogManager.logException("SpectrogramDecoder", "频谱图解码失败", e)
-            null
+            FullSpectrumDecode(null, null)
         } finally {
             runCatching { decoder?.stop() }
             runCatching { decoder?.release() }

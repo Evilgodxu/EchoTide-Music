@@ -15,9 +15,9 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 // 曲目判定结果缓存：内存表 + 持久化 JSON，键含文件大小与时长，文件变化即失效。
-// 音质异常与 AI 识别共用：重启后直接复用；仅对新增/变更文件增量解码；
+// 音质异常、AI 识别与全曲分析锁定表共用：重启后直接复用；仅对新增/变更文件增量解码；
 // 无法判定（解码不可用/时长无效）的结果同样入缓存为 false，避免同批文件每次重开反复分析，
-// 识别策略升级后由调用方「刷新」清空缓存强制全量重新校验
+// 识别策略升级后由调用方「刷新」对未锁定曲目强制重算（见 analyzeLibraryCombined 的 forceRecompute）
 internal class TrackVerdictCache(
     private val cacheFileName: String,
 ) {
@@ -45,15 +45,6 @@ internal class TrackVerdictCache(
             if (loaded) return
             withContext(Dispatchers.IO) { loadCache(context) }
             loaded = true
-        }
-    }
-
-    // 清除全部校验缓存（内存 + 落盘）：识别策略升级或用户主动刷新时用于强制全量重新分析。
-    // 与落盘写共用互斥锁：清空后的写任务只会落当前（新）快照，旧条目无复活路径
-    suspend fun reset(context: Context) {
-        persistMutex.withLock {
-            map.clear()
-            withContext(Dispatchers.IO) { runCatching { cacheFile(context).delete() } }
         }
     }
 
@@ -114,7 +105,14 @@ internal class TrackVerdictCache(
         /** AI 识别判定缓存文件名 */
         internal const val FILE_NAME_AI_MUSIC = "ai_music_cache.json"
 
+        /** 全曲分析锁定表文件名 */
+        internal const val FILE_NAME_FULL_ANALYSIS = "full_analysis_lock.json"
+
         /** 已登记的判定缓存文件名：缓存台账据此统计占用，新增判定缓存必须在此登记 */
-        internal val KNOWN_FILE_NAMES = listOf(FILE_NAME_FAKE_LOSSLESS, FILE_NAME_AI_MUSIC)
+        internal val KNOWN_FILE_NAMES = listOf(
+            FILE_NAME_FAKE_LOSSLESS,
+            FILE_NAME_AI_MUSIC,
+            FILE_NAME_FULL_ANALYSIS,
+        )
     }
 }
