@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import com.yichao.evilgodxu.data.music.model.MusicTrack
-import com.yichao.evilgodxu.ui.component.SongGradientBackground
+import com.yichao.evilgodxu.ui.component.SongImmersiveBackground
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -82,10 +82,9 @@ internal fun CoverCarouselOverlay(
         // 受动画驱动的连续中心位：拖动增量实时叠加，动画期间由 centerIndex 平滑推进
         val rendered = centerIndex.value + dragShift
 
-        // 背景：沿用首页封面色渐变处理，实时渲染为当前居中的歌曲；横屏系统栏隐藏，跳过顶部压暗
-        SongGradientBackground(
+        // 背景：沿用首页的封面衍生沉浸背景，实时渲染为当前居中的歌曲
+        SongImmersiveBackground(
             track = playlist[rendered.roundToInt().coerceIn(0, lastIndex)],
-            darkenStatusBarArea = false,
         )
 
         // 交互层：左右滑动切换、点击封面选取，点击空白处收起

@@ -250,7 +250,7 @@ internal fun PortraitPlayer(
         val coverHeight = (maxHeight - lyricsAreaHeight - BottomFixedContentHeight - bottomClearance)
             .coerceAtLeast(MinCoverHeight)
             .coerceAtMost(maxWidth)
-        // 沉浸式专辑封面：全宽置顶并嵌入标题栏区域，上下边缘渐隐为透明融入背景
+        // 沉浸式专辑封面：全宽置顶并延伸至屏幕顶端（状态栏后方），下缘渐隐融入封面衍生背景
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -263,7 +263,6 @@ internal fun PortraitPlayer(
         ) {
             HomeImmersiveCover(
                 track = playbackState.currentTrack,
-                topFraction = (topBarInset + TopFadeExtra) / coverHeight,
                 modifier = Modifier.fillMaxSize(),
             )
             // 长按菜单锚定封面，显示在封面底部
@@ -941,9 +940,6 @@ private fun LyricsContextMenu(
 
 // 歌词微调单次步长（毫秒）
 private const val LyricFineTuneStepMs = 100L
-
-// 封面顶部渐隐区在标题栏高度之外的延伸距离
-private val TopFadeExtra = 20.dp
 
 // 歌词区下方固定区域高度：间距、标题/艺人两行、进度条与控制栏，用于计算封面可占用高度
 private val BottomFixedContentHeight = 8.dp + 8.dp + 24.dp + 4.dp + 20.dp + 8.dp + 40.dp + 8.dp + 48.dp

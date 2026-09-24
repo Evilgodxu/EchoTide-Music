@@ -64,7 +64,6 @@ internal fun CompactAssembly(
 
     HomeShell(
         panelState = panelState,
-        darkenStatusBarArea = true,
         modifier = modifier,
         topBar = {
             HomeTopBar(

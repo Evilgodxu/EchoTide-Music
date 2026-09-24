@@ -36,8 +36,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
-    // 系统栏显隐目标：横屏全部隐藏 / 首页竖屏仅隐藏状态栏 / 其余全部显示
-    private enum class SystemBarTarget { HIDE_ALL, HIDE_STATUS, VISIBLE }
+    // 系统栏显隐目标：横屏全部隐藏 / 竖屏全部显示
+    private enum class SystemBarTarget { HIDE_ALL, VISIBLE }
 
     private companion object {
         // 系统栏被外部显示后，由本应用主动压回隐藏的最大延迟
@@ -265,11 +265,8 @@ class MainActivity : ComponentActivity() {
         return bounds.width() > bounds.height()
     }
 
-    private fun systemBarTarget(): SystemBarTarget = when {
-        isWindowLandscape() -> SystemBarTarget.HIDE_ALL
-        SystemBarAppearance.isHomePortraitImmersive -> SystemBarTarget.HIDE_STATUS
-        else -> SystemBarTarget.VISIBLE
-    }
+    private fun systemBarTarget(): SystemBarTarget =
+        if (isWindowLandscape()) SystemBarTarget.HIDE_ALL else SystemBarTarget.VISIBLE
 
     // 系统栏唯一下发点：图标外观与显隐一并处理
     private fun applySystemBars() {
@@ -299,11 +296,6 @@ class MainActivity : ComponentActivity() {
     private fun applySystemBarsVisibility(controller: WindowInsetsController) {
         when (systemBarTarget()) {
             SystemBarTarget.HIDE_ALL -> controller.hide(WindowInsets.Type.systemBars())
-            // 仅隐藏状态栏：只把导航栏摆正，不做「先 show 全部再 hide 状态栏」，避免中间可见帧
-            SystemBarTarget.HIDE_STATUS -> {
-                controller.show(WindowInsets.Type.navigationBars())
-                controller.hide(WindowInsets.Type.statusBars())
-            }
             SystemBarTarget.VISIBLE -> controller.show(WindowInsets.Type.systemBars())
         }
     }

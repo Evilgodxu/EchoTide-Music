@@ -12,6 +12,8 @@ data class SettingsUiState(
     val overlayPermissionPending: Boolean = false,
     val wordByWordRendering: Boolean = true,
     val swipeToChangeTrack: Boolean = true,
+    // 背景流动：开启后首页封面衍生背景按固定默认值缓慢流动，关闭时只渲染一帧
+    val backgroundFlow: Boolean = false,
     val version: String = "",
     // 已导入的代理音源列表
     val proxySources: List<ProxySourceSpec> = emptyList(),

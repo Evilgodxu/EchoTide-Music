@@ -180,6 +180,8 @@
     <string name="settings_word_by_word_desc">逐字高亮并同步跳动,关闭后切换整行高亮</string>
     <string name="settings_swipe_track_title">滑动切歌</string>
     <string name="settings_swipe_track_desc">在首页上下滑动切换歌曲</string>
+    <string name="settings_background_flow_title">背景流动</string>
+    <string name="settings_background_flow_desc">开启后首页背景随封面缓慢流动，关闭时只显示静态背景</string>
     <string name="settings_typography_title">排版</string>
     <string name="settings_typography_desc">歌词字号与显示行数</string>
 

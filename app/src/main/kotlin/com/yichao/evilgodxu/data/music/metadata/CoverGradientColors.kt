@@ -6,8 +6,8 @@ import androidx.compose.ui.graphics.lerp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// 封面取色：取上下半区的平均色作为沉浸背景渐变的两端。
-// 显示端（SongGradientBackground）与切歌时的后台持久化共用本入口，使冷启动恢复色与实时取色同源。
+// 封面取色：取上下半区的平均色作为沉浸背景兜底渐变的两端。
+// 显示端（SongImmersiveBackground）与切歌时的后台持久化共用本入口，使冷启动恢复色与实时取色同源。
 internal suspend fun extractCoverGradient(source: Bitmap): Pair<Color, Color>? = withContext(Dispatchers.IO) {
     // 硬件位图不可直接 getPixel，复制为软件位图后再取色
     val bitmap = if (source.config == Bitmap.Config.HARDWARE) {

@@ -3,6 +3,7 @@ package com.yichao.evilgodxu.screens.home.component.player
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -58,32 +59,47 @@ internal fun HomeAlbumArt(track: MusicTrack?, modifier: Modifier = Modifier) {
     }
 }
 
-// 封面底部渐隐区占封面高度的比例
-private const val BOTTOM_FADE_FRACTION = 0.2f
+// 封面底部渐隐：封面下缘渐隐的起点比例、过渡点比例与过渡点透明度
+private const val BOTTOM_FADE_START = 0.7f
+private const val BOTTOM_FADE_MID = 0.88f
+private const val BOTTOM_FADE_MID_ALPHA = 0.62f
 
-// 首页沉浸式封面：全宽置顶，上下边缘渐隐为透明融入真实渲染背景
+// 首页沉浸式封面：全宽置顶并延伸至屏幕顶端（状态栏后方），下缘渐隐融入封面衍生背景；
+// 封面之上叠一层柔和暗色蒙层，使状态栏与标题栏的白色图标压在明亮封面上仍可读
 @Composable
 internal fun HomeImmersiveCover(
     track: MusicTrack?,
-    topFraction: Float,
     modifier: Modifier = Modifier,
 ) {
-    HomeAlbumArt(
-        track = track,
-        modifier = modifier.verticalFadeMask(
-            topFraction.coerceIn(0f, 1f - BOTTOM_FADE_FRACTION),
-            BOTTOM_FADE_FRACTION,
-        ),
-    )
+    Box(modifier = modifier.bottomFadeMask()) {
+        HomeAlbumArt(
+            track = track,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = 0.22f),
+                            Color.Black.copy(alpha = 0.12f),
+                            Color.Black.copy(alpha = 0.38f),
+                        )
+                    )
+                ),
+        )
+    }
 }
 
-// 上下边缘渐隐蒙层：与跑马灯同款 DstIn 处理，封面顶部与底部渐变消失透出背景
-private fun Modifier.verticalFadeMask(topFraction: Float, bottomFraction: Float): Modifier = drawWithCache {
+// 封面底部渐隐蒙层：与跑马灯同款 DstIn 处理，下缘渐隐为透明透出封面衍生背景；
+// 蒙层与封面同层绘制，保证暗色蒙层与封面一同渐隐，不把背景压暗出一道分界
+private fun Modifier.bottomFadeMask(): Modifier = drawWithCache {
     val brush = Brush.verticalGradient(
         colorStops = arrayOf(
-            0f to Color.Transparent,
-            topFraction to Color.Black,
-            1f - bottomFraction to Color.Black,
+            0f to Color.Black,
+            BOTTOM_FADE_START to Color.Black,
+            BOTTOM_FADE_MID to Color.Black.copy(alpha = BOTTOM_FADE_MID_ALPHA),
             1f to Color.Transparent,
         ),
     )

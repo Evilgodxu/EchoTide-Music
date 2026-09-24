@@ -12,23 +12,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import com.yichao.evilgodxu.screens.home.component.panel.HomePanelState
-import com.yichao.evilgodxu.ui.component.SongGradientBackground
+import com.yichao.evilgodxu.ui.component.SongImmersiveBackground
 
-// 首页共享骨架：沉浸式渐变背景 + 透明 Scaffold；形态差异由调用方通过插槽装配，骨架不承载手势
+// 首页共享骨架：封面衍生沉浸背景 + 透明 Scaffold；形态差异由调用方通过插槽装配，骨架不承载手势
 @Composable
 internal fun HomeShell(
     panelState: HomePanelState,
-    // 顶部状态栏区域是否压暗：竖屏需要，横屏系统栏隐藏时不需要
-    darkenStatusBarArea: Boolean,
     modifier: Modifier = Modifier,
     topBar: @Composable () -> Unit = {},
     content: @Composable BoxScope.(topInset: Dp) -> Unit,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         val playbackState = panelState.playbackState.state
-        SongGradientBackground(
+        SongImmersiveBackground(
             track = playbackState.currentTrack,
-            darkenStatusBarArea = darkenStatusBarArea,
             // 冷启动略缩图就绪前先用上次持久化的取色结果，避免首帧闪默认色
             restoredColors = playbackState.restoredGradientFor(playbackState.currentTrack),
             onBackgroundColor = { panelState.backgroundColor = it },

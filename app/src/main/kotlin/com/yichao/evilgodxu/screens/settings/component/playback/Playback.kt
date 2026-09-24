@@ -21,7 +21,7 @@ import com.yichao.evilgodxu.ui.component.AppSwitch
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 
-// 播放设置：悬浮播放与逐字渲染开关、排版入口
+// 播放设置：悬浮播放与逐字渲染开关、滑动切歌与背景流动开关、排版入口
 @Composable
 fun Playback(
     miniPlayerEnabled: Boolean,
@@ -30,6 +30,8 @@ fun Playback(
     onWordByWordRenderingChange: (Boolean) -> Unit,
     swipeToChangeTrack: Boolean,
     onSwipeToChangeTrackChange: (Boolean) -> Unit,
+    backgroundFlow: Boolean,
+    onBackgroundFlowChange: (Boolean) -> Unit,
     onTypographyClick: () -> Unit,
 ) {
     GroupCard(title = stringResource(R.string.settings_section_player)) {
@@ -50,6 +52,12 @@ fun Playback(
             description = stringResource(R.string.settings_swipe_track_desc),
             checked = swipeToChangeTrack,
             onCheckedChange = onSwipeToChangeTrackChange,
+        )
+        PlayerSwitchRow(
+            title = stringResource(R.string.settings_background_flow_title),
+            description = stringResource(R.string.settings_background_flow_desc),
+            checked = backgroundFlow,
+            onCheckedChange = onBackgroundFlowChange,
         )
         SettingsEntry(
             icon = AppIcons.TextFields,

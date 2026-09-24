@@ -180,6 +180,8 @@
     <string name="settings_word_by_word_desc">Highlight lyrics word by word with bounce; off uses whole-line highlight</string>
     <string name="settings_swipe_track_title">Swipe to change track</string>
     <string name="settings_swipe_track_desc">Swipe up/down on the home screen to change tracks</string>
+    <string name="settings_background_flow_title">Flowing background</string>
+    <string name="settings_background_flow_desc">Home background slowly flows with the cover; off keeps it static</string>
     <string name="settings_typography_title">Typography</string>
     <string name="settings_typography_desc">Lyric font size and visible lines</string>
 

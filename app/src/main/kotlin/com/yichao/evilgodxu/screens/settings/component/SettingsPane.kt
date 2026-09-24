@@ -43,6 +43,7 @@ internal fun SettingsPane(
     onMiniPlayerEnabledChange: (Boolean) -> Unit,
     onWordByWordRenderingChange: (Boolean) -> Unit,
     onSwipeToChangeTrackChange: (Boolean) -> Unit,
+    onBackgroundFlowChange: (Boolean) -> Unit,
     onVersionClick: () -> Unit,
     onOpenTypography: () -> Unit,
     onProxySourceImport: (String) -> Unit,
@@ -88,6 +89,8 @@ internal fun SettingsPane(
             onWordByWordRenderingChange = onWordByWordRenderingChange,
             swipeToChangeTrack = uiState.swipeToChangeTrack,
             onSwipeToChangeTrackChange = onSwipeToChangeTrackChange,
+            backgroundFlow = uiState.backgroundFlow,
+            onBackgroundFlowChange = onBackgroundFlowChange,
             onTypographyClick = onOpenTypography,
         )
         ProxySource(

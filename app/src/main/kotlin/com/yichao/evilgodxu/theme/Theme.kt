@@ -69,14 +69,6 @@ object SystemBarAppearance {
             onChanged?.invoke()
         }
 
-    // 首页竖屏沉浸请求（仅隐藏状态栏），由首页页面写入、离开时撤销
-    var isHomePortraitImmersive: Boolean = false
-        set(value) {
-            if (field == value) return
-            field = value
-            onChanged?.invoke()
-        }
-
     // 声明变化时的即时下发回调，由 Activity 注册
     var onChanged: (() -> Unit)? = null
 }

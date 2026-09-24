@@ -16,7 +16,9 @@ import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
 import com.yichao.evilgodxu.permission.OverlayGrantMonitor
 import com.yichao.evilgodxu.data.repository.SettingsRepository
 import com.yichao.evilgodxu.data.settings.AppLanguage
+import com.yichao.evilgodxu.data.settings.backgroundFlowEnabledFlow
 import com.yichao.evilgodxu.data.settings.miniPlayerEnabledFlow
+import com.yichao.evilgodxu.data.settings.saveBackgroundFlowEnabled
 import com.yichao.evilgodxu.data.settings.saveMiniPlayerEnabled
 import com.yichao.evilgodxu.data.settings.saveSwipeToChangeTrack
 import com.yichao.evilgodxu.data.settings.saveWordByWordRendering
@@ -81,6 +83,11 @@ class SettingsViewModel(
                 _uiState.update { it.copy(swipeToChangeTrack = enabled) }
             }
         }
+        viewModelScope.launch {
+            context.backgroundFlowEnabledFlow().collect { enabled ->
+                _uiState.update { it.copy(backgroundFlow = enabled) }
+            }
+        }
         refreshProxySources()
         refreshCacheUsage()
         // 注册外部导入（如系统分享）引发的数据变更监听，确保列表即时同步
@@ -137,6 +144,13 @@ class SettingsViewModel(
         _uiState.update { it.copy(swipeToChangeTrack = enabled) }
         viewModelScope.launch {
             context.saveSwipeToChangeTrack(enabled)
+        }
+    }
+
+    fun setBackgroundFlow(enabled: Boolean) {
+        _uiState.update { it.copy(backgroundFlow = enabled) }
+        viewModelScope.launch {
+            context.saveBackgroundFlowEnabled(enabled)
         }
     }
 

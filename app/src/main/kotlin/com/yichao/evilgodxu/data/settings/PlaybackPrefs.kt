@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 private val miniPlayerEnabledKey = booleanPreferencesKey("mini_player_enabled")
 private val wordByWordRenderingKey = booleanPreferencesKey("word_by_word_rendering")
 private val swipeToChangeTrackKey = booleanPreferencesKey("swipe_to_change_track")
+private val backgroundFlowEnabledKey = booleanPreferencesKey("background_flow_enabled")
 
 // 迷你模式默认关闭
 fun Context.miniPlayerEnabledFlow(): Flow<Boolean> =
@@ -35,4 +36,12 @@ fun Context.swipeToChangeTrackFlow(): Flow<Boolean> =
 
 suspend fun Context.saveSwipeToChangeTrack(enabled: Boolean) = withContext(Dispatchers.IO) {
     settingsDataStore.edit { it[swipeToChangeTrackKey] = enabled }
+}
+
+// 背景流动默认关闭：关闭时首页背景只渲染一帧静态的封面衍生背景，开启后按固定默认值缓慢流动
+fun Context.backgroundFlowEnabledFlow(): Flow<Boolean> =
+    settingsDataStore.data.map { it[backgroundFlowEnabledKey] ?: false }
+
+suspend fun Context.saveBackgroundFlowEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
+    settingsDataStore.edit { it[backgroundFlowEnabledKey] = enabled }
 }
