@@ -13,18 +13,11 @@ internal sealed interface ProxyParseResult {
 // 代理音源解析与校验：严格校验必填字段，宽松处理可选动作
 internal object ProxySourceParser {
 
-    // 旧版长平台键映射到新短键：已导入的旧音源无需改动即可继续生效
-    private val LEGACY_PLATFORM_KEYS = mapOf(
-        "netease" to "wy",
-        "kugou" to "kg",
-        "kuwo" to "kw",
-        "migu" to "mg",
-    )
-
     private val QUALITY_KEYS = mapOf(
         "standard" to MusicQuality.STANDARD,
         "high" to MusicQuality.HIGH,
         "lossless" to MusicQuality.LOSSLESS,
+        "hires" to MusicQuality.HI_RES,
     )
 
     fun parse(raw: String): ProxyParseResult {
@@ -42,8 +35,7 @@ internal object ProxySourceParser {
         val keys = platformsObj.keys()
         while (keys.hasNext()) {
             val rawKey = keys.next()
-            // 键先经旧版别名归一：别名与规范键指向同一平台，归一后去重避免同一平台解析成两份
-            val key = (LEGACY_PLATFORM_KEYS[rawKey] ?: rawKey).trim()
+            val key = rawKey.trim()
             if (key.isEmpty() || platforms.containsKey(key)) continue
             val platformObj = platformsObj.optJSONObject(rawKey) ?: continue
             val builtIn = key in MusicSearchSource.builtInKeys
