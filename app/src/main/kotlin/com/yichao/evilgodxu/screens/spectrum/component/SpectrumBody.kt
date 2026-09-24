@@ -3,7 +3,6 @@ package com.yichao.evilgodxu.screens.spectrum.component
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
@@ -18,12 +17,6 @@ import com.yichao.evilgodxu.screens.spectrum.SpectrumUiState
 import com.yichao.evilgodxu.screens.spectrum.hasVerdict
 import kotlinx.coroutines.launch
 
-// 上区槽位与底部留白的高度配比：图与两侧刻度不占满整屏，余下的高度留在底部信息之下。
-// 两者按权重分配而非给槽位写死高度：信息块先按内容取高，剩余空间再由图与留白按比例分，
-// 信息块因此不受槽位挤压——内容区偏低（如窄屏横置）时也不会被压到看不见
-private const val PLOT_SLOT_WEIGHT = 0.85f
-private const val BOTTOM_SPACE_WEIGHT = 0.15f
-
 // 上区槽位与顶部标题区的固定间距
 private val PLOT_SLOT_TOP_GAP = 4.dp
 
@@ -35,7 +28,9 @@ private const val VERDICT_SEPARATOR = "  ·  "
 
 // 频谱内容：上区按时频分析状态分发——分析中报进度、有结果则铺开时频图与两侧刻度，
 // 否则给出不可分析占位；三种状态共用同一槽位尺寸，切换时下半区不跳动。
-// 下区紧随槽位排布：源文件参数行距图 4dp、曲目判定结论再随其后；未占满的高度留在最下方。
+// 下区紧随槽位排布：源文件参数行距图 4dp、曲目判定结论再随其后。
+// 槽位按权重吃掉全部剩余高度，页面底缘留白只由组装器给出：此处若再按比例分一份，
+// 高屏上会随内容区高度放大成大片空白，底部信息块下方出现明显空档。
 // 分析未完成时结论显示校验中，该区域不会先空后跳。
 // 与顶部标题区的 4dp 间距由槽位统一给出，组装器不得再叠加顶部留白。
 // 长按频谱图导出高清图：由界面渲染，交数据层写入相册或分享
@@ -50,7 +45,7 @@ internal fun SpectrumBody(
     Column(modifier = modifier) {
         val slotModifier = Modifier
             .fillMaxWidth()
-            .weight(PLOT_SLOT_WEIGHT)
+            .weight(1f)
             .padding(top = PLOT_SLOT_TOP_GAP)
         when {
             spectrogram != null -> SpectrumChart(
@@ -78,7 +73,6 @@ internal fun SpectrumBody(
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
-        Spacer(Modifier.weight(BOTTOM_SPACE_WEIGHT))
     }
 }
 
