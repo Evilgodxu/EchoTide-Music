@@ -32,6 +32,8 @@ import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 fun HomeScreen(
     modifier: Modifier = Modifier,
     onOpenSettings: () -> Unit,
+    // 播放列表高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
+    onOpenSpectrum: (Long) -> Unit,
 ) {
     val application = LocalApplication.current
     val stateHolder = LocalMusicPanelStateHolder.current
@@ -145,6 +147,7 @@ fun HomeScreen(
             uiState = uiState,
             panelState = panelState,
             onOpenSettings = onOpenSettings,
+            onOpenSpectrum = onOpenSpectrum,
             onToggleLandscape = onToggleLandscape,
             onRefreshPermissions = viewModel::refreshPermissions,
             onStartPermissionMonitor = viewModel::startPermissionMonitor,
@@ -156,6 +159,7 @@ fun HomeScreen(
             uiState = uiState,
             panelState = panelState,
             onOpenSettings = onOpenSettings,
+            onOpenSpectrum = onOpenSpectrum,
             onToggleLandscape = onToggleLandscape,
             onRefreshPermissions = viewModel::refreshPermissions,
             onStartPermissionMonitor = viewModel::startPermissionMonitor,

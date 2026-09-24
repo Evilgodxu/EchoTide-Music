@@ -128,6 +128,8 @@ internal fun PortraitPlayer(
     onOpenOnlineSearch: (String) -> Unit = {},
     // 点击歌手信息：跳转到该歌手的歌单页
     onOpenArtistPlaylist: (String) -> Unit = {},
+    // 播放列表高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
+    onOpenSpectrum: (Long) -> Unit = {},
 ) {
     val playbackState = LocalMusicPanelStateHolder.current.state
 
@@ -583,6 +585,7 @@ internal fun PortraitPlayer(
             visible = playlistVisible,
             playbackState = playbackState,
             onDismiss = { onPlaylistVisibilityChange(false) },
+            onViewSpectrum = onOpenSpectrum,
         )
 
         LibraryAnalysisSheet(

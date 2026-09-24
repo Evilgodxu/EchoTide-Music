@@ -81,6 +81,8 @@ fun LandscapePlayer(
     onCoverCarouselVisibilityChange: (Boolean) -> Unit,
     // 点击歌手信息：跳转到该歌手的歌单页
     onOpenArtistPlaylist: (String) -> Unit = {},
+    // 播放列表高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
+    onOpenSpectrum: (Long) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // 无损升级确认对话框显隐
@@ -213,6 +215,7 @@ fun LandscapePlayer(
             visible = playlistVisible,
             playbackState = playbackState,
             onDismiss = { onPlaylistVisibilityChange(false) },
+            onViewSpectrum = onOpenSpectrum,
         )
 
         // 多位歌手的曲目：点击歌手信息后弹出的歌手选择对话框

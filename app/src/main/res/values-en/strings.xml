@@ -200,7 +200,13 @@
     <string name="playlist_advanced_menu_share">Share music</string>
     <string name="playlist_advanced_menu_ringtone">Set as ringtone</string>
     <string name="playlist_advanced_menu_alarm">Set as alarm sound</string>
+    <string name="playlist_advanced_menu_spectrum">View spectrum</string>
     <string name="playlist_advanced_unavailable">Not available for online tracks</string>
+
+    <!-- Spectrum analysis -->
+    <string name="spectrum_screen_title">Spectrum</string>
+    <string name="spectrum_generating">Generating spectrogram…</string>
+    <string name="spectrum_unavailable">Unable to analyse this audio</string>
 
     <!-- Default sound -->
     <string name="default_sound_ringtone_done">Set as ringtone</string>

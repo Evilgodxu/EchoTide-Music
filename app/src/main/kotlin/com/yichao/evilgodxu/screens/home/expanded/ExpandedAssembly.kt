@@ -35,6 +35,7 @@ internal fun ExpandedAssembly(
     uiState: HomeUiState,
     panelState: HomePanelState,
     onOpenSettings: () -> Unit,
+    onOpenSpectrum: (Long) -> Unit,
     onToggleLandscape: () -> Unit,
     onRefreshPermissions: () -> Unit,
     onStartPermissionMonitor: (PermissionType, Activity) -> Unit,
@@ -95,6 +96,7 @@ internal fun ExpandedAssembly(
                     onCoverCarouselVisibilityChange = { coverCarouselVisible = it },
                     // 点击歌手信息：切到歌单面板并进入该歌手的曲目列表
                     onOpenArtistPlaylist = panelState::openArtistPlaylist,
+                    onOpenSpectrum = onOpenSpectrum,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

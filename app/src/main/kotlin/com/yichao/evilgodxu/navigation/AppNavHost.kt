@@ -21,6 +21,7 @@ import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 import com.yichao.evilgodxu.screens.cache.CacheScreen
 import com.yichao.evilgodxu.screens.home.HomeScreen
 import com.yichao.evilgodxu.screens.settings.SettingsScreen
+import com.yichao.evilgodxu.screens.spectrum.SpectrumScreen
 import com.yichao.evilgodxu.screens.typography.TypographyScreen
 
 // 导航宿主：统一走路由栈
@@ -70,7 +71,12 @@ fun AppNavHost(
         modifier = modifier,
         entryProvider = { key ->
             when (key) {
-                is Home -> NavEntry(key) { HomeScreen(onOpenSettings = { backStack.add(Settings) }) }
+                is Home -> NavEntry(key) {
+                    HomeScreen(
+                        onOpenSettings = { backStack.add(Settings) },
+                        onOpenSpectrum = { trackId -> backStack.add(Spectrum(trackId)) },
+                    )
+                }
                 is Settings -> NavEntry(key) {
                     SettingsScreen(
                         onBack = { onBack() },
@@ -83,6 +89,9 @@ fun AppNavHost(
                 }
                 is Cache -> NavEntry(key) {
                     CacheScreen(onBack = { onBack() })
+                }
+                is Spectrum -> NavEntry(key) {
+                    SpectrumScreen(trackId = key.trackId, onBack = { onBack() })
                 }
                 else -> error("Unknown NavKey: $key")
             }

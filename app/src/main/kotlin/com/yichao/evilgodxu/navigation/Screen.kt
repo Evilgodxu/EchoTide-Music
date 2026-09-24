@@ -15,3 +15,8 @@ data object Typography : NavKey
 
 @Serializable
 data object Cache : NavKey
+
+// 频谱分析页路由：只带曲目标识，曲目信息由页面自行解析。
+// 同一曲目重复进入应复用同一路由，故以曲目标识参与相等性
+@Serializable
+data class Spectrum(val trackId: Long) : NavKey

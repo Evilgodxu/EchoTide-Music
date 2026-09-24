@@ -29,7 +29,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
 /**
- * 高级菜单对话框：三项操作随曲目可用性整体置灰。
+ * 高级菜单对话框：四项操作随曲目可用性整体置灰。
  *
  * 不设取消入口，点击遮罩或返回键即可收起。
  */
@@ -40,6 +40,7 @@ internal fun TrackAdvancedMenuDialog(
     onShare: () -> Unit,
     onSetRingtone: () -> Unit,
     onSetAlarm: () -> Unit,
+    onViewSpectrum: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     if (!visible) return
@@ -86,6 +87,12 @@ internal fun TrackAdvancedMenuDialog(
                 labelRes = R.string.playlist_advanced_menu_alarm,
                 enabled = actionsEnabled,
                 onClick = onSetAlarm,
+            )
+            AdvancedMenuItem(
+                icon = AppIcons.Equalizer,
+                labelRes = R.string.playlist_advanced_menu_spectrum,
+                enabled = actionsEnabled,
+                onClick = onViewSpectrum,
             )
         }
     }

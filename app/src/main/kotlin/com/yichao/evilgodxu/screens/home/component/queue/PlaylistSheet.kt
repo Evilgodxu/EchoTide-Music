@@ -101,6 +101,8 @@ internal fun PlaylistSheet(
     visible: Boolean,
     playbackState: MusicPlaybackState,
     onDismiss: () -> Unit,
+    // 高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
+    onViewSpectrum: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -596,6 +598,15 @@ internal fun PlaylistSheet(
             onSetAlarm = {
                 advancedTrack?.let { soundRequest = DefaultSoundRequest(it, RingtoneUsage.ALARM) }
                 advancedTrack = null
+            },
+            onViewSpectrum = {
+                // 先收起面板再跳转，从频谱页返回时不会停在展开的面板上
+                val target = advancedTrack
+                advancedTrack = null
+                if (target != null) {
+                    onDismiss()
+                    onViewSpectrum(target.id)
+                }
             },
             onDismiss = { advancedTrack = null },
         )

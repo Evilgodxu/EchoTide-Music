@@ -8,9 +8,6 @@ import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.coroutines.coroutineContext
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
@@ -50,10 +47,8 @@ internal object SpectralDecoder {
         val probe22050: FloatArray = FloatArray(0),
     )
 
-    // Hann 窗：预计算避免逐帧重复求余弦
-    private val hannWindow = FloatArray(FFT_SIZE) { i ->
-        0.5f - 0.5f * cos(2f * PI.toFloat() * i / (FFT_SIZE - 1))
-    }
+    // Hann 窗：逐帧重复求余弦是长音频分析的主要冗余开销，按长度缓存一次
+    private val hannWindow = Fft.hannWindow(FFT_SIZE)
 
     // 解码候选音频轨并累计平均功率谱与立体声相关性。
     // expectedMime 非空时仅解码该 mime（音质异常限定 FLAC）；为空时取首个可解码音频轨（AI 识别全格式）。
@@ -240,7 +235,8 @@ internal object SpectralDecoder {
                 scratchRe[i] = mono[start + i] * hannWindow[i]
                 scratchIm[i] = 0f
             }
-            fftPower(scratchRe, scratchIm, powerSum)
+            Fft.transform(scratchRe, scratchIm)
+            Fft.accumulatePower(scratchRe, scratchIm, powerSum)
             // 探带功率在同一 FFT 块频谱上顺带累计，零额外 FFT
             for (p in probes) p.addBlock(scratchRe, scratchIm)
             blocks++
@@ -273,57 +269,6 @@ internal object SpectralDecoder {
         fun snapshot(): FloatArray {
             if (!enabled || powers.isEmpty()) return FloatArray(0)
             return FloatArray(powers.size) { powers[it] }
-        }
-    }
-
-    // 迭代基 2 快速傅里叶变换并累加功率谱（仅 0..n/2 半谱）
-    private fun fftPower(re: FloatArray, im: FloatArray, powerSum: FloatArray) {
-        val n = re.size
-        // 位反转重排
-        var j = 0
-        for (i in 1 until n) {
-            var bit = n shr 1
-            while (j and bit != 0) {
-                j = j xor bit
-                bit = bit shr 1
-            }
-            j = j xor bit
-            if (i < j) {
-                re[i] = re[j].also { re[j] = re[i] }
-                im[i] = im[j].also { im[j] = im[i] }
-            }
-        }
-        // 蝶形运算
-        var len = 2
-        while (len <= n) {
-            val angle = 2f * PI.toFloat() / len
-            val wStepRe = cos(angle)
-            val wStepIm = -sin(angle)
-            var i = 0
-            while (i < n) {
-                var wRe = 1f
-                var wIm = 0f
-                val half = len shr 1
-                for (k in 0 until half) {
-                    val uRe = re[i + k]
-                    val uIm = im[i + k]
-                    val tRe = re[i + k + half] * wRe - im[i + k + half] * wIm
-                    val tIm = re[i + k + half] * wIm + im[i + k + half] * wRe
-                    re[i + k] = uRe + tRe
-                    im[i + k] = uIm + tIm
-                    re[i + k + half] = uRe - tRe
-                    im[i + k + half] = uIm - tIm
-                    val nextRe = wRe * wStepRe - wIm * wStepIm
-                    wIm = wRe * wStepIm + wIm * wStepRe
-                    wRe = nextRe
-                }
-                i += len
-            }
-            len = len shl 1
-        }
-        val half = n / 2
-        for (i in 0..half) {
-            powerSum[i] += re[i] * re[i] + im[i] * im[i]
         }
     }
 
