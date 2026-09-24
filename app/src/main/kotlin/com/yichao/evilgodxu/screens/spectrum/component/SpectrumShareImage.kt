@@ -6,6 +6,8 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.text.TextPaint
+import android.text.TextUtils
 import com.yichao.evilgodxu.data.music.analysis.SPECTROGRAM_DYNAMIC_RANGE_DB
 import com.yichao.evilgodxu.data.music.analysis.Spectrogram
 import com.yichao.evilgodxu.utils.formatTime
@@ -13,10 +15,11 @@ import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// 导出图内容：图上方曲名、图下方参数行与检测结果、右下角免责说明。
+// 导出图内容：图下方参数行与检测结果、左下角曲名与歌手、右下角免责说明。
 // 文案由界面按当前语言产出后传入，渲染端不与资源耦合
 internal class SpectrumShareContent(
     val title: String,
+    val artist: String,
     val durationMs: Long,
     val info: String,
     val verdicts: List<SpectrumShareVerdict>,
@@ -36,11 +39,14 @@ internal object SpectrumShareImage {
     private const val WIDTH = 1920
     private const val PAD = 48f
 
-    // 曲名区高度、各段字号
-    private const val TITLE_AREA_HEIGHT = 56f
-    private const val TITLE_TEXT_SIZE = 46f
+    // 各段字号：底行曲名与歌手同字号，主次由配色区分
+    private const val CREDIT_TEXT_SIZE = 34f
     private const val LABEL_TEXT_SIZE = 30f
     private const val NOTE_TEXT_SIZE = 26f
+
+    // 底行左端曲名与歌手之间的分隔符，及底行左右两端文案的最小间距
+    private const val CREDIT_SEPARATOR = " · "
+    private const val CREDIT_GAP = 24f
 
     // 绘图区版面：左右两侧分别留给频率刻度与色标
     private const val AXIS_LABEL_WIDTH = 160f
@@ -84,15 +90,18 @@ internal object SpectrumShareImage {
         val plotRight = WIDTH - PAD - SCALE_LABEL_WIDTH - BAR_WIDTH - BAR_GAP
         val plotWidth = (plotRight - plotLeft).toInt()
         val plotHeight = plotWidth / PLOT_ASPECT
-        val plotTop = PAD + TITLE_AREA_HEIGHT
+        // 顶部不留标题区：曲名与歌手落在底行左端，图自顶缘留白起铺开
+        val plotTop = PAD
         val plotBottom = plotTop + plotHeight
 
-        val titlePaint = textPaint(TITLE_TEXT_SIZE, TEXT_PRIMARY)
+        val creditPaint = textPaint(CREDIT_TEXT_SIZE, TEXT_PRIMARY)
+        val artistPaint = textPaint(CREDIT_TEXT_SIZE, TEXT_SECONDARY)
         val labelPaint = textPaint(LABEL_TEXT_SIZE, TEXT_SECONDARY)
         val valuePaint = textPaint(LABEL_TEXT_SIZE, TEXT_PRIMARY)
         val notePaint = textPaint(NOTE_TEXT_SIZE, TEXT_SECONDARY)
 
-        // 底部文案块自上而下排布：参数行与检测结果各占一行，空行不占位，末行为免责说明
+        // 底部文案块自上而下排布：参数行与检测结果各占一行，空行不占位，
+        // 末行为底行——左端曲名与歌手、右端免责说明，两端共用一条基线
         var y = plotBottom + LINE_GAP + lineHeight(labelPaint) + BLOCK_GAP
         val infoBaseline = if (content.info.isNotBlank()) {
             baselineOfTop(labelPaint, y).also { y += lineHeight(labelPaint) + LINE_GAP }
@@ -104,13 +113,13 @@ internal object SpectrumShareImage {
         } else {
             null
         }
-        val disclaimerBaseline = baselineOfTop(notePaint, y)
-        val height = (y + lineHeight(notePaint) + PAD).toInt()
+        // 底行行高按其中较大字号取，避免大字被下缘裁切
+        val creditBaseline = baselineOfTop(creditPaint, y)
+        val height = (y + maxOf(lineHeight(creditPaint), lineHeight(notePaint)) + PAD).toInt()
 
         val bitmap = Bitmap.createBitmap(WIDTH, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(BACKGROUND)
-        canvas.drawText(content.title, PAD, baselineOfTop(titlePaint, PAD), titlePaint)
         canvas.drawBitmap(
             renderSpectrogramBitmap(spectrogram, scale, plotWidth, plotHeight.toInt()),
             plotLeft,
@@ -127,8 +136,44 @@ internal object SpectrumShareImage {
             drawVerdicts(canvas, content.verdicts, verdictBaseline, valuePaint)
         }
         val disclaimerWidth = notePaint.measureText(content.disclaimer)
-        canvas.drawText(content.disclaimer, WIDTH - PAD - disclaimerWidth, disclaimerBaseline, notePaint)
+        drawCredit(
+            canvas = canvas,
+            content = content,
+            baseline = creditBaseline,
+            maxWidth = WIDTH - PAD * 2 - disclaimerWidth - CREDIT_GAP,
+            titlePaint = creditPaint,
+            artistPaint = artistPaint,
+        )
+        canvas.drawText(content.disclaimer, WIDTH - PAD - disclaimerWidth, creditBaseline, notePaint)
         return bitmap
+    }
+
+    // 底行左端：曲名取主色、歌手取次色，两者以分隔符相接；歌手名为空时只留曲名。
+    // 可用宽度扣除了右端免责说明，超长时按曲名优先截断——先压歌手、再压曲名，避免两端文案相撞
+    private fun drawCredit(
+        canvas: Canvas,
+        content: SpectrumShareContent,
+        baseline: Float,
+        maxWidth: Float,
+        titlePaint: TextPaint,
+        artistPaint: TextPaint,
+    ) {
+        val separator = if (content.artist.isBlank()) "" else CREDIT_SEPARATOR
+        val separatorWidth = artistPaint.measureText(separator)
+        val artistRoom = maxWidth - titlePaint.measureText(content.title) - separatorWidth
+        // 歌手仍有一席之地则截断歌手；连一席都没有时整串退化为截断后的曲名
+        if (artistRoom <= 0f) {
+            val title = TextUtils.ellipsize(content.title, titlePaint, maxWidth, TextUtils.TruncateAt.END)
+            canvas.drawText(title.toString(), PAD, baseline, titlePaint)
+            return
+        }
+        canvas.drawText(content.title, PAD, baseline, titlePaint)
+        if (separator.isEmpty()) return
+        var x = PAD + titlePaint.measureText(content.title)
+        canvas.drawText(separator, x, baseline, artistPaint)
+        x += separatorWidth
+        val artist = TextUtils.ellipsize(content.artist, artistPaint, artistRoom, TextUtils.TruncateAt.END)
+        canvas.drawText(artist.toString(), x, baseline, artistPaint)
     }
 
     // 频率刻度：档位挑选与屏幕同一规则，标签右对齐到刻度线以左
@@ -233,7 +278,7 @@ internal object SpectrumShareImage {
         canvas.drawText(text, WIDTH / 2f - paint.measureText(text) / 2f, baseline, paint)
     }
 
-    private fun textPaint(textSize: Float, color: Int): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private fun textPaint(textSize: Float, color: Int): TextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         this.textSize = textSize
         this.color = color
         typeface = Typeface.DEFAULT

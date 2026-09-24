@@ -18,6 +18,8 @@ fun SpectrumAnalysis.hasVerdict(): Boolean =
 // 加载结束而时频矩阵仍为空，即该曲目不可分析（音频不可解码或源文件已不可访问）
 data class SpectrumUiState(
     val title: String = "",
+    // 歌手名：导出图底行与曲名同显，界面标题栏不用
+    val artist: String = "",
     val durationMs: Long = 0L,
     val analyzing: Boolean = true,
     val progress: Float = 0f,

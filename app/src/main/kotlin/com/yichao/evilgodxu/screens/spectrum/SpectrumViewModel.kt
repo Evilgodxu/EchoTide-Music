@@ -37,7 +37,9 @@ class SpectrumViewModel(
                 it.copy(analyzing = false, analysis = SpectrumAnalysis(checking = false))
             }
         } else {
-            _uiState.update { it.copy(title = track.title, durationMs = track.duration) }
+            _uiState.update {
+                it.copy(title = track.title, artist = track.artist, durationMs = track.duration)
+            }
             loadTrackInfo(track)
             analyse(track)
         }
