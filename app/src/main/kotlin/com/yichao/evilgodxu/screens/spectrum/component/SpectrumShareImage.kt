@@ -64,10 +64,10 @@ internal object SpectrumShareImage {
     private const val LINE_GAP = 14f
     private const val BLOCK_GAP = 24f
 
-    // 导出图配色：深色底、浅色字，告警段取告警色
+    // 导出图配色：深色底、浅色字。全图文字取同一色，层次只由字号给出；
+    // 仅命中的告警段另取告警色
     private const val BACKGROUND = 0xFF0B0D14.toInt()
-    private const val TEXT_PRIMARY = 0xFFE6E9F2.toInt()
-    private const val TEXT_SECONDARY = 0xFF9BA3B4.toInt()
+    private const val TEXT_COLOR = 0xFF9BA3B4.toInt()
     private const val TEXT_WARNING = 0xFFF28B82.toInt()
     private const val AXIS_COLOR = 0xFF6B7280.toInt()
 
@@ -94,22 +94,23 @@ internal object SpectrumShareImage {
         val plotTop = PAD
         val plotBottom = plotTop + plotHeight
 
-        val creditPaint = textPaint(CREDIT_TEXT_SIZE, TEXT_PRIMARY)
-        val artistPaint = textPaint(CREDIT_TEXT_SIZE, TEXT_SECONDARY)
-        val labelPaint = textPaint(LABEL_TEXT_SIZE, TEXT_SECONDARY)
-        val valuePaint = textPaint(LABEL_TEXT_SIZE, TEXT_PRIMARY)
-        val notePaint = textPaint(NOTE_TEXT_SIZE, TEXT_SECONDARY)
+        // 曲名与歌手、刻度与参数行、检测结果、免责说明同取一种正文色，字号各自区分层次；
+        // 告警段单独一支告警色画笔，绘制时不改写正文画笔
+        val creditPaint = textPaint(CREDIT_TEXT_SIZE, TEXT_COLOR)
+        val bodyPaint = textPaint(LABEL_TEXT_SIZE, TEXT_COLOR)
+        val warningPaint = textPaint(LABEL_TEXT_SIZE, TEXT_WARNING)
+        val notePaint = textPaint(NOTE_TEXT_SIZE, TEXT_COLOR)
 
         // 底部文案块自上而下排布：参数行与检测结果各占一行，空行不占位，
         // 末行为底行——左端曲名与歌手、右端免责说明，两端共用一条基线
-        var y = plotBottom + LINE_GAP + lineHeight(labelPaint) + BLOCK_GAP
+        var y = plotBottom + LINE_GAP + lineHeight(bodyPaint) + BLOCK_GAP
         val infoBaseline = if (content.info.isNotBlank()) {
-            baselineOfTop(labelPaint, y).also { y += lineHeight(labelPaint) + LINE_GAP }
+            baselineOfTop(bodyPaint, y).also { y += lineHeight(bodyPaint) + LINE_GAP }
         } else {
             null
         }
         val verdictBaseline = if (content.verdicts.isNotEmpty()) {
-            baselineOfTop(labelPaint, y).also { y += lineHeight(labelPaint) + LINE_GAP }
+            baselineOfTop(bodyPaint, y).also { y += lineHeight(bodyPaint) + LINE_GAP }
         } else {
             null
         }
@@ -126,14 +127,14 @@ internal object SpectrumShareImage {
             plotTop,
             null,
         )
-        drawFrequencyAxis(canvas, scale, plotLeft, plotTop, plotBottom, plotHeight, labelPaint)
-        drawColorScale(canvas, plotRight, plotTop, plotBottom, plotHeight, labelPaint)
-        drawTimeLabels(canvas, plotLeft, plotRight, plotBottom, content.durationMs, labelPaint)
+        drawFrequencyAxis(canvas, scale, plotLeft, plotTop, plotBottom, plotHeight, bodyPaint)
+        drawColorScale(canvas, plotRight, plotTop, plotBottom, plotHeight, bodyPaint)
+        drawTimeLabels(canvas, plotLeft, plotRight, plotBottom, content.durationMs, bodyPaint)
         if (infoBaseline != null) {
-            drawCentered(canvas, content.info, infoBaseline, labelPaint)
+            drawCentered(canvas, content.info, infoBaseline, bodyPaint)
         }
         if (verdictBaseline != null) {
-            drawVerdicts(canvas, content.verdicts, verdictBaseline, valuePaint)
+            drawVerdicts(canvas, content.verdicts, verdictBaseline, bodyPaint, warningPaint)
         }
         val disclaimerWidth = notePaint.measureText(content.disclaimer)
         drawCredit(
@@ -141,39 +142,37 @@ internal object SpectrumShareImage {
             content = content,
             baseline = creditBaseline,
             maxWidth = WIDTH - PAD * 2 - disclaimerWidth - CREDIT_GAP,
-            titlePaint = creditPaint,
-            artistPaint = artistPaint,
+            paint = creditPaint,
         )
         canvas.drawText(content.disclaimer, WIDTH - PAD - disclaimerWidth, creditBaseline, notePaint)
         return bitmap
     }
 
-    // 底行左端：曲名取主色、歌手取次色，两者以分隔符相接；歌手名为空时只留曲名。
+    // 底行左端：曲名与歌手同色相连，两者以分隔符相接；歌手名为空时只留曲名。
     // 可用宽度扣除了右端免责说明，超长时按曲名优先截断——先压歌手、再压曲名，避免两端文案相撞
     private fun drawCredit(
         canvas: Canvas,
         content: SpectrumShareContent,
         baseline: Float,
         maxWidth: Float,
-        titlePaint: TextPaint,
-        artistPaint: TextPaint,
+        paint: TextPaint,
     ) {
         val separator = if (content.artist.isBlank()) "" else CREDIT_SEPARATOR
-        val separatorWidth = artistPaint.measureText(separator)
-        val artistRoom = maxWidth - titlePaint.measureText(content.title) - separatorWidth
+        val separatorWidth = paint.measureText(separator)
+        val artistRoom = maxWidth - paint.measureText(content.title) - separatorWidth
         // 歌手仍有一席之地则截断歌手；连一席都没有时整串退化为截断后的曲名
         if (artistRoom <= 0f) {
-            val title = TextUtils.ellipsize(content.title, titlePaint, maxWidth, TextUtils.TruncateAt.END)
-            canvas.drawText(title.toString(), PAD, baseline, titlePaint)
+            val title = TextUtils.ellipsize(content.title, paint, maxWidth, TextUtils.TruncateAt.END)
+            canvas.drawText(title.toString(), PAD, baseline, paint)
             return
         }
-        canvas.drawText(content.title, PAD, baseline, titlePaint)
+        canvas.drawText(content.title, PAD, baseline, paint)
         if (separator.isEmpty()) return
-        var x = PAD + titlePaint.measureText(content.title)
-        canvas.drawText(separator, x, baseline, artistPaint)
+        var x = PAD + paint.measureText(content.title)
+        canvas.drawText(separator, x, baseline, paint)
         x += separatorWidth
-        val artist = TextUtils.ellipsize(content.artist, artistPaint, artistRoom, TextUtils.TruncateAt.END)
-        canvas.drawText(artist.toString(), x, baseline, artistPaint)
+        val artist = TextUtils.ellipsize(content.artist, paint, artistRoom, TextUtils.TruncateAt.END)
+        canvas.drawText(artist.toString(), x, baseline, paint)
     }
 
     // 频率刻度：档位挑选与屏幕同一规则，标签右对齐到刻度线以左
@@ -257,18 +256,18 @@ internal object SpectrumShareImage {
         canvas.drawText(end, plotRight - labelPaint.measureText(end), baseline, labelPaint)
     }
 
-    // 检测结果：多段文案作为一行整体居中，告警段取告警色
+    // 检测结果：多段文案作为一行整体居中，只有告警段取告警色，其余与正文同色
     private fun drawVerdicts(
         canvas: Canvas,
         verdicts: List<SpectrumShareVerdict>,
         baseline: Float,
-        paint: Paint,
+        paint: TextPaint,
+        warningPaint: TextPaint,
     ) {
         val total = verdicts.fold(0f) { acc, verdict -> acc + paint.measureText(verdict.text) }
         var x = WIDTH / 2f - total / 2f
         verdicts.forEach { verdict ->
-            paint.color = if (verdict.flagged) TEXT_WARNING else TEXT_PRIMARY
-            canvas.drawText(verdict.text, x, baseline, paint)
+            canvas.drawText(verdict.text, x, baseline, if (verdict.flagged) warningPaint else paint)
             x += paint.measureText(verdict.text)
         }
     }
