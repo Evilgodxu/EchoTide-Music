@@ -9,10 +9,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
@@ -21,8 +18,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.screens.home.component.bar.HomeTopBar
 import com.yichao.evilgodxu.screens.home.component.dialog.HomeDialogs
@@ -32,7 +27,6 @@ import com.yichao.evilgodxu.screens.home.component.shell.HomeShell
 import com.yichao.evilgodxu.screens.home.component.swipe.rememberHomeTrackSwipeGesture
 import com.yichao.evilgodxu.screens.home.expanded.player.LandscapePlayer
 import com.yichao.evilgodxu.screens.home.HomeUiState
-import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 import kotlinx.coroutines.delay
 
 // 宽屏组装器：悬浮标题栏 + 横屏播放器主体
@@ -76,27 +70,13 @@ internal fun ExpandedAssembly(
         if (coverCarouselVisible) chromeVisible = false
     }
 
-    // 横屏系统栏由 Activity 隐藏，页面保持满屏；竖屏宽窗（如平板竖握）系统栏可见，
-    // 页面内容与悬浮标题栏都需避让状态栏
-    val landscape = rememberWindowLandscape()
-    val systemBarTopInset = if (landscape) {
-        0.dp
-    } else {
-        with(LocalDensity.current) { WindowInsets.systemBars.getTop(this).toDp() }
-    }
-    val topBarWindowInsets = if (landscape) {
-        WindowInsets(0, 0, 0, 0)
-    } else {
-        WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
-    }
-
     HomeShell(
         panelState = panelState,
         modifier = modifier,
     ) { topInset ->
         HomePanels(
             panelState = panelState,
-            topInset = topInset + systemBarTopInset,
+            topInset = topInset,
         ) {
             // 播放器页铺满全屏
             Box(
@@ -130,7 +110,7 @@ internal fun ExpandedAssembly(
                 playbackState = playbackState,
                 isLiked = isLiked,
                 favoriteEnabled = currentTrackId != null,
-                windowInsets = topBarWindowInsets,
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 onShowTimer = { panelState.showTimer = true },
                 onToggleFavorite = { currentTrackId?.let { playbackState.toggleFavorite(it) } },
                 onToggleLandscape = onToggleLandscape,

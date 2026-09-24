@@ -5,6 +5,7 @@ import android.content.pm.ActivityInfo
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -76,7 +77,16 @@ fun HomeScreen(
     // 朝向以窗口实测宽高比为准：Activity 自行处理方向变更，配置读取可能不随之刷新
     val isPortrait = !rememberWindowLandscape()
 
-    // 首页背景恒为深色封面衍生背景：状态栏固定白色图标，避免沿用上一个页面（浅色主题）的深色图标
+    // 系统栏只声明请求、不直接操作窗口：由 Activity 统一收敛下发，避免此处 show/hide 与窗口切换竞争
+    // 竖屏首页沉浸式仅隐藏状态栏；横屏全部隐藏由 Activity 按窗口朝向判定，无需在此重复声明
+    DisposableEffect(isPortrait) {
+        SystemBarAppearance.isHomePortraitImmersive = isPortrait
+        onDispose {
+            // 离开首页时撤销请求，避免影响后续页面
+            SystemBarAppearance.isHomePortraitImmersive = false
+        }
+    }
+    // 首页背景恒为深色封面衍生背景：状态栏被临时唤出时图标固定白色，不沿用上个页面的深色图标
     SideEffect { SystemBarAppearance.isLightStatusBars = false }
 
     // 横竖屏切换：按当前朝向请求目标方向

@@ -37,9 +37,13 @@ internal fun HomeTopBar(
     onOpenSettings: () -> Unit,
     // 居中标题内容：对话框收起后展示后台曲库分析进度
     centerTitle: String? = null,
+    // 收起动画期间置为 false：控件不可见时不响应点击，避免误触
+    interactive: Boolean = true,
     windowInsets: WindowInsets = TopAppBarDefaults.windowInsets,
+    modifier: Modifier = Modifier,
 ) {
     CenterAlignedTopAppBar(
+        modifier = modifier,
         title = {
             centerTitle?.let {
                 Text(
@@ -55,7 +59,7 @@ internal fun HomeTopBar(
         navigationIcon = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box {
-                    IconButton(onClick = onShowTimer) {
+                    IconButton(onClick = onShowTimer, enabled = interactive) {
                         Icon(
                             imageVector = AppIcons.Timer,
                             contentDescription = stringResource(R.string.music_panel_timer_title),
@@ -71,14 +75,14 @@ internal fun HomeTopBar(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .offset(y = 14.dp)
-                                .clickable { playbackState.stopTimer() }
+                                .clickable(enabled = interactive) { playbackState.stopTimer() }
                                 .padding(horizontal = 8.dp, vertical = 2.dp),
                         )
                     }
                 }
                 IconButton(
                     onClick = onToggleFavorite,
-                    enabled = favoriteEnabled,
+                    enabled = interactive && favoriteEnabled,
                 ) {
                     Icon(
                         imageVector = if (isLiked) AppIcons.Favorite else AppIcons.FavoriteBorder,
@@ -89,14 +93,14 @@ internal fun HomeTopBar(
             }
         },
         actions = {
-            IconButton(onClick = onToggleLandscape) {
+            IconButton(onClick = onToggleLandscape, enabled = interactive) {
                 Icon(
                     imageVector = AppIcons.ScreenRotation,
                     contentDescription = stringResource(R.string.home_landscape_mode),
                     tint = Color.White,
                 )
             }
-            IconButton(onClick = onOpenSettings) {
+            IconButton(onClick = onOpenSettings, enabled = interactive) {
                 Icon(
                     imageVector = AppIcons.Settings,
                     contentDescription = stringResource(R.string.settings_title),
