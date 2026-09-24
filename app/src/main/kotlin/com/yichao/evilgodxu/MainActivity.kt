@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.os.LocaleList
+import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.widget.Toast
@@ -127,6 +128,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         // 解除语言管理器与系统栏回调对 Activity 的持有，避免单例持有已销毁实例
         stopSystemBarsAutoHide()
+        window.decorView.removeOnLayoutChangeListener(layoutOrientationListener)
         SystemBarAppearance.onChanged = null
         localizationManager.unbindActivity(this)
         super.onDestroy()
@@ -216,6 +218,24 @@ class MainActivity : ComponentActivity() {
         // 界面侧只声明请求，窗口操作统一收敛到 applySystemBars
         SystemBarAppearance.onChanged = { scheduleSystemBars() }
         installSystemBarsDiscovery()
+        installSystemBarsOrientationTracking()
+        scheduleSystemBars()
+    }
+
+    // 窗口宽高比翻转（旋转、分屏、自由窗口改尺寸）后按新朝向复核系统栏：
+    // 下发时刻的窗口尺寸可能仍停留在翻转前，只按当时尺寸判定会把系统栏卡在显示态，
+    // 故以窗口布局结果为准再复核一次
+    private fun installSystemBarsOrientationTracking() {
+        window.decorView.addOnLayoutChangeListener(layoutOrientationListener)
+    }
+
+    // 最近一次按窗口布局判定的朝向：仅在宽高比翻转时触发复核，其余布局变化不打扰系统栏
+    private var layoutLandscape: Boolean? = null
+
+    private val layoutOrientationListener = View.OnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
+        val landscape = right - left > bottom - top
+        if (landscape == layoutLandscape) return@OnLayoutChangeListener
+        layoutLandscape = landscape
         scheduleSystemBars()
     }
 

@@ -250,7 +250,7 @@ internal fun PortraitPlayer(
         val coverHeight = (maxHeight - lyricsAreaHeight - BottomFixedContentHeight - bottomClearance)
             .coerceAtLeast(MinCoverHeight)
             .coerceAtMost(maxWidth)
-        // 沉浸式专辑封面：全宽置顶并延伸至屏幕顶端（状态栏后方），下缘渐隐融入封面衍生背景
+        // 沉浸式专辑封面：全宽置顶（含状态栏后方），仅下边缘渐隐融入封面衍生背景
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)

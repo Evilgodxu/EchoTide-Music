@@ -3,7 +3,6 @@ package com.yichao.evilgodxu.screens.home.component.player
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -59,47 +58,33 @@ internal fun HomeAlbumArt(track: MusicTrack?, modifier: Modifier = Modifier) {
     }
 }
 
-// 封面底部渐隐：封面下缘渐隐的起点比例、过渡点比例与过渡点透明度
-private const val BOTTOM_FADE_START = 0.7f
-private const val BOTTOM_FADE_MID = 0.88f
-private const val BOTTOM_FADE_MID_ALPHA = 0.62f
+// 封面底部渐隐带占封面高度的比例：下缘由此比例起渐隐为透明，融入封面衍生背景
+private const val BOTTOM_FADE_FRACTION = 0.3f
 
-// 首页沉浸式封面：全宽置顶并延伸至屏幕顶端（状态栏后方），下缘渐隐融入封面衍生背景；
-// 封面之上叠一层柔和暗色蒙层，使状态栏与标题栏的白色图标压在明亮封面上仍可读
+// 首页沉浸式封面：全宽置顶（含状态栏后方），仅下边缘渐隐为透明融入封面衍生背景
 @Composable
 internal fun HomeImmersiveCover(
     track: MusicTrack?,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier = modifier.bottomFadeMask()) {
-        HomeAlbumArt(
-            track = track,
-            modifier = Modifier.fillMaxSize(),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = 0.22f),
-                            Color.Black.copy(alpha = 0.12f),
-                            Color.Black.copy(alpha = 0.38f),
-                        )
-                    )
-                ),
-        )
-    }
+    HomeAlbumArt(
+        track = track,
+        modifier = modifier.bottomFadeMask(),
+    )
 }
 
-// 封面底部渐隐蒙层：与跑马灯同款 DstIn 处理，下缘渐隐为透明透出封面衍生背景；
-// 蒙层与封面同层绘制，保证暗色蒙层与封面一同渐隐，不把背景压暗出一道分界
+// 下边缘渐隐蒙层：与跑马灯同款 DstIn 处理，封面下缘渐隐为透明透出封面衍生背景。
+// 透明度按平滑曲线采样多段：单段线性渐隐会在折点处留下一条可见的色阶带
 private fun Modifier.bottomFadeMask(): Modifier = drawWithCache {
+    val fadeStart = 1f - BOTTOM_FADE_FRACTION
     val brush = Brush.verticalGradient(
         colorStops = arrayOf(
             0f to Color.Black,
-            BOTTOM_FADE_START to Color.Black,
-            BOTTOM_FADE_MID to Color.Black.copy(alpha = BOTTOM_FADE_MID_ALPHA),
+            fadeStart to Color.Black,
+            fadeStart + BOTTOM_FADE_FRACTION * 0.2f to Color.Black.copy(alpha = 0.95f),
+            fadeStart + BOTTOM_FADE_FRACTION * 0.4f to Color.Black.copy(alpha = 0.79f),
+            fadeStart + BOTTOM_FADE_FRACTION * 0.6f to Color.Black.copy(alpha = 0.55f),
+            fadeStart + BOTTOM_FADE_FRACTION * 0.8f to Color.Black.copy(alpha = 0.21f),
             1f to Color.Transparent,
         ),
     )
