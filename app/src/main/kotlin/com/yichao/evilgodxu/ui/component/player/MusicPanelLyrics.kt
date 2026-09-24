@@ -10,7 +10,10 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -49,6 +52,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
@@ -224,8 +228,9 @@ internal fun LyricsPanel(
                 onClick = onClick,
                 onLongClick = onLongClick,
             )
-            // 纵向拖拽调进度：过触摸 slop 后消费事件。声明在 combinedClickable 之后（内层），
-            // 拖拽时取消点击，同时不触发外层左右滑动切面板；点按/长按不受影响
+            // 纵向拖拽调进度：方向优先抢占 —— 位移过阈值时纵向占优即由歌词接管并消费，
+            // 横向占优则一次也不消费、整个手势留给外层左右滑动，两者互斥。
+            // 声明在 combinedClickable 之后（内层），拖拽时取消点击；点按/长按不受影响
             .pointerInput(playbackState.currentTrack?.id) {
                 // 拖拽起点：与组合期的 displayPosition 同口径，但读实时状态避免闭包过期
                 fun liveDisplayPosition(): Float {
@@ -255,6 +260,13 @@ internal fun LyricsPanel(
                     }
                 }
 
+                // 拖拽中：像素位移 ÷ 当前行到下一行中心的距离 = 行位移，行高不定也能跟手
+                fun advanceScrub(dragAmount: Float) {
+                    val slot = dragGeometry.slotAt(scrollPosition)
+                    scrollPosition = (scrollPosition - dragAmount / slot)
+                        .coerceIn(0f, currentLines.lastIndex.toFloat())
+                }
+
                 fun finishScrub(cancelled: Boolean) {
                     if (!scrubbing) return
                     scrubbing = false
@@ -280,29 +292,34 @@ internal fun LyricsPanel(
                     }
                 }
 
-                detectVerticalDragGestures(
-                    onDragStart = {
-                        if (currentLines.isNotEmpty()) {
-                            // 新的拖拽作废未完成的回弹，并立即接管显示位置
-                            settleGeneration++
-                            settling = false
-                            scrubStartPosition = liveDisplayPosition()
-                            scrollPosition = scrubStartPosition
-                            scrubbing = true
-                        }
-                    },
-                    onVerticalDrag = { change, dragAmount ->
-                        if (scrubbing) {
+                // 阈值按欧氏距离丈量（单轴判定要等某一轴单独越过阈值，斜向时更晚），
+                // 纵向占优即抢先认领，斜向拖拽不会在歌词接管前先被左右滑动判定拿走
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    var overSlopY = 0f
+                    // 回调内未消费则本函数不返回，判定为横向的手势由此一次也不被消费、完整让出
+                    val dragChange = awaitTouchSlopOrCancellation(down.id) { change, overSlop ->
+                        if (abs(overSlop.y) >= abs(overSlop.x)) {
+                            overSlopY = overSlop.y
                             change.consume()
-                            // 像素位移 ÷ 当前行到下一行中心的距离 = 行位移，行高不定也能跟手
-                            val slot = dragGeometry.slotAt(scrollPosition)
-                            scrollPosition = (scrollPosition - dragAmount / slot)
-                                .coerceIn(0f, currentLines.lastIndex.toFloat())
                         }
-                    },
-                    onDragEnd = { finishScrub(cancelled = false) },
-                    onDragCancel = { finishScrub(cancelled = true) },
-                )
+                    }
+                    if (dragChange == null) return@awaitEachGesture
+                    if (currentLines.isNotEmpty()) {
+                        // 新的拖拽作废未完成的回弹，并立即接管显示位置
+                        settleGeneration++
+                        settling = false
+                        scrubStartPosition = liveDisplayPosition()
+                        scrollPosition = scrubStartPosition
+                        scrubbing = true
+                    }
+                    if (scrubbing) advanceScrub(overSlopY)
+                    val ended = drag(dragChange.id) { change ->
+                        if (scrubbing) advanceScrub(change.positionChange().y)
+                        change.consume()
+                    }
+                    finishScrub(cancelled = !ended)
+                }
             }
             .padding(top = 4.dp, bottom = 0.dp),
         contentAlignment = Alignment.Center
