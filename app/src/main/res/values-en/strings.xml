@@ -207,6 +207,23 @@
     <string name="spectrum_screen_title">Spectrum</string>
     <string name="spectrum_generating">Generating spectrogram…</string>
     <string name="spectrum_unavailable">Unable to analyse this audio</string>
+    <string name="spectrum_info_format">Format</string>
+    <string name="spectrum_info_sample_rate">Sample rate</string>
+    <string name="spectrum_info_bit_depth">Bit depth</string>
+    <string name="spectrum_info_channels">Channels</string>
+    <string name="spectrum_info_mono">Mono</string>
+    <string name="spectrum_info_stereo">Stereo</string>
+    <string name="spectrum_info_channel_count">%1$d channels</string>
+    <string name="spectrum_info_bitrate">Bitrate</string>
+    <string name="spectrum_info_size">Size</string>
+    <string name="spectrum_analysis_title">Track analysis</string>
+    <string name="spectrum_analysis_fake_lossless">Audio quality</string>
+    <string name="spectrum_analysis_ai_music">AI generated</string>
+    <string name="spectrum_analysis_checking">Checking…</string>
+    <string name="spectrum_analysis_clear">Not detected</string>
+    <string name="spectrum_analysis_fake_detected">Suspected</string>
+    <string name="spectrum_analysis_ai_detected">Suspected AI</string>
+    <string name="spectrum_analysis_not_applicable">N/A</string>
 
     <!-- Default sound -->
     <string name="default_sound_ringtone_done">Set as ringtone</string>

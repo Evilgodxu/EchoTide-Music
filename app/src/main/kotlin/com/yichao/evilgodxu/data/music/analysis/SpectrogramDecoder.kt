@@ -22,12 +22,11 @@ internal object SpectrogramDecoder {
     private const val FFT_SIZE = 2048
     private const val HOP_SIZE = FFT_SIZE / 2
     private const val HALF_SPECTRUM = FFT_SIZE / 2 + 1
-    // 频率方向输出行数：把半谱桶归并到该行数，压缩数据量同时保留谱形轮廓
-    private const val FREQ_ROWS = 512
+    // 频率方向输出行数：与半谱桶数同阶，逐行只落到一两个桶上，
+    // 即保留 FFT 本身的频率分辨率而不做有损归并——竖屏下图被纵向拉伸，行数不足会显出台阶
+    private const val FREQ_ROWS = 1024
     // 分析帧数上限：达到上限即两两合并，使内存与输出规模在任意时长下都有上界
     private const val MAX_FRAMES = 2048
-    // 强度映射动态范围：以峰值功率为 0dB、下限为 -80dB，使不同音量曲目的对比度一致
-    private const val DYNAMIC_RANGE_DB = 80f
     private const val CODEC_TIMEOUT_US = 10_000L
     // 进度上报档数：按容器时长的百分比分档回调，避免逐缓冲上报引发无谓重组
     private const val PROGRESS_STEPS = 50
@@ -243,7 +242,7 @@ internal object SpectrogramDecoder {
             if (peak <= 0f) return null
             val columns = frames.size
             val values = FloatArray(columns * FREQ_ROWS)
-            val floorDb = -DYNAMIC_RANGE_DB
+            val floorDb = -SPECTROGRAM_DYNAMIC_RANGE_DB
             for (column in 0 until columns) {
                 val frame = frames[column]
                 val base = column * FREQ_ROWS

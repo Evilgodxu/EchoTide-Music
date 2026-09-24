@@ -207,6 +207,23 @@
     <string name="spectrum_screen_title">频谱分析</string>
     <string name="spectrum_generating">正在生成频谱图…</string>
     <string name="spectrum_unavailable">无法分析该音频的频谱</string>
+    <string name="spectrum_info_format">格式</string>
+    <string name="spectrum_info_sample_rate">采样率</string>
+    <string name="spectrum_info_bit_depth">位深</string>
+    <string name="spectrum_info_channels">声道</string>
+    <string name="spectrum_info_mono">单声道</string>
+    <string name="spectrum_info_stereo">立体声</string>
+    <string name="spectrum_info_channel_count">%1$d 声道</string>
+    <string name="spectrum_info_bitrate">码率</string>
+    <string name="spectrum_info_size">大小</string>
+    <string name="spectrum_analysis_title">曲目分析</string>
+    <string name="spectrum_analysis_fake_lossless">音质异常</string>
+    <string name="spectrum_analysis_ai_music">AI 合成</string>
+    <string name="spectrum_analysis_checking">校验中…</string>
+    <string name="spectrum_analysis_clear">未检出</string>
+    <string name="spectrum_analysis_fake_detected">疑似异常</string>
+    <string name="spectrum_analysis_ai_detected">疑似 AI</string>
+    <string name="spectrum_analysis_not_applicable">不适用</string>
 
     <!-- 默认铃声 -->
     <string name="default_sound_ringtone_done">已设为来电铃声</string>

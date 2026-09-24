@@ -7,14 +7,17 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.screens.spectrum.SpectrumUiState
 import com.yichao.evilgodxu.screens.spectrum.component.SpectrumBody
 import com.yichao.evilgodxu.ui.component.PageTopBar
-import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
+
+// 窄屏下内容底缘留白
+private val COMPACT_BOTTOM_PADDING = 8.dp
 
 // 窄屏组装器：常驻标题栏 + 铺满内容区的频谱图。
-// 窄屏可视区本就紧张，图不留额外边距
+// 窄屏横向空间本就紧张，图不设左右边距，只在底部留出余量
 @Composable
 internal fun CompactAssembly(
     uiState: SpectrumUiState,
@@ -33,9 +36,10 @@ internal fun CompactAssembly(
     ) { innerPadding ->
         SpectrumBody(
             uiState = uiState,
-            // 方向按窗口实测朝向判定：宽屏也可能是竖握，图须与屏幕长边同向
-            vertical = !rememberWindowLandscape(),
-            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(bottom = COMPACT_BOTTOM_PADDING),
         )
     }
 }
