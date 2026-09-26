@@ -1,49 +1,32 @@
 package com.yichao.evilgodxu.data.music.metadata
 
 import android.content.Context
-import android.net.Uri
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.log.CrashLogManager
-import java.io.ByteArrayOutputStream
-import java.io.FileInputStream
-import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// 本地音频内嵌歌词读取：解析 MP3(ID3v2 USLT)、FLAC/OGG(Vorbis 注释 LYRICS)、M4A(©lyr) 中的歌词文本，
-// 统一按增强 LRC 解析为时间轴歌词；非本地音频源或无内嵌歌词时返回空列表
+// 本地音频内嵌歌词读取：解析 MP3(ID3v2 USLT)、FLAC/OGG(Vorbis 注释 LYRICS)、M4A(©lyr)、
+// WAV(尾部 ID3)、AIFF/AIFC 与 DSDIFF("ID3 " 块)、DSF(尾部 ID3)、APE(APEv2 条目) 中的歌词文本，
+// 统一按增强 LRC 解析为时间轴歌词；非本地音频源或无内嵌歌词时返回空列表。
+// 标签位于文件末尾的容器（WAV/DSF/APE 及标签后置的 AIFF/DSDIFF）需要尾窗定位，
+// 尾窗之外的标签再按绝对偏移定点读取
 internal object MusicEmbeddedLyricReader {
 
     // 非 MP3 容器读取的头部字节上限（FLAC/OGG 注释与 M4A moov 均位于文件头部附近）
     private const val HEADER_CAP = 512 * 1024
+    // 尾部窗口上限：WAV/DSF/APE 的标签紧贴文件末尾，尾窗只需覆盖标签自身
+    private const val TAIL_CAP = 2 * 1024 * 1024
     // MP3 ID3v2 标签大小上限（含封面等大帧，歌词 USLT 帧通常位于标签前部）
     private const val MAX_MP3_TAG = 4 * 1024 * 1024
+    // ID3v2 标签头长度，用于先取小段前缀判定是否为 ID3 容器
+    private const val ID3_HEADER_BYTES = 10
 
     suspend fun read(context: Context, track: MusicTrack): List<LyricLine> = withContext(Dispatchers.IO) {
-        // 无本地可读文件即返回空（在线流为 http，openInput 取不到流）。
-        // 已缓存为 content/file 的在线曲目照常解析：缓存时会把歌词内嵌进文件，
-        // 这里能读回来才是「歌词缓存文件丢失后仍可恢复」的兜底
-        val input = openInput(context, track) ?: return@withContext emptyList()
         try {
-            input.use { stream ->
-                // 先读 10 字节判断是否带 ID3 头：MP3 标签可能含大封面帧，按声明的标签尺寸精确读取
-                val prefix = readPrefix(stream, 10)
-                val text = if (prefix.size >= 10 && prefix.startsWith("ID3")) {
-                    val tagSize = syncsafe(prefix, 6)
-                    if (tagSize > 0) {
-                        val tag = prefix + readPrefix(stream, (tagSize + 10 - prefix.size).coerceAtMost(MAX_MP3_TAG))
-                        extractMp3Lyrics(tag)
-                    } else {
-                        null
-                    }
-                } else {
-                    val bytes = prefix + readPrefix(stream, HEADER_CAP - prefix.size)
-                    extractLyrics(bytes)
-                }
-                MusicMetadataCache.parseLyricsText(text.orEmpty())
-            }
+            MusicMetadataCache.parseLyricsText(readTagText(context, track).orEmpty())
         } catch (e: Exception) {
             CrashLogManager.logException(
                 "MusicEmbeddedLyricReader",
@@ -54,34 +37,46 @@ internal object MusicEmbeddedLyricReader {
         }
     }
 
-    private fun openInput(context: Context, track: MusicTrack): InputStream? =
-        if (track.path.isNotBlank()) {
-            runCatching { FileInputStream(track.path) }.getOrNull()
-        } else if (track.audioUri.startsWith("content:") || track.audioUri.startsWith("file:")) {
-            runCatching { context.contentResolver.openInputStream(Uri.parse(track.audioUri)) }.getOrNull()
-        } else {
-            null
+    // 取内嵌歌词文本：无本地可读文件返回 null（在线流为 http，取不到流）。
+    // 已缓存为 content/file 的在线曲目照常解析：缓存时会把歌词内嵌进文件，
+    // 这里能读回来才是「歌词缓存文件丢失后仍可恢复」的兜底
+    private fun readTagText(context: Context, track: MusicTrack): String? {
+        val prefix = LocalAudioSource.read(context, track.path, track.audioUri, 0L, ID3_HEADER_BYTES)
+            ?: return null
+        // 带 ID3 头的文件按声明的标签尺寸精确读取：标签可能含大封面帧，读取量随之增大
+        if (prefix.size >= ID3_HEADER_BYTES && prefix.startsWith("ID3")) {
+            val tagSize = Id3v2Tag.syncsafe(prefix, 6)
+            if (tagSize <= 0) return null
+            val tag = LocalAudioSource.read(
+                context, track.path, track.audioUri, 0L,
+                (tagSize + ID3_HEADER_BYTES).coerceAtMost(MAX_MP3_TAG),
+            ) ?: return null
+            return Id3v2Tag.readUslt(tag, 0)
         }
-
-    private fun readPrefix(stream: InputStream, maxBytes: Int): ByteArray {
-        val out = ByteArrayOutputStream()
-        val buffer = ByteArray(8192)
-        var remaining = maxBytes
-        while (remaining > 0) {
-            val read = stream.read(buffer, 0, minOf(buffer.size, remaining))
-            if (read < 0) break
-            out.write(buffer, 0, read)
-            remaining -= read
-        }
-        return out.toByteArray()
+        val header = LocalAudioSource.read(context, track.path, track.audioUri, 0L, HEADER_CAP) ?: prefix
+        return extractLyrics(header) ?: extractLyricsFromTail(context, track, header)
     }
 
-    // 按容器格式提取内嵌歌词文本，未找到返回 null
+    // 按容器格式提取内嵌歌词文本，未找到返回 null。
+    // 无独立解析分支的容器交给容器标签层处理（AIFF/DSDIFF 的 ID3 块置于音频之前，头窗即可覆盖）
     private fun extractLyrics(bytes: ByteArray): String? = when {
         isMp4(bytes) -> extractMp4Lyrics(bytes)
         isFlac(bytes) -> extractFlacLyrics(bytes)
         isOgg(bytes) -> extractOggLyrics(bytes)
-        else -> null
+        else -> LosslessContainerTags.readLyrics(bytes, null, 0L, null)
+    }
+
+    // 标签位于文件末尾的容器：WAV（带 footer 的尾部 ID3）、DSF（头部元数据指针）、
+    // APE（APEv2 页脚）以及把 ID3 块置于音频之后的 AIFF/DSDIFF。
+    // 尾窗覆盖不到整个标签时（超大封面）由 readAt 按标签起始绝对偏移定点读取
+    private fun extractLyricsFromTail(context: Context, track: MusicTrack, header: ByteArray): String? {
+        // 标签在头部的容器（FLAC/M4A/Ogg）不读尾窗：头窗已解析不出歌词，再读尾窗也是空
+        if (!LosslessContainerTags.usesTrailingTag(header)) return null
+        val (tail, tailOffset) = LocalAudioSource.tail(context, track.path, track.audioUri, TAIL_CAP)
+            ?: return null
+        return LosslessContainerTags.readLyrics(header, tail, tailOffset) { offset, count ->
+            LocalAudioSource.read(context, track.path, track.audioUri, offset, count)
+        }
     }
 
     private fun isFlac(bytes: ByteArray) = bytes.startsWith("fLaC")
@@ -146,84 +141,6 @@ internal object MusicEmbeddedLyricReader {
         return fallback
     }
 
-    // MP3：遍历 ID3v2 帧取首个 USLT（非同步歌词）帧的歌词文本
-    private fun extractMp3Lyrics(tag: ByteArray): String? {
-        if (tag.size < 10 || !tag.startsWith("ID3")) return null
-        val version = tag[3].toInt() and 0xff
-        if (version !in 3..4) return null
-        val flags = tag[5].toInt() and 0xff
-        val tagEnd = minOf(tag.size, 10 + syncsafe(tag, 6))
-        var p = 10
-        // 扩展头：v2.4 为 syncsafe 尺寸，v2.3 为大端 int32
-        if (flags and 0x40 != 0 && p + 4 <= tagEnd) {
-            val extSize = if (version >= 4) syncsafe(tag, p) else int32BE(tag, p)
-            p += 4 + extSize
-        }
-        while (p + 10 <= tagEnd) {
-            val id = String(tag, p, 4, StandardCharsets.ISO_8859_1)
-            if (id.all { it == '\u0000' }) break
-            val size = if (version >= 4) syncsafe(tag, p + 4) else int32BE(tag, p + 4)
-            if (size < 0 || p + 10 + size > tagEnd) break
-            if (id == "USLT") {
-                decodeUslt(tag, p + 10, size)?.let { return it }
-            }
-            p += 10 + size
-        }
-        return null
-    }
-
-    // USLT 帧数据：编码字节 + 语言(3) + 空结尾内容描述符 + 歌词文本
-    private fun decodeUslt(data: ByteArray, offset: Int, length: Int): String? {
-        if (length < 4 || offset + length > data.size) return null
-        val encoding = data[offset].toInt() and 0xff
-        val end = offset + length
-        val terminator = if (encoding == 1 || encoding == 2) 2 else 1
-        var p = offset + 4
-        while (p + terminator <= end) {
-            if (data[p] == 0.toByte() && (terminator == 1 || data[p + 1] == 0.toByte())) break
-            p++
-        }
-        p += terminator
-        if (p > end) return null
-        // UTF-16 文本起始处的 BOM 决定字节序（ID3v2 规范要求 UTF-16 字符串以 BOM 开头）
-        val littleEndian = if (encoding == 1 && p + 2 <= end) {
-            when {
-                data[p] == 0xff.toByte() && data[p + 1] == 0xfe.toByte() -> true
-                data[p] == 0xfe.toByte() && data[p + 1] == 0xff.toByte() -> false
-                else -> null
-            }
-        } else null
-        return decodeText(data.copyOfRange(p, end), encoding, littleEndian)
-    }
-
-    // ID3v2 文本编码：0=ISO-8859-1、1=UTF-16(带 BOM)、2=UTF-16BE、3=UTF-8
-    private fun decodeText(bytes: ByteArray, encoding: Int, littleEndian: Boolean?): String = when (encoding) {
-        0 -> String(bytes, StandardCharsets.ISO_8859_1)
-        1 -> decodeUtf16(bytes, littleEndian)
-        2 -> String(bytes, StandardCharsets.UTF_16BE)
-        else -> String(bytes, StandardCharsets.UTF_8)
-    }
-
-    // UTF-16 解码：无 BOM 时按零字节奇偶分布推断字节序，并剥离解码产生的 BOM 字符
-    private fun decodeUtf16(bytes: ByteArray, littleEndian: Boolean?): String {
-        val little = littleEndian ?: inferUtf16Endianness(bytes)
-        val text = if (little) String(bytes, StandardCharsets.UTF_16LE) else String(bytes, StandardCharsets.UTF_16BE)
-        return text.removePrefix("\uFEFF")
-    }
-
-    // 推断 UTF-16 字节序：ASCII 字符的高位字节恒为零，统计偶数位（BE）与奇数位（LE）的零字节数
-    private fun inferUtf16Endianness(bytes: ByteArray): Boolean {
-        var littleScore = 0
-        var bigScore = 0
-        var index = 0
-        while (index + 1 < bytes.size) {
-            if (bytes[index] == 0.toByte()) bigScore++
-            if (bytes[index + 1] == 0.toByte()) littleScore++
-            index += 2
-        }
-        return littleScore > bigScore
-    }
-
     // M4A：递归遍历 moov/udta/meta/ilst，取 ©lyr(或 lyr) 与 ----:LYRICS 自定义原子
     private fun extractMp4Lyrics(bytes: ByteArray): String? =
         extractMp4LyricsAt(bytes, 0, bytes.size, isMeta = false)
@@ -272,10 +189,6 @@ internal object MusicEmbeddedLyricReader {
         if (!name.equals("lyrics", ignoreCase = true)) return null
         return decodeDataAtom(bytes, p, end)
     }
-
-    private fun syncsafe(bytes: ByteArray, p: Int): Int =
-        (bytes[p].toInt() and 0x7f shl 21) or (bytes[p + 1].toInt() and 0x7f shl 14) or
-            (bytes[p + 2].toInt() and 0x7f shl 7) or (bytes[p + 3].toInt() and 0x7f)
 
     private fun int32BE(bytes: ByteArray, p: Int): Int =
         (bytes[p].toInt() and 0xff shl 24) or (bytes[p + 1].toInt() and 0xff shl 16) or

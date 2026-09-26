@@ -16,6 +16,13 @@ import kotlinx.coroutines.withContext
 // 读取器不持有缓存：重复读取的去重与驻留由 EmbeddedCoverCache 负责。
 internal object EmbeddedCoverReader {
 
+    // 容器类型探测前缀长度：仅需覆盖各容器的魔数
+    private const val CONTAINER_PROBE_BYTES = 16
+    // 自实现解析的头部窗口：IFF 块表与 DSF 头都在文件头部
+    private const val HEADER_CAP = 512 * 1024
+    // 尾部窗口：WAV/DSF/APE 的标签紧贴文件末尾
+    private const val TAIL_CAP = 2 * 1024 * 1024
+
     // 读取结果三态。必须区分「文件读不出」与「文件正常但没有内嵌封面」：
     // 前者才值得换另一条取数路径重试；后者读的是同一文件的同一段标签，重试结果必然相同
     sealed interface Result {
@@ -48,6 +55,15 @@ internal object EmbeddedCoverReader {
     }
 
     private fun readPicture(context: Context, audioUri: String, path: String): Picture {
+        val retrieved = readPictureByRetriever(context, audioUri, path)
+        if (retrieved is Picture.Found) return retrieved
+        // 平台提取器读不出或读到了却没有内嵌图时，回落到自实现的容器标签解析：
+        // AIFF/APE/DSF/DFF 无平台元数据支持，WAV 的尾部 ID3 平台也不读取，
+        // 这些容器的内嵌封面只能由本地解析取得
+        return readPictureByContainerTags(context, audioUri, path) ?: retrieved
+    }
+
+    private fun readPictureByRetriever(context: Context, audioUri: String, path: String): Picture {
         if (path.isNotBlank()) {
             when (val picture = pictureFromPath(path)) {
                 is Picture.Found -> return picture
@@ -61,6 +77,27 @@ internal object EmbeddedCoverReader {
         if (uri.scheme != "content" && uri.scheme != "file") return Picture.Absent
         return pictureFromUri(context, uri)
     }
+
+    // 自实现的容器标签取图。先读入极短前缀判定容器类型：平台提取器已覆盖的 MP3/FLAC/M4A/Ogg
+    // 直接返回 null，避免为每首无封面的曲目都去解析标签
+    private fun readPictureByContainerTags(context: Context, audioUri: String, path: String): Picture? {
+        val prefix = LocalAudioSource.read(context, path, audioUri, 0L, CONTAINER_PROBE_BYTES) ?: return null
+        if (!isCoverFallbackContainer(prefix)) return null
+        val header = LocalAudioSource.read(context, path, audioUri, 0L, HEADER_CAP) ?: return null
+        val tail = LocalAudioSource.tail(context, path, audioUri, TAIL_CAP)
+        val bytes = LosslessContainerTags.readCover(header, tail?.first, tail?.second ?: 0L) { offset, count ->
+            LocalAudioSource.read(context, path, audioUri, offset, count)
+        }
+        return bytes?.let { Picture.Found(it) }
+    }
+
+    // 是否值得走自实现解析：AIFF/AIFC、DSDIFF、DSF、APE 以及 RIFF/WAVE
+    private fun isCoverFallbackContainer(prefix: ByteArray): Boolean =
+        LosslessContainerTags.matches(prefix) ||
+            (prefix.size >= 12 && prefix.asAscii(0, 4) == "RIFF" && prefix.asAscii(8, 4) == "WAVE")
+
+    private fun ByteArray.asAscii(at: Int, length: Int): String =
+        if (at < 0 || at + length > size) "" else String(this, at, length, Charsets.ISO_8859_1)
 
     private fun pictureFromPath(path: String): Picture = withRetriever(path) { it.setDataSource(path) }
 

@@ -31,8 +31,8 @@ internal object MusicMetadataWriter {
     // 流式复制音频躯干时的读缓冲大小
     private const val STREAM_BUFFER_SIZE = 64 * 1024
 
-    // USLT 帧的语言字段：ID3v2 规范用 "XXX" 表示语言未定义
-    private val LYRICS_LANGUAGE = "XXX".toByteArray(StandardCharsets.ISO_8859_1)
+    // WAV 尾部 ID3 标签的 flags 位：带 footer（"3DI"），供读取端自文件末尾回推标签起点
+    private const val WAV_ID3_FLAGS = 0x10
 
     suspend fun writeCover(context: Context, track: MusicTrack, coverBytes: ByteArray): Boolean =
         withContext(Dispatchers.IO) {
@@ -207,8 +207,7 @@ internal object MusicMetadataWriter {
         }
     }
 
-    // lyrics 为增强 LRC 文本；各字段 null 表示保留文件原值。
-    // WAV 不写歌词：其 ID3 标签位于文件尾部，超出内嵌歌词读取器的头部读取窗口，写进去也读不回
+    // lyrics 为增强 LRC 文本；各字段 null 表示保留文件原值
     private fun writeMetadata(
         bytes: ByteArray,
         title: String?,
@@ -221,8 +220,24 @@ internal object MusicMetadataWriter {
         isMp4(bytes) -> writeMp4(bytes, title, artist, album, cover, lyrics)
         isFlac(bytes) -> writeFlac(bytes, title, artist, album, cover, lyrics)
         isOpus(bytes) -> writeOpus(bytes, title, artist, album, cover, lyrics)
-        isWav(bytes) -> writeWav(bytes, title, artist, album, cover)
+        isWav(bytes) -> writeWav(bytes, title, artist, album, cover, lyrics)
+        LosslessContainerTags.matches(bytes) ->
+            writeLosslessContainer(bytes, title, artist, album, cover, lyrics)
         else -> null
+    }
+
+    // AIFF/AIFC、DSDIFF、DSF、APE：标签布局由 LosslessContainerTags 计算，
+    // 返回的头部字面字节 + 音频体区间 + 尾部字面字节直接落到流式写入分支
+    private fun writeLosslessContainer(
+        source: ByteArray,
+        title: String?,
+        artist: String?,
+        album: String?,
+        cover: ByteArray?,
+        lyrics: String?,
+    ): WriteResult? {
+        val rewrite = LosslessContainerTags.write(source, title, artist, album, cover, lyrics) ?: return null
+        return WriteResult.HeadAndRange(rewrite.head, rewrite.bodyStart, rewrite.bodyEnd, rewrite.tail)
     }
 
     private fun isMp3(bytes: ByteArray) =
@@ -247,7 +262,7 @@ internal object MusicMetadataWriter {
         val flags = if (hasId3) source[5].toInt() and 0xff else 0
         if (hasId3 && (version !in 3..4 || flags and 0x1f != 0)) return null
         val tagEnd = if (hasId3) {
-            val end = 10 + syncsafe(source, 6)
+            val end = 10 + Id3v2Tag.syncsafe(source, 6)
             if (end > source.size) return null
             end
         } else 0
@@ -263,28 +278,28 @@ internal object MusicMetadataWriter {
         while (p + 10 <= tagEnd) {
             val id = String(source, p, 4, StandardCharsets.US_ASCII)
             if (id.all { it == '\u0000' }) break
-            val length = if (version >= 4) syncsafe(source, p + 4) else int32(source, p + 4)
+            val length = if (version >= 4) Id3v2Tag.syncsafe(source, p + 4) else int32(source, p + 4)
             if (length < 0 || p + 10 + length > tagEnd) return null
             val raw = source.copyOfRange(p, p + 10 + length)
             when (id) {
-                "TIT2" -> if (!titleWritten) { textFrame(frames, "TIT2", title!!, version); titleWritten = true } else frames.write(raw)
-                "TPE1" -> if (!artistWritten) { textFrame(frames, "TPE1", artist!!, version); artistWritten = true } else frames.write(raw)
-                "TALB" -> if (!albumWritten) { textFrame(frames, "TALB", album!!, version); albumWritten = true } else frames.write(raw)
-                "APIC" -> if (cover != null && !coverWritten) { apicFrame(frames, cover, version); coverWritten = true } else frames.write(raw)
-                "USLT" -> if (!lyricsWritten) { usltFrame(frames, lyrics!!, version); lyricsWritten = true } else frames.write(raw)
+                "TIT2" -> if (!titleWritten) { Id3v2Tag.textFrame(frames, "TIT2", title!!, version); titleWritten = true } else frames.write(raw)
+                "TPE1" -> if (!artistWritten) { Id3v2Tag.textFrame(frames, "TPE1", artist!!, version); artistWritten = true } else frames.write(raw)
+                "TALB" -> if (!albumWritten) { Id3v2Tag.textFrame(frames, "TALB", album!!, version); albumWritten = true } else frames.write(raw)
+                "APIC" -> if (cover != null && !coverWritten) { Id3v2Tag.apicFrame(frames, cover, version); coverWritten = true } else frames.write(raw)
+                "USLT" -> if (!lyricsWritten) { Id3v2Tag.usltFrame(frames, lyrics!!, version); lyricsWritten = true } else frames.write(raw)
                 else -> frames.write(raw)
             }
             p += 10 + length
         }
-        if (!titleWritten) textFrame(frames, "TIT2", title!!, version)
-        if (!artistWritten) textFrame(frames, "TPE1", artist!!, version)
-        if (!albumWritten) textFrame(frames, "TALB", album!!, version)
-        if (!coverWritten) apicFrame(frames, cover!!, version)
-        if (!lyricsWritten) usltFrame(frames, lyrics!!, version)
+        if (!titleWritten) Id3v2Tag.textFrame(frames, "TIT2", title!!, version)
+        if (!artistWritten) Id3v2Tag.textFrame(frames, "TPE1", artist!!, version)
+        if (!albumWritten) Id3v2Tag.textFrame(frames, "TALB", album!!, version)
+        if (!coverWritten) Id3v2Tag.apicFrame(frames, cover!!, version)
+        if (!lyricsWritten) Id3v2Tag.usltFrame(frames, lyrics!!, version)
         val outputVersion = if (hasId3 && version == 3) 3 else 4
         val tag = ByteArrayOutputStream()
         tag.write("ID3".toByteArray()); tag.write(byteArrayOf(outputVersion.toByte(), 0, flags.toByte()))
-        tag.write(syncsafeBytes(frames.size())); tag.write(frames.toByteArray())
+        tag.write(Id3v2Tag.syncsafeBytes(frames.size())); tag.write(frames.toByteArray())
         // 头部为重建的 ID3 标签，音频躯干按原偏移流式复制，避免整曲二次驻留内存
         val audioStart = if (hasId3) tagEnd else 0
         return WriteResult.HeadAndTail(tag.toByteArray(), audioStart)
@@ -293,48 +308,10 @@ internal object MusicMetadataWriter {
     private fun id3FrameStart(source: ByteArray, version: Int, flags: Int, tagEnd: Int): Int {
         var p = 10
         if (flags and 0x40 != 0 && p + 4 <= tagEnd) {
-            val size = if (version >= 4) syncsafe(source, p) else int32(source, p)
+            val size = if (version >= 4) Id3v2Tag.syncsafe(source, p) else int32(source, p)
             p += 4 + size
         }
         return p.coerceAtMost(tagEnd)
-    }
-
-    private fun textFrame(out: ByteArrayOutputStream, id: String, value: String, version: Int) {
-        val data = if (version >= 4) {
-            byteArrayOf(3) + value.toByteArray(StandardCharsets.UTF_8) + 0
-        } else {
-            byteArrayOf(1) + byteArrayOf(0xff.toByte(), 0xfe.toByte()) + value.toByteArray(StandardCharsets.UTF_16LE) + byteArrayOf(0, 0)
-        }
-        frame(out, id, data, version)
-    }
-
-    // USLT 帧数据：编码字节 + 语言(3) + 空内容描述符 + 歌词文本。
-    // v2.4 用 UTF-8（描述符以单 0 结尾），v2.3 用带 BOM 的 UTF-16（描述符以双 0 结尾），
-    // 与内嵌歌词读取器按编码选择描述符长度与字节序的分支一一对应
-    private fun usltFrame(out: ByteArrayOutputStream, lyrics: String, version: Int) {
-        val text = if (version >= 4) {
-            byteArrayOf(3) + LYRICS_LANGUAGE + byteArrayOf(0) + lyrics.toByteArray(StandardCharsets.UTF_8)
-        } else {
-            byteArrayOf(1) + LYRICS_LANGUAGE + byteArrayOf(0, 0) +
-                byteArrayOf(0xff.toByte(), 0xfe.toByte()) + lyrics.toByteArray(StandardCharsets.UTF_16LE)
-        }
-        frame(out, "USLT", text, version)
-    }
-
-    private fun apicFrame(out: ByteArrayOutputStream, cover: ByteArray, version: Int) {
-        val mime = sniffMimeType(cover).toByteArray(StandardCharsets.ISO_8859_1)
-        val data = if (version >= 4) {
-            byteArrayOf(3) + mime + byteArrayOf(0, 3, 0) + cover
-        } else {
-            byteArrayOf(1) + mime + byteArrayOf(0) + byteArrayOf(3) + byteArrayOf(0, 0) + cover
-        }
-        frame(out, "APIC", data, version)
-    }
-
-    private fun frame(out: ByteArrayOutputStream, id: String, data: ByteArray, version: Int) {
-        out.write(id.toByteArray(StandardCharsets.US_ASCII))
-        out.write(if (version >= 4) syncsafeBytes(data.size) else intBytes(data.size))
-        out.write(byteArrayOf(0, 0)); out.write(data)
     }
 
     private fun writeFlac(
@@ -526,7 +503,14 @@ internal object MusicMetadataWriter {
 
     private data class WavChunk(val id: String, val data: ByteArray)
 
-    private fun writeWav(source: ByteArray, title: String?, artist: String?, album: String?, cover: ByteArray?): WriteResult? {
+    private fun writeWav(
+        source: ByteArray,
+        title: String?,
+        artist: String?,
+        album: String?,
+        cover: ByteArray?,
+        lyrics: String?,
+    ): WriteResult? {
         if (!isWav(source)) return null
         // 尾部以 footer 结尾的 ID3v2.4 标签起始偏移，未内嵌则视为文件末尾
         val tagStart = wavId3Start(source)
@@ -572,7 +556,7 @@ internal object MusicMetadataWriter {
         val headBytes = head.toByteArray()
         // RIFF 尺寸 = 头部块总长 + 流式复制的音频体长；尾部 ID3 标签位于容器之外不计入
         writeIntLE(headBytes, 4, headBytes.size - 8 + (bodyEnd - bodyStart))
-        val id3 = writeWavId3(source.copyOfRange(tagStart, source.size), title, artist, album, cover)
+        val id3 = writeWavId3(source.copyOfRange(tagStart, source.size), title, artist, album, cover, lyrics)
         return WriteResult.HeadAndRange(headBytes, bodyStart, bodyEnd, id3 ?: ByteArray(0))
     }
 
@@ -581,7 +565,7 @@ internal object MusicMetadataWriter {
         if (source.size < 20) return source.size
         val footerStart = source.size - 10
         if (String(source, footerStart, 3, StandardCharsets.US_ASCII) != "3DI") return source.size
-        val tagSize = syncsafe(source, footerStart + 6)
+        val tagSize = Id3v2Tag.syncsafe(source, footerStart + 6)
         val start = footerStart - 10 - tagSize
         if (start < 0 || String(source, start, 3, StandardCharsets.US_ASCII) != "ID3") return source.size
         return start
@@ -614,56 +598,18 @@ internal object MusicMetadataWriter {
         return out.toByteArray()
     }
 
-    // 重建 ID3v2.4 标签（尾部带 footer）：替换 TIT2/TPE1/TALB/APIC，保留其余帧；无任何内容时返回 null
-    private fun writeWavId3(existing: ByteArray, title: String?, artist: String?, album: String?, cover: ByteArray?): ByteArray? {
-        val frames = ByteArrayOutputStream()
-        var titleWritten = title == null
-        var artistWritten = artist == null
-        var albumWritten = album == null
-        var coverWritten = cover == null
-        if (existing.size >= 10 && existing.startsWith("ID3")) {
-            val version = existing[3].toInt() and 0xff
-            if (version in 3..4) {
-                val flags = existing[5].toInt() and 0xff
-                var p = 10
-                if (flags and 0x40 != 0 && p + 4 <= existing.size) {
-                    val extSize = if (version >= 4) syncsafe(existing, p) else int32(existing, p)
-                    p += 4 + extSize
-                }
-                // footer 占 10 字节，帧遍历到 footer 前为止
-                val frameEnd = existing.size - if (flags and 0x10 != 0) 10 else 0
-                while (p + 10 <= frameEnd) {
-                    val id = String(existing, p, 4, StandardCharsets.US_ASCII)
-                    if (id.all { it == '\u0000' }) break
-                    val length = if (version >= 4) syncsafe(existing, p + 4) else int32(existing, p + 4)
-                    if (length < 0 || p + 10 + length > frameEnd) break
-                    val raw = existing.copyOfRange(p, p + 10 + length)
-                    when (id) {
-                        "TIT2" -> if (!titleWritten) { textFrame(frames, "TIT2", title!!, 4); titleWritten = true } else frames.write(raw)
-                        "TPE1" -> if (!artistWritten) { textFrame(frames, "TPE1", artist!!, 4); artistWritten = true } else frames.write(raw)
-                        "TALB" -> if (!albumWritten) { textFrame(frames, "TALB", album!!, 4); albumWritten = true } else frames.write(raw)
-                        "APIC" -> if (cover != null && !coverWritten) { apicFrame(frames, cover, 4); coverWritten = true } else frames.write(raw)
-                        else -> frames.write(raw)
-                    }
-                    p += 10 + length
-                }
-            }
-        }
-        if (!titleWritten && title != null) textFrame(frames, "TIT2", title, 4)
-        if (!artistWritten && artist != null) textFrame(frames, "TPE1", artist, 4)
-        if (!albumWritten && album != null) textFrame(frames, "TALB", album, 4)
-        if (!coverWritten && cover != null) apicFrame(frames, cover, 4)
-        val body = frames.toByteArray()
-        if (body.isEmpty()) return null
-        val flag = 0x10
-        return "ID3".toByteArray(StandardCharsets.US_ASCII) +
-            byteArrayOf(4, 0, flag.toByte()) +
-            syncsafeBytes(body.size) +
-            body +
-            "3DI".toByteArray(StandardCharsets.US_ASCII) +
-            byteArrayOf(4, 0, flag.toByte()) +
-            syncsafeBytes(body.size)
-    }
+    // 重建 ID3v2.4 标签（尾部带 footer）：替换 TIT2/TPE1/TALB/APIC/USLT，保留其余帧；无任何内容时返回 null。
+    // 标签位于 WAV 容器之外的文件末尾，读取端由 footer 自文件末尾回推起点
+    private fun writeWavId3(
+        existing: ByteArray,
+        title: String?,
+        artist: String?,
+        album: String?,
+        cover: ByteArray?,
+        lyrics: String?,
+    ): ByteArray? = Id3v2Tag
+        .replaceFrames(existing, title, artist, album, cover, lyrics, Id3v2Tag.TAG_VERSION)
+        ?.let { Id3v2Tag.buildTag(it, Id3v2Tag.TAG_VERSION, WAV_ID3_FLAGS, footer = true) }
 
     private fun writeChunk(out: ByteArrayOutputStream, id: String, data: ByteArray) {
         out.write(id.toByteArray(StandardCharsets.US_ASCII))
@@ -945,8 +891,6 @@ internal object MusicMetadataWriter {
     }
 
     private fun oggCrc(bytes: ByteArray): Int { var crc = 0; bytes.forEachIndexed { index, value -> if (index in 22..25) return@forEachIndexed; crc = crc xor ((value.toInt() and 0xff) shl 24); repeat(8) { crc = if (crc and 0x80000000.toInt() != 0) (crc shl 1) xor 0x04c11db7 else crc shl 1 } }; return crc }
-    private fun syncsafe(b: ByteArray, p: Int) = (b[p].toInt() and 0x7f shl 21) or (b[p + 1].toInt() and 0x7f shl 14) or (b[p + 2].toInt() and 0x7f shl 7) or (b[p + 3].toInt() and 0x7f)
-    private fun syncsafeBytes(v: Int) = byteArrayOf((v shr 21 and 0x7f).toByte(), (v shr 14 and 0x7f).toByte(), (v shr 7 and 0x7f).toByte(), (v and 0x7f).toByte())
     private fun int32(b: ByteArray, p: Int) = ByteBuffer.wrap(b, p, 4).order(ByteOrder.BIG_ENDIAN).int
     private fun long64(b: ByteArray, p: Int) = ByteBuffer.wrap(b, p, 8).order(ByteOrder.BIG_ENDIAN).long
     private fun writeInt32(b: ByteArray, p: Int, value: Int) { ByteBuffer.wrap(b, p, 4).order(ByteOrder.BIG_ENDIAN).putInt(value) }
