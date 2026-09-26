@@ -58,7 +58,7 @@ internal suspend fun alignLyricsWords(
     // 非歌词行不参与对齐：制作信息行与曲目标题行的时间戳标注的是前奏/间奏长度，
     // 对其逐字会把字均摊到整段伴奏上，产出明显错误的卡拉OK时序
     val firstIndex = lines.indexOfFirst { it.text.isNotBlank() }
-    val targets = lines.indices.filter { isAlignedLyricLine(lines[it], it == firstIndex) }
+    val targets = lines.indices.filter { isLyricBodyLine(lines[it], it == firstIndex) }
     if (targets.isEmpty()) return AlignOutcome.NoTargets
 
     return try {
@@ -132,12 +132,12 @@ private fun lineEndMs(lines: List<LyricLine>, index: Int): Long {
 }
 
 /**
- * 判断该行是否是可供逐字对齐的歌词正文。
+ * 判断该行是否是歌词正文（而非署名、占位或曲目标题）。
  *
- * 纯标点或空白的行没有可对齐的字元；制作信息行与曲首的标题行虽然有字，但其时间戳标注的
- * 是伴奏长度而非演唱，对齐结果会把字铺满前奏。
+ * 纯标点或空白的行没有可处理的字元；制作信息行与曲首的标题行虽然有字，但其时间戳标注的
+ * 是伴奏长度而非演唱——逐字对齐会把字铺满前奏，自动补译则会产出「制作人：xxx」这类无意义的译文。
  */
-private fun isAlignedLyricLine(line: LyricLine, isFirst: Boolean): Boolean {
+internal fun isLyricBodyLine(line: LyricLine, isFirst: Boolean): Boolean {
     val text = line.text.trim()
     if (text.isBlank()) return false
     if (CREDIT_LINE.containsMatchIn(text)) return false

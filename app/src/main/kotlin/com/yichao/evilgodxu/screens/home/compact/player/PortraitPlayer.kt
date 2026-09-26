@@ -73,8 +73,10 @@ import com.yichao.evilgodxu.data.music.panel.applyCoverCandidate
 import com.yichao.evilgodxu.data.music.panel.applyLocalLyrics
 import com.yichao.evilgodxu.data.music.panel.applyLyricsCandidate
 import com.yichao.evilgodxu.data.music.panel.applyLyricsLineEdit
+import com.yichao.evilgodxu.data.music.panel.autoTranslateLyrics
 import com.yichao.evilgodxu.data.music.panel.searchCoverCandidates
 import com.yichao.evilgodxu.data.music.panel.searchLyricsCandidates
+import com.yichao.evilgodxu.data.music.panel.TranslateOutcome
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
 import com.yichao.evilgodxu.R
@@ -101,12 +103,15 @@ import com.yichao.evilgodxu.ui.component.player.MiniContextMenu
 import com.yichao.evilgodxu.ui.component.dialog.RenameDialog
 import com.yichao.evilgodxu.ui.component.player.LyricsEditDialog
 import com.yichao.evilgodxu.ui.component.player.LyricsAlignDialog
+import com.yichao.evilgodxu.ui.component.player.LyricsTranslateDialog
 import com.yichao.evilgodxu.ui.component.player.LyricsPanel
 import com.yichao.evilgodxu.ui.component.player.LyricsRefreshDialog
 import com.yichao.evilgodxu.ui.component.menuEdgePositionProvider
 import com.yichao.evilgodxu.ui.copyToClipboard
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 
 // 竖屏播放器主体：沉浸封面 + 歌词 + 标题与艺术家 + 底部控制栏
@@ -195,6 +200,11 @@ internal fun PortraitPlayer(
     var lyricsEditIndex by remember { mutableIntStateOf(0) }
     var lyricsEditInitialText by remember { mutableStateOf("") }
     var lyricsEditFailed by remember { mutableStateOf(false) }
+    // 自动补译：任务在播放作用域执行，进度对话框收起后仍继续，故运行态与对话框显隐分开
+    var translating by remember { mutableStateOf(false) }
+    var showTranslateDialog by remember { mutableStateOf(false) }
+    var translateProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var translateFailed by remember { mutableStateOf(false) }
     // 长按歌词时定格的播放位置，编辑落点据此定位，避免菜单操作期间播放推进导致错行
     var lyricsMenuPositionMs by remember { mutableLongStateOf(0L) }
     val lyricsImportLauncher = rememberLauncherForActivityResult(
@@ -392,11 +402,11 @@ internal fun PortraitPlayer(
                     }
                     LyricsContextMenu(
                         visible = showLyricsMenu,
-                        // 编辑与逐字对齐都以「有歌词行」为前提，无歌词时两项均不展示
+                        // 编辑分支与逐字对齐都以「有歌词行」为前提，无歌词时均不展示
                         lyricsAvailable = playbackState.currentTrack?.lyricLines?.isNotEmpty() == true,
-                        // 对齐进行中（含后台执行）置灰，防止重复触发
-                        wordAlignEnabled = !lyricsAlignment.aligning,
-                        onEdit = {
+                        // 歌词任务进行中（含后台执行）置灰，两个任务都会写回歌词缓存，不能并发
+                        lyricsTaskIdle = !lyricsAlignment.aligning && !translating,
+                        onEditLine = {
                             showLyricsMenu = false
                             val track = playbackState.currentTrack
                             if (track?.lyricLines?.isNotEmpty() == true) {
@@ -408,6 +418,39 @@ internal fun PortraitPlayer(
                                 // 预填该行存储的完整原文：时间戳 + 歌词（含逐字标签） + 翻译行
                                 lyricsEditInitialText = MusicMetadataCache.encodeLyrics(listOf(track.lyricLines[index]))
                                 showLyricsEdit = true
+                            }
+                        },
+                        onAutoTranslate = {
+                            showLyricsMenu = false
+                            val track = playbackState.currentTrack
+                            if (track?.lyricLines?.isNotEmpty() == true) {
+                                translating = true
+                                translateProgress = null
+                                showTranslateDialog = true
+                                playbackState.playbackScope.launch {
+                                    val outcome = autoTranslateLyrics(context, playbackState, track) { done, total ->
+                                        withContext(Dispatchers.Main) { translateProgress = done to total }
+                                    }
+                                    withContext(Dispatchers.Main) {
+                                        translating = false
+                                        showTranslateDialog = false
+                                        translateProgress = null
+                                        // 失败以外的结局都用轻量提示：没有可补译的内容属于正常结果
+                                        val message = when (outcome) {
+                                            is TranslateOutcome.Applied -> context.getString(
+                                                R.string.music_panel_auto_translate_done,
+                                                outcome.translated,
+                                            )
+                                            TranslateOutcome.NothingToDo ->
+                                                context.getString(R.string.music_panel_auto_translate_nothing)
+                                            TranslateOutcome.SameLanguage ->
+                                                context.getString(R.string.music_panel_auto_translate_same_language)
+                                            TranslateOutcome.Failed -> null
+                                        }
+                                        message?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                                        translateFailed = outcome is TranslateOutcome.Failed
+                                    }
+                                }
                             }
                         },
                         onOnlineSearch = {
@@ -650,6 +693,12 @@ internal fun PortraitPlayer(
             onCollapse = { lyricsAlignment.dismiss() },
         )
 
+        LyricsTranslateDialog(
+            visible = showTranslateDialog,
+            progress = translateProgress,
+            onCollapse = { showTranslateDialog = false },
+        )
+
         // 多位歌手的曲目：点击歌手信息后弹出的歌手选择对话框
         ArtistPickerDialog(
             artists = artistPicker,
@@ -853,23 +902,36 @@ internal fun PortraitPlayer(
                 onDismiss = { lyricsAlignment.clearFailed() },
             )
         }
+        if (translateFailed) {
+            MusicErrorBanner(
+                message = stringResource(R.string.music_panel_auto_translate_failed),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(start = 16.dp, top = topBarInset + 10.dp, end = 16.dp),
+                onDismiss = { translateFailed = false },
+            )
+        }
     }
 }
 
-// 歌词长按菜单：提供在线搜索、本地歌词导入、原文编辑与逐字对齐（有歌词行时才可编辑与对齐；
-// 对齐进行中置灰禁用，避免后台执行期间被重复触发）
+// 歌词长按菜单：一级为在线搜索、本地歌词导入、编辑与逐字对齐；「编辑」是分支项，
+// 点击后下钻为「编辑本行」与「自动补译」两个具体动作。有歌词行时才展示编辑分支与对齐；
+// 歌词任务进行中（含后台执行）置灰禁用，避免两个任务并发写回歌词缓存
 @Composable
 private fun LyricsContextMenu(
     visible: Boolean,
     lyricsAvailable: Boolean,
-    wordAlignEnabled: Boolean,
-    onEdit: () -> Unit,
+    lyricsTaskIdle: Boolean,
+    onEditLine: () -> Unit,
+    onAutoTranslate: () -> Unit,
     onOnlineSearch: () -> Unit,
     onLocalImport: () -> Unit,
     onWordAlign: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     if (visible) {
+        // 每次唤起都从一级菜单开始
+        var editExpanded by remember(visible) { mutableStateOf(false) }
         Popup(
             properties = PopupProperties(
                 focusable = true,
@@ -889,69 +951,65 @@ private fun LyricsContextMenu(
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                     horizontalArrangement = Arrangement.Center,
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color.Transparent,
-                        onClick = onOnlineSearch,
-                    ) {
-                        Text(
+                    if (editExpanded) {
+                        LyricsMenuItem(
+                            text = stringResource(R.string.music_panel_edit_line),
+                            onClick = onEditLine,
+                        )
+                        LyricsMenuItem(
+                            text = stringResource(R.string.music_panel_auto_translate),
+                            enabled = lyricsTaskIdle,
+                            onClick = onAutoTranslate,
+                        )
+                    } else {
+                        LyricsMenuItem(
                             text = stringResource(R.string.music_panel_search_title),
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                            onClick = onOnlineSearch,
                         )
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color.Transparent,
-                        onClick = onLocalImport,
-                    ) {
-                        Text(
+                        LyricsMenuItem(
                             text = stringResource(R.string.music_panel_local_lyrics),
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                            onClick = onLocalImport,
                         )
-                    }
-                    if (lyricsAvailable) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color.Transparent,
-                            onClick = onEdit,
-                        ) {
-                            Text(
+                        if (lyricsAvailable) {
+                            LyricsMenuItem(
                                 text = stringResource(R.string.music_panel_edit),
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                onClick = { editExpanded = true },
                             )
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color.Transparent,
-                            enabled = wordAlignEnabled,
-                            onClick = onWordAlign,
-                        ) {
-                            Text(
+                            LyricsMenuItem(
                                 text = stringResource(R.string.music_panel_word_align),
-                                color = if (wordAlignEnabled) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                enabled = lyricsTaskIdle,
+                                onClick = onWordAlign,
                             )
                         }
                     }
                 }
             }
         }
+    }
+}
+
+// 菜单项：置灰项不可点击
+@Composable
+private fun LyricsMenuItem(
+    text: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = Color.Transparent,
+        enabled = enabled,
+        onClick = onClick,
+    ) {
+        Text(
+            text = text,
+            color = if (enabled) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+        )
     }
 }
 

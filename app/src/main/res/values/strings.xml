@@ -104,6 +104,16 @@
     <string name="music_panel_edit_lyrics_title">编辑歌词原文</string>
     <string name="music_panel_edit_lyrics_invalid">格式无效，请保留 [时间戳] 前缀</string>
     <string name="music_panel_edit_lyrics_failed">歌词保存失败，请重试</string>
+    <string name="music_panel_edit_line">编辑本行</string>
+    <string name="music_panel_auto_translate">自动补译</string>
+    <string name="music_panel_auto_translate_title">自动补译</string>
+    <string name="music_panel_auto_translate_pending">正在准备歌词…</string>
+    <string name="music_panel_auto_translate_progress">正在翻译第 %1$d / %2$d 行</string>
+    <string name="music_panel_auto_translate_background">后台继续</string>
+    <string name="music_panel_auto_translate_done">已补译 %1$d 行</string>
+    <string name="music_panel_auto_translate_nothing">没有需要补译的歌词行</string>
+    <string name="music_panel_auto_translate_same_language">歌词已是中文，无需补译</string>
+    <string name="music_panel_auto_translate_failed">自动补译失败，请重试</string>
     <string name="music_panel_word_align">逐字对齐</string>
     <string name="music_panel_word_align_title">逐字歌词对齐</string>
     <string name="music_panel_word_align_progress">正在对齐第 %1$d / %2$d 行</string>

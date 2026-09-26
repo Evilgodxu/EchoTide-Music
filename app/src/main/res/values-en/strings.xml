@@ -104,6 +104,16 @@
     <string name="music_panel_edit_lyrics_title">Edit lyric text</string>
     <string name="music_panel_edit_lyrics_invalid">Invalid format, keep the [timestamp] prefix</string>
     <string name="music_panel_edit_lyrics_failed">Failed to save lyrics, try again</string>
+    <string name="music_panel_edit_line">Edit line</string>
+    <string name="music_panel_auto_translate">Auto-translate</string>
+    <string name="music_panel_auto_translate_title">Auto-translate</string>
+    <string name="music_panel_auto_translate_pending">Preparing lyrics…</string>
+    <string name="music_panel_auto_translate_progress">Translating line %1$d / %2$d</string>
+    <string name="music_panel_auto_translate_background">Continue in background</string>
+    <string name="music_panel_auto_translate_done">Translated %1$d lines</string>
+    <string name="music_panel_auto_translate_nothing">No lyrics need translation</string>
+    <string name="music_panel_auto_translate_same_language">Lyrics are already Chinese</string>
+    <string name="music_panel_auto_translate_failed">Auto-translate failed, try again</string>
     <string name="music_panel_word_align">Word timing</string>
     <string name="music_panel_word_align_title">Word-by-word alignment</string>
     <string name="music_panel_word_align_progress">Aligning line %1$d / %2$d</string>
