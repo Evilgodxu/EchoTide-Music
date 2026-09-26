@@ -43,20 +43,21 @@ internal object TrackAudioInfoReader {
         }
 
     // 冷启动未播放时预填的格式信息：采样率/比特率走官方 MediaMetadataRetriever，
-    // 位深与声道对 FLAC/WAV 解析容器头，其余按 16bit/立体声
+    // 位深与声道对 FLAC/WAV 解析容器头。读不到的项一律留空，不做位深/声道推测；
+    // 全部读不到时返回 null，由展示层保持空白
     fun readIdleFormat(context: Context, track: MusicTrack): AudioSignalPathFormat? {
         if (!track.isLocalAudioSource) return null
-        val formatName = trackFormatName(context, track) ?: return null
-        val sampleRate = readSampleRate(context, track) ?: 0
-        val bitrateKbps = readBitrateKbps(context, track) ?: 0
-        if (sampleRate <= 0 && bitrateKbps <= 0) return null
+        val formatName = trackFormatName(context, track)
+        val sampleRate = readSampleRate(context, track)
+        val bitrateKbps = readBitrateKbps(context, track)
+        if (formatName == null && sampleRate == null && bitrateKbps == null) return null
         val container = readContainerFormat(context, track)
         return AudioSignalPathFormat(
             format = formatName,
             sampleRate = sampleRate,
             outputRate = sampleRate,
-            bitDepth = container?.bitDepth ?: 16,
-            channels = container?.channels ?: 2,
+            bitDepth = container?.bitDepth,
+            channels = container?.channels,
             bitrate = bitrateKbps,
         )
     }

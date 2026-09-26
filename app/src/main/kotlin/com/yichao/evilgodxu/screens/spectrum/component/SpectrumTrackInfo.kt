@@ -35,25 +35,27 @@ internal fun SpectrumTrackInfo(
     )
 }
 
-// 参数行文案：界面与导出图共用，避免两处口径漂移；无可展示项时返回空串由调用方跳过该行
+// 参数行文案：界面与导出图共用，避免两处口径漂移；仅拼接实际读到的项，
+// 无可展示项时返回空串由调用方跳过该行
 internal fun spectrumInfoText(
     context: Context,
     format: AudioSignalPathFormat?,
     sizeBytes: Long,
 ): String {
-    val channelText = when {
-        format == null -> ""
-        format.channels == 1 -> context.getString(R.string.spectrum_info_mono)
-        format.channels == 2 -> context.getString(R.string.spectrum_info_stereo)
-        else -> context.getString(R.string.spectrum_info_channel_count, format.channels)
+    val channelText = format?.channels?.let {
+        when (it) {
+            1 -> context.getString(R.string.spectrum_info_mono)
+            2 -> context.getString(R.string.spectrum_info_stereo)
+            else -> context.getString(R.string.spectrum_info_channel_count, it)
+        }
     }
     return buildString {
         if (format != null) {
-            if (format.format.isNotBlank()) append(format.format).append(ITEM_SEPARATOR)
-            append(formatSampleRate(format.sampleRate)).append(ITEM_SEPARATOR)
-            append("${format.bitDepth}bit").append(ITEM_SEPARATOR)
-            append(channelText).append(ITEM_SEPARATOR)
-            if (format.bitrate > 0) append("${format.bitrate}kbps").append(ITEM_SEPARATOR)
+            format.format?.takeIf { it.isNotBlank() }?.let { append(it).append(ITEM_SEPARATOR) }
+            format.sampleRate?.let { append(formatSampleRate(it)).append(ITEM_SEPARATOR) }
+            format.bitDepth?.let { append("${it}bit").append(ITEM_SEPARATOR) }
+            channelText?.let { append(it).append(ITEM_SEPARATOR) }
+            format.bitrate?.let { append("${it}kbps").append(ITEM_SEPARATOR) }
         }
         if (sizeBytes > 0L) append(formatBytes(sizeBytes)).append(ITEM_SEPARATOR)
     }.removeSuffix(ITEM_SEPARATOR)

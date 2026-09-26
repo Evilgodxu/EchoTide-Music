@@ -240,15 +240,15 @@ internal fun TrackFormatInfoSection(
     )
 }
 
-// 格式信息展示文本：格式 · 位深/采样率 · 比特率；无有效信息时返回 null
+// 格式信息展示文本：格式 · 位深/采样率 · 比特率；仅拼接实际读到的项，
+// 位深与采样率各自独立取用（有其一即展示其一），全部缺失时返回 null 由信息条留空
 internal fun formatDisplayLabel(format: AudioSignalPathFormat): String? {
-    if (format.sampleRate <= 0 && format.bitrate <= 0) return null
-    val formatName = format.format.removePrefix("audio/")
-    val bitRate = if (format.sampleRate > 0) {
-        "${format.bitDepth}bit/${formatKhz(format.sampleRate)}kHz"
-    } else "${format.bitDepth}bit"
-    val bitrate = format.bitrate.takeIf { it > 0 }?.let { "${it}kbps" }
-    return listOfNotNull(formatName, bitRate, bitrate).joinToString(" · ")
+    val formatName = format.format?.removePrefix("audio/")?.takeIf { it.isNotBlank() }
+    val spec = format.sampleRate?.let { rate ->
+        format.bitDepth?.let { "${it}bit/${formatKhz(rate)}kHz" } ?: "${formatKhz(rate)}kHz"
+    } ?: format.bitDepth?.let { "${it}bit" }
+    val bitrate = format.bitrate?.let { "${it}kbps" }
+    return listOfNotNull(formatName, spec, bitrate).joinToString(" · ").takeIf { it.isNotBlank() }
 }
 
 // 当前曲目是否触发无损升级：展示格式低于无损且该曲目可升级

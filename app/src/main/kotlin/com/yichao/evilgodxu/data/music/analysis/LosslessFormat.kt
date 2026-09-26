@@ -7,9 +7,9 @@ private val LOSSLESS_FORMATS = setOf(
     "FLAC", "WAV", "WAVE", "ALAC", "APE", "AIFF", "AIF", "PCM", "DSD", "DSF", "DFF",
 )
 
-// 判定展示格式是否已达到无损
+// 判定展示格式是否已达到无损；格式名未知时不视为无损
 internal fun isLosslessFormat(format: AudioSignalPathFormat): Boolean =
-    isLosslessFormatName(format.format.removePrefix("audio/"))
+    format.format?.let { isLosslessFormatName(it.removePrefix("audio/")) } == true
 
 // 按格式名判定是否已达到无损
 internal fun isLosslessFormatName(name: String): Boolean {

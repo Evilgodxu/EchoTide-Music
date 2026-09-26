@@ -104,8 +104,8 @@ class MusicPlaybackService : MediaSessionService() {
                         ?: TrackAudioInfoReader.mimeToFormatName(f.sampleMimeType)
                 }
                 if (format != null) {
-                    val sampleRate = format.sampleRate.takeIf { it > 0 } ?: 48000
-                    val decodedChannels = format.channelCount.takeIf { it > 0 } ?: 2
+                    // 采样率/声道取解码格式的实际值，缺失项留空交由展示层跳过，不用固定值顶替
+                    val decodedSampleRate = format.sampleRate.takeIf { it > 0 }
                     // 优先沿用源格式预读的位深/声道，保证播放前后展示一致不跳变；
                     // 位深是源文件属性，不以解码输出位深推算（高解析度曲目解码常以浮点输出）。
                     // 归属判定含音频源 URI：无损升级换源后曲目 ID 不变，沿用旧值会把有损位深/声道带过来
@@ -117,25 +117,23 @@ class MusicPlaybackService : MediaSessionService() {
                     val bitDepth = sourceFormat?.bitDepth
                         ?: currentTrack?.takeIf { it.isLocalAudioSource }
                             ?.let { TrackAudioInfoReader.readContainerFormat(applicationContext, it)?.bitDepth }
-                        ?: 16
-                    val channels = sourceFormat?.channels ?: decodedChannels
                     state.audioSignalPathFormat = AudioSignalPathFormat(
-                        format = fileFormat ?: "PCM",
-                        sampleRate = sampleRate,
-                        outputRate = sampleRate,
+                        format = fileFormat,
+                        sampleRate = decodedSampleRate,
+                        outputRate = decodedSampleRate,
                         bitDepth = bitDepth,
-                        channels = channels,
+                        channels = sourceFormat?.channels ?: format.channelCount.takeIf { it > 0 },
                         // Format.bitrate 单位为 bps，统一换算为 kbps；VBR 曲目 bitrate 未知时回退 averageBitrate
                         bitrate = maxOf(format.bitrate, format.averageBitrate)
                             .takeIf { it > 0 }
-                            ?.let { it / 1000 } ?: 0,
+                            ?.let { it / 1000 },
                     )
                     state.audioSignalPathTrackId = currentTrack?.id
                     state.audioSignalPathSourceUri = currentTrack?.audioUri
                 }
                 // 解码头未给出比特率时（FLAC/VBR 常见），异步读取真实比特率并回填；
                 // 仅本地音频源读取文件元数据，在线曲目等缓存完成后由 refreshTrackFormatInfoFromLocal 补齐
-                if (state.audioSignalPathFormat?.bitrate == 0) {
+                if (state.audioSignalPathFormat?.bitrate == null) {
                     val track = currentTrack
                     state.playbackScope.launch(Dispatchers.IO) {
                         if (track != null && track.isLocalAudioSource &&
@@ -143,7 +141,7 @@ class MusicPlaybackService : MediaSessionService() {
                             state.audioSignalPathSourceUri == track.audioUri
                         ) {
                             TrackAudioInfoReader.readBitrateKbps(applicationContext, track)?.let { bitrate ->
-                                if (state.audioSignalPathFormat?.bitrate == 0) {
+                                if (state.audioSignalPathFormat?.bitrate == null) {
                                     state.audioSignalPathFormat = state.audioSignalPathFormat?.copy(bitrate = bitrate)
                                 }
                             }
