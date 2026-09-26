@@ -55,6 +55,8 @@ internal suspend fun analyzeLibraryCombined(
         // 缓存命中数：并发排期下逐首累加，须用原子计数
         val cachedFakeCount = AtomicInteger()
         val cachedAiCount = AtomicInteger()
+        // 署名取证命中数：在排期阶段即定论，不进入解码集合，故单独计数
+        val tagAiCount = AtomicInteger()
 
         // 排期单首：至少一个分析器缓存未命中才需解码；缓存命中就地记账
         suspend fun plan(track: MusicTrack): PendingAnalysis? {
@@ -100,6 +102,11 @@ internal suspend fun analyzeLibraryCombined(
                 val cached = aiCache.get(key)
                 if (cached != null && !forceRecompute) {
                     if (cached) cachedAiCount.incrementAndGet()
+                } else if (AiSourceTagProbe.probe(context, track) != null) {
+                    // 生成器署名命中：结论在排期阶段即可确定，不进解码集合，
+                    // 省去整曲频谱解码这一最重环节
+                    aiCache.map[key] = true
+                    tagAiCount.incrementAndGet()
                 } else {
                     aiWanted = true
                 }
@@ -119,8 +126,8 @@ internal suspend fun analyzeLibraryCombined(
             val staleFake = fakeCache.map.size > keepFake.size
             val staleAi = aiCache.map.size > keepAi.size
             val staleLock = lockCache.map.size > keepLock.size
-            // 无待解码文件：仅当存在已删除文件的残留条目时清理，避免无谓写盘
-            if (staleFake || staleAi || staleLock) {
+            // 无待解码文件：仅当存在残留条目或排期已写入署名结论时才落盘，避免无谓写盘
+            if (staleFake || staleAi || staleLock || tagAiCount.get() > 0) {
                 withContext(NonCancellable) {
                     if (staleFake) {
                         fakeCache.map.keys.removeAll { key -> key !in keepFake }
@@ -136,7 +143,10 @@ internal suspend fun analyzeLibraryCombined(
                     lockCache.flush(context)
                 }
             }
-            return@io LibraryAnalysisResult(cachedFakeCount.get(), cachedAiCount.get())
+            return@io LibraryAnalysisResult(
+                cachedFakeCount.get(),
+                cachedAiCount.get() + tagAiCount.get(),
+            )
         }
         onProgress(0, pending.size)
         // 进度与命中数：并发完成顺序不固定，统一用原子计数，避免丢失更新
@@ -160,7 +170,7 @@ internal suspend fun analyzeLibraryCombined(
                         }
                         if (p.aiWanted) {
                             val key = AiMusicAnalyzer.cacheKey(p.track, p.sizeBytes)
-                            val verdict = summary?.let { AiMusicAnalyzer.verdictFromSummary(it) } ?: false
+                            val verdict = summary?.let { AiMusicAnalyzer.verdictFromSummary(p.track, it) } ?: false
                             aiCache.map[key] = verdict
                             if (verdict) freshAiCount.incrementAndGet()
                         }
@@ -194,7 +204,7 @@ internal suspend fun analyzeLibraryCombined(
         }
         LibraryAnalysisResult(
             fakeLosslessCount = cachedFakeCount.get() + freshFakeCount.get(),
-            aiMusicCount = cachedAiCount.get() + freshAiCount.get(),
+            aiMusicCount = cachedAiCount.get() + tagAiCount.get() + freshAiCount.get(),
         )
     }
 }

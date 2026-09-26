@@ -7,15 +7,21 @@ import kotlin.math.sqrt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// AI 音乐识别器：规则启发式多征象从严判定，针对神经声码器/合成链路的统计痕迹，
-// 与音质异常的频谱截止判据正交，覆盖全格式本地文件。
+// AI 音乐识别器：两级判定。
+// ① 生成器署名取证：读取容器元数据，命中生成链自动注入的标识（C2PA 内容凭证、
+//    编码器/工具字段中的生成器产品名、显式生成声明）即直接判 AI，不做频谱分析——
+//    签名是生成器自报的出身确证，比任何统计推断都强。详见 AiSourceTagProbe。
+// ② 频谱征象判定：未取得署名证据时，回退到规则启发式多征象合成，针对神经声码器/
+//    合成链路的统计痕迹，覆盖全格式本地文件。
 // 单曲入口与批量分析走共享 SpectralDecoder 的分段采样（3 段每段 4 秒）；用户查看过频谱的曲目
 // 由 FullSpectrumAnalyzer 在全曲解码上复用同一征象集重跑并锁定，此后分段采样不再改写其结论。
 // 征象集（均提取自共享 SpectralDecoder 的同一解码摘要）：
 //  ① 立体声相关性：真人混音因摆位/混响左右声道去相关，AI 由单声道骨干扩立体声相关性偏高；
 //  ② 12-18kHz 尖锐缺口 + 上方回升：32k 中间格式升频至 44.1k 的成像缺口，区别于持续滚降；
-//  ③ 1-8kHz 谐波梳：反卷积零插值在平均谱上留下等间距规则峰列。
-// 从严策略：三条征象至少两条同时命中才判定，规避对真实强谐波/单声道内容的误报。
+//  ③ 1-8kHz 谐波梳：反卷积零插值在平均谱上留下等间距规则峰列；
+//  ④ 无损容器内的非原生带宽：仅无损容器适用，且单独不构成证据（见 detectAiSignals）。
+// 合成规则：常规路径要求 ①②③ 至少两条同时命中；补充证据路径要求 ④ 与「带限已归因」
+// 并存——带限本身在真实录音中亦存在，须由音质异常判据排除自然限带后才与 AI 判定合并。
 // 持久化缓存与批量增量校验复用 TrackVerdictCache，与音质异常识别同语义。
 internal object AiMusicAnalyzer {
 
@@ -38,6 +44,21 @@ internal object AiMusicAnalyzer {
     private const val AI_COMB_RESIDUE_DB = 4f
     private const val AI_COMB_MAX_CV = 0.30f
 
+    // 征象④：内容带宽相对容器奈奎斯特的上界——超过该比例视为内容已用满容器带宽，
+    // 不构成「无损容器装箱带限内容」的反常组合
+    private const val AI_BANDWIDTH_MAX_RATIO = 0.90f
+    // 过渡带宽度上界：与音质异常砖墙判据同口径的物理量，重采样/低通墙极陡（数百 Hz）
+    private const val AI_BANDWIDTH_MAX_WALL_HZ = 400f
+
+    // 征象④与音质异常共用同一套物理定义：稳健噪底取奈奎斯特邻域中位数，
+    // 内容截止为高于底噪 3dB 的最高频，过渡带宽度为相对底噪 20dB 降到 3dB 的频宽。
+    // 两处各自实现是为了让两条判据的阈值独立可调，取值口径必须一致
+    private const val BANDWIDTH_FLOOR_LO_RATIO = 0.97f
+    private const val BANDWIDTH_FLOOR_HI_RATIO = 0.995f
+    private const val BANDWIDTH_CUT_ABOVE_FLOOR_DB = 3f
+    private const val BANDWIDTH_WALL_REF_DB = 20f
+    private const val BANDWIDTH_MIN_DYNAMIC_DB = 40f
+
     // 是否为 AI 识别候选：本地文件路径音频（解码需真实路径）；与音质异常仅限 FLAC 不同，AI 识别不限格式
     fun isDecodableCandidate(track: MusicTrack): Boolean = track.path.isNotBlank()
 
@@ -52,6 +73,14 @@ internal object AiMusicAnalyzer {
         val sizeBytes = TrackAudioInfoReader.readFileSize(context, track) ?: return false
         val key = cacheKey(track, sizeBytes)
         cache.get(key)?.let { return it }
+        // 生成器署名取证先于频谱分析，也先于全曲锁定：标签是生成链注入的确证，
+        // 与是否做过完整频谱分析无关，命中即定论
+        val evidence = AiSourceTagProbe.probe(context, track)
+        if (evidence != null) {
+            cache.map[key] = true
+            cache.schedulePersist(context)
+            return true
+        }
         // 全曲分析锁定的曲目不再参与分段快速采样：结论只由 FullSpectrumAnalyzer 写入，
         // 缓存意外缺失时按未检出处理，不用分段结论顶替完整分析结论
         FullAnalysisLock.awaitLoaded(context)
@@ -65,6 +94,8 @@ internal object AiMusicAnalyzer {
     }
 
     // 全曲分析的判定写入入口：把频谱页完整分析的结论落为可复用判定。
+    // 署名证据优先于频谱结论：生成器自报的出身不受频谱取样范围影响，
+    // 频谱页重跑不得用它覆盖标签已确认的判定。
     // 返回 null 表示不适用（无本地路径，或文件体积不可读而无从建立缓存键）
     suspend fun recordFullAnalysisVerdict(
         context: Context,
@@ -74,31 +105,42 @@ internal object AiMusicAnalyzer {
         if (!isDecodableCandidate(track)) return null
         cache.awaitLoaded(context)
         val sizeBytes = TrackAudioInfoReader.readFileSize(context, track) ?: return null
-        val verdict = verdictFromSummary(summary)
+        val verdict = if (AiSourceTagProbe.probe(context, track) != null) {
+            true
+        } else {
+            verdictFromSummary(track, summary)
+        }
         cache.map[cacheKey(track, sizeBytes)] = verdict
         cache.schedulePersist(context)
         return verdict
     }
 
     // 解码摘要判定：多征象从严合成，供合并批量分析（analyzeLibraryCombined）复用已解码摘要，
-    // 避免对同一文件与音质异常识别各自解码
-    internal fun verdictFromSummary(summary: SpectralDecoder.DecodeSummary): Boolean =
-        detectAiSignals(summary)
+    // 避免对同一文件与音质异常识别各自解码。征象④须按容器类型适用，故需曲目本身
+    internal fun verdictFromSummary(track: MusicTrack, summary: SpectralDecoder.DecodeSummary): Boolean =
+        detectAiSignals(track, summary)
 
     // 单曲判定：返回 null 表示无法判定（时长/大小无效或解码不可用），调用方缓存为 false
     private suspend fun analyze(track: MusicTrack, sizeBytes: Long): Boolean? {
         if (track.duration <= 0 || sizeBytes <= 0) return null
         val summary = SpectralDecoder.decodeTrack(track, expectedMime = null) ?: return null
-        return detectAiSignals(summary)
+        return detectAiSignals(track, summary)
     }
 
-    // 多征象从严合成：≥2 条征象同时命中才判定为 AI，单条命中不构成足够证据
-    private fun detectAiSignals(s: SpectralDecoder.DecodeSummary): Boolean {
+    // 多征象合成：两条路径。
+    //   a) ≥2 条统计征象同时命中——单条统计命中不足以定论；
+    //   b) 补充证据路径：内容带宽未用满无损容器（征象④），且该带限已被音质异常判据
+    //      归因为非原生链路（转码/重采样残迹）。带限本身在真实录音中也存在（老录音、
+    //      窄母带），故单独不构成 AI 证据；只有「无损容器却装箱带限内容」这一反常组合
+    //      配上转码归因，才指向生成链路的模型带宽上限。
+    private fun detectAiSignals(track: MusicTrack, s: SpectralDecoder.DecodeSummary): Boolean {
         var hits = 0
         if (detectStereoSimilarity(s)) hits++
         if (detectHighShelfNotch(s)) hits++
         if (detectHarmonicComb(s)) hits++
-        return hits >= 2
+        if (hits >= 2) return true
+        return detectNonNativeBandwidth(track, s) &&
+            FakeLosslessAnalyzer.verdictFromSummary(s)
     }
 
     // 征象①：中高频（约 250Hz 以上）左右声道长时间相关性。
@@ -222,5 +264,50 @@ internal object AiMusicAnalyzer {
         if (mean <= 0.0) return false
         val variance = sumSq / cnt - mean * mean
         return sqrt(variance) / mean <= AI_COMB_MAX_CV
+    }
+
+    // 征象④：无损容器内的非原生带宽——容器声明无损（FLAC），但内容带宽明显未用满容器
+    // 采样率，且过渡带呈砖墙陡峭度。说明内容并非在本采样率下原生录制，而是由带限更低的
+    // 链路产出：生成模型输出端的带宽上限，或重采样/有损转码的残留。
+    // 有损容器（MP3/AAC/OGG）天然带限，本征象对其不适用，一律返回 false。
+    // 本征象单独不构成证据——自然限带（老录音、窄母带、抗混叠滤波）同样带限，
+    // 须由音质异常判据完成归因后才与 AI 判定合并，见 detectAiSignals
+    private fun detectNonNativeBandwidth(track: MusicTrack, s: SpectralDecoder.DecodeSummary): Boolean {
+        if (!FakeLosslessAnalyzer.isFlacCandidate(track)) return false
+        // 低规格豁免：规格不足的容器带宽天然受限，非原生带宽不构成证据。
+        // 与音质异常的低规格豁免同口径；摘要未携带位深，此处校验可得的采样率与声道
+        if (s.sampleRate < 44100 || s.channels < 2) return false
+        val binHz = s.sampleRate.toFloat() / SpectralDecoder.FFT_SIZE
+        val nyquist = s.sampleRate / 2f
+        val n = s.powerSum.size - 1
+        val db = toDb(s.powerSum, s.blocks)
+        // 稳健噪声底：奈奎斯特邻域中位数，口径与音质异常判据一致
+        val loBin = (BANDWIDTH_FLOOR_LO_RATIO * nyquist / binHz).toInt().coerceIn(0, n)
+        val hiBin = (BANDWIDTH_FLOOR_HI_RATIO * nyquist / binHz).toInt().coerceIn(loBin, n)
+        val seg = db.copyOfRange(loBin, hiBin + 1)
+        seg.sort()
+        val floor = seg[seg.size / 2]
+        // 整体动态过小则无从分辨截止，视为无证据
+        if (-floor < BANDWIDTH_MIN_DYNAMIC_DB) return false
+        var cutBin = -1
+        for (i in n downTo 0) {
+            if (db[i] - floor > BANDWIDTH_CUT_ABOVE_FLOOR_DB) {
+                cutBin = i
+                break
+            }
+        }
+        if (cutBin <= 0) return false
+        // 内容截止已接近容器奈奎斯特：带宽已用满，非原生带宽不成立
+        if (cutBin * binHz > AI_BANDWIDTH_MAX_RATIO * nyquist) return false
+        var refBin = -1
+        for (i in cutBin downTo 0) {
+            if (db[i] - floor > BANDWIDTH_WALL_REF_DB) {
+                refBin = i
+                break
+            }
+        }
+        // 无 20dB 段视为极宽过渡带（自然滚降），不构成砖墙
+        if (refBin < 0) return false
+        return (cutBin - refBin) * binHz <= AI_BANDWIDTH_MAX_WALL_HZ
     }
 }
