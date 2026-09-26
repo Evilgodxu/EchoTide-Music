@@ -9,9 +9,24 @@ import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.R
 import java.io.File
 import java.io.FileInputStream
+import java.io.InputStream
 
 // 本地音频格式信息读取：解码头未给出或冷启动未播放时，直接读文件元数据补齐
 internal object TrackAudioInfoReader {
+
+    // 容器头可解析的扩展名：无损与线性 PCM 容器，含 DSD 与 APE 这类无平台解码器的格式
+    private val CONTAINER_HEADER_FORMATS = setOf(
+        "FLAC", "WAV", "WAVE", "RF64", "AIFF", "AIF", "AIFC",
+        "ALAC", "M4A", "MP4", "APE", "DSF", "DFF",
+    )
+
+    // 容器头窗口：定长头块（STREAMINFO/fmt/COMM/APE 头/DSD 头）都在文件头部，
+    // 16KB 足以覆盖前置元数据块偏移与 MP4 的 ftyp+free+moov 前段；
+    // 窗口内找不到头结构即放弃解析，不无限扩大读取量
+    private const val HEADER_WINDOW_BYTES = 16 * 1024
+
+    // moov 后置（未 faststart）时的二次读取窗口：按顶层盒子尺寸外推 moov 起点后整段读取
+    private const val MOOV_WINDOW_BYTES = 64 * 1024
 
     // 读取真实比特率（kbps）：优先媒体元数据，其次按文件大小/时长估算平均比特率
     fun readBitrateKbps(context: Context, track: MusicTrack): Int? {
@@ -30,21 +45,44 @@ internal object TrackAudioInfoReader {
         return estimateAverageBitrateKbps(context, track)
     }
 
-    // 容器头解析出的基础格式参数（采样率/位深/声道）
-    data class ContainerFormat(val sampleRate: Int, val bitDepth: Int, val channels: Int)
+    // 读取源文件采样率/位深/声道：按容器头解析，供主线程（解码头）调用。
+    // 实际格式由容器魔数判定而非扩展名——扩展名只决定该文件是否值得读盘，
+    // 被改名或加挂了 ID3v2 标签的文件同样能解析出真实规格
+    fun readContainerFormat(context: Context, track: MusicTrack): ContainerFormat? {
+        if (!isContainerHeaderFormat(track)) return null
+        val head = readSlice(context, track, 0L, HEADER_WINDOW_BYTES) ?: return null
+        // ID3v2 前置标签（部分下载源在 FLAC/APE/DSF 前写入）把容器魔数顶到标签之后，
+        // 按标签长度重新定位后再读一个窗口
+        val id3Size = ContainerHeaderParser.id3v2TagSize(head)
+        val bodyStart = if (id3Size > 0) id3Size.toLong() else 0L
+        val body = if (bodyStart > 0) {
+            readSlice(context, track, bodyStart, HEADER_WINDOW_BYTES) ?: return null
+        } else {
+            head
+        }
+        val fileLength = readFileSize(context, track) ?: 0L
+        ContainerHeaderParser.parse(body, bodyStart, fileLength)?.let { return it }
+        // MP4 的 moov 常位于文件尾（未 faststart）：头窗遍历被超出窗口的 mdat 截断，
+        // 据其尺寸外推出 moov 起点后再整段读取解析
+        if (fileLength <= 0L || !ContainerHeaderParser.isMp4Like(body)) return null
+        val moovOffset = ContainerHeaderParser.mp4BoxOffset(body, bodyStart, fileLength, "moov")
+            ?: return null
+        if (moovOffset <= bodyStart) return null
+        val moov = readSlice(context, track, moovOffset, MOOV_WINDOW_BYTES) ?: return null
+        return ContainerHeaderParser.parseMp4(moov, moovOffset, fileLength)
+    }
 
-    // 读取源文件位深与声道：FLAC 解析 STREAMINFO、WAV 解析 RIFF fmt 块。
-    // 仅按文件扩展名判定格式，供主线程（解码头）轻量调用；其余格式返回 null
-    fun readContainerFormat(context: Context, track: MusicTrack): ContainerFormat? =
-        when (track.path.substringAfterLast('.', "").uppercase().takeIf { it.isNotBlank() }) {
-            "FLAC" -> readFlacContainerFormat(context, track)
-            "WAV", "WAVE" -> readWavContainerFormat(context, track)
-            else -> null
+    // 音质异常识别的容器头入口：候选面只有 FLAC，与通用入口共用同一解析实现
+    fun readFlacContainerFormat(context: Context, track: MusicTrack): ContainerFormat? =
+        if (track.path.substringAfterLast('.', "").uppercase() == "FLAC") {
+            readContainerFormat(context, track)
+        } else {
+            null
         }
 
     // 冷启动未播放时预填的格式信息：采样率/比特率走官方 MediaMetadataRetriever，
-    // 位深与声道对 FLAC/WAV 解析容器头。读不到的项一律留空，不做位深/声道推测；
-    // 全部读不到时返回 null，由展示层保持空白
+    // 位深与声道按容器头解析（覆盖无损与线性 PCM 容器）。读不到的项一律留空，
+    // 不做位深/声道推测；全部读不到时返回 null，由展示层保持空白
     fun readIdleFormat(context: Context, track: MusicTrack): AudioSignalPathFormat? {
         if (!track.isLocalAudioSource) return null
         val formatName = trackFormatName(context, track)
@@ -139,65 +177,54 @@ internal object TrackAudioInfoReader {
         return null
     }
 
-    // 解析 FLAC STREAMINFO（fLaC + 块头 + 34 字节流信息）中的采样率、声道与位深。
-    // 位域规范：采样率 20 位 + 声道 3 位 + 位深 5 位 + 总采样 36 位。
-    // 供音质异常识别在 IO 线程解析头信息
-    fun readFlacContainerFormat(context: Context, track: MusicTrack): ContainerFormat? =
-        readHeader(context, track, 42) { bytes ->
-            if (!bytes.copyOfRange(0, 4).contentEquals(byteArrayOf(0x66, 0x4C, 0x61, 0x43))) return@readHeader null
-            ContainerFormat(
-                // 采样率跨字节 18/19/20：18 全 8 位 + 19 全 8 位 + 20 高 4 位
-                sampleRate = ((bytes[18].toInt() and 0xFF) shl 12) or
-                    ((bytes[19].toInt() and 0xFF) shl 4) or
-                    ((bytes[20].toInt() and 0xF0) ushr 4),
-                channels = ((bytes[20].toInt() and 0x0E) ushr 1) + 1,
-                // 位深 5 位域（20 位 bit0 + 21 位高 4 位）先拼合再加 1：加 1 需作用于整个 5 位值，
-                // 否则 32bit（5 位域=31）会被低 4 位进位吞掉高位而误读为 16bit
-                bitDepth = (((bytes[20].toInt() and 0x01) shl 4) or ((bytes[21].toInt() and 0xF0) ushr 4)) + 1,
-            )
-        }
-
-    // 解析 WAV RIFF 头（44 字节）fmt 块中的采样率、声道与位深
-    private fun readWavContainerFormat(context: Context, track: MusicTrack): ContainerFormat? =
-        readHeader(context, track, 44) { bytes ->
-            if (!bytes.copyOfRange(0, 4).contentEquals(byteArrayOf(0x52, 0x49, 0x46, 0x46)) ||
-                !bytes.copyOfRange(8, 12).contentEquals(byteArrayOf(0x57, 0x41, 0x56, 0x45))
-            ) return@readHeader null
-            ContainerFormat(
-                // fmt 块偏移 24-27 为小端采样率
-                sampleRate = ((bytes[27].toInt() and 0xFF) shl 24) or
-                    ((bytes[26].toInt() and 0xFF) shl 16) or
-                    ((bytes[25].toInt() and 0xFF) shl 8) or
-                    (bytes[24].toInt() and 0xFF),
-                channels = ((bytes[23].toInt() and 0xFF) shl 8) or (bytes[22].toInt() and 0xFF),
-                bitDepth = ((bytes[35].toInt() and 0xFF) shl 8) or (bytes[34].toInt() and 0xFF),
-            )
-        }
-
-    // 读取本地音频文件头部若干字节：文件路径优先，否则经 ContentResolver 打开
-    private inline fun readHeader(
-        context: Context,
-        track: MusicTrack,
-        size: Int,
-        parse: (ByteArray) -> ContainerFormat?,
-    ): ContainerFormat? {
-        val input = if (track.path.isNotBlank()) {
-            runCatching { FileInputStream(track.path) }.getOrNull()
-        } else if (track.audioUri.startsWith("content:") || track.audioUri.startsWith("file:")) {
-            runCatching { context.contentResolver.openInputStream(Uri.parse(track.audioUri)) }.getOrNull()
-        } else {
-            null
-        }
-        val bytes = ByteArray(size)
-        val read = if (input != null) {
-            runCatching { input.use { it.read(bytes) } }.getOrNull() ?: 0
-        } else {
-            0
-        }
-        if (read < size) return null
-        val format = parse(bytes) ?: return null
-        return format.takeIf { it.sampleRate > 0 && it.channels > 0 && it.bitDepth > 0 }
+    // 读取文件 [offset, offset+size) 区间的字节：文件短于请求长度时按实际读到的字节返回，
+    // 各容器解析器自行判断头结构是否完整；区间起点越界或流不可用返回 null
+    private fun readSlice(context: Context, track: MusicTrack, offset: Long, size: Int): ByteArray? {
+        val input = openInputStream(context, track) ?: return null
+        return runCatching {
+            input.use { stream ->
+                if (!skipFully(stream, offset)) return@use null
+                readUpTo(stream, size)
+            }
+        }.getOrNull()
     }
+
+    // 打开本地音频输入流：文件路径优先，否则经 ContentResolver
+    private fun openInputStream(context: Context, track: MusicTrack): InputStream? = when {
+        track.path.isNotBlank() -> runCatching { FileInputStream(track.path) }.getOrNull()
+        track.audioUri.startsWith("content:") || track.audioUri.startsWith("file:") ->
+            runCatching { context.contentResolver.openInputStream(Uri.parse(track.audioUri)) }
+                .getOrNull()
+        else -> null
+    }
+
+    // 跳过指定字节数：InputStream.skip 允许少跳，循环补齐
+    private fun skipFully(stream: InputStream, count: Long): Boolean {
+        var skipped = 0L
+        while (skipped < count) {
+            val step = stream.skip(count - skipped)
+            if (step <= 0) return false
+            skipped += step
+        }
+        return true
+    }
+
+    // 读取至多 size 字节
+    private fun readUpTo(stream: InputStream, size: Int): ByteArray {
+        val buffer = ByteArray(size)
+        var read = 0
+        while (read < size) {
+            val step = stream.read(buffer, read, size - read)
+            if (step <= 0) break
+            read += step
+        }
+        return buffer.copyOf(read)
+    }
+
+    // 是否属于可直接解析容器头的格式：扩展名门限，避免对有损格式做无谓读盘。
+    // M4A/MP4 一并纳入——ALAC 的位深只存在于容器头中（有损编码则该字段留空）
+    private fun isContainerHeaderFormat(track: MusicTrack): Boolean =
+        track.path.substringAfterLast('.', "").uppercase() in CONTAINER_HEADER_FORMATS
 }
 
 // 已知音频扩展名到展示名的映射

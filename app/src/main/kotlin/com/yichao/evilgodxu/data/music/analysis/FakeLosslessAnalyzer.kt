@@ -129,9 +129,12 @@ internal object FakeLosslessAnalyzer {
 
     // 低规格豁免判断（纯函数）：容器头可读且规格不足（<44.1kHz/<16bit/<2ch）时，
     // 带宽受限天然带高频截止，非音质异常伪装目标，无需解码即可排除；
-    // 容器头不可读时不豁免，交由频谱分析以解码格式参数兜底
-    internal fun isLowSpecFakeLossless(format: TrackAudioInfoReader.ContainerFormat?): Boolean =
-        format != null && (format.sampleRate < 44100 || format.bitDepth < 16 || format.channels < 2)
+    // 容器头不可读时不豁免，交由频谱分析以解码格式参数兜底。
+    // 位深为 null 表示容器未声明真实位深（有损编码的名义值不采信），未知不构成规格不足
+    internal fun isLowSpecFakeLossless(format: ContainerFormat?): Boolean =
+        format != null && (format.sampleRate < 44100 ||
+            format.bitDepth?.let { it < 16 } == true ||
+            format.channels < 2)
 
     // 低规格豁免入口：读容器头后按纯函数判定，供合并批量分析在解码前排除
     internal fun isLowSpecFakeLossless(context: Context, track: MusicTrack): Boolean =
