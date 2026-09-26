@@ -66,13 +66,34 @@ private val COVER_BACKGROUND_LAYERS = listOf(
     CoverBackgroundLayer(periodMs = 70_000L, clockwise = true, offsetX = -0.5f, offsetY = 0.7f, rotateAboutCenter = true),
 )
 
-// 下边缘衔接层淡出带长度占封面高度的比例：取与封面自身下缘渐隐带（HomeAlbumArt 的 BOTTOM_FADE_FRACTION）同值，
-// 使封面淡出与背景淡入在封面底边两侧等长对称，接缝处颜色连续
-private const val COVER_EDGE_BLEND_FADE_RATIO = 0.3f
+// 压暗层的顶端与底端强度：封面衍生背景整体偏亮，压暗上下边缘保证状态栏与前景文字可读
+private const val COVER_SCRIM_TOP_ALPHA = 0.18f
+private const val COVER_SCRIM_BOTTOM_ALPHA = 0.30f
 
-// 衔接层淡出过程的采样透明度（由 1 递减至 0）：与封面下缘渐隐蒙层同一条平滑曲线，
-// 单段线性渐隐会在折点处留下可见的色阶带
-private val COVER_EDGE_BLEND_ALPHAS = listOf(0.95f, 0.79f, 0.55f, 0.21f)
+// 压暗层中段的归零位置（占视口高度比例）：此处压暗为 0，上半段向顶端增强、下半段向底端增强
+private const val COVER_SCRIM_ZERO_FRACTION = 0.5f
+
+// 压暗层每半段的采样段数：色标之间为线性插值，按平滑曲线采样后不再出现折点
+private const val COVER_SCRIM_SAMPLE_SEGMENTS = 12
+
+// 柔和压暗层色标：顶端 [COVER_SCRIM_TOP_ALPHA] 平滑收敛到 [COVER_SCRIM_ZERO_FRACTION] 处为 0，
+// 再平滑增强到底端 [COVER_SCRIM_BOTTOM_ALPHA]。两半都取自 [smoothFadeAlpha]，
+// 两端与归零点的斜率均为 0：压暗层自身不会在封面的过渡区间内留下层次分界，
+// 与封面下缘渐隐、封面底边之下的同色衔接层叠加后仍是连续的亮度变化。
+// 色标只与常量有关，构造一次后复用
+private val COVER_SCRIM_COLOR_STOPS: Array<Pair<Float, Color>> = buildList {
+    for (segment in 0 until COVER_SCRIM_SAMPLE_SEGMENTS) {
+        val t = segment.toFloat() / COVER_SCRIM_SAMPLE_SEGMENTS
+        add(COVER_SCRIM_ZERO_FRACTION * t to Color.Black.copy(alpha = COVER_SCRIM_TOP_ALPHA * smoothFadeAlpha(t)))
+    }
+    for (segment in 0..COVER_SCRIM_SAMPLE_SEGMENTS) {
+        val t = segment.toFloat() / COVER_SCRIM_SAMPLE_SEGMENTS
+        add(
+            (COVER_SCRIM_ZERO_FRACTION + (1f - COVER_SCRIM_ZERO_FRACTION) * t) to
+                Color.Black.copy(alpha = COVER_SCRIM_BOTTOM_ALPHA * (1f - smoothFadeAlpha(t))),
+        )
+    }
+}.toTypedArray()
 
 private data class CoverBackgroundLayer(
     val periodMs: Long,
@@ -112,8 +133,9 @@ internal fun SongImmersiveBackground(
     val effective = extracted ?: restoredColors
     val background = effective?.first ?: md_theme_dark_surface
     LaunchedEffect(background) { onBackgroundColor?.invoke(background) }
-    // 封面下边缘衔接层：把封面底边往下的一段固定为封面下边缘色，再按与封面下缘渐隐带等长的距离淡出到衍生背景。
-    // 衍生背景的色块不会直接贴在封面下边缘，接缝两侧颜色一致，首帧（衍生背景尚未出图）同样成立
+    // 封面下边缘衔接层：把封面底边往下的一段固定为封面下边缘色，再按与封面下缘渐隐带同长、
+    // 同曲线的距离淡出到衍生背景。接缝两侧颜色与亮度变化率都一致，衍生背景的色块不会直接贴到封面下边缘，
+    // 首帧（衍生背景尚未出图）同样成立
     val edgeBlendBrush = effective?.first?.let { coverEdgeBlendBrush(it, coverBottomFraction) }
 
     // 流动时间轴：仅在开关打开时推进，关闭时归零即回到静态首帧
@@ -172,7 +194,7 @@ internal fun SongImmersiveBackground(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        // 衔接层压在衍生背景之上、压暗层之下：压暗层沿纵向连续，不会在接缝处留下色阶
+        // 衔接层压在衍生背景之上：封面底边及其下方一段与封面下边缘同色，接缝两侧颜色一致
         edgeBlendBrush?.let { brush ->
             Box(
                 modifier = Modifier
@@ -180,19 +202,12 @@ internal fun SongImmersiveBackground(
                     .background(brush),
             )
         }
-        // 柔和压暗层：封面衍生背景可能整体偏亮，压暗上下边缘保证状态栏与前景文字可读
+        // 柔和压暗层：封面衍生背景可能整体偏亮，压暗上下边缘保证状态栏与前景文字可读。
+        // 归零点与两端斜率均为 0，叠加在衔接层之上也不会在封面底边处留下亮度分界
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = 0.18f),
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.30f),
-                        )
-                    )
-                ),
+                .background(Brush.verticalGradient(colorStops = COVER_SCRIM_COLOR_STOPS)),
         )
     }
 }
@@ -213,25 +228,15 @@ private fun fallbackGradient(edgeColor: Color, deepColor: Color): Brush =
 
 /**
  * 封面下边缘衔接层：[coverBottomFraction] 为封面下边缘在视口中的纵向位置，此后一段固定为封面下边缘色 [edge]，
- * 再以 [COVER_EDGE_BLEND_FADE_RATIO] 确定的长度淡出，使封面下边缘与背景在接缝处同色相接。
+ * 再以 [COVER_FADE_RATIO] 确定的长度、按与封面下缘渐隐蒙层相同的曲线淡出，使封面下边缘与背景同色相接。
  * 封面几乎铺满视口时没有可衔接的背景区，返回 null 表示无需衔接层。
  */
 private fun coverEdgeBlendBrush(edge: Color, coverBottomFraction: Float): Brush? {
     val start = coverBottomFraction.coerceIn(0f, 1f)
     if (start <= 0f || start >= 1f) return null
-    val end = (start * (1f + COVER_EDGE_BLEND_FADE_RATIO)).coerceAtMost(1f)
-    val span = end - start
-    if (span <= 0f) return null
-    val step = span / (COVER_EDGE_BLEND_ALPHAS.size + 1)
-    val stops = ArrayList<Pair<Float, Color>>(COVER_EDGE_BLEND_ALPHAS.size + 3)
-    stops += 0f to edge
-    stops += start to edge
-    COVER_EDGE_BLEND_ALPHAS.forEachIndexed { index, alpha ->
-        stops += (start + step * (index + 1)) to edge.copy(alpha = alpha)
-    }
-    // 末档用同色全透明而非 Color.Transparent：避免 RGB 在淡出末段向黑色插值而渗出灰调
-    stops += end to edge.copy(alpha = 0f)
-    return Brush.verticalGradient(colorStops = stops.toTypedArray())
+    val end = (start * (1f + COVER_FADE_RATIO)).coerceAtMost(1f)
+    if (end <= start) return null
+    return coverFadeBrush(color = edge, start = start, end = end)
 }
 
 /**
