@@ -76,7 +76,6 @@ import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.panel.loadMoreSearchResults
 import com.yichao.evilgodxu.data.music.panel.performSearch
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
-import com.yichao.evilgodxu.data.music.proxy.OnlinePlatformRegistry
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
@@ -417,19 +416,6 @@ internal fun SearchResultRow(
                 overflow = TextOverflow.Ellipsis
             )
         }
-
-        Text(
-            text = OnlinePlatformRegistry.displayName(context, result.source),
-            color = Color.White,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier
-                .background(
-                    Color.White.copy(alpha = 0.10f),
-                    RoundedCornerShape(4.dp)
-                )
-                .padding(horizontal = 5.dp, vertical = 2.dp)
-        )
     }
 }
 
