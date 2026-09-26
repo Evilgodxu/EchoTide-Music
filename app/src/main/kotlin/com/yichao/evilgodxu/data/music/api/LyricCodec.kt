@@ -35,7 +35,7 @@ internal fun parseLrcText(lrc: String): List<LyricLine> {
     }.sortedBy { it.timeMs }.toList()
 }
 
-// 按时间戳把翻译歌词合并进原歌词：优先精确匹配，其次取 500ms 内最近的一条
+// 按时间戳把翻译歌词合并进原歌词：优先精确匹配，其次取 [TRANSLATION_MATCH_WINDOW_MS] 内最近的一条
 internal fun mergeTranslations(lines: List<LyricLine>, transLines: List<LyricLine>): List<LyricLine> {
     if (lines.isEmpty() || transLines.isEmpty()) return lines
     val byTime = transLines.associateBy { it.timeMs }
@@ -43,12 +43,15 @@ internal fun mergeTranslations(lines: List<LyricLine>, transLines: List<LyricLin
     return lines.map { line ->
         val translation = byTime[line.timeMs]?.text
             ?: sorted.minByOrNull { kotlin.math.abs(it.timeMs - line.timeMs) }
-                ?.takeIf { kotlin.math.abs(it.timeMs - line.timeMs) <= 500L }
+                ?.takeIf { kotlin.math.abs(it.timeMs - line.timeMs) <= TRANSLATION_MATCH_WINDOW_MS }
                 ?.text
             ?: return@map line
         line.copy(translation = translation)
     }
 }
+
+// 译文与原文的时间戳可能不严格相等，容差内按最近的一条配对
+private const val TRANSLATION_MATCH_WINDOW_MS = 500L
 
 /**
  * 增强 LRC 解析：兼容纯文本行、行内 `<mm:ss.xxx>` 逐字标签与 `[tr][/tr]` 翻译块。
@@ -112,7 +115,7 @@ internal fun parseKrcText(raw: String): List<LyricLine> {
         }
         buildWordLine(timeMs, payload, KRC_WORD_PATTERN, KRC_GROUPS, absolute = false)?.let { main += it }
     }
-    return mergeTranslations(main, translations).sortedBy { it.timeMs }
+    return mergeTranslationLines(main, translations)
 }
 
 /**
@@ -121,6 +124,9 @@ internal fun parseKrcText(raw: String): List<LyricLine> {
  * 两个数值是同一区间两端按 (和, 差) 变形后的编码值、且放大了 8 倍：
  * 字起点 = |尾 + 起| / 16，字终点 = max(|尾|, |起|) / 8（与 QQ QRC 逐字时间轴实测逐字吻合）。
  * 原始数据允许相邻字区间重叠，此处按下一字的起点截断，保证逐字高亮单调推进。
+ *
+ * 译文与原文成对出现且共用同一个行时间戳：原文行带真实字标签，译文行整行只有一个时间点（字标签全零），
+ * 故译文只能靠行时间戳与原文配对，其文字语言不作判据 —— 英文等非中文译文同样存在。
  */
 internal fun parseKuwoLrcxText(raw: String): List<LyricLine> {
     val main = mutableListOf<LyricLine>()
@@ -131,10 +137,7 @@ internal fun parseKuwoLrcxText(raw: String): List<LyricLine> {
             match.groupValues[2].toLong() * 1_000 +
             match.groupValues[3].padEnd(3, '0').take(3).toLong()
         val payload = match.groupValues[4]
-        // 翻译行与主行同时间戳成对出现，其字标签为 <0,0>；仅在含中文时视作翻译，避免误吞正常歌词
-        val isTranslation = isZeroOffsetLine(payload, KUWO_WORD_PATTERN, KUWO_GROUPS) &&
-            CHINESE_PATTERN.containsMatchIn(payload)
-        if (isTranslation) {
+        if (isZeroOffsetLine(payload, KUWO_WORD_PATTERN, KUWO_GROUPS)) {
             stripTags(payload, KUWO_WORD_PATTERN, KUWO_GROUPS).takeIf { it.isNotBlank() }
                 ?.let { translations += LyricLine(timeMs, it) }
             return@forEach
@@ -162,7 +165,22 @@ internal fun parseKuwoLrcxText(raw: String): List<LyricLine> {
         words.joinToString("") { it.text }.trim().takeIf { it.isNotBlank() }
             ?.let { main += LyricLine(timeMs, it, words) }
     }
-    return mergeTranslations(main, translations).sortedBy { it.timeMs }
+    return mergeTranslationLines(main, translations)
+}
+
+/**
+ * 合并译文并把配不上主行的译文行保留为普通行。
+ *
+ * 主行为空（如纯器乐段）时平台仍会给出译文行，此时译文没有可挂靠的主行；
+ * 直接丢弃会整句丢失，退化为普通行至少不丢内容。
+ */
+private fun mergeTranslationLines(main: List<LyricLine>, translations: List<LyricLine>): List<LyricLine> {
+    if (translations.isEmpty()) return main.sortedBy { it.timeMs }
+    val mainTimes = main.map { it.timeMs }
+    val orphans = translations.filter { translation ->
+        mainTimes.none { kotlin.math.abs(it - translation.timeMs) <= TRANSLATION_MATCH_WINDOW_MS }
+    }
+    return (mergeTranslations(main, translations) + orphans).sortedBy { it.timeMs }
 }
 
 // 把 `字<时间标签>` 形式的载荷还原为 [LyricLine]；标签缺失时退化为逐行歌词，空行返回 null
@@ -227,8 +245,6 @@ internal fun inflateBytes(data: ByteArray): ByteArray? = try {
 } catch (e: Exception) {
     null
 }
-
-private val CHINESE_PATTERN = Regex("[\\u4e00-\\u9fa5]")
 
 private val WORD_LINE_PATTERN = Regex("""\[(?:(\d+):)?(\d+):(\d+)(?:\.(\d+))?](.*)""")
 private val WORD_TAG_PATTERN = Regex("""<(?:(\d+):)?(\d+):(\d+)(?:\.(\d+))?>([^<]*)""")

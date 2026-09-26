@@ -32,7 +32,8 @@ internal object KuwoMusicApi : OnlineMusicSource {
     private val LYRIC_KEY = "yeelion".toByteArray()
     private val LRC_PREFIX = "tp=content".toByteArray()
     private val LRC_SEPARATOR = "\r\n\r\n".toByteArray()
-    private val GBK: Charset = runCatching { Charset.forName("GBK") }.getOrDefault(Charsets.UTF_8)
+    // 歌词正文按 GB18030 解码：该编码是 GBK 的超集，韩文等非 GBK 字符以四字节序列出现，用 GBK 会解成乱码
+    private val LYRIC_CHARSET: Charset = runCatching { Charset.forName("GB18030") }.getOrDefault(Charsets.UTF_8)
 
     override suspend fun search(keyword: String, page: Int, pageSize: Int): List<NeteaseSongSearchResult> = withContext(Dispatchers.IO) {
         try {
@@ -183,7 +184,7 @@ internal object KuwoMusicApi : OnlineMusicSource {
         val lrcData = inflateBytes(raw.copyOfRange(sep + LRC_SEPARATOR.size, raw.size)) ?: return null
         val b64 = String(lrcData, Charsets.UTF_8)
         val decoded = Base64.getDecoder().decode(b64)
-        return String(xorEncrypt(decoded, LYRIC_KEY), GBK)
+        return String(xorEncrypt(decoded, LYRIC_KEY), LYRIC_CHARSET)
     }
 
     private fun indexOf(data: ByteArray, pattern: ByteArray): Int? {
