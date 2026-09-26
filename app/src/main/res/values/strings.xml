@@ -175,13 +175,13 @@
     <string name="home_artist_picker_title">选择歌手</string>
     <string name="settings_section_player">播放</string>
     <string name="settings_mini_player_title">悬浮播放</string>
-    <string name="settings_mini_player_desc">后台播放时显示迷你播放器</string>
+    <string name="settings_mini_player_desc">后台播放显示悬浮播放器</string>
     <string name="settings_word_by_word_title">逐字渲染</string>
-    <string name="settings_word_by_word_desc">逐字高亮并同步跳动,关闭后切换整行高亮</string>
+    <string name="settings_word_by_word_desc">歌词逐字高亮并同步跳动</string>
     <string name="settings_swipe_track_title">滑动切歌</string>
     <string name="settings_swipe_track_desc">在首页上下滑动切换歌曲</string>
     <string name="settings_background_flow_title">背景流动</string>
-    <string name="settings_background_flow_desc">开启后首页背景随封面缓慢流动，关闭时只显示静态背景</string>
+    <string name="settings_background_flow_desc">开启后首页背景缓慢流动</string>
     <string name="settings_typography_title">排版</string>
     <string name="settings_typography_desc">歌词字号与显示行数</string>
 
