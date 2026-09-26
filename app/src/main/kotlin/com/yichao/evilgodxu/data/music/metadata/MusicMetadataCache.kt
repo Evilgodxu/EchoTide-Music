@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
+import com.yichao.evilgodxu.data.music.api.parseWordTimedLrcText
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.LyricWord
 import com.yichao.evilgodxu.data.music.download.sanitizeFileName
@@ -215,36 +216,9 @@ internal object MusicMetadataCache {
         return "%02d:%02d.%03d".format(minutes, seconds, millis)
     }
 
-    // 增强 LRC 解析：兼容纯文本行、行内 <mm:ss.xxx> 逐字标签与 [tr][/tr] 翻译块；
-    // 时间戳支持 [mm:ss(.xxx)] 与长音频常用的小时制 [hh:mm:ss(.xxx)]，小数位 1~3 位均可，前导零可忽略
-    private fun parseEnhancedLrc(lrc: String): List<LyricLine> {
-        val linePattern = Regex("""\[(?:(\d+):)?(\d+):(\d+)(?:\.(\d+))?](.*)""")
-        val wordPattern = Regex("""<(?:(\d+):)?(\d+):(\d+)(?:\.(\d+))?>([^<]*)""")
-        val transPattern = Regex("""\[tr](.*?)\[/tr]""")
-        val lines = lrc.lineSequence().mapNotNull { rawLine ->
-            val match = linePattern.find(rawLine) ?: return@mapNotNull null
-            val timeMs = (match.groupValues[1].toLongOrNull() ?: 0L) * 3_600_000 +
-                match.groupValues[2].toLong() * 60_000 +
-                match.groupValues[3].toLong() * 1000 +
-                match.groupValues[4].padEnd(3, '0').take(3).toLong()
-            val content = match.groupValues[5]
-            val translation = transPattern.find(content)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() }
-            val cleanContent = transPattern.replace(content, "").trim()
-            val words = wordPattern.findAll(cleanContent).map { word ->
-                LyricWord(
-                    startMs = (word.groupValues[1].toLongOrNull() ?: 0L) * 3_600_000 +
-                        word.groupValues[2].toLong() * 60_000 +
-                        word.groupValues[3].toLong() * 1000 +
-                        word.groupValues[4].padEnd(3, '0').take(3).toLong(),
-                    durationMs = 0L,
-                    text = word.groupValues[5]
-                )
-            }.filter { it.text.isNotEmpty() }.toList()
-            val text = if (words.isNotEmpty()) words.joinToString("") { it.text } else cleanContent.trim()
-            LyricLine(timeMs, text, words, translation).takeIf { it.text.isNotBlank() }
-        }.sortedBy { it.timeMs }.toList()
-        return repairLegacyWordStarts(lines)
-    }
+    // 增强 LRC 解析交由共享实现，本地与在线歌词走同一份解析逻辑；此处只叠加旧版数据的修复
+    private fun parseEnhancedLrc(lrc: String): List<LyricLine> =
+        repairLegacyWordStarts(parseWordTimedLrcText(lrc))
 
     // 兼容修复：早期 YRC 解析把字标签的绝对时间又叠加了一次行首时间，使字的起点落在本行区间之外
     // （甚至晚于下一行起点）——这类值不可能成立，回退减去行首时间还原为绝对时间。

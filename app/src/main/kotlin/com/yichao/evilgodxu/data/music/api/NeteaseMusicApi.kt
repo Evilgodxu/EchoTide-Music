@@ -428,34 +428,6 @@ internal object NeteaseMusicApi : OnlineMusicSource {
     }
 }
 
-// 标准 LRC 解析：网易云（无逐字标签时）、QQ、酷狗均复用
-internal fun parseLrcText(lrc: String): List<LyricLine> {
-    return lrc.lineSequence().mapNotNull { line ->
-        val match = Regex("\\[(\\d+):(\\d+)(?:\\.(\\d+))?](.*)").find(line) ?: return@mapNotNull null
-        LyricLine(
-            timeMs = match.groupValues[1].toLong() * 60_000 +
-                    match.groupValues[2].toLong() * 1_000 +
-                    match.groupValues[3].padEnd(3, '0').take(3).toLong(),
-            text = match.groupValues[4].trim()
-        ).takeIf { it.text.isNotBlank() }
-    }.sortedBy { it.timeMs }.toList()
-}
-
-// 按时间戳把翻译歌词合并进原歌词：优先精确匹配，其次取 500ms 内最近的一条
-internal fun mergeTranslations(lines: List<LyricLine>, transLines: List<LyricLine>): List<LyricLine> {
-    if (lines.isEmpty() || transLines.isEmpty()) return lines
-    val byTime = transLines.associateBy { it.timeMs }
-    val sorted = transLines.sortedBy { it.timeMs }
-    return lines.map { line ->
-        val translation = byTime[line.timeMs]?.text
-            ?: sorted.minByOrNull { kotlin.math.abs(it.timeMs - line.timeMs) }
-                ?.takeIf { kotlin.math.abs(it.timeMs - line.timeMs) <= 500L }
-                ?.text
-            ?: return@map line
-        line.copy(translation = translation)
-    }
-}
-
 // 把字符串平台标识（QQ 的 songmid、酷狗的 hash）转成稳定的数字 id，
 // 搜索结果列表和播放列表统一用 Long 类型 id 做去重与关联
 internal fun stableIdFromString(value: String): Long {

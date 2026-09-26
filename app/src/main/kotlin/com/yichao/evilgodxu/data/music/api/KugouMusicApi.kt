@@ -22,6 +22,18 @@ internal object KugouMusicApi : OnlineMusicSource {
     // 默认榜单：酷狗音乐 TOP500 热门榜
     private const val CHART_RANK_ID = "8888"
 
+    // 歌词下载格式：krc 为逐字歌词，lrc 为逐行歌词
+    private const val KRC_FORMAT = "krc"
+    private const val LRC_FORMAT = "lrc"
+
+    private val KRC_MAGIC = "krc1".toByteArray(Charsets.US_ASCII)
+
+    // KRC 密文的 16 字节异或密钥，按字节循环使用
+    private val KRC_KEY = byteArrayOf(
+        0x40, 0x47, 0x61, 0x77, 0x5E, 0x32, 0x74, 0x47,
+        0x51, 0x36, 0x31, 0x2D, 0xCE.toByte(), 0xD2.toByte(), 0x6E, 0x69,
+    )
+
     override suspend fun search(keyword: String, page: Int, pageSize: Int): List<NeteaseSongSearchResult> = withContext(Dispatchers.IO) {
         try {
             val url = "https://songsearch.kugou.com/song_search_v2?keyword=${URLEncoder.encode(keyword, "UTF-8")}" +
@@ -129,7 +141,12 @@ internal object KugouMusicApi : OnlineMusicSource {
         }
     }
 
-    /** 获取歌词：先按关键词/hash 搜候选，再下载 base64 编码的 LRC */
+    /**
+     * 获取歌词：先按关键词/hash 搜候选，再做格式下载。
+     *
+     * 同一候选有两种下载格式：`fmt=krc` 带逐字时间轴，`fmt=lrc` 只有逐行时间轴。
+     * 酷狗对多数歌曲都备有 krc，故优先取 krc，其缺失或解密失败时回退 lrc。
+     */
     suspend fun lyricLines(result: NeteaseSongSearchResult): List<LyricLine>? = withContext(Dispatchers.IO) {
         val hash = result.sourceId ?: return@withContext null
         try {
@@ -142,14 +159,44 @@ internal object KugouMusicApi : OnlineMusicSource {
             val id = candidate.optString("id")
             val accesskey = candidate.optString("accesskey")
             if (id.isBlank() || accesskey.isBlank()) return@withContext null
-            val dlUrl = "https://lyrics.kugou.com/download?ver=1&client=pc&id=$id&accesskey=$accesskey&fmt=lrc&charset=utf8"
-            val content = JSONObject(get(dlUrl)).optString("content").ifBlank { return@withContext null }
-            val lrc = String(Base64.getDecoder().decode(content), Charsets.UTF_8)
-            parseLrcText(lrc).takeIf { it.isNotEmpty() }
+            downloadLyrics(id, accesskey, KRC_FORMAT)?.let { return@withContext it }
+            downloadLyrics(id, accesskey, LRC_FORMAT)
         } catch (e: Exception) {
             CrashLogManager.logException("KugouMusicApi", "获取歌词失败", e)
             null
         }
+    }
+
+    // 下载并解析指定格式的歌词；格式不可用、载荷为空或解析不出内容时返回 null，由调用方决定是否回退
+    private fun downloadLyrics(id: String, accesskey: String, format: String): List<LyricLine>? = try {
+        val url = "https://lyrics.kugou.com/download?ver=1&client=pc&id=$id&accesskey=$accesskey&fmt=$format&charset=utf8"
+        val content = JSONObject(get(url)).optString("content")
+        val raw = content.takeIf { it.isNotBlank() }?.let { Base64.getDecoder().decode(it) }
+        // LRC 载荷是明文，KRC 载荷是「krc1」头 + 异或 + zlib 的密文
+        val text = when {
+            raw == null -> null
+            format == KRC_FORMAT -> decodeKrc(raw)
+            else -> String(raw, Charsets.UTF_8)
+        }
+        if (text.isNullOrBlank()) {
+            null
+        } else {
+            val lines = if (format == KRC_FORMAT) parseKrcText(text) else parseWordTimedLrcText(text)
+            lines.takeIf { it.isNotEmpty() }
+        }
+    } catch (e: Exception) {
+        CrashLogManager.logException("KugouMusicApi", "下载歌词失败: 格式=$format", e)
+        null
+    }
+
+    // KRC 解密：丢弃「krc1」头后按 16 字节密钥循环异或，再 zlib 解压
+    private fun decodeKrc(raw: ByteArray): String? {
+        if (raw.size <= KRC_MAGIC.size || !raw.copyOf(KRC_MAGIC.size).contentEquals(KRC_MAGIC)) return null
+        val body = raw.copyOfRange(KRC_MAGIC.size, raw.size)
+        for (index in body.indices) {
+            body[index] = (body[index].toInt() xor (KRC_KEY[index % KRC_KEY.size].toInt() and 0xFF)).toByte()
+        }
+        return inflateBytes(body)?.let { String(it, Charsets.UTF_8) }
     }
 
     // 酷狗搜索结果文件名形如 "歌手 - 歌名.mp3"，无 songname 字段时从中提取歌名

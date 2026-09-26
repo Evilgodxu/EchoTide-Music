@@ -1,12 +1,8 @@
 package com.yichao.evilgodxu.data.music.recommend
 
 import android.content.Context
-import com.yichao.evilgodxu.data.music.api.KugouMusicApi
-import com.yichao.evilgodxu.data.music.api.KuwoMusicApi
-import com.yichao.evilgodxu.data.music.api.MiguMusicApi
-import com.yichao.evilgodxu.data.music.api.NeteaseMusicApi
-import com.yichao.evilgodxu.data.music.api.QQMusicApi
 import com.yichao.evilgodxu.data.music.api.builtInSourceOf
+import com.yichao.evilgodxu.data.music.api.fetchPlatformLyrics
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.model.distinctByTrack
@@ -184,14 +180,7 @@ internal object ChartPool {
         result: NeteaseSongSearchResult,
     ): List<String> = try {
         val lines = ProxySourceEngine.lyricLines(context, result.source, result)
-            ?: when (result.source) {
-                MusicSearchSource.NETEASE -> NeteaseMusicApi.lyric(result.id).lines
-                MusicSearchSource.QQ -> QQMusicApi.lyricLines(result).orEmpty()
-                MusicSearchSource.KUGOU -> KugouMusicApi.lyricLines(result).orEmpty()
-                MusicSearchSource.KUWO -> KuwoMusicApi.lyricLines(result).orEmpty()
-                MusicSearchSource.MIGU -> MiguMusicApi.lyricLines(result).orEmpty()
-                else -> emptyList()
-            }
+            ?: fetchPlatformLyrics(result)
         lines.map { it.text }
     } catch (e: Exception) {
         CrashLogManager.logException("ChartPool", "拉取候选歌词失败: ${result.title}", e)

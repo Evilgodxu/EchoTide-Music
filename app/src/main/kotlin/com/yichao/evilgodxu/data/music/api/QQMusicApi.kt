@@ -28,6 +28,9 @@ internal object QQMusicApi : OnlineMusicSource {
     private const val WEB_SEARCH_ENDPOINT = "https://c.y.qq.com/soso/fcgi-bin/search_for_qq_cp"
     // 网页版搜索接口单页上限，超出会被服务端截断
     private const val WEB_SEARCH_MAX_PAGE_SIZE = 30
+    // 歌词接口的模块名，同时用作请求体中的键
+    private const val LYRIC_MODULE = "music.musichallSong.PlayLyricInfo"
+    private const val LYRIC_MODULE_METHOD = "$LYRIC_MODULE.GetPlayLyricInfo"
     // 官方接口的 comm 参数需要 QIMEI36，取不到设备标识时用该固定兜底值
     private const val QIMEI36 = "6c9d3cd110abca9b16311cee10001e717614"
     private const val VERSION_CODE = 13020508
@@ -200,37 +203,109 @@ internal object QQMusicApi : OnlineMusicSource {
         }
     }
 
-    /** 获取歌词，接口返回 base64 编码的 LRC 文本 */
+    /**
+     * 获取歌词：逐字歌词优先。
+     *
+     * GetPlayLyricInfo 的 qrc 模式返回带逐字时间轴的密文，解密后即 QRC；
+     * 该接口未覆盖该曲或解密失败时，回退只带逐行时间轴的旧歌词接口。
+     */
     suspend fun lyricLines(result: NeteaseSongSearchResult): List<LyricLine>? = withContext(Dispatchers.IO) {
         val mid = result.sourceId ?: return@withContext null
         try {
-            val url = "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg" +
-                    "?songmid=$mid&g_tk=5381&loginUin=0&hostUin=0&format=json" +
-                    "&inCharset=utf8&outCharset=utf-8&platform=yqq"
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", MusicHttpClient.MUSIC_USER_AGENT)
-                .header("Referer", "https://y.qq.com/portal/player.html")
-                .build()
-            val response = MusicHttpClient.client.newCall(request).execute().use { resp ->
-                val text = resp.body.string().orEmpty()
-                if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
-                text
-            }
-            val json = JSONObject(response)
-            val b64 = json.optString("lyric").ifBlank { return@withContext null }
-            val lrc = String(Base64.getDecoder().decode(b64), Charsets.UTF_8)
+            qrcLyricLines(mid)?.let { return@withContext it }
+            lrcLyricLines(mid)
+        } catch (e: Exception) {
+            CrashLogManager.logException("QQMusicApi", "获取歌词失败", e)
+            null
+        }
+    }
+
+    // 逐字歌词：密文为十六进制，明文是包着 XML 信封的 QRC 文本
+    private fun qrcLyricLines(mid: String): List<LyricLine>? = try {
+        val info = requestPlayLyricInfo(mid)
+        val lyrics = info?.optString("lyric")?.takeIf { it.isNotBlank() }
+            ?.let { if (it.startsWith("<")) it else QrcCipher.decrypt(it) }
+            ?.let { parseQrcText(extractQrcContent(it)) }
+            ?.takeIf { it.isNotEmpty() }
+        if (info == null || lyrics == null) {
+            null
+        } else {
+            // 翻译与原文同为 QRC 密文，缺失或解密失败时静默跳过
+            val translations = info.optString("trans").takeIf { it.isNotBlank() }
+                ?.let { QrcCipher.decrypt(it) }
+                ?.let { parseQrcText(extractQrcContent(it)) }
+                .orEmpty()
+            mergeTranslations(lyrics, translations)
+        }
+    } catch (e: Exception) {
+        CrashLogManager.logException("QQMusicApi", "获取 QRC 歌词失败: songmid=$mid", e)
+        null
+    }
+
+    private fun requestPlayLyricInfo(mid: String): JSONObject? {
+        val body = JSONObject()
+        body.put("comm", commonParams())
+        val info = JSONObject()
+        info.put("module", LYRIC_MODULE)
+        info.put("method", "GetPlayLyricInfo")
+        val param = JSONObject()
+        param.put("songMID", mid)
+        param.put("songID", 0)
+        param.put("lrc_t", 0)
+        param.put("qrc", 1)
+        param.put("trans", 1)
+        param.put("roma", 0)
+        param.put("type", -1)
+        info.put("param", param)
+        body.put(LYRIC_MODULE_METHOD, info)
+        return post(body).optJSONObject(LYRIC_MODULE_METHOD)?.optJSONObject("data")
+    }
+
+    // QRC 明文外层是 XML 信封，歌词正文写在 LyricContent 属性里且按 XML 规则转义过
+    private fun extractQrcContent(text: String): String {
+        val content = QRC_CONTENT_PATTERN.find(text)?.groupValues?.get(1) ?: return text
+        return content
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&")
+    }
+
+    /** 逐行歌词兜底：接口返回 base64 编码的 LRC 文本 */
+    private fun lrcLyricLines(mid: String): List<LyricLine>? = try {
+        val url = "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg" +
+                "?songmid=$mid&g_tk=5381&loginUin=0&hostUin=0&format=json" +
+                "&inCharset=utf8&outCharset=utf-8&platform=yqq"
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", MusicHttpClient.MUSIC_USER_AGENT)
+            .header("Referer", "https://y.qq.com/portal/player.html")
+            .build()
+        val response = MusicHttpClient.client.newCall(request).execute().use { resp ->
+            val text = resp.body.string().orEmpty()
+            if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
+            text
+        }
+        val json = JSONObject(response)
+        val lrc = json.optString("lyric").takeIf { it.isNotBlank() }
+            ?.let { String(Base64.getDecoder().decode(it), Charsets.UTF_8) }
+        if (lrc == null) {
+            null
+        } else {
             // trans 字段为 base64 翻译歌词，取不到时静默跳过
             val trans = runCatching {
                 json.optString("trans").takeIf { it.isNotBlank() }
                     ?.let { String(Base64.getDecoder().decode(it), Charsets.UTF_8) }
                     .orEmpty()
             }.getOrDefault("")
-            mergeTranslations(parseLrcText(lrc), parseLrcText(trans)).takeIf { it.isNotEmpty() }
-        } catch (e: Exception) {
-            CrashLogManager.logException("QQMusicApi", "获取歌词失败", e)
-            null
+            // 该接口的 LRC 偶带行内逐字标签，交由增强 LRC 解析器识别
+            mergeTranslations(parseWordTimedLrcText(lrc), parseWordTimedLrcText(trans))
+                .takeIf { it.isNotEmpty() }
         }
+    } catch (e: Exception) {
+        CrashLogManager.logException("QQMusicApi", "获取歌词失败: songmid=$mid", e)
+        null
     }
 
     private fun commonParams(ct: Int = 11): JSONObject = JSONObject().apply {
@@ -272,4 +347,7 @@ internal object QQMusicApi : OnlineMusicSource {
     private fun randomGuid(): String = buildString(32) {
         repeat(32) { append(GUID_CHARS[Random.nextInt(GUID_CHARS.length)]) }
     }
+
+    // XML 信封中的歌词正文属性；正文内的双引号已转义为 &quot;，故非引号字符即可覆盖整段
+    private val QRC_CONTENT_PATTERN = Regex("""LyricContent="([^"]*)"""")
 }

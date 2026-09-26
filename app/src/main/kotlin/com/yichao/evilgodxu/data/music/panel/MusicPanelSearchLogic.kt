@@ -10,6 +10,7 @@ import com.yichao.evilgodxu.data.music.api.NeteaseMusicApi
 import com.yichao.evilgodxu.data.music.api.QQMusicApi
 import com.yichao.evilgodxu.data.music.api.adaptiveCandidates
 import com.yichao.evilgodxu.data.music.api.builtInSourceOf
+import com.yichao.evilgodxu.data.music.api.fetchPlatformLyrics
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
@@ -112,14 +113,7 @@ internal suspend fun applyLyricsCandidate(
     return try {
         val updated = withContext(Dispatchers.IO) {
             val lines = ProxySourceEngine.lyricLines(context, candidate.source, candidate)
-                ?: when (candidate.source) {
-                    MusicSearchSource.NETEASE -> NeteaseMusicApi.lyric(candidate.id).lines
-                    MusicSearchSource.QQ -> QQMusicApi.lyricLines(candidate).orEmpty()
-                    MusicSearchSource.KUGOU -> KugouMusicApi.lyricLines(candidate).orEmpty()
-                    MusicSearchSource.KUWO -> KuwoMusicApi.lyricLines(candidate).orEmpty()
-                    MusicSearchSource.MIGU -> MiguMusicApi.lyricLines(candidate).orEmpty()
-                    else -> emptyList()
-                }
+                ?: fetchPlatformLyrics(candidate)
             if (lines.isEmpty()) return@withContext null
             val path = MusicMetadataCache.saveLyrics(context, track.title, track.artist, lines).orEmpty()
             if (path.isBlank()) return@withContext null
@@ -498,14 +492,7 @@ internal suspend fun downloadAndPlay(
     val lyricsJob = playbackState.playbackScope.async(Dispatchers.IO) {
         try {
             val lines = ProxySourceEngine.lyricLines(context, result.source, result)
-                ?: when (result.source) {
-                    MusicSearchSource.NETEASE -> NeteaseMusicApi.lyric(result.id).lines
-                    MusicSearchSource.QQ -> QQMusicApi.lyricLines(result).orEmpty()
-                    MusicSearchSource.KUGOU -> KugouMusicApi.lyricLines(result).orEmpty()
-                    MusicSearchSource.KUWO -> KuwoMusicApi.lyricLines(result).orEmpty()
-                    MusicSearchSource.MIGU -> MiguMusicApi.lyricLines(result).orEmpty()
-                    else -> emptyList()
-                }
+                ?: fetchPlatformLyrics(result)
             if (lines.isEmpty()) return@async null
             val lyricPath = MusicMetadataCache.saveLyrics(context, result.title, result.artist, lines).orEmpty()
             withContext(Dispatchers.Main) {

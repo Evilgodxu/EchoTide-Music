@@ -119,7 +119,12 @@ internal object MiguMusicApi : OnlineMusicSource {
         }
     }
 
-    /** 获取歌词：先取 lrcUrl 再下载 LRC 文本 */
+    /**
+     * 获取歌词：先取 lrcUrl 再下载文本。
+     *
+     * 咪咕另有 mrcUrl 指向带逐字时间轴的文件，但该格式为私有加密、无可用解密途径，故只走 lrcUrl。
+     * 该文件一般为逐行歌词，偶带行内逐字标签，统一交由增强 LRC 解析器处理。
+     */
     suspend fun lyricLines(result: NeteaseSongSearchResult): List<LyricLine>? = withContext(Dispatchers.IO) {
         val parts = result.sourceId?.split("|").orEmpty()
         val contentId = parts.getOrNull(0).orEmpty()
@@ -140,7 +145,7 @@ internal object MiguMusicApi : OnlineMusicSource {
                 if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
                 body
             }
-            parseLrcText(text).takeIf { it.isNotEmpty() }
+            parseWordTimedLrcText(text).takeIf { it.isNotEmpty() }
         } catch (e: Exception) {
             CrashLogManager.logException("MiguMusicApi", "获取歌词失败", e)
             null

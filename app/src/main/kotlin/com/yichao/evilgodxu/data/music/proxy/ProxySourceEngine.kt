@@ -5,7 +5,7 @@ import com.yichao.evilgodxu.data.music.api.builtInSourceOf
 import com.yichao.evilgodxu.data.music.api.mergeTranslations
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
 import com.yichao.evilgodxu.data.music.api.MusicQuality
-import com.yichao.evilgodxu.data.music.api.parseLrcText
+import com.yichao.evilgodxu.data.music.api.parseWordTimedLrcText
 import com.yichao.evilgodxu.data.music.api.stableIdFromString
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
@@ -143,7 +143,8 @@ internal object ProxySourceEngine {
         val body = executeAction(action, placeholders(target)) ?: return@withContext null
         val lrc = resolveString(body, action.result.lyric) ?: return@withContext null
         val tlyric = resolveString(body, action.result.tlyric).orEmpty()
-        mergeTranslations(parseLrcText(lrc), parseLrcText(tlyric))
+        // 音源可返回普通 LRC 或带行内 <mm:ss.xxx> 字标签的增强 LRC，后者可直接得到逐字时间轴
+        mergeTranslations(parseWordTimedLrcText(lrc), parseWordTimedLrcText(tlyric))
     }
 
     // 换取封面直链：优先搜索结果中的 coverUrl，否则经 pic 动作按 coverId 解析
