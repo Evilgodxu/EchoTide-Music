@@ -47,16 +47,18 @@ internal object AiMusicAnalyzer {
     // 征象④：内容带宽相对容器奈奎斯特的上界——超过该比例视为内容已用满容器带宽，
     // 不构成「无损容器装箱带限内容」的反常组合
     private const val AI_BANDWIDTH_MAX_RATIO = 0.90f
-    // 过渡带宽度上界：与音质异常砖墙判据同口径的物理量，重采样/低通墙极陡（数百 Hz）
-    private const val AI_BANDWIDTH_MAX_WALL_HZ = 400f
+
+    // 征象④的截止估计口径：自奈奎斯特向下按带宽窗求均值，取首个高于噪底门限的窗上缘。
+    // 逐 bin 取「高于噪底 3dB」会被死区里的窄幅抖动带到奈奎斯特附近——实测死区仅 ±3.5dB 起伏
+    // 即足以让逐 bin 估计跳到 23.9kHz，把带限内容误判成带宽用满；带宽平均后抖动被压平，
+    // 测得的才是内容真正的能量边界
+    private const val BANDWIDTH_BAND_HZ = 500f
+    private const val BANDWIDTH_BAND_ABOVE_FLOOR_DB = 20f
 
     // 征象④与音质异常共用同一套物理定义：稳健噪底取奈奎斯特邻域中位数，
-    // 内容截止为高于底噪 3dB 的最高频，过渡带宽度为相对底噪 20dB 降到 3dB 的频宽。
-    // 两处各自实现是为了让两条判据的阈值独立可调，取值口径必须一致
+    // 整体动态过小则无从分辨截止。两处各自实现是为了让两条判据的阈值独立可调
     private const val BANDWIDTH_FLOOR_LO_RATIO = 0.97f
     private const val BANDWIDTH_FLOOR_HI_RATIO = 0.995f
-    private const val BANDWIDTH_CUT_ABOVE_FLOOR_DB = 3f
-    private const val BANDWIDTH_WALL_REF_DB = 20f
     private const val BANDWIDTH_MIN_DYNAMIC_DB = 40f
 
     // 是否为 AI 识别候选：本地文件路径音频（解码需真实路径）；与音质异常仅限 FLAC 不同，AI 识别不限格式
@@ -267,11 +269,11 @@ internal object AiMusicAnalyzer {
     }
 
     // 征象④：无损容器内的非原生带宽——容器声明无损（FLAC），但内容带宽明显未用满容器
-    // 采样率，且过渡带呈砖墙陡峭度。说明内容并非在本采样率下原生录制，而是由带限更低的
-    // 链路产出：生成模型输出端的带宽上限，或重采样/有损转码的残留。
+    // 采样率。说明内容并非在本采样率下原生录制，而是由带限更低的链路产出：生成模型
+    // 输出端的带宽上限，或重采样/有损转码的残留。
     // 有损容器（MP3/AAC/OGG）天然带限，本征象对其不适用，一律返回 false。
-    // 本征象单独不构成证据——自然限带（老录音、窄母带、抗混叠滤波）同样带限，
-    // 须由音质异常判据完成归因后才与 AI 判定合并，见 detectAiSignals
+    // 本征象只回答「内容有没有用满容器带宽」，硬截止与转码归属由音质异常判据负责，
+    // 故须两者并存才定论，见 detectAiSignals
     private fun detectNonNativeBandwidth(track: MusicTrack, s: SpectralDecoder.DecodeSummary): Boolean {
         if (!FakeLosslessAnalyzer.isFlacCandidate(track)) return false
         // 低规格豁免：规格不足的容器带宽天然受限，非原生带宽不构成证据。
@@ -289,25 +291,22 @@ internal object AiMusicAnalyzer {
         val floor = seg[seg.size / 2]
         // 整体动态过小则无从分辨截止，视为无证据
         if (-floor < BANDWIDTH_MIN_DYNAMIC_DB) return false
-        var cutBin = -1
-        for (i in n downTo 0) {
-            if (db[i] - floor > BANDWIDTH_CUT_ABOVE_FLOOR_DB) {
-                cutBin = i
+        // 自奈奎斯特向下逐带宽窗求均值，取首个高于噪底门限的窗上缘为内容截止：
+        // 只认成片的能量，不受死区逐 bin 抖动干扰
+        val bandBins = (BANDWIDTH_BAND_HZ / binHz).toInt().coerceAtLeast(1)
+        var cutHz = 0f
+        var end = n
+        while (end > 0) {
+            val from = (end - bandBins).coerceAtLeast(0)
+            var sum = 0f
+            for (i in from..end) sum += db[i]
+            if (sum / (end - from + 1) - floor > BANDWIDTH_BAND_ABOVE_FLOOR_DB) {
+                cutHz = end * binHz
                 break
             }
+            end -= bandBins
         }
-        if (cutBin <= 0) return false
-        // 内容截止已接近容器奈奎斯特：带宽已用满，非原生带宽不成立
-        if (cutBin * binHz > AI_BANDWIDTH_MAX_RATIO * nyquist) return false
-        var refBin = -1
-        for (i in cutBin downTo 0) {
-            if (db[i] - floor > BANDWIDTH_WALL_REF_DB) {
-                refBin = i
-                break
-            }
-        }
-        // 无 20dB 段视为极宽过渡带（自然滚降），不构成砖墙
-        if (refBin < 0) return false
-        return (cutBin - refBin) * binHz <= AI_BANDWIDTH_MAX_WALL_HZ
+        if (cutHz <= 0f) return false
+        return cutHz <= AI_BANDWIDTH_MAX_RATIO * nyquist
     }
 }
