@@ -3,6 +3,7 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.androidx.baselineprofile)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
@@ -37,7 +38,10 @@ android {
             storePassword = localProperties.getProperty("KEYSTORE_PASSWORD", "")
             keyAlias = localProperties.getProperty("KEY_ALIAS", "jh")
             keyPassword = localProperties.getProperty("KEY_PASSWORD", "")
-            enableV3Signing = true
+            // minSdk 33 下 v2 已覆盖全部目标设备；显式关闭 v3，否则签名器
+            // 会因 minSdk ≥ 28 判定 v3 更优而省略 v2
+            enableV2Signing = true
+            enableV3Signing = false
         }
     }
 
@@ -105,6 +109,12 @@ android {
     }
 }
 
+// 启动配置：R8 依此重排 DEX 布局，把启动路径的类集中到首个 DEX。
+// AGP 8.3 起默认开启，显式声明以免版本漂移改变行为。
+baselineProfile {
+    dexLayoutOptimization = true
+}
+
 // 构建产物统一命名为 EchoTideMusic-<versionName>-arm64.apk
 val apkVersionName = android.defaultConfig.versionName ?: "0.0.0"
 
@@ -157,6 +167,9 @@ dependencies {
 
     // 在线音乐搜索网络请求
     implementation(libs.okhttp)
+
+    // 从 :baselineprofile 模块收集基准配置与启动配置
+    baselineProfile(project(":baselineprofile"))
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

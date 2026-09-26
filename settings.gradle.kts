@@ -31,3 +31,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "EchoTideMusic"
 include(":app")
+// 基准配置与启动配置的生成模块，不参与应用打包
+include(":baselineprofile")

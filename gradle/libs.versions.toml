@@ -3,6 +3,8 @@
 [plugins]
 
 android-application = { id = "com.android.application", version.ref = "agp" }
+android-test = { id = "com.android.test", version.ref = "agp" }
+androidx-baselineprofile = { id = "androidx.baselineprofile", version.ref = "baselineprofile" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 
@@ -26,6 +28,9 @@ coroutinesTest = "1.11.0"
 coil = "3.6.3"
 media3 = "1.11.1"
 okhttp = "5.5.0"
+baselineprofile = "1.5.0"
+benchmarkMacro = "1.5.0"
+uiautomator = "2.4.0"
 
 [libraries]
 
@@ -78,3 +83,7 @@ androidx-media3-session = { group = "androidx.media3", name = "media3-session", 
 
 # 在线音乐搜索网络请求
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+
+# 基准配置与启动配置生成（:baselineprofile 测试模块使用）
+androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmarkMacro" }
+androidx-test-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
