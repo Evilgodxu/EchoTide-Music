@@ -40,7 +40,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 
-// 封面取样尺寸：取色只需上下半区的平均色，背景渲染也在小画布上完成，64px 已足够且解码代价最低
+// 封面取样尺寸：取色只需封面下边缘带与下半区的平均色，背景渲染也在小画布上完成，64px 已足够且解码代价最低
 private const val COVER_BACKGROUND_SAMPLE_SIZE = 64
 
 // 背景帧降采样倍数：帧位图边长为视口的 1/16（像素量约 1/256），叠加、模糊与放大都以小图为准
@@ -66,6 +66,14 @@ private val COVER_BACKGROUND_LAYERS = listOf(
     CoverBackgroundLayer(periodMs = 70_000L, clockwise = true, offsetX = -0.5f, offsetY = 0.7f, rotateAboutCenter = true),
 )
 
+// 下边缘衔接层淡出带长度占封面高度的比例：取与封面自身下缘渐隐带（HomeAlbumArt 的 BOTTOM_FADE_FRACTION）同值，
+// 使封面淡出与背景淡入在封面底边两侧等长对称，接缝处颜色连续
+private const val COVER_EDGE_BLEND_FADE_RATIO = 0.3f
+
+// 衔接层淡出过程的采样透明度（由 1 递减至 0）：与封面下缘渐隐蒙层同一条平滑曲线，
+// 单段线性渐隐会在折点处留下可见的色阶带
+private val COVER_EDGE_BLEND_ALPHAS = listOf(0.95f, 0.79f, 0.55f, 0.21f)
+
 private data class CoverBackgroundLayer(
     val periodMs: Long,
     val clockwise: Boolean,
@@ -77,6 +85,8 @@ private data class CoverBackgroundLayer(
 
 // 歌曲沉浸式背景：由封面缩略图渲染柔和的叠画背景（见 renderCoverBackgroundFrame），
 // 封面未就绪时回落取色渐变，冷启动可先用 [restoredColors]（上次持久化的取色结果）渲染，避免首帧闪默认色。
+// 渐变与衍生背景顶部都以封面下边缘色为锚（见 extractCoverGradient），
+// 传入 [coverBottomFraction] 后还会在封面底边处铺一层同色衔接层，使封面下边缘与背景同色相接。
 // 默认只渲染一帧静态背景；设置页开启「背景流动」后按固定默认值缓慢推进时间轴。
 // 首页与 3D 封面轮播共用，随传入曲目实时变化；背景代表色经回调暴露供浮层容器复用。
 @Composable
@@ -84,6 +94,9 @@ internal fun SongImmersiveBackground(
     track: MusicTrack?,
     modifier: Modifier = Modifier,
     restoredColors: Pair<Color, Color>? = null,
+    // 顶部沉浸封面下边缘在视口中的位置（占视口高度比例）：给定后背景在封面底边处对齐同色衔接层；
+    // 0 表示当前没有顶部沉浸封面（横屏轮播等），背景不做衔接处理
+    coverBottomFraction: Float = 0f,
     onBackgroundColor: ((Color) -> Unit)? = null,
     onExtractedColors: ((Color, Color) -> Unit)? = null,
 ) {
@@ -99,6 +112,9 @@ internal fun SongImmersiveBackground(
     val effective = extracted ?: restoredColors
     val background = effective?.first ?: md_theme_dark_surface
     LaunchedEffect(background) { onBackgroundColor?.invoke(background) }
+    // 封面下边缘衔接层：把封面底边往下的一段固定为封面下边缘色，再按与封面下缘渐隐带等长的距离淡出到衍生背景。
+    // 衍生背景的色块不会直接贴在封面下边缘，接缝两侧颜色一致，首帧（衍生背景尚未出图）同样成立
+    val edgeBlendBrush = effective?.first?.let { coverEdgeBlendBrush(it, coverBottomFraction) }
 
     // 流动时间轴：仅在开关打开时推进，关闭时归零即回到静态首帧
     val flowEnabled by context.backgroundFlowEnabledFlow().collectAsStateWithLifecycle(initialValue = false)
@@ -156,6 +172,14 @@ internal fun SongImmersiveBackground(
                 modifier = Modifier.fillMaxSize(),
             )
         }
+        // 衔接层压在衍生背景之上、压暗层之下：压暗层沿纵向连续，不会在接缝处留下色阶
+        edgeBlendBrush?.let { brush ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(brush),
+            )
+        }
         // 柔和压暗层：封面衍生背景可能整体偏亮，压暗上下边缘保证状态栏与前景文字可读
         Box(
             modifier = Modifier
@@ -182,9 +206,33 @@ private fun defaultBackgroundGradient(): Brush =
         )
     )
 
-// 封面未就绪时的兜底背景：取系统略缩图上下半区平均色（见 extractCoverGradient）作向下渐变
-private fun fallbackGradient(topColor: Color, bottomColor: Color): Brush =
-    Brush.verticalGradient(listOf(topColor, bottomColor))
+// 封面未就绪（首帧）时的兜底背景：由封面下边缘色起、封面下半区平均色收（见 extractCoverGradient），
+// 与衔接层同锚色，故首帧底色与封面下边缘连续，不会出现与封面下边缘不协调的其它色块
+private fun fallbackGradient(edgeColor: Color, deepColor: Color): Brush =
+    Brush.verticalGradient(listOf(edgeColor, deepColor))
+
+/**
+ * 封面下边缘衔接层：[coverBottomFraction] 为封面下边缘在视口中的纵向位置，此后一段固定为封面下边缘色 [edge]，
+ * 再以 [COVER_EDGE_BLEND_FADE_RATIO] 确定的长度淡出，使封面下边缘与背景在接缝处同色相接。
+ * 封面几乎铺满视口时没有可衔接的背景区，返回 null 表示无需衔接层。
+ */
+private fun coverEdgeBlendBrush(edge: Color, coverBottomFraction: Float): Brush? {
+    val start = coverBottomFraction.coerceIn(0f, 1f)
+    if (start <= 0f || start >= 1f) return null
+    val end = (start * (1f + COVER_EDGE_BLEND_FADE_RATIO)).coerceAtMost(1f)
+    val span = end - start
+    if (span <= 0f) return null
+    val step = span / (COVER_EDGE_BLEND_ALPHAS.size + 1)
+    val stops = ArrayList<Pair<Float, Color>>(COVER_EDGE_BLEND_ALPHAS.size + 3)
+    stops += 0f to edge
+    stops += start to edge
+    COVER_EDGE_BLEND_ALPHAS.forEachIndexed { index, alpha ->
+        stops += (start + step * (index + 1)) to edge.copy(alpha = alpha)
+    }
+    // 末档用同色全透明而非 Color.Transparent：避免 RGB 在淡出末段向黑色插值而渗出灰调
+    stops += end to edge.copy(alpha = 0f)
+    return Brush.verticalGradient(colorStops = stops.toTypedArray())
+}
 
 /**
  * 渲染一帧封面衍生背景：在 1/16 视口尺寸的小画布上错位叠画三份高饱和封面，叠加色调蒙层后整体模糊，

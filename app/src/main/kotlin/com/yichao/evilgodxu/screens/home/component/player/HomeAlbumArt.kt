@@ -58,10 +58,12 @@ internal fun HomeAlbumArt(track: MusicTrack?, modifier: Modifier = Modifier) {
     }
 }
 
-// 封面底部渐隐带占封面高度的比例：下缘由此比例起渐隐为透明，融入封面衍生背景
+// 封面底部渐隐带占封面高度的比例：下缘由此比例起渐隐为透明，融入封面下边缘同色的背景衔接层。
+// 该值须与 SongImmersiveBackground 的 COVER_EDGE_BLEND_FADE_RATIO 保持一致：
+// 两侧等长才能在封面底边处同色相接，改一处而漏另一处会重新出现接缝
 private const val BOTTOM_FADE_FRACTION = 0.3f
 
-// 首页沉浸式封面：全宽置顶（含状态栏后方），仅下边缘渐隐为透明融入封面衍生背景
+// 首页沉浸式封面：全宽置顶（含状态栏后方），仅下边缘渐隐为透明融入封面下边缘同色的背景衔接层
 @Composable
 internal fun HomeImmersiveCover(
     track: MusicTrack?,
@@ -73,7 +75,7 @@ internal fun HomeImmersiveCover(
     )
 }
 
-// 下边缘渐隐蒙层：与跑马灯同款 DstIn 处理，封面下缘渐隐为透明透出封面衍生背景。
+// 下边缘渐隐蒙层：与跑马灯同款 DstIn 处理，封面下缘渐隐为透明，透出与封面下边缘同色的背景衔接层。
 // 透明度按平滑曲线采样多段：单段线性渐隐会在折点处留下一条可见的色阶带
 private fun Modifier.bottomFadeMask(): Modifier = drawWithCache {
     val fadeStart = 1f - BOTTOM_FADE_FRACTION

@@ -28,8 +28,10 @@ internal fun HomeShell(
             track = playbackState.currentTrack,
             // 冷启动略缩图就绪前先用上次持久化的取色结果，避免首帧闪默认色
             restoredColors = playbackState.restoredGradientFor(playbackState.currentTrack),
+            // 竖屏沉浸封面下边缘位置：背景据此在封面底边处铺同色衔接层
+            coverBottomFraction = panelState.coverBottomFraction,
             onBackgroundColor = { panelState.backgroundColor = it },
-            onExtractedColors = { top, bottom -> playbackState.saveBackgroundGradient(top, bottom) },
+            onExtractedColors = { edge, deep -> playbackState.saveBackgroundGradient(edge, deep) },
         )
         Scaffold(
             modifier = Modifier.fillMaxSize(),

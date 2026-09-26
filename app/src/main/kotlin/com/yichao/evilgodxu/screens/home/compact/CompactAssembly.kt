@@ -171,6 +171,8 @@ internal fun CompactAssembly(
                     // 点击歌手信息：切到歌单面板并进入该歌手的曲目列表
                     onOpenArtistPlaylist = panelState::openArtistPlaylist,
                     onOpenSpectrum = onOpenSpectrum,
+                    // 封面下边缘位置上报给首页共享状态，沉浸背景据此对齐下边缘衔接层
+                    onCoverBottomFractionChange = { panelState.coverBottomFraction = it },
                 )
             }
         }

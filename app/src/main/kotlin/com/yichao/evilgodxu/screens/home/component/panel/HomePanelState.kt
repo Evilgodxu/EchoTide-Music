@@ -4,6 +4,7 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,6 +39,9 @@ internal class HomePanelState(
     var showSpeed by mutableStateOf(false)
     // 首页背景代表色：供搜索页与歌单页的浮层容器复用，保持与首页底色一致
     var backgroundColor by mutableStateOf(md_theme_dark_surface)
+    // 竖屏沉浸封面下边缘在视口中的纵向位置（占视口高度比例）：沉浸背景据此把下边缘衔接层对齐封面底边，
+    // 0 表示当前形态没有顶部沉浸封面（横屏）或尚未测量，背景不做衔接处理
+    var coverBottomFraction by mutableFloatStateOf(0f)
     // 点击歌手信息后请求打开的歌手歌单：由歌单面板消费并跳转到该歌手的曲目列表
     var pendingArtistPlaylist by mutableStateOf<String?>(null)
 

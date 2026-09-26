@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
@@ -132,6 +133,8 @@ internal fun PortraitPlayer(
     onOpenArtistPlaylist: (String) -> Unit = {},
     // 播放列表高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
     onOpenSpectrum: (Long) -> Unit = {},
+    // 封面下边缘在视口中的纵向位置（占视口高度比例）：上报给沉浸背景，使其在封面底边处对齐同色衔接层
+    onCoverBottomFractionChange: (Float) -> Unit = {},
 ) {
     val playbackState = LocalMusicPanelStateHolder.current.state
 
@@ -254,6 +257,14 @@ internal fun PortraitPlayer(
         val coverHeight = (maxHeight - lyricsAreaHeight - BottomFixedContentHeight - bottomClearance)
             .coerceAtLeast(MinCoverHeight)
             .coerceAtMost(maxWidth)
+        // 上报封面下边缘位置：沉浸背景据此把衔接层对齐封面底边；
+        // 离开该形态（旋转换布局）即归零，避免横屏沿用竖屏锚点
+        LaunchedEffect(coverHeight, maxHeight) {
+            if (maxHeight > 0.dp) onCoverBottomFractionChange(coverHeight / maxHeight)
+        }
+        DisposableEffect(Unit) {
+            onDispose { onCoverBottomFractionChange(0f) }
+        }
         // 沉浸式专辑封面：全宽置顶（含状态栏后方），仅下边缘渐隐融入封面衍生背景
         Box(
             modifier = Modifier

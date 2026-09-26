@@ -94,10 +94,11 @@ class MusicPlaybackState(
     private val savedPositionKey = longPreferencesKey("music_saved_position")
     private val savedModeKey = intPreferencesKey("music_saved_mode")
     private val savedSpeedKey = floatPreferencesKey("music_saved_speed")
-    // 首页背景渐变取色结果持久化键：与播放快照同库写入，冷启动恢复后首帧即可渲染
+    // 首页背景渐变取色结果持久化键：与播放快照同库写入，冷启动恢复后首帧即可渲染。
+    // 两端分别为封面下边缘色（背景顶部锚色）与下半区平均色（背景底部深色端）
     private val savedGradientUriKey = stringPreferencesKey("music_saved_gradient_uri")
-    private val savedGradientTopKey = intPreferencesKey("music_saved_gradient_top")
-    private val savedGradientBottomKey = intPreferencesKey("music_saved_gradient_bottom")
+    private val savedGradientEdgeKey = intPreferencesKey("music_saved_gradient_edge")
+    private val savedGradientDeepKey = intPreferencesKey("music_saved_gradient_deep")
     private val playlistCacheKey = "music_playlist_cache"
     private val playlistCachePreferences = "music_playlist_cache_preferences"
     // 当前歌单来源与默认库备份持久化键，重启后恢复选中状态
@@ -858,8 +859,8 @@ class MusicPlaybackState(
         val savedMode = preferences[savedModeKey] ?: PlayMode.RepeatAll.ordinal
         val savedSpeed = preferences[savedSpeedKey] ?: PLAYBACK_SPEED_DEFAULT
         val restoredGradientUri = preferences[savedGradientUriKey]
-        val restoredGradientTop = preferences[savedGradientTopKey]
-        val restoredGradientBottom = preferences[savedGradientBottomKey]
+        val restoredGradientEdge = preferences[savedGradientEdgeKey]
+        val restoredGradientDeep = preferences[savedGradientDeepKey]
         withContext(Dispatchers.Main) {
             // 无保存来源时处于全量播放列表
             playlistSource = savedSource
@@ -886,8 +887,8 @@ class MusicPlaybackState(
             // 启动镜像已为同一曲目预置取色时不覆盖：两者写入点相同，镜像可能领先一次
             // （取色落盘与状态落盘之间存在进程被杀窗口），覆盖会让首帧背景色回退
             if (restoredGradientUri != savedGradientUri) {
-                savedGradient = if (restoredGradientTop != null && restoredGradientBottom != null) {
-                    Color(restoredGradientTop) to Color(restoredGradientBottom)
+                savedGradient = if (restoredGradientEdge != null && restoredGradientDeep != null) {
+                    Color(restoredGradientEdge) to Color(restoredGradientDeep)
                 } else null
                 savedGradientUri = restoredGradientUri
             }
@@ -1091,7 +1092,8 @@ class MusicPlaybackState(
 
     var pendingSavedUri: String? = null
     var pendingResumePosition: Long = 0L
-    // 已持久化的首页背景取色结果及其所属曲目 URI：冷启动首帧、略缩图就绪前供背景直接使用
+    // 已持久化的首页背景取色结果及其所属曲目 URI：冷启动首帧、略缩图就绪前供背景直接使用。
+    // 两端语义见 extractCoverGradient：first 为封面下边缘色，second 为封面下半区平均色
     var savedGradient: Pair<Color, Color>? by mutableStateOf(null)
         private set
     var savedGradientUri: String? by mutableStateOf(null)
@@ -1112,22 +1114,22 @@ class MusicPlaybackState(
             withContext(Dispatchers.IO) {
                 context.settingsDataStore.edit { preferences ->
                     preferences[savedGradientUriKey] = toUri
-                    preferences[savedGradientTopKey] = gradient.first.toArgb()
-                    preferences[savedGradientBottomKey] = gradient.second.toArgb()
+                    preferences[savedGradientEdgeKey] = gradient.first.toArgb()
+                    preferences[savedGradientDeepKey] = gradient.second.toArgb()
                 }
             }
         }
     }
 
     // 首页背景真实取色成功后持久化，供下次冷启动恢复
-    fun saveBackgroundGradient(top: Color, bottom: Color) {
+    fun saveBackgroundGradient(edge: Color, deep: Color) {
         val uri = currentTrack?.audioUri ?: return
-        saveBackgroundGradientFor(uri, top, bottom)
+        saveBackgroundGradientFor(uri, edge, deep)
     }
 
     // 取色结果按所属曲目落盘：显示端取色与切歌后台取色共用，避免退出时才保存而丢失
-    private fun saveBackgroundGradientFor(uri: String, top: Color, bottom: Color) {
-        savedGradient = top to bottom
+    private fun saveBackgroundGradientFor(uri: String, edge: Color, deep: Color) {
+        savedGradient = edge to deep
         savedGradientUri = uri
         // 启动镜像同步更新取色结果：冷启动首帧的背景色同样只能来自镜像
         if (currentTrack?.audioUri == uri) persistBootMirror()
@@ -1136,8 +1138,8 @@ class MusicPlaybackState(
             withContext(Dispatchers.IO) {
                 context.settingsDataStore.edit { preferences ->
                     preferences[savedGradientUriKey] = uri
-                    preferences[savedGradientTopKey] = top.toArgb()
-                    preferences[savedGradientBottomKey] = bottom.toArgb()
+                    preferences[savedGradientEdgeKey] = edge.toArgb()
+                    preferences[savedGradientDeepKey] = deep.toArgb()
                 }
             }
         }
@@ -1153,8 +1155,8 @@ class MusicPlaybackState(
             } ?: return@launch
             // 异步取图期间可能已切走：非当前曲目的取色结果落盘会顶掉当前曲目的恢复色
             if (currentTrack?.audioUri != track.audioUri) return@launch
-            val (top, bottom) = extractCoverGradient(bitmap) ?: return@launch
-            saveBackgroundGradientFor(track.audioUri, top, bottom)
+            val (edge, deep) = extractCoverGradient(bitmap) ?: return@launch
+            saveBackgroundGradientFor(track.audioUri, edge, deep)
         }
     }
 
@@ -1234,10 +1236,12 @@ class MusicPlaybackState(
         currentPosition = snapshot.optLong("position", 0L)
         duration = track.duration
         playMode = PlayMode.entries.getOrElse(snapshot.optInt("mode", -1)) { PlayMode.RepeatAll }
-        val gradientUri = snapshot.optString("gradientUri", "")
+        // 背景取色两端：下边缘色（背景顶部锚色）与下半区平均色（背景底部深色端）
+        val gradientUri = snapshot.optString("coverGradientUri", "")
         if (gradientUri.isNotBlank()) {
             savedGradientUri = gradientUri
-            savedGradient = Color(snapshot.optInt("gradientTop")) to Color(snapshot.optInt("gradientBottom"))
+            savedGradient = Color(snapshot.optInt("coverGradientEdge")) to
+                Color(snapshot.optInt("coverGradientDeep"))
         }
         pendingSavedUri = track.audioUri
         pendingResumePosition = currentPosition
@@ -1275,9 +1279,9 @@ class MusicPlaybackState(
                     .put("track", encodePlaylist(listOf(track)))
                     .put("position", position)
                     .put("mode", mode)
-                    .put("gradientUri", gradientUri)
-                    .put("gradientTop", gradient?.first?.toArgb() ?: 0)
-                    .put("gradientBottom", gradient?.second?.toArgb() ?: 0)
+                    .put("coverGradientUri", gradientUri)
+                    .put("coverGradientEdge", gradient?.first?.toArgb() ?: 0)
+                    .put("coverGradientDeep", gradient?.second?.toArgb() ?: 0)
                 context.getSharedPreferences(bootMirrorPreferences, Context.MODE_PRIVATE)
                     .edit()
                     .putString(bootMirrorKey, snapshot.toString())
