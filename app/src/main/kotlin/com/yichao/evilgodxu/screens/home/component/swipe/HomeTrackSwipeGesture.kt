@@ -114,13 +114,21 @@ internal class HomeTrackSwipeGesture(
                 }
                 // 松手判定：按住滑动时位移回到起点附近则取消切歌；瞬间滑动保持原逻辑直接切歌
                 if (previewEnabled && (!steadyHold || abs(swipeY) >= cancelDistancePx)) {
-                    val next = if (swipeY < 0f) playbackState.nextIndex()
-                    else playbackState.previousIndex()
-                    if (next >= 0) scope.launch { playTrackAt(context, playbackState, next) }
+                    switchTrack(next = swipeY < 0f)
                 }
                 previewText = null
             }
         }
+
+    /**
+     * 切到相邻曲目：纵向切歌手势松手与歌词区快速滑动共用同一出口，
+     * 偏好关闭或播放列表弹层展开时不切歌。
+     */
+    fun switchTrack(next: Boolean) {
+        if (!swipeToChangeTrack.value || playlistSheetVisible.value) return
+        val index = if (next) playbackState.nextIndex() else playbackState.previousIndex()
+        if (index >= 0) scope.launch { playTrackAt(context, playbackState, index) }
+    }
 
     // 纵向切歌预览文本：未滑出过取消区时按方向预览（极小位移不显示）；
     // 滑出过取消区后回落到取消区内统一提示松手取消，接近起点也保持显示

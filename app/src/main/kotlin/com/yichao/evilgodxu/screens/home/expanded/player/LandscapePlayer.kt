@@ -83,6 +83,8 @@ fun LandscapePlayer(
     onOpenArtistPlaylist: (String) -> Unit = {},
     // 播放列表高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
     onOpenSpectrum: (Long) -> Unit = {},
+    // 歌词区快速纵向滑动的切歌出口（true 为下一曲）：与整页上下滑动切歌同一套判定
+    onVerticalFling: ((next: Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     // 无损升级确认对话框显隐
@@ -127,6 +129,7 @@ fun LandscapePlayer(
             // 右：歌词透视区，水平居中
             LyricsPerspectiveZone(
                 playbackState = playbackState,
+                onVerticalFling = onVerticalFling,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight(),
@@ -269,6 +272,8 @@ private const val BASE_CAMERA_DISTANCE_FACTOR = 0.15f
 @Composable
 private fun LyricsPerspectiveZone(
     playbackState: MusicPlaybackState,
+    // 歌词区快速纵向滑动的切歌出口：交由首页纵向切歌手势处理
+    onVerticalFling: ((next: Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -303,6 +308,7 @@ private fun LyricsPerspectiveZone(
             fontSize = landscapeLayout.fontSizeSp.sp,
             contentColor = Color.White,
             visibleLines = landscapeLayout.visibleLines,
+            onVerticalFling = onVerticalFling,
         )
     }
 }

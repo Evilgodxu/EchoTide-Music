@@ -97,6 +97,8 @@ internal fun ExpandedAssembly(
                     // 点击歌手信息：切到歌单面板并进入该歌手的曲目列表
                     onOpenArtistPlaylist = panelState::openArtistPlaylist,
                     onOpenSpectrum = onOpenSpectrum,
+                    // 歌词区快速滑动同样按切歌处理，复用整页纵向切歌的判定与偏好
+                    onVerticalFling = trackSwipe::switchTrack,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

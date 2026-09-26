@@ -154,6 +154,8 @@ internal fun CompactAssembly(
                     modifier = Modifier.fillMaxSize(),
                     topBarInset = topInset,
                     swipePreviewText = trackSwipe.previewText,
+                    // 歌词区快速滑动同样按切歌处理，复用整页纵向切歌的判定与偏好
+                    onVerticalFling = trackSwipe::switchTrack,
                     libraryAnalysis = panelState.libraryAnalysis,
                     lyricsAlignment = panelState.lyricsAlignment,
                     playlistVisible = panelState.playlistVisible,

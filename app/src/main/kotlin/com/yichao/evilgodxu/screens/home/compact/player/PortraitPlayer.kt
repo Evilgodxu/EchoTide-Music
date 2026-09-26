@@ -116,6 +116,8 @@ internal fun PortraitPlayer(
     topBarInset: Dp = 0.dp,
     // 纵向切歌预览提示：滑动未松手时显示于专辑封面底部
     swipePreviewText: String? = null,
+    // 歌词区快速纵向滑动的切歌出口（true 为下一曲）：与整页上下滑动切歌同一套判定
+    onVerticalFling: ((next: Boolean) -> Unit)? = null,
     // 曲库分析会话：状态与后台分析任务常驻首页层
     libraryAnalysis: LibraryAnalysisController,
     // 逐字对齐会话：进度对话框收起后对齐仍在后台继续
@@ -365,6 +367,7 @@ internal fun PortraitPlayer(
                                 fontSize = homePortraitLayout.fontSizeSp.sp,
                                 visibleLines = homePortraitLayout.visibleLines,
                                 contentColor = Color.White,
+                                onVerticalFling = onVerticalFling,
                             )
                         } else {
                             Text(

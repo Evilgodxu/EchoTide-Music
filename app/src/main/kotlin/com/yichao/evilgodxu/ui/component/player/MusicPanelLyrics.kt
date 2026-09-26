@@ -12,7 +12,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -53,6 +52,7 @@ import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
@@ -94,6 +94,9 @@ internal fun LyricsPanel(
     visibleLines: Int = DEFAULT_VISIBLE_LINES,
     // 上下边缘处理方式：true 用渐隐蒙层（首页竖屏/横屏）；false 改为逐行降低边缘行透明度（音乐面板）
     edgeFadeMask: Boolean = true,
+    // 纵向快速滑动的切歌出口（true 为下一曲）：由首页提供，用于把「一甩即走」的滑动归给切歌；
+    // 为 null 的场景（音乐面板等无切歌手势）不做快速滑动仲裁，纵向拖拽一律按歌词跳转处理
+    onVerticalFling: ((next: Boolean) -> Unit)? = null,
 ) {
     // 已唱 / 未唱歌词颜色：默认取主题色，传入 contentColor 时（如首页）覆盖为指定色
     val activeColor = contentColor ?: MaterialTheme.colorScheme.primary
@@ -145,6 +148,8 @@ internal fun LyricsPanel(
     val lines = playbackState.currentTrack?.lyricLines.orEmpty()
     // 手势回调在整个 pointerInput 生命周期内保持有效，用 rememberUpdatedState 保证始终读到最新歌词
     val currentLines by rememberUpdatedState(lines)
+    // 切歌出口同理：手势协程常驻，需读到最新的回调而非组合期捕获的旧值
+    val currentOnVerticalFling by rememberUpdatedState(onVerticalFling)
     // 歌词缺失时按需补全（懒加载）：补全成功后回写 lyricLines 驱动重组显示
     LaunchedEffect(
         playbackState.currentTrack?.id,
@@ -230,8 +235,12 @@ internal fun LyricsPanel(
             )
             // 纵向拖拽调进度：方向优先抢占 —— 位移过阈值时纵向占优即由歌词接管并消费，
             // 横向占优则一次也不消费、整个手势留给外层左右滑动，两者互斥。
+            // 接管后的纵向滑动再按离手速度分流：慢速拖拽跳转歌词进度，快速滑动交外层切歌。
             // 声明在 combinedClickable 之后（内层），拖拽时取消点击；点按/长按不受影响
             .pointerInput(playbackState.currentTrack?.id) {
+                // 快速滑动切歌的判定阈值（像素/秒）：离手瞬时纵向速度达到该值即视为「一甩即走」的切歌滑动
+                val flingVelocityPx = with(density) { LYRIC_FLING_VELOCITY_DP_S.dp.toPx() }
+
                 // 拖拽起点：与组合期的 displayPosition 同口径，但读实时状态避免闭包过期
                 fun liveDisplayPosition(): Float {
                     val liveActive = currentLines.indexOfLast { it.timeMs <= lyricPosition }
@@ -267,10 +276,20 @@ internal fun LyricsPanel(
                         .coerceIn(0f, currentLines.lastIndex.toFloat())
                 }
 
-                fun finishScrub(cancelled: Boolean) {
+                fun finishScrub(cancelled: Boolean, flingVelocityY: Float) {
                     if (!scrubbing) return
                     scrubbing = false
                     if (currentLines.isEmpty()) return
+                    // 快速滑动视为切歌：不跳转歌词进度，先把窗口收回当前演唱行（无相邻曲目可切时即停在此），
+                    // 再把方向交外层切歌，避免「一甩即走」被当成拖拽跳转而落到别处
+                    val fling = currentOnVerticalFling
+                    if (!cancelled && fling != null && abs(flingVelocityY) >= flingVelocityPx) {
+                        val playIndex = currentLines.indexOfLast { it.timeMs <= lyricPosition }
+                            .coerceAtLeast(0)
+                        settleTo(playIndex.toFloat(), tween(LYRIC_SCRUB_SNAP_MS))
+                        fling(flingVelocityY < 0f)
+                        return
+                    }
                     val candidate = alignedScrubRow(scrollPosition, currentLines.lastIndex)
                     if (!cancelled && candidate != null) {
                         // 对齐：吸附到该行并从该行时间点起播。先把当前行切到目标行并开短时保护窗
@@ -292,19 +311,28 @@ internal fun LyricsPanel(
                     }
                 }
 
-                // 阈值按欧氏距离丈量（单轴判定要等某一轴单独越过阈值，斜向时更晚），
-                // 纵向占优即抢先认领，斜向拖拽不会在歌词接管前先被左右滑动判定拿走
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    var overSlopY = 0f
-                    // 回调内未消费则本函数不返回，判定为横向的手势由此一次也不被消费、完整让出
-                    val dragChange = awaitTouchSlopOrCancellation(down.id) { change, overSlop ->
-                        if (abs(overSlop.y) >= abs(overSlop.x)) {
-                            overSlopY = overSlop.y
-                            change.consume()
-                        }
+                    // 速度采样：从按下起的每个事件位置都送入追踪器，松手时据此区分快速滑动（切歌）与慢速拖拽（跳转）
+                    val velocityTracker = VelocityTracker()
+                    velocityTracker.addPosition(down.uptimeMillis, down.position)
+                    // 方向仲裁：阈值按欧氏距离丈量（单轴判定要等某一轴单独越过阈值，斜向时更晚），
+                    // 纵向占优即抢先认领并消费；横向占优则一次也不消费，整个手势完整让给外层左右滑动
+                    var dragY = 0f
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id }
+                            ?: return@awaitEachGesture
+                        // 手指抬起或被子控件（进度条/控制栏等）消费，放弃本手势
+                        if (!change.pressed || change.isConsumed) return@awaitEachGesture
+                        velocityTracker.addPosition(change.uptimeMillis, change.position)
+                        val delta = change.position - down.position
+                        if (delta.getDistance() < viewConfiguration.touchSlop) continue
+                        if (abs(delta.y) < abs(delta.x)) return@awaitEachGesture
+                        dragY = delta.y
+                        change.consume()
+                        break
                     }
-                    if (dragChange == null) return@awaitEachGesture
                     if (currentLines.isNotEmpty()) {
                         // 新的拖拽作废未完成的回弹，并立即接管显示位置
                         settleGeneration++
@@ -312,13 +340,17 @@ internal fun LyricsPanel(
                         scrubStartPosition = liveDisplayPosition()
                         scrollPosition = scrubStartPosition
                         scrubbing = true
+                        advanceScrub(dragY)
                     }
-                    if (scrubbing) advanceScrub(overSlopY)
-                    val ended = drag(dragChange.id) { change ->
+                    val ended = drag(down.id) { change ->
+                        velocityTracker.addPosition(change.uptimeMillis, change.position)
                         if (scrubbing) advanceScrub(change.positionChange().y)
                         change.consume()
                     }
-                    finishScrub(cancelled = !ended)
+                    finishScrub(
+                        cancelled = !ended,
+                        flingVelocityY = velocityTracker.calculateVelocity().y,
+                    )
                 }
             }
             .padding(top = 4.dp, bottom = 0.dp),
@@ -691,6 +723,10 @@ private const val LYRIC_SCRUB_SNAP_ROWS = 0.35f
 
 // 对齐释放后吸附到目标行的动画时长
 private const val LYRIC_SCRUB_SNAP_MS = 220
+
+// 快速滑动切歌阈值（dp/s）：离手瞬时纵向速度达到该值即视为「一甩即走」的切歌滑动，不跳转歌词进度；
+// 低于该值视为有意的歌词拖拽。仅在外部提供切歌出口时生效
+private const val LYRIC_FLING_VELOCITY_DP_S = 600f
 
 // 对齐跳转后的短时保护窗：窗内本地进度自走、忽略控制器的旧位置，
 // 避免跟随 Effect 在 seek 回报前把内容拉回拖拽前的行
