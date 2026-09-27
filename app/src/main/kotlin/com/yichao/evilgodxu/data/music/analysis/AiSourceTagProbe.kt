@@ -25,13 +25,21 @@ import java.io.InputStream
 //        标题/艺术家/歌词等用户可编辑字段中出现的同名不作数，避免同名艺人误伤。
 internal object AiSourceTagProbe {
 
-    // 头部扫描窗口：ID3v2/Vorbis comment/RIFF 元数据都在文件头；
-    // 未被 faststart 优化的 MP4 把 moov 放在文件尾，故尾部另开窗口
+    // 头部扫描窗口：ID3v2/Vorbis comment 位于文件头；未被 faststart 优化的 MP4 把 moov 放在文件尾，
+    // 故尾部另开窗口。WAV 的 RIFF 元数据块（LIST/INFO、承载 ID3v2 的 "ID3 " 块）常落在 data 之后、
+    // 远超出这两个窗口，改由块表定位后按绝对偏移定点读取
     private const val HEAD_SCAN_BYTES = 128 * 1024
     private const val TAIL_SCAN_BYTES = 128 * 1024
 
     // 单次注释条目上限：防御性截断，避免畸形长度字段触发超大分配
     private const val MAX_COMMENT_ENTRIES = 4096
+
+    // RIFF 块结构与遍历上限：容器头 12 字节（"RIFF" + 尺寸 + "WAVE"），块头 8 字节（标识 + 小端长度）；
+    // 块体读取上限防御畸形长度字段触发超大分配，遍历上限防御长度字段导致的长循环
+    private const val RIFF_HEADER_BYTES = 12
+    private const val RIFF_CHUNK_HEADER_BYTES = 8
+    private const val MAX_RIFF_CHUNK_BYTES = 4 * 1024 * 1024
+    private const val MAX_RIFF_CHUNKS = 4096
 
     // A 级：内容凭证结构标记（大小写不敏感，直接对扫描窗口做原始字节匹配）
     private val PROVENANCE_MARKERS = listOf(
@@ -66,31 +74,86 @@ internal object AiSourceTagProbe {
 
     // 判定入口：返回 null 表示未发现生成器署名；非本地文件一律不适用
     fun probe(context: Context, track: MusicTrack): TagEvidence? = runCatching {
+        val length = fileLength(context, track)
         val head = readHead(context, track)
         if (head.isEmpty()) return@runCatching null
         // 头窗未覆盖整个元数据区（即文件更大）时再取尾窗，覆盖 moov 后置的 MP4
-        val tail = if (head.size >= HEAD_SCAN_BYTES && head.size < fileLength(context, track)) {
-            readTail(context, track)
-        } else {
-            null
-        }
-        matchProvenance(head, tail)?.let { return@runCatching it }
+        val tail = if (head.size >= HEAD_SCAN_BYTES && head.size < length) readTail(context, track) else null
+        probeBytes(head, tail, length) { offset, count -> readRange(context, track, offset, count) }
+    }.getOrNull()
+
+    // 判定入口的纯字节部分：head 为文件头窗口，tail 为文件尾窗口（可为 null），fileLength 为文件总长；
+    // readAt 供窗口之外按绝对偏移定点读取，为 null 时只认窗口内的元数据
+    internal fun probeBytes(
+        head: ByteArray,
+        tail: ByteArray?,
+        fileLength: Long,
+        readAt: ((Long, Int) -> ByteArray?)? = null,
+    ): TagEvidence? {
         val fields = LinkedHashMap<String, String>()
+        // WAV 的标签块可能远在扫描窗口之外：先按块表定位取回，再连同窗口一起做原始标记匹配
+        val riffTags =
+            if (head.startsWithAscii("RIFF")) extractRiffFields(head, fileLength, readAt, fields) else emptyList()
+        matchProvenance(head, tail, riffTags)?.let { return it }
         extractFields(head, fields)
         if (tail != null) extractFields(tail, fields)
-        matchText(fields)
-    }.getOrNull()
+        return matchText(fields)
+    }
 
     // ---- 容器字段抽取 ----
 
+    // 按窗口首字节判定容器并抽取字段；RIFF 需按块表定位，由 extractRiffFields 单独处理
     private fun extractFields(bytes: ByteArray, out: MutableMap<String, String>) {
         when {
             bytes.startsWithAscii("ID3") -> parseId3v2(bytes, out)
             bytes.startsWithAscii("fLaC") -> parseFlacBlocks(bytes, out)
             bytes.startsWithAscii("OggS") -> parseOggVorbis(bytes, out)
-            bytes.startsWithAscii("RIFF") -> parseRiffInfo(bytes, out)
             isMp4Like(bytes) -> parseMp4UserData(bytes, out)
         }
+    }
+
+    // WAV：按块表遍历 LIST/INFO 与承载 ID3v2 的 "ID3 " 块。块头落在头窗内就地取，
+    // 落在窗口外（data 之后）按绝对偏移定点读取，故 data 块再大也不影响定位；
+    // 返回读到的 ID3 块内容，供 C2PA 之类的原始标记匹配
+    private fun extractRiffFields(
+        head: ByteArray,
+        fileLength: Long,
+        readAt: ((Long, Int) -> ByteArray?)?,
+        out: MutableMap<String, String>,
+    ): List<ByteArray> {
+        val tags = mutableListOf<ByteArray>()
+        val end = if (fileLength > 0) fileLength else head.size.toLong()
+        var p = RIFF_HEADER_BYTES.toLong()
+        repeat(MAX_RIFF_CHUNKS) {
+            val header = windowAt(head, p, RIFF_CHUNK_HEADER_BYTES, readAt) ?: return tags
+            val size = leInt(header, 4)
+            if (size < 0 || p + RIFF_CHUNK_HEADER_BYTES + size > end) return tags
+            val bodyStart = p + RIFF_CHUNK_HEADER_BYTES
+            when (String(header, 0, 4, Charsets.ISO_8859_1)) {
+                "LIST" -> windowAt(head, bodyStart, minOf(size, MAX_RIFF_CHUNK_BYTES), readAt)
+                    ?.takeIf { it.size >= 4 && String(it, 0, 4, Charsets.ISO_8859_1) == "INFO" }
+                    ?.let { parseRiffInfoItems(it, out) }
+                "id3 ", "ID3 " -> windowAt(head, bodyStart, minOf(size, MAX_RIFF_CHUNK_BYTES), readAt)?.let {
+                    parseId3v2(it, out)
+                    tags += it
+                }
+            }
+            p = bodyStart + size + (size and 1)
+        }
+        return tags
+    }
+
+    // 取文件 [offset, offset + count) 的字节：优先头窗，未覆盖该区间时定点读取；
+    // 读不满 count 字节即视为不可用，避免按半截块头解析
+    private fun windowAt(
+        head: ByteArray,
+        offset: Long,
+        count: Int,
+        readAt: ((Long, Int) -> ByteArray?)?,
+    ): ByteArray? {
+        if (offset < 0 || count <= 0) return null
+        if (offset + count <= head.size) return head.copyOfRange(offset.toInt(), offset.toInt() + count)
+        return readAt?.invoke(offset, count)?.takeIf { it.size >= count }
     }
 
     // ID3v2：逐帧取文本。文本帧为定长块，未同步化只影响字节填充，不改变可读性，
@@ -171,29 +234,15 @@ internal object AiSourceTagProbe {
         }
     }
 
-    // WAV：LIST 块内 INFO 子块（ISFT/ICMT 等），以及承载 ID3v2 的 id3 块
-    private fun parseRiffInfo(bytes: ByteArray, out: MutableMap<String, String>) {
-        var p = 12
-        while (p + 8 <= bytes.size) {
-            val id = String(bytes, p, 4, Charsets.ISO_8859_1)
-            val size = leInt(bytes, p + 4)
-            val from = p + 8
-            val to = minOf(from + size, bytes.size)
-            if (size < 0 || from >= to) break
-            when (id) {
-                "LIST" -> if (String(bytes, from, minOf(4, to - from), Charsets.ISO_8859_1) == "INFO") {
-                    var q = from + 4
-                    while (q + 8 <= to) {
-                        val subId = String(bytes, q, 4, Charsets.ISO_8859_1)
-                        val subSize = leInt(bytes, q + 4)
-                        if (subSize < 0 || q + 8 + subSize > to) break
-                        putText(out, subId, plainText(bytes.copyOfRange(q + 8, q + 8 + subSize)))
-                        q += 8 + subSize + (subSize and 1)
-                    }
-                }
-                "id3 ", "ID3 " -> parseId3v2(bytes.copyOfRange(from, to), out)
-            }
-            p = to + (size and 1)
+    // WAV：LIST 块内 INFO 子块（ISFT/ICMT 等）：载荷自 "INFO" 之后的第一个子块起
+    private fun parseRiffInfoItems(info: ByteArray, out: MutableMap<String, String>) {
+        var p = 4
+        while (p + 8 <= info.size) {
+            val id = String(info, p, 4, Charsets.ISO_8859_1)
+            val size = leInt(info, p + 4)
+            if (size < 0 || p + 8 + size > info.size) break
+            putText(out, id, plainText(info.copyOfRange(p + 8, p + 8 + size)))
+            p += 8 + size + (size and 1)
         }
     }
 
@@ -247,10 +296,12 @@ internal object AiSourceTagProbe {
 
     // ---- 匹配 ----
 
-    private fun matchProvenance(head: ByteArray, tail: ByteArray?): TagEvidence? {
+    private fun matchProvenance(head: ByteArray, tail: ByteArray?, extra: List<ByteArray>): TagEvidence? {
         for (marker in PROVENANCE_MARKERS) {
             if (containsAscii(head, marker)) return TagEvidence(marker, "C2PA")
             if (tail != null && containsAscii(tail, marker)) return TagEvidence(marker, "C2PA")
+            // 窗口之外取回的标签块同样参与匹配，避免后置元数据里的内容凭证被漏掉
+            if (extra.any { containsAscii(it, marker) }) return TagEvidence(marker, "C2PA")
         }
         return null
     }
@@ -306,15 +357,32 @@ internal object AiSourceTagProbe {
         val start = (size - TAIL_SCAN_BYTES).coerceAtLeast(0)
         val input = openInput(context, track) ?: return null
         input.use { stream ->
-            var skipped = 0L
-            while (skipped < start) {
-                val step = stream.skip(start - skipped)
-                if (step <= 0) return null
-                skipped += step
-            }
+            if (!skipFully(stream, start)) return null
             readFully(stream, TAIL_SCAN_BYTES)
         }
     }.getOrNull()
+
+    // 定点读取 [offset, offset + count)：窗口之外的标签块靠它取回；读不满时返回已读部分，
+    // 是否可用由调用方按窗口规则判断
+    private fun readRange(context: Context, track: MusicTrack, offset: Long, count: Int): ByteArray? = runCatching {
+        if (offset < 0 || count <= 0) return null
+        val input = openInput(context, track) ?: return null
+        input.use { stream ->
+            if (!skipFully(stream, offset)) return null
+            readFully(stream, count)
+        }
+    }.getOrNull()
+
+    // InputStream.skip 允许少跳，循环补齐
+    private fun skipFully(stream: InputStream, count: Long): Boolean {
+        var skipped = 0L
+        while (skipped < count) {
+            val step = stream.skip(count - skipped)
+            if (step <= 0) return false
+            skipped += step
+        }
+        return true
+    }
 
     private fun readFully(stream: InputStream, max: Int): ByteArray {
         val buffer = ByteArray(max)

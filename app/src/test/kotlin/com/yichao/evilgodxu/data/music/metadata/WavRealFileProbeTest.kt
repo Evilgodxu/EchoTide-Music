@@ -53,7 +53,8 @@ class WavRealFileProbeTest {
         // ---- 写：整文件重写，音频体按区间流式复制 ----
         val source = sample.readBytes()
         val target = File("build/wav-probe-rewritten.wav")
-        try {            val rewrite = LosslessContainerTags.write(source, "探针标题", "探针艺术家", "探针专辑", cover, lyrics)
+        try {
+            val rewrite = LosslessContainerTags.write(source, "探针标题", "探针艺术家", "探针专辑", cover, lyrics)
             assertNotNull("真实样本写出失败", rewrite)
             val plan = rewrite!!
             target.outputStream().use { out ->
