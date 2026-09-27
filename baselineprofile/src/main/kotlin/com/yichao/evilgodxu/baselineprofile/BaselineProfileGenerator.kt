@@ -32,22 +32,25 @@ private const val SETTLE_MS = 700L
 // 翻页滑动距离占屏宽比例：过短不足以触发 Pager 吸附
 private const val SWIPE_SPAN = 0.7f
 
-// 播放列表面板只占屏幕下半部：列表行与面板底部搜索框的纵向位置占屏高比例
-private const val PANEL_LIST_ROW_Y = 0.75f
-private const val PANEL_SEARCH_BAR_Y = 0.97f
+// 竖屏播放器底部固定内容块（标题/艺术家/控制栏）只占屏底一部分：
+// 艺术家信息行即位于该块内控制栏上方，纵向位置占屏高比例，按坐标点击进入其歌单
+private const val ARTIST_INFO_Y = 0.82f
+// 横屏播放器左侧封面视觉区中心占屏宽比例：点击封面进入 3D 封面轮播
+private const val COVER_CENTER_X = 0.25f
+// 横屏点右侧歌词区空白处：切换标题栏与控制栏显隐，用于轮播收起后重新唤出顶栏
+private const val LYRICS_AREA_X = 0.8f
 
 /**
- * 生成基准配置与启动配置，覆盖应用的常用功能场景。
+ * 生成基准配置与启动配置，仅覆盖精简后的核心常用功能场景：
+ *
+ * - 冷启动到首页可交互
+ * - 播放器页：上下滑动切歌、左右滑动切页、点击歌手信息查看歌手歌单
+ * - 横竖屏切换与横屏 3D 封面轮播
+ * - 歌单页：常听/专辑/歌手三智能歌单列表滚动
+ * - 播放列表面板：列表滚动与切换排序后滚动
  *
  * 启动路径单独成组并标记 `includeInStartupProfile`，其规则才会进入 Startup Profile；
  * 其余历程只进基准配置。把非启动历程混进启动配置会撑大首个 DEX、反而拖慢启动。
- *
- * 场景与控件的对应关系：
- * - 播放器页：播放模式、切歌、播放暂停、收藏、定时对话框（顶栏需先触摸唤出）
- * - 播放列表面板：滚动、定位播放、回到顶部、列表内搜索、排序、行侧滑高级菜单与频谱页
- * - 在线搜索页：历史清理、关键词搜索、结果滚动
- * - 歌单页：总览滚动、系统歌单四个分组、新建歌单对话框
- * - 设置页：主题/语言对话框、播放开关、排版页、存储管理与缓存清理、黑名单重置
  */
 @RunWith(AndroidJUnit4::class)
 class BaselineProfileGenerator {
@@ -66,138 +69,82 @@ class BaselineProfileGenerator {
         awaitHome()
     }
 
-    /** 播放器页：播放模式循环、切歌手势、播放暂停，再唤出顶栏操作收藏与定时对话框。 */
+    /** 播放器页：上下滑动切歌、左右滑动切页、点击歌手信息查看该歌手歌单。 */
     @Test
     fun playerJourney() = rule.collect(TARGET_PACKAGE) {
         prepare()
         launch()
-        repeat(3) { tap("music_panel_play_mode") }
-        tap("home_player_previous")
-        tap("home_player_next")
-        // 冷启动即处于播放态：先暂停再播放，两态各覆盖一次，否则播放按钮在播放态下不存在
-        tap("music_panel_pause")
-        tap("music_panel_play")
+        // 上下滑动切歌：先下后上，两方向各覆盖一次切歌路径
         swipeOnPlayerVertical()
-        // 顶栏两秒无操作自动收起，每次操作顶栏控件前都要重新唤出
-        revealTopBar()
-        // 定时对话框开合：覆盖对话框组合路径
-        tap("music_panel_timer_title")
-        tap("music_panel_timer_cancel")
-        revealTopBar()
-        // 收藏两次回到未收藏态，避免状态残留影响后续历程
-        tap("music_panel_favorite")
-        revealTopBar()
-        tap("music_panel_favorite")
+        // 左右滑动切页：依次进搜索页与歌单页再回到播放器，覆盖 Pager 吸附与页面组合
+        swipeToPage(PAGE_SEARCH)
+        swipeToPage(PAGE_PLAYER)
+        swipeToPage(PAGE_PLAYLIST)
+        swipeToPage(PAGE_PLAYER)
+        // 点击播放器页歌手信息：进入该歌手的曲目列表，返回再切回播放器
+        tapArtistInfo()
+        device.pressBack()
+        settle()
+        swipeToPage(PAGE_PLAYER)
     }
 
-    /** 播放列表面板：滚动、定位播放、回到顶部、列表内搜索、排序切换与高级菜单频谱页。 */
+    /** 横竖屏模式切换：竖屏进入横屏后点击封面进入 3D 轮播，收起后返回竖屏。 */
+    @Test
+    fun landscapeJourney() = rule.collect(TARGET_PACKAGE) {
+        prepare()
+        launch()
+        // 竖屏唤出顶栏，点横屏按钮切到横屏布局
+        revealTopBar()
+        tap("home_landscape_mode")
+        settle()
+        // 横屏点击封面视觉区：进入 3D 封面轮播沉浸层
+        tapCoverForCarousel()
+        settle()
+        // 系统返回键收起轮播
+        device.pressBack()
+        settle()
+        // 轮播收起时顶栏随沉浸层隐藏：点右侧歌词区空白处重新唤出，再点横屏按钮切回竖屏
+        device.click((device.displayWidth * LYRICS_AREA_X).toInt(), (device.displayHeight * 0.5f).toInt())
+        settle()
+        revealTopBar()
+        tap("home_landscape_mode")
+        settle()
+    }
+
+    /** 歌单页：常听、专辑、歌手三智能歌单列表滚动查看。 */
+    @Test
+    fun smartPlaylistJourney() = rule.collect(TARGET_PACKAGE) {
+        prepare()
+        launch()
+        swipeToPage(PAGE_PLAYLIST)
+        // 依次进入三智能歌单，滚动浏览后返回歌单总览
+        listOf("playlist_smart_recent", "playlist_smart_album", "playlist_smart_artist").forEach {
+            tap(it)
+            scrollVertically(times = 2)
+            device.pressBack()
+            settle()
+        }
+        swipeToPage(PAGE_PLAYER)
+    }
+
+    /** 播放列表面板：列表滚动查看，切换排序后再滚动，最后恢复默认排序收起。 */
     @Test
     fun queueJourney() = rule.collect(TARGET_PACKAGE) {
         prepare()
         launch()
         tap("music_panel_playlist")
-        // 面板内的搜索框与悬浮按钮在滚动中或滚到底部时会隐藏，相关步骤必须排在滚动之前；
-        // 向下滑动的起手点落在面板外的遮罩上会被判成点击收起面板，因此只做上滑滚动
-        tap("playlist_locate_playing")
-        tap("playlist_scroll_to_top")
-        scrollVertically(times = 2)
-        // 列表行右滑触发高级菜单，进入频谱页后返回；频谱页是独立目的地，
-        // 返回后首页面板状态重建、面板已收起，故这一段结束后重新展开面板再继续
-        swipeFirstRowRight()
-        tap("playlist_advanced_menu_spectrum")
-        device.pressBack()
-        settle()
-        tap("music_panel_playlist")
-        // 排序切换后恢复默认，避免改变队列顺序影响后续历程
-        tap("music_panel_sort")
-        tap("music_panel_sort_by_title")
-        tap("music_panel_sort")
-        tap("music_panel_sort_default")
-        // 关闭按钮：聚焦搜索框会张开软键盘并挤压面板，关闭按钮随之不可点，故排在列表内搜索之前
-        tap("home_player_close_playlist")
-        settle()
-        // 重新展开面板收尾：列表内搜索会聚焦输入框并张开软键盘，之后不再安排其它动作
-        tap("music_panel_playlist")
-        typePanelQuery("a")
-    }
-
-    /** 在线搜索页：历史清理、输入关键词、发起搜索与结果滚动。 */
-    @Test
-    fun searchJourney() = rule.collect(TARGET_PACKAGE) {
-        prepare()
-        launch()
-        swipeToPage(PAGE_SEARCH)
-        tap("music_panel_search_history_clear")
-        settle()
-        typeQuery("yichao")
-        device.pressEnter()
-        settle()
-        scrollVertically(times = 2)
-        swipeToPage(PAGE_PLAYER)
-    }
-
-    /** 歌单页：总览滚动、系统歌单各分组进出、新建歌单对话框。 */
-    @Test
-    fun playlistJourney() = rule.collect(TARGET_PACKAGE) {
-        prepare()
-        launch()
-        swipeToPage(PAGE_PLAYLIST)
+        // 播放列表滚动查看
         scrollVertically(times = 2)
         scrollVertically(times = 2, reversed = true)
-        tap("playlist_smart_recent")
-        tap("back")
-        tap("playlist_smart_favorite")
-        tap("back")
-        tap("playlist_smart_album")
-        tap("back")
-        tap("playlist_smart_artist")
-        tap("back")
-        // 新建歌单对话框开合，返回键收起不做实际创建
-        tap("playlist_create")
-        device.pressBack()
-        settle()
-        swipeToPage(PAGE_PLAYER)
-    }
-
-    /** 设置页：主题与语言对话框、播放开关、排版页、存储管理与缓存清理、黑名单重置。 */
-    @Test
-    fun settingsJourney() = rule.collect(TARGET_PACKAGE) {
-        prepare()
-        launch()
-        revealTopBar()
-        tap("settings_title")
-        settle()
-        // 主题对话框：每次选择后对话框关闭，再次打开换一档，覆盖三档组合路径
-        repeat(3) {
-            tapSettingsEntry("settings_theme_title")
-            tap(arrayOf("theme_dark", "theme_light", "theme_system")[it])
-        }
-        // 语言对话框：选择中文即关闭
-        tapSettingsEntry("settings_language_title")
-        tap("language_chinese")
-        // 播放分组开关逐屏切换并当场切回：既覆盖 Switch 开与关两组组合路径，又不残留设置变更
-        toggleSwitches()
-        scrollVertically()
-        toggleSwitches()
-        scrollVertically(reversed = true)
-        toggleSwitches()
-        // 排版页：滚动浏览后返回
-        tapSettingsEntry("settings_typography_title")
+        // 切换排序（按标题）后再滚动，覆盖排序重组路径
+        tap("music_panel_sort")
+        tap("music_panel_sort_by_title")
         scrollVertically(times = 2)
-        device.pressBack()
-        settle()
-        // 存储管理页：滚动后执行一次缓存清理，再返回
-        tapSettingsEntry("settings_cache_entry_title")
-        scrollVertically(times = 2)
-        tap("cache_clear")
-        device.pressBack()
-        settle()
-        // 黑名单重置：只打开确认对话框并取消，不做实际重置
-        tapSettingsEntry("settings_blacklist_reset_title")
-        tap("settings_blacklist_reset_cancel")
-        // 回到首页
-        device.pressBack()
-        settle()
+        // 恢复默认排序，避免改变队列顺序影响后续历程
+        tap("music_panel_sort")
+        tap("music_panel_sort_default")
+        // 关闭面板收尾
+        tap("home_player_close_playlist")
     }
 }
 
@@ -242,38 +189,6 @@ private fun MacrobenchmarkScope.tap(resourceName: String): Boolean {
     val node = device.wait(Until.findObject(By.desc(label)), UI_TIMEOUT_MS)
         ?: device.wait(Until.findObject(By.text(label)), UI_TIMEOUT_MS)
     return clickIfVisible(node, "$resourceName($label)")
-}
-
-/**
- * 点击设置页入口行。
- *
- * 设置页的分组标题与入口标题可能同名（如「语言」），按文本匹配会先命中不可点的分组标题，
- * 因此取同名命中项里面积最大者，即真实可点的入口行。
- */
-private fun MacrobenchmarkScope.tapSettingsEntry(resourceName: String): Boolean {
-    val label = label(resourceName)
-    device.wait(Until.hasObject(By.text(label)), UI_TIMEOUT_MS)
-    val node = runCatching {
-        device.findObjects(By.text(label))
-            .maxByOrNull { it.visibleBounds.width() * it.visibleBounds.height() }
-    }.getOrNull()
-    return clickIfVisible(node, "text:$resourceName($label)")
-}
-
-/**
- * 把当前屏幕上可见的 Switch 各点两遍：第一遍全部切换，第二遍全部切回。
- *
- * 每轮重新查找节点，避免上一轮点击触发的重组让引用过期；
- * 滚动途经各屏执行一遍即可覆盖全部开关，同时保证不残留设置变更。
- */
-private fun MacrobenchmarkScope.toggleSwitches() {
-    repeat(2) {
-        // 开关是 Compose 自绘控件，无障碍类名并非 android.widget.Switch，只能按可勾选状态匹配；
-        // 取到引用后仍可能被重组刷新，排序键读不到时按 0 处理，交给点击环节兜底
-        device.findObjects(By.checkable(true))
-            .sortedBy { runCatching { it.visibleBounds.top }.getOrDefault(0) }
-            .forEachIndexed { index, node -> clickIfVisible(node, "switch#$index") }
-    }
 }
 
 /**
@@ -332,14 +247,24 @@ private fun MacrobenchmarkScope.swipeOnPlayerVertical() {
     settle()
 }
 
-/** 播放列表行右滑：露出并触发高级菜单动作。 */
-private fun MacrobenchmarkScope.swipeFirstRowRight() {
-    val width = device.displayWidth
-    val height = device.displayHeight
-    // 面板只占屏幕下半部，纵坐标需落在面板内的曲目行上：取面板中部，避开顶部标题行与底部搜索框；
-    // 方向由左向右才是面板定义的「右滑」，反向会触发左滑拉黑而非高级菜单
-    val rowY = (height * PANEL_LIST_ROW_Y).toInt()
-    device.swipe((width * 0.1f).toInt(), rowY, (width * 0.9f).toInt(), rowY, SWIPE_STEPS)
+/**
+ * 点击竖屏播放器页的歌手信息行，进入该歌手的曲目列表。
+ *
+ * 艺术家文案随曲目动态变化，无法按固定资源匹配，故按坐标点击：
+ * 该行位于屏底固定内容块内、控制栏上方，坐标占屏高比例取在其中部。
+ */
+private fun MacrobenchmarkScope.tapArtistInfo() {
+    device.click(device.displayWidth / 2, (device.displayHeight * ARTIST_INFO_Y).toInt())
+    settle()
+}
+
+/**
+ * 点击横屏播放器左侧封面视觉区中心，进入 3D 封面轮播。
+ *
+ * 封面占左侧列的绝大部分并以中心对齐，点击该区域即触发轮播覆盖层。
+ */
+private fun MacrobenchmarkScope.tapCoverForCarousel() {
+    device.click((device.displayWidth * COVER_CENTER_X).toInt(), (device.displayHeight * 0.5f).toInt())
     settle()
 }
 
@@ -352,29 +277,6 @@ private fun MacrobenchmarkScope.scrollVertically(times: Int = 1, reversed: Boole
         device.swipe(width / 2, (height * fromY).toInt(), width / 2, (height * toY).toInt(), SWIPE_STEPS)
         settle()
     }
-}
-
-/** 在第一个输入框中输入关键词：覆盖搜索框聚焦、软键盘路径与输入过滤重组。 */
-private fun MacrobenchmarkScope.typeQuery(query: String) {
-    val field = device.wait(Until.findObject(By.clazz("android.widget.EditText")), UI_TIMEOUT_MS)
-        ?: return
-    field.click()
-    settle()
-    device.executeShellCommand("input text $query")
-    settle()
-}
-
-/**
- * 在播放列表面板的搜索框内输入关键词。
- *
- * 面板搜索框贴着面板底边，按坐标点击即可聚焦；并列的其它页面常驻合成树，
- * 按类名取第一个输入框会落到别的页面上，因此这里不能用 typeQuery。
- */
-private fun MacrobenchmarkScope.typePanelQuery(query: String) {
-    device.click(device.displayWidth / 2, (device.displayHeight * PANEL_SEARCH_BAR_Y).toInt())
-    settle()
-    device.executeShellCommand("input text $query")
-    settle()
 }
 
 /**

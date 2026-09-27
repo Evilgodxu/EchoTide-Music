@@ -1,8 +1,8 @@
-# APK 体检报告：EchoTideMusic-3.8.1-arm64.apk
+# APK 体检报告：EchoTideMusic-4.0.1-arm64.apk
 
-- 应用：`com.yichao.evilgodxu` 3.8.1
-- 体积：5.15 MiB（5395475 字节）
-- 条目：39，容器开销 33.2 KiB
+- 应用：`com.yichao.evilgodxu` 4.0.1
+- 体积：5.19 MiB（5445935 字节）
+- 条目：39，容器开销 36.6 KiB
 - 构建工具：build-tools 37.0.0
 - ZIP 对齐：通过
 - 后处理可回收：97 B
@@ -17,10 +17,10 @@
 
 | 分组 | 条目 | 原始 | 占用 | 占比 |
 | --- | ---: | ---: | ---: | ---: |
-| `classes2.dex` | 1 | 4.93 MiB | 4.93 MiB | 96.4% |
-| `resources.arsc` | 1 | 53.8 KiB | 53.8 KiB | 1.0% |
+| `classes2.dex` | 1 | 4.99 MiB | 4.99 MiB | 96.7% |
+| `resources.arsc` | 1 | 55.1 KiB | 55.1 KiB | 1.0% |
 | `assets/` | 3 | 140.8 KiB | 52.7 KiB | 1.0% |
-| `classes.dex` | 1 | 32.0 KiB | 32.0 KiB | 0.6% |
+| `classes.dex` | 1 | 21.6 KiB | 21.6 KiB | 0.4% |
 | `lib/**/*.so` | 2 | 17.5 KiB | 17.5 KiB | 0.3% |
 | `res/` | 16 | 17.0 KiB | 14.4 KiB | 0.3% |
 | `kotlin/` | 8 | 52.7 KiB | 12.1 KiB | 0.2% |
@@ -31,10 +31,10 @@
 
 | 条目 | 原始 | 占用 | 方式 |
 | --- | ---: | ---: | --- |
-| `classes2.dex` | 4.93 MiB | 4.93 MiB | STORED |
-| `resources.arsc` | 53.8 KiB | 53.8 KiB | STORED |
+| `classes2.dex` | 4.99 MiB | 4.99 MiB | STORED |
+| `resources.arsc` | 55.1 KiB | 55.1 KiB | STORED |
 | `assets/PublicSuffixDatabase.list` | 129.6 KiB | 41.5 KiB | DEFLATE |
-| `classes.dex` | 32.0 KiB | 32.0 KiB | STORED |
+| `classes.dex` | 21.6 KiB | 21.6 KiB | STORED |
 | `assets/dexopt/baseline.prof` | 9.9 KiB | 9.9 KiB | STORED |
 | `lib/arm64-v8a/libandroidx.graphics.path.so` | 9.9 KiB | 9.9 KiB | STORED |
 | `lib/arm64-v8a/libdatastore_shared_counter.so` | 7.6 KiB | 7.6 KiB | STORED |
@@ -52,9 +52,9 @@
 | 条目 | 体积变化 | 原因 |
 | --- | ---: | --- |
 | `assets/PublicSuffixDatabase.list` | -28 B | 已 deflate，压缩级别提升至 9 |
-| `META-INF/services/t80` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
-| `META-INF/services/x7` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
-| `META-INF/services/zt2` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
+| `META-INF/services/a8` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
+| `META-INF/services/ru2` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
+| `META-INF/services/w80` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
 | `kotlin/collections/collections.kotlin_builtins` | -18 B | 已 deflate，压缩级别提升至 9 |
 | `kotlin/kotlin.kotlin_builtins` | -36 B | 已 deflate，压缩级别提升至 9 |
 | `kotlin/reflect/reflect.kotlin_builtins` | -9 B | 已 deflate，压缩级别提升至 9 |
