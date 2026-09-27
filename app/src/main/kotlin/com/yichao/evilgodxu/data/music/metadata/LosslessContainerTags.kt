@@ -3,9 +3,11 @@ package com.yichao.evilgodxu.data.music.metadata
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 
-// 无损与线性 PCM 容器的标签读写：AIFF/AIFC、DSDIFF、DSF、APE。
+// 无损与线性 PCM 容器的标签读写：AIFF/AIFC、DSDIFF、DSF、APE、WAV。
 //   · AIFF/AIFC 与 DSDIFF 同属 IFF 分块容器，标签是容器内的 "ID3 " 块；两者块头同为
 //     「4 字节标识 + 大端长度」，只有长度字段位宽（32 位 / 64 位）不同，共用一套实现；
+//   · WAV 同属分块容器（块头为「4 字节标识 + 小端长度」），二进制标签写在容器内的 "ID3 " 块，
+//     文本标签按 RIFF 惯例写在 LIST/INFO 块；
 //   · DSF 的标签是文件末尾的 ID3v2 标签，位置由文件头 metadata 指针给出，
 //     写回时须同步回填指针与文件长度；
 //   · APE 用文件末尾的 APEv2 标签，位于音频之后、可选的 ID3v1 之前，由 32 字节页脚定位。
@@ -21,7 +23,7 @@ internal object LosslessContainerTags {
     // ---- 容器识别 ----
 
     fun matches(bytes: ByteArray): Boolean =
-        isAiff(bytes) || isDff(bytes) || isDsf(bytes) || isApe(bytes)
+        isAiff(bytes) || isDff(bytes) || isDsf(bytes) || isApe(bytes) || isWav(bytes)
 
     fun isAiff(bytes: ByteArray): Boolean =
         bytes.startsWithAscii("FORM", 0) &&
@@ -37,11 +39,10 @@ internal object LosslessContainerTags {
     fun isWav(bytes: ByteArray): Boolean =
         bytes.startsWithAscii("RIFF", 0) && bytes.startsWithAscii("WAVE", 8)
 
-    // 标签可能位于文件末尾、需要读尾窗定位的容器：WAV 的尾部 ID3、DSF 的尾部 ID3、
-    // APE 的 APEv2，以及把 ID3 块置于音频之后的 AIFF/DSDIFF。
+    // 标签可能位于音频之后、需要读尾窗才能定位的容器：WAV 与 AIFF/DSDIFF 的 "ID3 " 块、
+    // DSF 的尾部标签、APE 的 APEv2 均落在音频数据之后。
     // 其余容器（FLAC/M4A/Ogg/MP3）的标签都在头部，读尾窗只是平白多读数据
-    fun usesTrailingTag(header: ByteArray): Boolean =
-        matches(header) || isWav(header)
+    fun usesTrailingTag(header: ByteArray): Boolean = matches(header)
 
     // ---- 写 ----
 
@@ -55,6 +56,7 @@ internal object LosslessContainerTags {
     ): TagRewrite? = when {
         isAiff(source) -> writeIff(source, AIFF_FORM, title, artist, album, cover, lyrics)
         isDff(source) -> writeIff(source, DFF_FORM, title, artist, album, cover, lyrics)
+        isWav(source) -> writeWav(source, title, artist, album, cover, lyrics)
         isDsf(source) -> writeDsf(source, title, artist, album, cover, lyrics)
         isApe(source) -> writeApe(source, title, artist, album, cover, lyrics)
         else -> null
@@ -80,7 +82,8 @@ internal object LosslessContainerTags {
         val audio = chunks[audioIndex]
         val existing = chunks.firstOrNull { it.id in form.tagChunkIds }
             ?.let { source.copyOfRange(it.bodyStart, it.bodyEnd) }
-        val frames = Id3v2Tag.replaceFrames(existing, title, artist, album, cover, lyrics, Id3v2Tag.TAG_VERSION)
+        val version = Id3v2Tag.versionOf(existing)
+        val frames = Id3v2Tag.replaceFrames(existing, title, artist, album, cover, lyrics, version)
             ?: return null
         val head = ByteArrayOutputStream()
         head.write(form.magic.toByteArray(StandardCharsets.US_ASCII))
@@ -90,7 +93,7 @@ internal object LosslessContainerTags {
             if (index >= audioIndex || chunk.id in form.tagChunkIds) return@forEachIndexed
             writeIffChunk(head, chunk.id, source.copyOfRange(chunk.bodyStart, chunk.bodyEnd), form.sizeBytes)
         }
-        writeIffChunk(head, TAG_CHUNK_ID, Id3v2Tag.buildTag(frames, Id3v2Tag.TAG_VERSION), form.sizeBytes)
+        writeIffChunk(head, TAG_CHUNK_ID, Id3v2Tag.buildTag(frames, version), form.sizeBytes)
         writeIffChunkHeader(head, audio.id, audio.size, form.sizeBytes)
         val tail = ByteArrayOutputStream()
         chunks.forEachIndexed { index, chunk ->
@@ -126,9 +129,10 @@ internal object LosslessContainerTags {
             source.size
         }
         val existing = if (audioEnd < source.size) source.copyOfRange(audioEnd, source.size) else null
-        val frames = Id3v2Tag.replaceFrames(existing, title, artist, album, cover, lyrics, Id3v2Tag.TAG_VERSION)
+        val version = Id3v2Tag.versionOf(existing)
+        val frames = Id3v2Tag.replaceFrames(existing, title, artist, album, cover, lyrics, version)
             ?: return null
-        val tail = Id3v2Tag.buildTag(frames, Id3v2Tag.TAG_VERSION)
+        val tail = Id3v2Tag.buildTag(frames, version)
         val head = source.copyOfRange(0, DSF_HEADER_BYTES)
         writeU64LE(head, DSF_FILE_SIZE_OFFSET, (audioEnd + tail.size).toLong())
         writeU64LE(head, DSF_METADATA_POINTER_OFFSET, audioEnd.toLong())
@@ -183,6 +187,142 @@ internal object LosslessContainerTags {
         }
         // 规范建议条目按长度升序排列，便于流式场景尽早拿到重要字段
         return items.sortedBy { it.value.size }
+    }
+
+    // WAV：重建 RIFF 块序列。二进制标签收敛为 data 之后的一个 "ID3 " 块——与 ffmpeg 等工具的
+    // 布局一致，容器内只有一份标签，旧版本写在容器外文件末尾的标签随之并入该块；
+    // 文本标签收敛为 data 之前的一个 LIST/INFO 块。音频体仍按区间流式复制，不整段驻留内存
+    private fun writeWav(
+        source: ByteArray,
+        title: String?,
+        artist: String?,
+        album: String?,
+        cover: ByteArray?,
+        lyrics: String?,
+    ): TagRewrite? {
+        if (!isWav(source)) return null
+        // 容器外尾部标签（旧版本写出的布局）位于 RIFF 之外，其起点即参与重建的区间上限
+        val limit = wavTrailingTagStart(source)
+        val chunks = readWavChunks(source, limit) ?: return null
+        val dataIndex = chunks.indexOfFirst { it.id == WAV_DATA_CHUNK_ID }
+        if (dataIndex < 0) return null
+        val data = chunks[dataIndex]
+        // 保留帧的来源：容器外尾部标签是较新的一次写入，优先以它为底；
+        // 两者并存时容器内块是更早写入后遗留的旧标签
+        val trailing = if (limit < source.size) source.copyOfRange(limit, source.size) else null
+        val embedded = chunks.firstOrNull { it.id in WAV_TAG_CHUNK_IDS }
+            ?.let { source.copyOfRange(it.payloadStart, it.payloadEnd) }
+        val existing = trailing ?: embedded
+        // INFO 块的既有项并入重写结果：其原位置可能在音频之后，重写后统一置于 data 之前
+        val infoChunk = chunks.firstOrNull { it.isInfoChunk(source) }
+        val info = infoChunk?.let { source.copyOfRange(it.payloadStart, it.payloadEnd) }
+        val version = Id3v2Tag.versionOf(existing)
+        // 无既有标签且无字段可写时不落标签块：仍完成块序列重建，返回文件本身
+        val frames = Id3v2Tag.replaceFrames(existing, title, artist, album, cover, lyrics, version)
+        val head = ByteArrayOutputStream()
+        head.write(RIFF_MAGIC.toByteArray(StandardCharsets.US_ASCII))
+        head.write(ByteArray(4)) // RIFF 尺寸占位，最后回填
+        head.write(WAVE_FORM_TYPE.toByteArray(StandardCharsets.US_ASCII))
+        var infoWritten = false
+        chunks.forEachIndexed { index, chunk ->
+            // data 及其后的块由音频体与尾部字面字节承载，不进入头部
+            if (index >= dataIndex) return@forEachIndexed
+            // 标签统一重写到 data 之后，避免容器内出现多份
+            if (chunk.id in WAV_TAG_CHUNK_IDS) return@forEachIndexed
+            if (chunk === infoChunk) {
+                buildListInfo(info, title, artist, album)?.let {
+                    writeRiffChunk(head, LIST_CHUNK_ID, it)
+                    infoWritten = true
+                }
+                return@forEachIndexed
+            }
+            writeRiffChunk(head, chunk.id, source.copyOfRange(chunk.payloadStart, chunk.payloadEnd))
+        }
+        if (!infoWritten) {
+            buildListInfo(info, title, artist, album)?.let { writeRiffChunk(head, LIST_CHUNK_ID, it) }
+        }
+        head.write(WAV_DATA_CHUNK_ID.toByteArray(StandardCharsets.US_ASCII))
+        head.write(intBytesLE(data.size))
+        val tail = ByteArrayOutputStream()
+        // 块按偶数字节对齐，data 的对齐字节归入尾部字面字节
+        if (data.size and 1 != 0) tail.write(0)
+        chunks.drop(dataIndex + 1).forEach { chunk ->
+            // 标签与 INFO 块已在重建中收敛为一份，其余块保持原序原样保留
+            if (chunk.id in WAV_TAG_CHUNK_IDS || chunk === infoChunk) return@forEach
+            tail.write(source, chunk.headerStart, minOf(chunk.paddedEnd, source.size) - chunk.headerStart)
+        }
+        // 标签以容器内的 "ID3 " 块承载，块头随块体一并写入
+        frames?.let { writeRiffChunk(tail, TAG_CHUNK_ID, Id3v2Tag.buildTag(it, version)) }
+        val headBytes = head.toByteArray()
+        // RIFF 尺寸自长度字段之后起算：头部 + 音频体 + 尾部块总长减 8
+        writeIntLE(headBytes, RIFF_SIZE_OFFSET, headBytes.size + data.size + tail.size() - 8)
+        return TagRewrite(headBytes, data.payloadStart, data.payloadEnd, tail.toByteArray())
+    }
+
+    // 读取 WAV 块表（[12, limit) 内的块）：块结构不成立（长度为负或越界）时返回 null，不做截断猜测
+    private fun readWavChunks(source: ByteArray, limit: Int): List<WavChunk>? {
+        val chunks = mutableListOf<WavChunk>()
+        var p = RIFF_HEADER_BYTES
+        while (p + WAV_CHUNK_HEADER_BYTES <= limit) {
+            val size = readU32LE(source, p + 4)
+            if (size < 0 || p + WAV_CHUNK_HEADER_BYTES + size > limit) return null
+            chunks += WavChunk(String(source, p, 4, StandardCharsets.ISO_8859_1), p, size)
+            p += WAV_CHUNK_HEADER_BYTES + size + (size and 1)
+        }
+        return chunks.takeIf { it.isNotEmpty() }
+    }
+
+    // 容器外尾部标签（旧版本布局）的起始偏移；未内嵌或标签头不成立时返回文件末尾
+    private fun wavTrailingTagStart(source: ByteArray): Int {
+        val start = trailingFooterTagStart(source, 0L)
+        if (start < 0 || !source.startsWithAscii("ID3", start.toInt())) return source.size
+        return start.toInt()
+    }
+
+    // 重建 LIST/INFO 内容：保留既有项原样，覆盖 INAM(标题)/IART(艺术家)/IPRD(专辑)。
+    // INFO 值按 RIFF 惯例以单字节 0 结尾，新建项据此补齐
+    private fun buildListInfo(existing: ByteArray?, title: String?, artist: String?, album: String?): ByteArray? {
+        val items = mutableListOf<Pair<String, ByteArray>>()
+        if (existing != null && existing.size >= 4) {
+            var p = 4
+            while (p + 8 <= existing.size) {
+                val id = String(existing, p, 4, StandardCharsets.ISO_8859_1)
+                val size = readU32LE(existing, p + 4)
+                if (size < 0 || p + 8 + size > existing.size) break
+                val key = id.uppercase()
+                if ((title == null || key != "INAM") &&
+                    (artist == null || key != "IART") &&
+                    (album == null || key != "IPRD")
+                ) items += id to existing.copyOfRange(p + 8, p + 8 + size)
+                p += 8 + size + (size and 1)
+            }
+        }
+        if (title != null) items += "INAM" to infoValue(title)
+        if (artist != null) items += "IART" to infoValue(artist)
+        if (album != null) items += "IPRD" to infoValue(album)
+        if (items.isEmpty()) return null
+        val out = ByteArrayOutputStream()
+        out.write(INFO_FORM_TYPE.toByteArray(StandardCharsets.US_ASCII))
+        items.forEach { (id, value) -> writeRiffChunk(out, id, value) }
+        return out.toByteArray()
+    }
+
+    private fun infoValue(text: String): ByteArray = text.toByteArray(StandardCharsets.UTF_8) + 0
+
+    private fun writeRiffChunk(out: ByteArrayOutputStream, id: String, body: ByteArray) {
+        out.write(id.toByteArray(StandardCharsets.US_ASCII))
+        out.write(intBytesLE(body.size))
+        out.write(body)
+        if (body.size and 1 != 0) out.write(0)
+    }
+
+    private class WavChunk(val id: String, val headerStart: Int, val size: Int) {
+        val payloadStart get() = headerStart + WAV_CHUNK_HEADER_BYTES
+        val payloadEnd get() = payloadStart + size
+        val paddedEnd get() = payloadEnd + (size and 1)
+
+        fun isInfoChunk(source: ByteArray): Boolean =
+            id == LIST_CHUNK_ID && size >= 4 && source.startsWithAscii(INFO_FORM_TYPE, payloadStart)
     }
 
     // ---- 读 ----
@@ -273,15 +413,77 @@ internal object LosslessContainerTags {
                     }
                 }
             }
+            isWav(header) -> collectWavTags(header, tail, tailOffset, readAt, tags)
             else -> {
-                // 尾部以 ID3v2 footer 结尾的容器（WAV）：标签位于文件末尾，由页脚回推起始位置
-                if (tail != null) {
-                    val start = trailingFooterTagStart(tail, tailOffset)
-                    if (start >= 0) sliceAt(start, header, tail, tailOffset, readAt)?.let { tags += EmbeddedTag.Id3(it) }
-                }
+                // 其余容器（FLAC/M4A/Ogg/MP3）的标签都在头部，窗口取不到即视为无标签
             }
         }
         return tags
+    }
+
+    // WAV 的两种标签布局：容器内的 "ID3 " 块（普遍布局，紧跟 data 之后），
+    // 以及旧版本写在容器外文件末尾的带 footer 标签。容器外标签是较新的一次写入，优先取用
+    private fun collectWavTags(
+        header: ByteArray,
+        tail: ByteArray?,
+        tailOffset: Long,
+        readAt: ((Long, Int) -> ByteArray?)?,
+        into: MutableList<EmbeddedTag>,
+    ) {
+        if (tail != null) {
+            val start = trailingFooterTagStart(tail, tailOffset)
+            if (start >= 0) sliceAt(start, header, tail, tailOffset, readAt)?.let { into += EmbeddedTag.Id3(it) }
+        }
+        val range = findWavTagChunk(header, tail, tailOffset, readAt) ?: return
+        val bytes = if (range.last <= header.size) {
+            header.copyOfRange(range.first, range.last)
+        } else {
+            // 块体（可能含大封面）越出窗口：按块头给出的长度定点读取
+            readAt?.invoke(range.first.toLong(), range.last - range.first)
+        }
+        if (bytes != null) into += EmbeddedTag.Id3(bytes)
+    }
+
+    // 按 WAV 块表定位 "ID3 " 块，返回其载荷的绝对区间（终点不含）。
+    // data 块通常远大于任何读取窗口，故只按块头推进：块头落在头窗或尾窗内就地取，
+    // 落在窗口外按绝对偏移定点读取 8 字节；块结构不成立（长度为负或越界）即终止
+    private fun findWavTagChunk(
+        header: ByteArray,
+        tail: ByteArray?,
+        tailOffset: Long,
+        readAt: ((Long, Int) -> ByteArray?)?,
+    ): IntRange? {
+        val fileEnd = if (tail != null) tailOffset + tail.size else header.size.toLong()
+        var p = RIFF_HEADER_BYTES.toLong()
+        while (p + WAV_CHUNK_HEADER_BYTES <= fileEnd) {
+            val chunk = windowAt(p, WAV_CHUNK_HEADER_BYTES, header, tail, tailOffset, readAt) ?: return null
+            val size = readU32LE(chunk, 4)
+            if (size < 0 || p + WAV_CHUNK_HEADER_BYTES + size > fileEnd) return null
+            if (String(chunk, 0, 4, StandardCharsets.ISO_8859_1) in WAV_TAG_CHUNK_IDS) {
+                val bodyStart = p + WAV_CHUNK_HEADER_BYTES
+                return bodyStart.toInt()..(bodyStart + size).toInt()
+            }
+            p += WAV_CHUNK_HEADER_BYTES + size + (size and 1)
+        }
+        return null
+    }
+
+    // 取文件 [offset, offset + count) 的字节：优先截取已有窗口，窗口未完整覆盖时定点读取
+    private fun windowAt(
+        offset: Long,
+        count: Int,
+        header: ByteArray,
+        tail: ByteArray?,
+        tailOffset: Long,
+        readAt: ((Long, Int) -> ByteArray?)?,
+    ): ByteArray? {
+        if (offset < 0) return null
+        if (offset + count <= header.size) return header.copyOfRange(offset.toInt(), offset.toInt() + count)
+        if (tail != null && offset >= tailOffset && offset + count <= tailOffset + tail.size) {
+            val local = (offset - tailOffset).toInt()
+            return tail.copyOfRange(local, local + count)
+        }
+        return readAt?.invoke(offset, count)?.takeIf { it.size >= count }
     }
 
     // 取文件 [offset, offset + maxBytes) 的字节：优先截取已有窗口，落在窗口外时定点读取
@@ -292,18 +494,21 @@ internal object LosslessContainerTags {
         tailOffset: Long,
         readAt: ((Long, Int) -> ByteArray?)?,
     ): ByteArray? {
-        if (offset < 0) return null
-        if (offset < header.size) {
-            return header.copyOfRange(offset.toInt(), header.size).takeIf { it.size >= ID3_HEADER_BYTES }
-        }
-        if (tail != null && offset >= tailOffset) {
-            val local = (offset - tailOffset).toInt()
-            if (local < tail.size) return tail.copyOfRange(local, tail.size)
-        }
-        return readAt?.invoke(offset, TAG_READ_BYTES)
+        val window = windowFrom(offset, header, tail, tailOffset) ?: return readAt?.invoke(offset, TAG_READ_BYTES)
+        return window.takeIf { it.size >= ID3_HEADER_BYTES }
     }
 
-    // WAV 尾部标签：文件末尾 10 字节为 ID3v2 footer（"3DI"），其声明的长度不含头尾各 10 字节。
+    // 取文件中自 offset 起、落在已读窗口内的字节（直到窗口末尾）；窗口未覆盖该位置时返回 null
+    private fun windowFrom(offset: Long, header: ByteArray, tail: ByteArray?, tailOffset: Long): ByteArray? {
+        if (offset < 0) return null
+        if (offset < header.size) return header.copyOfRange(offset.toInt(), header.size)
+        if (tail != null && offset >= tailOffset && offset < tailOffset + tail.size) {
+            return tail.copyOfRange((offset - tailOffset).toInt(), tail.size)
+        }
+        return null
+    }
+
+    // 文件末尾 10 字节为 ID3v2 footer（"3DI"）的标签起始偏移，其声明的长度不含头尾各 10 字节。
     // 未内嵌尾部标签时返回 -1
     private fun trailingFooterTagStart(tail: ByteArray, tailOffset: Long): Long {
         if (tail.size < 2 * ID3_HEADER_BYTES || !tail.startsWithAscii("3DI", tail.size - 10)) return -1L
@@ -552,13 +757,24 @@ internal object LosslessContainerTags {
     private fun intBytesLE(value: Int): ByteArray =
         byteArrayOf(value.toByte(), (value shr 8).toByte(), (value shr 16).toByte(), (value shr 24).toByte())
 
-    // 标签块标识：AIFF 与 DSDIFF 均以大写 "ID3 " 写入，读取时兼收小写变体
+    // 标签块标识：AIFF 与 DSDIFF 均以大写 "ID3 " 写入，读取时兼收小写变体；WAV 的 ID3 块同理
     private const val TAG_CHUNK_ID = "ID3 "
     private val IFF_TAG_CHUNK_IDS = setOf("ID3 ", "id3 ")
+    private val WAV_TAG_CHUNK_IDS = setOf("ID3 ", "id3 ")
     private val AIFF_FORM = IffForm("FORM", setOf("AIFF", "AIFC"), setOf("SSND"), IFF_TAG_CHUNK_IDS, 4)
     private val DFF_FORM = IffForm("FRM8", setOf("DSD "), setOf("DSD ", "DST "), IFF_TAG_CHUNK_IDS, 8)
     private const val FORM_TYPE_OFFSET_32 = 8
     private const val FORM_TYPE_OFFSET_64 = 12
+
+    // WAV（RIFF）块结构：容器头 12 字节（"RIFF" + 尺寸 + "WAVE"），块头 8 字节（标识 + 小端长度）
+    private const val RIFF_MAGIC = "RIFF"
+    private const val WAVE_FORM_TYPE = "WAVE"
+    private const val RIFF_HEADER_BYTES = 12
+    private const val RIFF_SIZE_OFFSET = 4
+    private const val WAV_CHUNK_HEADER_BYTES = 8
+    private const val WAV_DATA_CHUNK_ID = "data"
+    private const val LIST_CHUNK_ID = "LIST"
+    private const val INFO_FORM_TYPE = "INFO"
 
     private const val ID3_HEADER_BYTES = 10
     private const val TAG_READ_BYTES = 4 * 1024 * 1024

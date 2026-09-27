@@ -9,9 +9,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 // 本地音频内嵌歌词读取：解析 MP3(ID3v2 USLT)、FLAC/OGG(Vorbis 注释 LYRICS)、M4A(©lyr)、
-// WAV(尾部 ID3)、AIFF/AIFC 与 DSDIFF("ID3 " 块)、DSF(尾部 ID3)、APE(APEv2 条目) 中的歌词文本，
+// WAV(容器内 "ID3 " 块)、AIFF/AIFC 与 DSDIFF("ID3 " 块)、DSF(尾部 ID3)、APE(APEv2 条目) 中的歌词文本，
 // 统一按增强 LRC 解析为时间轴歌词；非本地音频源或无内嵌歌词时返回空列表。
-// 标签位于文件末尾的容器（WAV/DSF/APE 及标签后置的 AIFF/DSDIFF）需要尾窗定位，
+// 标签位于音频之后的容器（WAV/DSF/APE 及标签后置的 AIFF/DSDIFF）需要尾窗定位，
 // 尾窗之外的标签再按绝对偏移定点读取
 internal object MusicEmbeddedLyricReader {
 
@@ -23,6 +23,8 @@ internal object MusicEmbeddedLyricReader {
     private const val MAX_MP3_TAG = 4 * 1024 * 1024
     // ID3v2 标签头长度，用于先取小段前缀判定是否为 ID3 容器
     private const val ID3_HEADER_BYTES = 10
+    // M4A data 原子头长度：类型(4) + 区域设置(4) + 版本与标志(8)
+    private const val DATA_ATOM_HEADER_BYTES = 16
 
     suspend fun read(context: Context, track: MusicTrack): List<LyricLine> = withContext(Dispatchers.IO) {
         try {
@@ -59,15 +61,15 @@ internal object MusicEmbeddedLyricReader {
 
     // 按容器格式提取内嵌歌词文本，未找到返回 null。
     // 无独立解析分支的容器交给容器标签层处理（AIFF/DSDIFF 的 ID3 块置于音频之前，头窗即可覆盖）
-    private fun extractLyrics(bytes: ByteArray): String? = when {
+    internal fun extractLyrics(bytes: ByteArray): String? = when {
         isMp4(bytes) -> extractMp4Lyrics(bytes)
         isFlac(bytes) -> extractFlacLyrics(bytes)
         isOgg(bytes) -> extractOggLyrics(bytes)
         else -> LosslessContainerTags.readLyrics(bytes, null, 0L, null)
     }
 
-    // 标签位于文件末尾的容器：WAV（带 footer 的尾部 ID3）、DSF（头部元数据指针）、
-    // APE（APEv2 页脚）以及把 ID3 块置于音频之后的 AIFF/DSDIFF。
+    // 标签位于音频之后的容器：WAV（容器内 "ID3 " 块，旧布局则在文件末尾的带 footer 标签）、
+    // DSF（头部元数据指针）、APE（APEv2 页脚）以及把 ID3 块置于音频之后的 AIFF/DSDIFF。
     // 尾窗覆盖不到整个标签时（超大封面）由 readAt 按标签起始绝对偏移定点读取
     private fun extractLyricsFromTail(context: Context, track: MusicTrack, header: ByteArray): String? {
         // 标签在头部的容器（FLAC/M4A/Ogg）不读尾窗：头窗已解析不出歌词，再读尾窗也是空
@@ -163,14 +165,16 @@ internal object MusicEmbeddedLyricReader {
         return null
     }
 
-    // 定位 data 子原子：跳过 type(4) + locale(4) 后为歌词文本
+    // 定位 data 子原子：原子长度为「4 字节类型 + 4 字节区域设置 + 载荷」，
+    // 载荷自 p+16 起、长度为 size-16；头部的「版本 + 标志」8 字节已计入原子长度
     private fun decodeDataAtom(bytes: ByteArray, start: Int, end: Int): String? {
         var p = start
         while (p + 8 <= end) {
             val size = int32BE(bytes, p)
             if (size < 8 || p + size > end) return null
             if (String(bytes, p + 4, 4, StandardCharsets.ISO_8859_1) == "data") {
-                return String(bytes, p + 16, p + size - 16, StandardCharsets.UTF_8)
+                if (size <= DATA_ATOM_HEADER_BYTES) return null
+                return String(bytes, p + DATA_ATOM_HEADER_BYTES, size - DATA_ATOM_HEADER_BYTES, StandardCharsets.UTF_8)
                     .takeIf { it.isNotBlank() }
             }
             p += size

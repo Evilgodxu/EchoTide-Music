@@ -31,9 +31,6 @@ internal object MusicMetadataWriter {
     // 流式复制音频躯干时的读缓冲大小
     private const val STREAM_BUFFER_SIZE = 64 * 1024
 
-    // WAV 尾部 ID3 标签的 flags 位：带 footer（"3DI"），供读取端自文件末尾回推标签起点
-    private const val WAV_ID3_FLAGS = 0x10
-
     suspend fun writeCover(context: Context, track: MusicTrack, coverBytes: ByteArray): Boolean =
         withContext(Dispatchers.IO) {
             write(context, track.path) { bytes ->
@@ -220,14 +217,14 @@ internal object MusicMetadataWriter {
         isMp4(bytes) -> writeMp4(bytes, title, artist, album, cover, lyrics)
         isFlac(bytes) -> writeFlac(bytes, title, artist, album, cover, lyrics)
         isOpus(bytes) -> writeOpus(bytes, title, artist, album, cover, lyrics)
-        isWav(bytes) -> writeWav(bytes, title, artist, album, cover, lyrics)
+        // WAV、AIFF/AIFC、DSDIFF、DSF、APE：标签布局由 LosslessContainerTags 计算
         LosslessContainerTags.matches(bytes) ->
             writeLosslessContainer(bytes, title, artist, album, cover, lyrics)
         else -> null
     }
 
-    // AIFF/AIFC、DSDIFF、DSF、APE：标签布局由 LosslessContainerTags 计算，
-    // 返回的头部字面字节 + 音频体区间 + 尾部字面字节直接落到流式写入分支
+    // 容器标签布局统一由 LosslessContainerTags 计算，返回的头部字面字节 + 音频体区间 +
+    // 尾部字面字节直接落到流式写入分支
     private fun writeLosslessContainer(
         source: ByteArray,
         title: String?,
@@ -246,8 +243,6 @@ internal object MusicMetadataWriter {
     private fun isMp4(bytes: ByteArray) = bytes.size >= 12 && String(bytes, 4, 4, StandardCharsets.US_ASCII) == "ftyp"
     private fun isFlac(bytes: ByteArray) = bytes.startsWith("fLaC")
     private fun isOpus(bytes: ByteArray) = bytes.startsWith("OggS") && bytes.indexOf("OpusHead".toByteArray()) >= 0
-    private fun isWav(bytes: ByteArray) =
-        bytes.size >= 12 && bytes.startsWith("RIFF") && String(bytes, 8, 4, StandardCharsets.US_ASCII) == "WAVE"
 
     private fun writeMp3(
         source: ByteArray,
@@ -499,123 +494,6 @@ internal object MusicMetadataWriter {
         val out = ByteArrayOutputStream(); out.write("OpusTags".toByteArray()); out.write(intBytesLE(vendor.size)); out.write(vendor); out.write(intBytesLE(fields.size))
         fields.forEach { val bytes = it.toByteArray(); out.write(intBytesLE(bytes.size)); out.write(bytes) }
         return out.toByteArray()
-    }
-
-    private data class WavChunk(val id: String, val data: ByteArray)
-
-    private fun writeWav(
-        source: ByteArray,
-        title: String?,
-        artist: String?,
-        album: String?,
-        cover: ByteArray?,
-        lyrics: String?,
-    ): WriteResult? {
-        if (!isWav(source)) return null
-        // 尾部以 footer 结尾的 ID3v2.4 标签起始偏移，未内嵌则视为文件末尾
-        val tagStart = wavId3Start(source)
-        val chunks = mutableListOf<WavChunk>()
-        val dataOffsets = mutableListOf<Int>()
-        var p = 12
-        var dataIndex = -1
-        while (p + 8 <= tagStart) {
-            val id = String(source, p, 4, StandardCharsets.US_ASCII)
-            val size = intLE(source, p + 4)
-            if (size < 0 || p + 8 + size > tagStart) return null
-            if (id == "data") dataIndex = chunks.size
-            chunks += WavChunk(id, source.copyOfRange(p + 8, p + 8 + size))
-            dataOffsets += p + 8
-            p += 8 + size + (size and 1)
-        }
-        if (dataIndex < 0) return null
-        val bodyStart = dataOffsets[dataIndex]
-        val bodyEnd = tagStart
-        // 重建 data 之前的块序列：文本标签写 LIST INFO，其余块原样保留
-        val head = ByteArrayOutputStream()
-        head.write("RIFF".toByteArray(StandardCharsets.US_ASCII))
-        head.write(intBytesLE(0)) // RIFF 尺寸占位，最后回填
-        head.write("WAVE".toByteArray(StandardCharsets.US_ASCII))
-        var listInfoWritten = false
-        chunks.forEachIndexed { index, chunk ->
-            // data 及其后的块通过流式复制保留在 body 中，不进入头部
-            if (dataOffsets[index] >= bodyStart) return@forEachIndexed
-            if (chunk.id == "LIST" && chunk.data.size >= 4 && String(chunk.data, 0, 4, StandardCharsets.US_ASCII) == "INFO") {
-                buildListInfo(chunk.data, title, artist, album)?.let { info ->
-                    writeChunk(head, "LIST", info)
-                    listInfoWritten = true
-                }
-                return@forEachIndexed
-            }
-            writeChunk(head, chunk.id, chunk.data)
-        }
-        if (!listInfoWritten) {
-            buildListInfo(null, title, artist, album)?.let { info -> writeChunk(head, "LIST", info) }
-        }
-        head.write("data".toByteArray(StandardCharsets.US_ASCII))
-        head.write(intBytesLE(chunks[dataIndex].data.size))
-        val headBytes = head.toByteArray()
-        // RIFF 尺寸 = 头部块总长 + 流式复制的音频体长；尾部 ID3 标签位于容器之外不计入
-        writeIntLE(headBytes, 4, headBytes.size - 8 + (bodyEnd - bodyStart))
-        val id3 = writeWavId3(source.copyOfRange(tagStart, source.size), title, artist, album, cover, lyrics)
-        return WriteResult.HeadAndRange(headBytes, bodyStart, bodyEnd, id3 ?: ByteArray(0))
-    }
-
-    // WAV 尾部以 footer（"3DI"）结尾的 ID3v2 标签起始偏移；未内嵌则返回文件末尾
-    private fun wavId3Start(source: ByteArray): Int {
-        if (source.size < 20) return source.size
-        val footerStart = source.size - 10
-        if (String(source, footerStart, 3, StandardCharsets.US_ASCII) != "3DI") return source.size
-        val tagSize = Id3v2Tag.syncsafe(source, footerStart + 6)
-        val start = footerStart - 10 - tagSize
-        if (start < 0 || String(source, start, 3, StandardCharsets.US_ASCII) != "ID3") return source.size
-        return start
-    }
-
-    // 重建 LIST INFO 内容：保留既有 INFO 项，覆盖 INAM(标题)/IART(艺术家)/IPRD(专辑)，UTF-8 编码
-    private fun buildListInfo(existing: ByteArray?, title: String?, artist: String?, album: String?): ByteArray? {
-        val items = mutableListOf<Pair<String, ByteArray>>()
-        if (existing != null && existing.size >= 4) {
-            var p = 4
-            while (p + 8 <= existing.size) {
-                val id = String(existing, p, 4, StandardCharsets.US_ASCII)
-                val size = intLE(existing, p + 4)
-                if (size < 0 || p + 8 + size > existing.size) break
-                val value = existing.copyOfRange(p + 8, p + 8 + size)
-                val key = id.uppercase()
-                if ((title == null || key != "INAM") &&
-                    (artist == null || key != "IART") &&
-                    (album == null || key != "IPRD")
-                ) items += id to value
-                p += 8 + size + (size and 1)
-            }
-        }
-        if (title != null) items += "INAM" to title.toByteArray(StandardCharsets.UTF_8)
-        if (artist != null) items += "IART" to artist.toByteArray(StandardCharsets.UTF_8)
-        if (album != null) items += "IPRD" to album.toByteArray(StandardCharsets.UTF_8)
-        if (items.isEmpty()) return null
-        val out = ByteArrayOutputStream(); out.write("INFO".toByteArray(StandardCharsets.US_ASCII))
-        items.forEach { (id, value) -> writeChunk(out, id, value) }
-        return out.toByteArray()
-    }
-
-    // 重建 ID3v2.4 标签（尾部带 footer）：替换 TIT2/TPE1/TALB/APIC/USLT，保留其余帧；无任何内容时返回 null。
-    // 标签位于 WAV 容器之外的文件末尾，读取端由 footer 自文件末尾回推起点
-    private fun writeWavId3(
-        existing: ByteArray,
-        title: String?,
-        artist: String?,
-        album: String?,
-        cover: ByteArray?,
-        lyrics: String?,
-    ): ByteArray? = Id3v2Tag
-        .replaceFrames(existing, title, artist, album, cover, lyrics, Id3v2Tag.TAG_VERSION)
-        ?.let { Id3v2Tag.buildTag(it, Id3v2Tag.TAG_VERSION, WAV_ID3_FLAGS, footer = true) }
-
-    private fun writeChunk(out: ByteArrayOutputStream, id: String, data: ByteArray) {
-        out.write(id.toByteArray(StandardCharsets.US_ASCII))
-        out.write(intBytesLE(data.size))
-        out.write(data)
-        if (data.size and 1 != 0) out.write(0)
     }
 
     private fun pictureBlock(cover: ByteArray): ByteArray {
@@ -894,7 +772,6 @@ internal object MusicMetadataWriter {
     private fun int32(b: ByteArray, p: Int) = ByteBuffer.wrap(b, p, 4).order(ByteOrder.BIG_ENDIAN).int
     private fun long64(b: ByteArray, p: Int) = ByteBuffer.wrap(b, p, 8).order(ByteOrder.BIG_ENDIAN).long
     private fun writeInt32(b: ByteArray, p: Int, value: Int) { ByteBuffer.wrap(b, p, 4).order(ByteOrder.BIG_ENDIAN).putInt(value) }
-    private fun writeIntLE(b: ByteArray, p: Int, value: Int) { ByteBuffer.wrap(b, p, 4).order(ByteOrder.LITTLE_ENDIAN).putInt(value) }
     private fun writeLong64(b: ByteArray, p: Int, value: Long) { ByteBuffer.wrap(b, p, 8).order(ByteOrder.BIG_ENDIAN).putLong(value) }
     private fun intLE(b: ByteArray, p: Int) = ByteBuffer.wrap(b, p, 4).order(ByteOrder.LITTLE_ENDIAN).int
     private fun longLE(b: ByteArray, p: Int) = ByteBuffer.wrap(b, p, 8).order(ByteOrder.LITTLE_ENDIAN).long

@@ -12,6 +12,14 @@ internal object Id3v2Tag {
     // 新建标签版本
     const val TAG_VERSION = 4
 
+    // 既有标签的版本；非 ID3v2.3/2.4 标签或标签缺失时取新建版本。
+    // v2.3 的帧长度字段为 32 位大端、文本为 UTF-16，与 v2.4 的同步安全长度、UTF-8 互不兼容，
+    // 容器改写保留帧时必须以原版本重建，否则保留下来的帧会被按错版本读成乱码
+    fun versionOf(tag: ByteArray?): Int =
+        if (tag != null && tag.size >= 10 && tag.startsWithAscii("ID3", 0)) {
+            (tag[3].toInt() and 0xFF).takeIf { it in 3..4 } ?: TAG_VERSION
+        } else TAG_VERSION
+
     // USLT 帧的语言字段：ID3v2 规范用 "XXX" 表示语言未定义
     private val LYRICS_LANGUAGE = "XXX".toByteArray(StandardCharsets.ISO_8859_1)
 

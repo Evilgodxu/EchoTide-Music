@@ -58,7 +58,7 @@ internal object EmbeddedCoverReader {
         val retrieved = readPictureByRetriever(context, audioUri, path)
         if (retrieved is Picture.Found) return retrieved
         // 平台提取器读不出或读到了却没有内嵌图时，回落到自实现的容器标签解析：
-        // AIFF/APE/DSF/DFF 无平台元数据支持，WAV 的尾部 ID3 平台也不读取，
+        // AIFF/APE/DSF/DFF 无平台元数据支持，WAV 的容器内 ID3 块平台也不读取，
         // 这些容器的内嵌封面只能由本地解析取得
         return readPictureByContainerTags(context, audioUri, path) ?: retrieved
     }
@@ -93,11 +93,7 @@ internal object EmbeddedCoverReader {
 
     // 是否值得走自实现解析：AIFF/AIFC、DSDIFF、DSF、APE 以及 RIFF/WAVE
     private fun isCoverFallbackContainer(prefix: ByteArray): Boolean =
-        LosslessContainerTags.matches(prefix) ||
-            (prefix.size >= 12 && prefix.asAscii(0, 4) == "RIFF" && prefix.asAscii(8, 4) == "WAVE")
-
-    private fun ByteArray.asAscii(at: Int, length: Int): String =
-        if (at < 0 || at + length > size) "" else String(this, at, length, Charsets.ISO_8859_1)
+        LosslessContainerTags.matches(prefix)
 
     private fun pictureFromPath(path: String): Picture = withRetriever(path) { it.setDataSource(path) }
 
