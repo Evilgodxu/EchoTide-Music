@@ -157,6 +157,47 @@ class LosslessContainerTagsTest {
     }
 
     @Test
+    fun wavTextTagsAreReadBackFromId3Chunk() {
+        val source = wavWithEmbeddedId3()
+        val rewrite = LosslessContainerTags.write(source, "新标题", "新艺术家", "新专辑", null, null)
+        assertNotNull(rewrite)
+        val rewritten = apply(source, rewrite!!)
+        val tag = LosslessContainerTags.readText(rewritten, null, 0L, null)
+        assertNotNull(tag)
+        assertEquals("新标题", tag!!.title)
+        assertEquals("新艺术家", tag.artist)
+        assertEquals("新专辑", tag.album)
+    }
+
+    // 只有 LIST/INFO 的文件（第三方工具写出的布局）：没有 ID3 块时文本标签仍能从 INFO 项取回
+    @Test
+    fun wavTextTagsAreReadBackFromInfoChunkOnly() {
+        val source = wavFile(
+            wavChunk("fmt ", ByteArray(16)),
+            wavChunk("data", audioPayload()),
+            wavChunk("LIST", wavInfo("INAM" to "标题", "IART" to "艺术家", "IPRD" to "专辑")),
+        )
+        val tag = LosslessContainerTags.readText(source, null, 0L, null)
+        assertNotNull(tag)
+        assertEquals("标题", tag!!.title)
+        assertEquals("艺术家", tag.artist)
+        assertEquals("专辑", tag.album)
+    }
+
+    // 头窗只覆盖容器头与 fmt 时，data 之后的标签块与 INFO 块由尾窗给出块头，块体按绝对偏移定点读取
+    @Test
+    fun wavTextTagsAreReadFromWindowsAndOutOfWindowChunks() {
+        val source = wavWithEmbeddedId3()
+        val header = source.copyOfRange(0, 64)
+        val tailOffset = source.size / 2
+        val tail = source.copyOfRange(tailOffset, source.size)
+        val tag = LosslessContainerTags.readText(header, tail, tailOffset.toLong(), readerOf(source))
+        assertNotNull(tag)
+        assertEquals("旧标题", tag!!.title)
+        assertEquals("旧艺术家", tag.artist)
+    }
+
+    @Test
     fun wavRewriteMergesLegacyTrailingTagIntoContainerChunk() {
         val source = wavWithLegacyTrailingTag()
         val rewrite = LosslessContainerTags.write(source, "新标题", null, null, null, lyrics)

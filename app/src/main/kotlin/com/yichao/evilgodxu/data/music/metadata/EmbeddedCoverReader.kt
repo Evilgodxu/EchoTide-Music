@@ -55,12 +55,16 @@ internal object EmbeddedCoverReader {
     }
 
     private fun readPicture(context: Context, audioUri: String, path: String): Picture {
+        val prefix = LocalAudioSource.read(context, path, audioUri, 0L, CONTAINER_PROBE_BYTES)
+        // 平台读不到标签的容器（AIFF/APE/DSF/DFF 无平台元数据支持，WAV 的容器内 ID3 块平台也不读取）
+        // 先走自实现解析：先调平台提取器只是多开一次必然落空的提取器
+        if (prefix != null && isCoverFallbackContainer(prefix)) {
+            return readPictureByContainerTags(context, audioUri, path, prefix)
+                ?: readPictureByRetriever(context, audioUri, path)
+        }
         val retrieved = readPictureByRetriever(context, audioUri, path)
         if (retrieved is Picture.Found) return retrieved
-        // 平台提取器读不出或读到了却没有内嵌图时，回落到自实现的容器标签解析：
-        // AIFF/APE/DSF/DFF 无平台元数据支持，WAV 的容器内 ID3 块平台也不读取，
-        // 这些容器的内嵌封面只能由本地解析取得
-        return readPictureByContainerTags(context, audioUri, path) ?: retrieved
+        return prefix?.let { readPictureByContainerTags(context, audioUri, path, it) } ?: retrieved
     }
 
     private fun readPictureByRetriever(context: Context, audioUri: String, path: String): Picture {
@@ -78,10 +82,13 @@ internal object EmbeddedCoverReader {
         return pictureFromUri(context, uri)
     }
 
-    // 自实现的容器标签取图。先读入极短前缀判定容器类型：平台提取器已覆盖的 MP3/FLAC/M4A/Ogg
-    // 直接返回 null，避免为每首无封面的曲目都去解析标签
-    private fun readPictureByContainerTags(context: Context, audioUri: String, path: String): Picture? {
-        val prefix = LocalAudioSource.read(context, path, audioUri, 0L, CONTAINER_PROBE_BYTES) ?: return null
+    // 自实现的容器标签取图；prefix 为调用方已读到的容器前缀，非自解析容器返回 null
+    private fun readPictureByContainerTags(
+        context: Context,
+        audioUri: String,
+        path: String,
+        prefix: ByteArray,
+    ): Picture? {
         if (!isCoverFallbackContainer(prefix)) return null
         val header = LocalAudioSource.read(context, path, audioUri, 0L, HEADER_CAP) ?: return null
         val tail = LocalAudioSource.tail(context, path, audioUri, TAIL_CAP)
@@ -89,6 +96,12 @@ internal object EmbeddedCoverReader {
             LocalAudioSource.read(context, path, audioUri, offset, count)
         }
         return bytes?.let { Picture.Found(it) }
+    }
+
+    /** 是否为只能由自实现解析取到内嵌封面的容器：平台提取器对这类容器读不到内嵌图片 */
+    fun isSelfParsedContainer(context: Context, audioUri: String, path: String): Boolean {
+        val prefix = LocalAudioSource.read(context, path, audioUri, 0L, CONTAINER_PROBE_BYTES) ?: return false
+        return isCoverFallbackContainer(prefix)
     }
 
     // 是否值得走自实现解析：AIFF/AIFC、DSDIFF、DSF、APE 以及 RIFF/WAVE

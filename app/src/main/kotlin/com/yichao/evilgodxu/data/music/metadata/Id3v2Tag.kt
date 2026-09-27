@@ -133,6 +133,37 @@ internal object Id3v2Tag {
         return bytes.copyOfRange(p, end).takeIf { it.isNotEmpty() }
     }
 
+    // 取标签内指定文本帧的文本，供标题(TIT2)/艺术家(TPE1)/专辑(TALB)读取
+    fun readTextFrame(bytes: ByteArray, at: Int, id: String): String? {
+        var result: String? = null
+        forEachFrame(bytes, at) { _, frameId, bodyStart, length ->
+            if (frameId == id) {
+                result = decodeTextFrame(bytes, bodyStart, length)
+                return@forEachFrame true
+            }
+            false
+        }
+        return result
+    }
+
+    // 文本帧数据：编码字节 + 文本。结尾的 NUL 只是终止符，解码后一并去掉
+    private fun decodeTextFrame(data: ByteArray, offset: Int, length: Int): String? {
+        if (length < 1 || offset + length > data.size) return null
+        val encoding = data[offset].toInt() and 0xFF
+        val start = offset + 1
+        val end = offset + length
+        val littleEndian = if (encoding == 1 && start + 2 <= end) {
+            when {
+                data[start] == 0xff.toByte() && data[start + 1] == 0xfe.toByte() -> true
+                data[start] == 0xfe.toByte() && data[start + 1] == 0xff.toByte() -> false
+                else -> null
+            }
+        } else null
+        return decodeText(data.copyOfRange(start, end), encoding, littleEndian)
+            .trimEnd('\u0000')
+            .takeIf { it.isNotBlank() }
+    }
+
     // 取标签内首个 USLT（非同步歌词）帧的歌词文本
     fun readUslt(bytes: ByteArray, at: Int): String? {
         var result: String? = null

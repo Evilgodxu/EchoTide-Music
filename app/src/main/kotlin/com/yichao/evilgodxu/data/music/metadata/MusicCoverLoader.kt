@@ -20,9 +20,16 @@ internal object MusicCoverLoader {
     suspend fun load(context: Context, track: MusicTrack, sizePx: Int): Bitmap? = withContext(Dispatchers.IO) {
         if (track.isMediaStoreIndexed) {
             // 索引曲目取系统媒体库维护的略缩图（扫描时生成、音频内嵌封面被重写后随媒体扫描重建）
-            SystemThumbnailCache.get(track.audioUri, sizePx) ?: runCatching {
+            val thumbnail = SystemThumbnailCache.get(track.audioUri, sizePx) ?: runCatching {
                 context.contentResolver.loadThumbnail(Uri.parse(track.audioUri), Size(sizePx, sizePx), null)
             }.getOrNull()?.also { SystemThumbnailCache.put(track.audioUri, sizePx, it) }
+            if (thumbnail != null) return@withContext thumbnail
+            // 略缩图缺席的索引曲目：平台提取器读不到内嵌封面的容器（WAV/AIFF/DSF/DFF/APE）仍有
+            // 文件内封面可取，改读音频自身；其余容器的平台结论已是权威，不再重复解析
+            if (!EmbeddedCoverReader.isSelfParsedContainer(context, track.audioUri, track.path)) {
+                return@withContext null
+            }
+            EmbeddedCoverCache.cover(context, track, sizePx)
         } else {
             // 非索引曲目不在媒体库中，没有系统略缩图可取，改读音频文件自身的内嵌封面；
             // 读取与解码的去重、往返复用由缓存持有，调用方只负责按需请求

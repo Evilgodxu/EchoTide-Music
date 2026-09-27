@@ -282,24 +282,16 @@ internal object LosslessContainerTags {
     // 重建 LIST/INFO 内容：保留既有项原样，覆盖 INAM(标题)/IART(艺术家)/IPRD(专辑)。
     // INFO 值按 RIFF 惯例以单字节 0 结尾，新建项据此补齐
     private fun buildListInfo(existing: ByteArray?, title: String?, artist: String?, album: String?): ByteArray? {
-        val items = mutableListOf<Pair<String, ByteArray>>()
-        if (existing != null && existing.size >= 4) {
-            var p = 4
-            while (p + 8 <= existing.size) {
-                val id = String(existing, p, 4, StandardCharsets.ISO_8859_1)
-                val size = readU32LE(existing, p + 4)
-                if (size < 0 || p + 8 + size > existing.size) break
-                val key = id.uppercase()
-                if ((title == null || key != "INAM") &&
-                    (artist == null || key != "IART") &&
-                    (album == null || key != "IPRD")
-                ) items += id to existing.copyOfRange(p + 8, p + 8 + size)
-                p += 8 + size + (size and 1)
-            }
-        }
-        if (title != null) items += "INAM" to infoValue(title)
-        if (artist != null) items += "IART" to infoValue(artist)
-        if (album != null) items += "IPRD" to infoValue(album)
+        val kept = existing?.takeIf { it.size >= 4 }?.let { parseInfoItems(it, 4) }.orEmpty()
+        val replaced = mutableSetOf<String>()
+        if (title != null) replaced += INFO_TITLE_ID
+        if (artist != null) replaced += INFO_ARTIST_ID
+        if (album != null) replaced += INFO_ALBUM_ID
+        // 被覆盖的键不进新块，其余项连同原标识原样保留
+        val items = kept.filterNot { it.first.uppercase() in replaced }.toMutableList()
+        if (title != null) items += INFO_TITLE_ID to infoValue(title)
+        if (artist != null) items += INFO_ARTIST_ID to infoValue(artist)
+        if (album != null) items += INFO_ALBUM_ID to infoValue(album)
         if (items.isEmpty()) return null
         val out = ByteArrayOutputStream()
         out.write(INFO_FORM_TYPE.toByteArray(StandardCharsets.US_ASCII))
@@ -343,6 +335,8 @@ internal object LosslessContainerTags {
                 }?.let { item ->
                     String(item.value, StandardCharsets.UTF_8).takeIf { it.isNotBlank() }?.let { return it }
                 }
+                // LIST/INFO 不承载歌词
+                is EmbeddedTag.Info -> Unit
             }
         }
         return null
@@ -362,10 +356,57 @@ internal object LosslessContainerTags {
                     .firstOrNull { it.key.lowercase() in COVER_KEYS && it.binary }
                     ?.let { item -> apeCoverPayload(item.value) }
                     ?.let { return it }
+                // LIST/INFO 只承载文本，封面不由它提供
+                is EmbeddedTag.Info -> Unit
             }
         }
         return null
     }
+
+    // 取内嵌文本标签（标题/艺术家/专辑）。ID3 帧与 APE 条目是首选来源，
+    // WAV 的 LIST/INFO 作为补充：只写 INFO 的第三方工具产出的文件没有 ID3 块，靠它取回字段。
+    // 各来源按优先级依次补齐缺失字段，先取到的优先——同一容器内 ID3 与 INFO 由写入端同步维护，内容一致
+    fun readText(
+        header: ByteArray,
+        tail: ByteArray?,
+        tailOffset: Long,
+        readAt: ((Long, Int) -> ByteArray?)?,
+    ): TextTag? {
+        var title: String? = null
+        var artist: String? = null
+        var album: String? = null
+        for (tag in collectTags(header, tail, tailOffset, readAt)) {
+            when (tag) {
+                is EmbeddedTag.Id3 -> {
+                    title = title ?: Id3v2Tag.readTextFrame(tag.bytes, 0, TITLE_FRAME_ID)
+                    artist = artist ?: Id3v2Tag.readTextFrame(tag.bytes, 0, ARTIST_FRAME_ID)
+                    album = album ?: Id3v2Tag.readTextFrame(tag.bytes, 0, ALBUM_FRAME_ID)
+                }
+                is EmbeddedTag.Ape -> {
+                    title = title ?: apeText(tag.items, "title")
+                    artist = artist ?: apeText(tag.items, "artist")
+                    album = album ?: apeText(tag.items, "album")
+                }
+                is EmbeddedTag.Info -> {
+                    title = title ?: infoText(tag.items, INFO_TITLE_ID)
+                    artist = artist ?: infoText(tag.items, INFO_ARTIST_ID)
+                    album = album ?: infoText(tag.items, INFO_ALBUM_ID)
+                }
+            }
+        }
+        if (title == null && artist == null && album == null) return null
+        return TextTag(title, artist, album)
+    }
+
+    // APE 文本条目：值为 UTF-8，可能带结尾 NUL
+    private fun apeText(items: List<ApeItem>, key: String): String? =
+        items.firstOrNull { it.key.lowercase() == key && !it.binary }
+            ?.let { String(it.value, StandardCharsets.UTF_8).trimEnd('\u0000').takeIf { it.isNotBlank() } }
+
+    // LIST/INFO 项值：按 RIFF 惯例以单字节 0 结尾，解码后一并去掉
+    private fun infoText(items: List<Pair<String, ByteArray>>, id: String): String? =
+        items.firstOrNull { it.first.uppercase() == id }
+            ?.let { String(it.second, StandardCharsets.UTF_8).trimEnd('\u0000').takeIf { it.isNotBlank() } }
 
     // 按容器类型收集文件内可能承载标签的区段
     private fun collectTags(
@@ -422,7 +463,8 @@ internal object LosslessContainerTags {
     }
 
     // WAV 的两种标签布局：容器内的 "ID3 " 块（普遍布局，紧跟 data 之后），
-    // 以及旧版本写在容器外文件末尾的带 footer 标签。容器外标签是较新的一次写入，优先取用
+    // 以及旧版本写在容器外文件末尾的带 footer 标签。容器外标签是较新的一次写入，优先取用。
+    // LIST/INFO 是文本标签的另一处落点：仅写 INFO 的工具产出的文件没有 ID3 块，靠它取回标题等字段
     private fun collectWavTags(
         header: ByteArray,
         tail: ByteArray?,
@@ -434,14 +476,32 @@ internal object LosslessContainerTags {
             val start = trailingFooterTagStart(tail, tailOffset)
             if (start >= 0) sliceAt(start, header, tail, tailOffset, readAt)?.let { into += EmbeddedTag.Id3(it) }
         }
-        val range = findWavTagChunk(header, tail, tailOffset, readAt) ?: return
-        val bytes = if (range.last <= header.size) {
-            header.copyOfRange(range.first, range.last)
-        } else {
-            // 块体（可能含大封面）越出窗口：按块头给出的长度定点读取
-            readAt?.invoke(range.first.toLong(), range.last - range.first)
+        findWavTagChunk(header, tail, tailOffset, readAt)
+            ?.let { readRange(it, header, tail, tailOffset, readAt) }
+            ?.let { into += EmbeddedTag.Id3(it) }
+        findWavInfoChunk(header, tail, tailOffset, readAt)
+            ?.let { readRange(it, header, tail, tailOffset, readAt) }
+            ?.let { into += EmbeddedTag.Info(parseInfoItems(it, 0)) }
+    }
+
+    // 读取绝对区间 [range) 的字节：落在头窗内就地截取，越出窗口时按块头给出的长度定点读取
+    private fun readRange(
+        range: IntRange,
+        header: ByteArray,
+        tail: ByteArray?,
+        tailOffset: Long,
+        readAt: ((Long, Int) -> ByteArray?)?,
+    ): ByteArray? {
+        if (range.last <= header.size) return header.copyOfRange(range.first, range.last)
+        if (tail != null) {
+            val localStart = range.first - tailOffset
+            val localEnd = range.last - tailOffset
+            if (localStart >= 0 && localEnd <= tail.size) {
+                return tail.copyOfRange(localStart.toInt(), localEnd.toInt())
+            }
         }
-        if (bytes != null) into += EmbeddedTag.Id3(bytes)
+        // 块体（可能含大封面）越出窗口：按块头给出的长度定点读取
+        return readAt?.invoke(range.first.toLong(), range.last - range.first)
     }
 
     // 按 WAV 块表定位 "ID3 " 块，返回其载荷的绝对区间（终点不含）。
@@ -466,6 +526,46 @@ internal object LosslessContainerTags {
             p += WAV_CHUNK_HEADER_BYTES + size + (size and 1)
         }
         return null
+    }
+
+    // 按 WAV 块表定位 LIST/INFO 块，返回其项区的绝对区间（终点不含）。
+    // 定位方式与标签块一致：只按块头推进，块头落在头窗或尾窗内就地取，落在窗口外按绝对偏移定点读取
+    private fun findWavInfoChunk(
+        header: ByteArray,
+        tail: ByteArray?,
+        tailOffset: Long,
+        readAt: ((Long, Int) -> ByteArray?)?,
+    ): IntRange? {
+        val fileEnd = if (tail != null) tailOffset + tail.size else header.size.toLong()
+        var p = RIFF_HEADER_BYTES.toLong()
+        while (p + WAV_CHUNK_HEADER_BYTES <= fileEnd) {
+            val chunk = windowAt(p, WAV_CHUNK_HEADER_BYTES, header, tail, tailOffset, readAt) ?: return null
+            val size = readU32LE(chunk, 4)
+            if (size < 0 || p + WAV_CHUNK_HEADER_BYTES + size > fileEnd) return null
+            if (String(chunk, 0, 4, StandardCharsets.ISO_8859_1) == LIST_CHUNK_ID && size >= 4) {
+                val form = windowAt(p + WAV_CHUNK_HEADER_BYTES, 4, header, tail, tailOffset, readAt) ?: return null
+                if (String(form, 0, 4, StandardCharsets.ISO_8859_1) == INFO_FORM_TYPE) {
+                    val start = p + WAV_CHUNK_HEADER_BYTES + 4
+                    return start.toInt()..(p + WAV_CHUNK_HEADER_BYTES + size).toInt()
+                }
+            }
+            p += WAV_CHUNK_HEADER_BYTES + size + (size and 1)
+        }
+        return null
+    }
+
+    // 解析 LIST/INFO 项区：项 = 标识(4) + 小端长度 + 值，块按偶数字节对齐；结构不成立即终止
+    private fun parseInfoItems(bytes: ByteArray, from: Int): List<Pair<String, ByteArray>> {
+        val items = mutableListOf<Pair<String, ByteArray>>()
+        var p = from
+        while (p + 8 <= bytes.size) {
+            val id = String(bytes, p, 4, StandardCharsets.ISO_8859_1)
+            val size = readU32LE(bytes, p + 4)
+            if (size < 0 || p + 8 + size > bytes.size) break
+            items += id to bytes.copyOfRange(p + 8, p + 8 + size)
+            p += 8 + size + (size and 1)
+        }
+        return items
     }
 
     // 取文件 [offset, offset + count) 的字节：优先截取已有窗口，窗口未完整覆盖时定点读取
@@ -643,10 +743,14 @@ internal object LosslessContainerTags {
         writeSizeBE(out, size, sizeBytes)
     }
 
-    // 容器内承载标签的两种形态：内嵌 ID3v2 标签、APEv2 条目区
+    // 文本标签：标题/艺术家/专辑，任一字段都可能为 null（容器内未写该字段）
+    class TextTag(val title: String?, val artist: String?, val album: String?)
+
+    // 容器内承载标签的三种形态：内嵌 ID3v2 标签、APEv2 条目区、WAV 的 LIST/INFO 项区
     private sealed interface EmbeddedTag {
         class Id3(val bytes: ByteArray) : EmbeddedTag
         class Ape(val items: List<ApeItem>) : EmbeddedTag
+        class Info(val items: List<Pair<String, ByteArray>>) : EmbeddedTag
     }
 
     private class ApeItem(val key: String, val binary: Boolean, val value: ByteArray)
@@ -775,6 +879,14 @@ internal object LosslessContainerTags {
     private const val WAV_DATA_CHUNK_ID = "data"
     private const val LIST_CHUNK_ID = "LIST"
     private const val INFO_FORM_TYPE = "INFO"
+    // LIST/INFO 的项标识：标题、艺术家、专辑
+    private const val INFO_TITLE_ID = "INAM"
+    private const val INFO_ARTIST_ID = "IART"
+    private const val INFO_ALBUM_ID = "IPRD"
+    // ID3 文本帧：标题、艺术家、专辑
+    private const val TITLE_FRAME_ID = "TIT2"
+    private const val ARTIST_FRAME_ID = "TPE1"
+    private const val ALBUM_FRAME_ID = "TALB"
 
     private const val ID3_HEADER_BYTES = 10
     private const val TAG_READ_BYTES = 4 * 1024 * 1024

@@ -150,6 +150,31 @@ class Id3v2TagTest {
     }
 
     @Test
+    fun textFrameIsWrittenAsUtf8InV4AndUtf16InV3() {
+        val v4 = Id3v2Tag.buildTag(
+            frames {
+                Id3v2Tag.textFrame(this, "TIT2", "标题", 4)
+                Id3v2Tag.textFrame(this, "TPE1", "艺术家", 4)
+                Id3v2Tag.textFrame(this, "TALB", "专辑", 4)
+            },
+            4,
+        )
+        assertEquals("标题", Id3v2Tag.readTextFrame(v4, 0, "TIT2"))
+        assertEquals("艺术家", Id3v2Tag.readTextFrame(v4, 0, "TPE1"))
+        assertEquals("专辑", Id3v2Tag.readTextFrame(v4, 0, "TALB"))
+        // v2.3 的文本为带 BOM 的 UTF-16，按原版本读回才能拿到同样的文本
+        val v3 = Id3v2Tag.buildTag(frames { Id3v2Tag.textFrame(this, "TIT2", "标题", 3) }, 3)
+        assertEquals("标题", Id3v2Tag.readTextFrame(v3, 0, "TIT2"))
+    }
+
+    @Test
+    fun textFrameIsAbsentWhenThereIsNoSuchFrame() {
+        val tag = Id3v2Tag.buildTag(frames { Id3v2Tag.textFrame(this, "TIT2", "标题", 4) }, 4)
+        assertNull(Id3v2Tag.readTextFrame(tag, 0, "TPE1"))
+        assertNull(Id3v2Tag.readTextFrame(tag, 0, "TALB"))
+    }
+
+    @Test
     fun apicSkipsMimeTypeAndDescriptor() {
         val cover = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 1, 2, 3, 4)
         val tag = Id3v2Tag.buildTag(frames { Id3v2Tag.apicFrame(this, cover, 4) }, 4)

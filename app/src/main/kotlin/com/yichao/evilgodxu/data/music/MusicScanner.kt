@@ -8,6 +8,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import com.yichao.evilgodxu.data.music.api.stableIdFromString
+import com.yichao.evilgodxu.data.music.metadata.MusicEmbeddedTagReader
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.R
@@ -23,10 +24,19 @@ object MusicScanner {
         val retriever = MediaMetadataRetriever()
         try {
             retriever.setDataSource(context, uri)
-            val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
-                ?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment ?: context.getString(R.string.music_scanner_external_music)
-            val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
-                ?.takeIf { it.isNotBlank() } ?: context.getString(R.string.music_scanner_unknown_artist)
+            val unknownArtist = context.getString(R.string.music_scanner_unknown_artist)
+            val segment = uri.lastPathSegment.orEmpty()
+            var title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+                ?.takeIf { it.isNotBlank() } ?: segment.ifBlank { context.getString(R.string.music_scanner_external_music) }
+            var artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+                ?.takeIf { it.isNotBlank() } ?: unknownArtist
+            // 外部音频同样可能是平台读不到标签的容器（WAV 等），此时标题取自路径末段，改读文件内嵌标签
+            if (isPlatformTagMissing(title, artist, segment.substringBeforeLast('.'), unknownArtist)) {
+                MusicEmbeddedTagReader.read(context, "", uri.toString())?.let { embedded ->
+                    title = embedded.title?.takeIf { it.isNotBlank() } ?: title
+                    artist = embedded.artist?.takeIf { it.isNotBlank() } ?: artist
+                }
+            }
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
             // 用 64 位稳定哈希生成外部音频 id，降低不同 URI 的碰撞概率
@@ -80,6 +90,7 @@ object MusicScanner {
                 null,
                 "${MediaStore.Audio.Media.TITLE} ASC"
             )?.use { cursor ->
+                val unknownArtist = context.getString(R.string.music_scanner_unknown_artist)
                 val idIdx = cursor.getColumnIndex(MediaStore.Audio.Media._ID)
                 val titleIdx = cursor.getColumnIndex(MediaStore.Audio.Media.TITLE)
                 val artistIdx = cursor.getColumnIndex(MediaStore.Audio.Media.ARTIST)
@@ -98,14 +109,25 @@ object MusicScanner {
                         MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                         id
                     )
-                    val title = cursor.getString(titleIdx)?.takeIf { it.isNotBlank() }
-                        ?: path.substringAfterLast('/').substringBeforeLast('.').ifBlank { context.getString(R.string.music_scanner_unknown_song) }
-                    val artist = if (artistIdx >= 0) {
-                        cursor.getString(artistIdx)?.takeIf { it.isNotBlank() } ?: context.getString(R.string.music_scanner_unknown_artist)
-                    } else context.getString(R.string.music_scanner_unknown_artist)
+                    val fileName = path.substringAfterLast('/').substringBeforeLast('.')
+                    var title = cursor.getString(titleIdx)?.takeIf { it.isNotBlank() }
+                        ?: fileName.ifBlank { context.getString(R.string.music_scanner_unknown_song) }
+                    var artist = if (artistIdx >= 0) {
+                        cursor.getString(artistIdx)?.takeIf { it.isNotBlank() } ?: unknownArtist
+                    } else unknownArtist
                     val duration = if (durationIdx >= 0) cursor.getLong(durationIdx) else 0L
                     val albumId = if (albumIdIdx >= 0) cursor.getLong(albumIdIdx) else 0L
-                    val albumName = if (albumNameIdx >= 0) cursor.getString(albumNameIdx).orEmpty() else ""
+                    var albumName = if (albumNameIdx >= 0) cursor.getString(albumNameIdx).orEmpty() else ""
+                    // 平台没读出标签的曲目（标题仍是文件名、艺术家缺失）改读音频内嵌标签。
+                    // WAV 等容器的标签平台提取器读不到，此时 MediaStore 只留文件名派生的标题；
+                    // 标题已由平台读出时不再读文件，避免为全库逐曲多一次 IO
+                    if (isPlatformTagMissing(title, artist, fileName, unknownArtist)) {
+                        MusicEmbeddedTagReader.read(context, path, audioUri.toString())?.let { embedded ->
+                            title = embedded.title?.takeIf { it.isNotBlank() } ?: title
+                            artist = embedded.artist?.takeIf { it.isNotBlank() } ?: artist
+                            albumName = embedded.album?.takeIf { it.isNotBlank() } ?: albumName
+                        }
+                    }
                     // DATE_MODIFIED 以秒为单位，统一转为毫秒供排序使用
                     val modifiedMs = if (modifiedIdx >= 0) cursor.getLong(modifiedIdx) * 1000L else 0L
                     tracks.add(
@@ -129,6 +151,19 @@ object MusicScanner {
         tracks
     }
 }
+
+// 平台是否未读出文件内标签：标题仍等于文件名、艺术家为空或平台/本应用的未知占位值。
+// MediaProvider 对读不到标签的音频按文件名填 TITLE、按 <unknown> 填 ARTIST，
+// 这类曲目的标签很可能写在平台提取器读不到的位置，值得再读一次音频文件本身
+private fun isPlatformTagMissing(
+    title: String,
+    artist: String,
+    fileName: String,
+    unknownArtist: String,
+): Boolean = title == fileName ||
+    artist.isBlank() ||
+    artist == unknownArtist ||
+    artist == MediaStore.UNKNOWN_STRING
 
 // 音频文件路径片段标记：命中即视为非音乐的应用程序资源/解压包音频（如游戏资源包音效）
 private val NON_MUSIC_PATH_MARKERS = listOf(

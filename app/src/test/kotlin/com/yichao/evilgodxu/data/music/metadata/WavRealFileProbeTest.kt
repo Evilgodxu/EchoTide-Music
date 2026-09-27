@@ -42,13 +42,29 @@ class WavRealFileProbeTest {
         val headerCover = LosslessContainerTags.readCover(header, null, 0L, null)
         val lyrics = LosslessContainerTags.readLyrics(header, tail, tailOffset, ::readRange)
         val cover = LosslessContainerTags.readCover(header, tail, tailOffset, ::readRange)
+        val text = LosslessContainerTags.readText(header, tail, tailOffset, ::readRange)
         report.appendLine("仅头窗读封面: ${describe(headerCover)}")
         report.appendLine("头窗+尾窗读歌词: ${lyrics?.lineSequence()?.count() ?: 0} 行, 首行=${lyrics?.lineSequence()?.firstOrNull()}")
         report.appendLine("头窗+尾窗读封面: ${describe(cover)}")
+        report.appendLine("头窗+尾窗读文本标签: 标题=${text?.title} 艺术家=${text?.artist} 专辑=${text?.album}")
         assertNotNull("容器内 ID3 块的歌词未读回", lyrics)
         assertTrue("歌词内容异常", lyrics!!.contains("[") || lyrics.isNotBlank())
         assertNotNull("容器内 ID3 块的封面未读回", cover)
         assertArrayEquals("封面字节与文件内 APIC 不一致", apicOf(sample), cover)
+        assertNotNull("容器内 ID3 块的文本标签未读回", text)
+        assertEquals("标题未读回", "等一分钟", text!!.title)
+        assertEquals("艺术家未读回", "徐誉滕", text.artist)
+        assertEquals("专辑未读回", "滕.爱", text.album)
+
+        // 小窗口（与 App 侧 MusicEmbeddedTagReader 的窗口一致）：块头与块体落在窗口外时按绝对偏移定点读取
+        val smallHeader = sample.inputStream().use { LocalAudioSource.readUpTo(it, SMALL_HEADER_CAP) }
+        val smallTailOffset = (size - SMALL_TAIL_CAP).coerceAtLeast(0)
+        val smallTail = readRange(smallTailOffset, (size - smallTailOffset).toInt())!!
+        val smallText = LosslessContainerTags.readText(smallHeader, smallTail, smallTailOffset, ::readRange)
+        report.appendLine("小窗口读文本标签: 标题=${smallText?.title} 艺术家=${smallText?.artist} 专辑=${smallText?.album}")
+        assertEquals("小窗口下标题未读回", "等一分钟", smallText?.title)
+        assertEquals("小窗口下艺术家未读回", "徐誉滕", smallText?.artist)
+        assertEquals("小窗口下专辑未读回", "滕.爱", smallText?.album)
 
         // ---- 写：整文件重写，音频体按区间流式复制 ----
         val source = sample.readBytes()
@@ -81,8 +97,12 @@ class WavRealFileProbeTest {
             // 读回：新值可读、旧值不留存、既有帧与 INFO 项保留
             val readBackLyrics = LosslessContainerTags.readLyrics(rewritten, rewritten, 0L, null)
             val readBackCover = LosslessContainerTags.readCover(rewritten, rewritten, 0L, null)
+            val readBackText = LosslessContainerTags.readText(rewritten, rewritten, 0L, null)
             assertEquals("写回后歌词不一致", lyrics, readBackLyrics)
             assertArrayEquals("写回后封面不一致", cover, readBackCover)
+            assertEquals("写回后标题不一致", "探针标题", readBackText?.title)
+            assertEquals("写回后艺术家不一致", "探针艺术家", readBackText?.artist)
+            assertEquals("写回后专辑不一致", "探针专辑", readBackText?.album)
             val text = String(rewritten, StandardCharsets.UTF_8)
             val infoText = String(payloadOf(rewritten, chunks, "LIST"), StandardCharsets.UTF_8)
             report.appendLine("写回校验: TIT2=${text.contains("探针标题")} TPE1=${text.contains("探针艺术家")} " +
@@ -168,5 +188,8 @@ class WavRealFileProbeTest {
     private companion object {
         const val HEADER_CAP = 512 * 1024
         const val TAIL_CAP = 2 * 1024 * 1024
+        // 文本标签读取的窗口：与 MusicEmbeddedTagReader 一致
+        const val SMALL_HEADER_CAP = 64 * 1024
+        const val SMALL_TAIL_CAP = 512 * 1024
     }
 }
