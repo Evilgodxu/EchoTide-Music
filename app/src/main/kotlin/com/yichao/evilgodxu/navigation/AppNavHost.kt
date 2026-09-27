@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +24,8 @@ import com.yichao.evilgodxu.screens.home.HomeScreen
 import com.yichao.evilgodxu.screens.settings.SettingsScreen
 import com.yichao.evilgodxu.screens.spectrum.SpectrumScreen
 import com.yichao.evilgodxu.screens.typography.TypographyScreen
+import com.yichao.evilgodxu.theme.SystemBarAppearance
+import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 
 // 导航宿主：统一走路由栈
 @Composable
@@ -33,6 +36,13 @@ fun AppNavHost(
     val backStack = rememberNavBackStack(Home)
     val context = LocalContext.current
     val stateHolder = LocalMusicPanelStateHolder.current
+    // 竖屏首页沉浸（仅隐藏状态栏）：由栈顶目的地驱动。若等到首页组合销毁才撤销，
+    // 沉浸状态会在切换动画期间残留，使目标页标题栏先按零内边距嵌入状态栏区域、再整体下移
+    val isHomeOnTop = backStack.lastOrNull() is Home
+    val isPortrait = !rememberWindowLandscape()
+    LaunchedEffect(isHomeOnTop, isPortrait) {
+        SystemBarAppearance.isHomePortraitImmersive = isHomeOnTop && isPortrait
+    }
     // LocalContext 已被本地化包装，宿主 Activity 需从注册表所有者获取
     val activity = LocalActivityResultRegistryOwner.current as? Activity
     // 预取提示文案，配置变化时由 Compose 自动更新，避免在回调中读取过期资源

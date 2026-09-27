@@ -1,12 +1,16 @@
 package com.yichao.evilgodxu.screens.home.compact
 
 import android.app.Activity
+import android.view.View
+import android.view.WindowInsets as AndroidWindowInsets
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -19,7 +23,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.data.music.panel.performSearch
 import com.yichao.evilgodxu.R
@@ -40,6 +47,32 @@ private const val TopBarAutoHideDelayMs = 2000L
 // 竖屏标题栏收起/唤出的淡入淡出时长：与横屏标题栏一致
 private const val TopBarFadeDurationMs = 300
 
+// 竖屏沉浸隐藏状态栏后，系统上报的顶部内边距归零。此处按状态栏实际高度预留该区域：
+// 标题栏与内容不再嵌入状态栏区域，且与其它页面顶部基准一致，切换页面时不会出现整体位移
+@Composable
+private fun rememberStatusBarTopInsets(): WindowInsets {
+    val view = LocalView.current
+    val density = LocalDensity.current
+    var insets by remember { mutableStateOf(WindowInsets(0.dp)) }
+    DisposableEffect(view, density) {
+        fun refresh() {
+            val topPx = view.rootWindowInsets
+                ?.getInsetsIgnoringVisibility(AndroidWindowInsets.Type.statusBars())
+                ?.top ?: 0
+            val next = with(density) {
+                WindowInsets(left = 0.dp, top = topPx.toDp(), right = 0.dp, bottom = 0.dp)
+            }
+            if (insets != next) insets = next
+        }
+        // 状态栏高度随窗口尺寸（旋转、分屏、自由窗口改尺寸）变化，以布局结果为准重新取值
+        val listener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> refresh() }
+        view.addOnLayoutChangeListener(listener)
+        refresh()
+        onDispose { view.removeOnLayoutChangeListener(listener) }
+    }
+    return insets
+}
+
 // 窄屏组装器：播放器页沉浸式标题栏 + 竖屏播放器主体
 @Composable
 internal fun CompactAssembly(
@@ -55,6 +88,8 @@ internal fun CompactAssembly(
 ) {
     val playbackState = panelState.playbackState.state
     val context = LocalContext.current
+    // 沉浸隐藏状态栏时仍按状态栏高度预留顶部空间：标题栏与内容不嵌入状态栏区域
+    val topBarWindowInsets = rememberStatusBarTopInsets()
     // 标题/艺术家在线搜索等协程作用域
     val scope = rememberCoroutineScope()
     val currentTrackId = playbackState.currentTrack?.id
@@ -123,6 +158,7 @@ internal fun CompactAssembly(
                 onToggleLandscape = onToggleLandscape,
                 onOpenSettings = onOpenSettings,
                 interactive = topBarVisible || !autoHideTopBar,
+                windowInsets = topBarWindowInsets,
                 modifier = Modifier.graphicsLayer {
                     // 收起时上移淡出并移出触摸范围，布局尺寸不变以保证骨架顶部内边距稳定
                     alpha = topBarAlpha
