@@ -25,6 +25,9 @@ internal object MusicEmbeddedLyricReader {
     private const val ID3_HEADER_BYTES = 10
     // M4A data 原子头长度：类型(4) + 区域设置(4) + 版本与标志(8)
     private const val DATA_ATOM_HEADER_BYTES = 16
+    // Ogg 注释包标记：Opus 为包标识 "OpusTags"，Vorbis 为包类型 3 + "vorbis"
+    private const val OPUS_COMMENT_MARKER = "OpusTags"
+    private const val VORBIS_COMMENT_MARKER = "\u0003vorbis"
 
     suspend fun read(context: Context, track: MusicTrack): List<LyricLine> = withContext(Dispatchers.IO) {
         try {
@@ -102,13 +105,14 @@ internal object MusicEmbeddedLyricReader {
         return null
     }
 
-    // OGG(Opus/Vorbis)：定位注释包标记后解析其后的 Vorbis 注释结构
+    // OGG(Opus/Vorbis)：Opus 的注释包以 "OpusTags" 起头，Vorbis 的注释头包为
+    // 「包类型 3 + "vorbis"」，定位到标记后解析其后的 Vorbis 注释结构
     private fun extractOggLyrics(bytes: ByteArray): String? {
-        val opus = bytes.indexOfAscii("OpusTags")
-        val vorbis = bytes.indexOfAscii("vorbis_comment")
+        val opus = bytes.indexOfAscii(OPUS_COMMENT_MARKER)
+        val vorbis = bytes.indexOfAscii(VORBIS_COMMENT_MARKER)
         val (start, headerLength) = when {
-            opus >= 0 -> opus to "OpusTags".length
-            vorbis >= 0 -> vorbis to "vorbis_comment".length
+            opus >= 0 -> opus to OPUS_COMMENT_MARKER.length
+            vorbis >= 0 -> vorbis to VORBIS_COMMENT_MARKER.length
             else -> return null
         }
         return parseVorbisLyrics(bytes, start + headerLength, bytes.size - start - headerLength)

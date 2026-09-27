@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.data.music.metadata
 
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.nio.charset.StandardCharsets
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -38,8 +39,7 @@ class MusicEmbeddedLyricReaderTest {
     }
 
     @Test
-    fun flacVorbisCommentLyricsIsDecoded() {
-        val comment = ByteArrayOutputStream()
+    fun flacVorbisCommentLyricsIsDecoded() {        val comment = ByteArrayOutputStream()
         val vendor = "EdgeGesture".toByteArray(StandardCharsets.UTF_8)
         val fields = listOf("TITLE=标题", "LYRICS=$lyrics")
         comment.write(intLE(vendor.size)); comment.write(vendor); comment.write(intLE(fields.size))
@@ -51,6 +51,14 @@ class MusicEmbeddedLyricReaderTest {
         val length = byteArrayOf((body.size shr 16).toByte(), (body.size shr 8).toByte(), body.size.toByte())
         val block = byteArrayOf(0x84.toByte()) + length + body
         assertEquals(lyrics, MusicEmbeddedLyricReader.extractLyrics("fLaC".toByteArray() + block))
+    }
+
+    @Test
+    fun oggVorbisLyricsFromEncodedFixtureAreDecoded() {
+        // 真实 Ogg Vorbis 样本：注释头包的 LYRICS 字段由生成脚本写入（页 CRC 同步重算）。
+        // 注释头包以「包类型 3 + vorbis」起头，不含任何 "vorbis_comment" 字面
+        val bytes = File("src/test/resources/audio/sample.ogg").readBytes()
+        assertEquals("[00:01.00]第一行\n[00:03.50]第二行", MusicEmbeddedLyricReader.extractLyrics(bytes))
     }
 
     // 512KB 头窗内的 MP4：ftyp 原子占位到 lyricsAtomOffset 处，其后的 ©lyr 原子承载歌词，

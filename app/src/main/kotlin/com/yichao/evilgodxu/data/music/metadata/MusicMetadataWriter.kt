@@ -31,6 +31,12 @@ internal object MusicMetadataWriter {
     // 流式复制音频躯干时的读缓冲大小
     private const val STREAM_BUFFER_SIZE = 64 * 1024
 
+    // Ogg 单页段数上限：段表为单字节长度数组，一个页面最多承载 255 段
+    private const val MAX_SEGMENTS = 255
+
+    // Ogg 页头中 CRC 字段的偏移（页头 27 字节内）
+    private const val CRC_FIELD_OFFSET = 22
+
     suspend fun writeCover(context: Context, track: MusicTrack, coverBytes: ByteArray): Boolean =
         withContext(Dispatchers.IO) {
             write(context, track.path) { bytes ->
@@ -111,11 +117,7 @@ internal object MusicMetadataWriter {
             }
             // content URI 无法按可寻址文件流复制躯干，在线缓存文件通常较小，
             // 把头部与躯干拼回完整字节后一次写入
-            val bytes = when (result) {
-                is WriteResult.Full -> result.bytes
-                is WriteResult.HeadAndTail -> result.head + source.copyOfRange(result.audioStart, source.size)
-                is WriteResult.HeadAndRange -> result.head + source.copyOfRange(result.bodyStart, result.bodyEnd) + result.tail
-            }
+            val bytes = assemble(result, source)
             val output = resolver.openOutputStream(uri, "wt") ?: run {
                 CrashLogManager.logException("MusicMetadataWriter", "经 content URI 写入元数据失败: 无法打开输出流, uri=$uriString")
                 return false
@@ -202,6 +204,25 @@ internal object MusicMetadataWriter {
             CrashLogManager.logException("MusicMetadataWriter", "写入音频文件元数据失败", e)
             false
         }
+    }
+
+    // 元数据写入的纯字节入口：入参为完整文件字节，返回重写后的完整文件字节；
+    // 文件为空、格式不支持或无需写入时返回 null。与文件路径写法的唯一区别是
+    // 音频躯干按字节复制而非按区间流式复制，故小文件的就地重写与测试可共用同一条实现
+    internal fun writeMetadataBytes(
+        bytes: ByteArray,
+        title: String?,
+        artist: String?,
+        album: String?,
+        cover: ByteArray?,
+        lyrics: String?,
+    ): ByteArray? = writeMetadata(bytes, title, artist, album, cover, lyrics)?.let { assemble(it, bytes) }
+
+    // 按 WriteResult 的分段结构拼回完整文件字节：头部字面字节 + 音频体区间 + 尾部字面字节
+    private fun assemble(result: WriteResult, source: ByteArray): ByteArray = when (result) {
+        is WriteResult.Full -> result.bytes
+        is WriteResult.HeadAndTail -> result.head + source.copyOfRange(result.audioStart, source.size)
+        is WriteResult.HeadAndRange -> result.head + source.copyOfRange(result.bodyStart, result.bodyEnd) + result.tail
     }
 
     // lyrics 为增强 LRC 文本；各字段 null 表示保留文件原值
@@ -490,7 +511,7 @@ internal object MusicMetadataWriter {
         if (artist != null) fields += "ARTIST=$artist"
         if (album != null) fields += "ALBUM=$album"
         if (lyrics != null) fields += "LYRICS=$lyrics"
-        if (cover != null) fields += "METADATA_BLOCK_PICTURE=" + android.util.Base64.encodeToString(pictureBlock(cover), android.util.Base64.NO_WRAP)
+        if (cover != null) fields += "METADATA_BLOCK_PICTURE=" + java.util.Base64.getEncoder().encodeToString(pictureBlock(cover))
         val out = ByteArrayOutputStream(); out.write("OpusTags".toByteArray()); out.write(intBytesLE(vendor.size)); out.write(vendor); out.write(intBytesLE(fields.size))
         fields.forEach { val bytes = it.toByteArray(); out.write(intBytesLE(bytes.size)); out.write(bytes) }
         return out.toByteArray()
@@ -624,7 +645,8 @@ internal object MusicMetadataWriter {
         }
     }
 
-    private data class OggPacket(var data: ByteArray, val granulePosition: Long)
+    // endPage 为包结束所在的原页面序号：改写只动标签包的内容，页面归属须原样保留
+    private data class OggPacket(var data: ByteArray, val granulePosition: Long, val endPage: Int)
 
     private data class OggPage(
         val headerType: Int,
@@ -636,16 +658,15 @@ internal object MusicMetadataWriter {
 
     private data class OggFile(
         val packets: MutableList<OggPacket>,
-        val pages: List<OggPage>,
         val serial: Int,
         val firstSequence: Int,
+        val firstHeaderType: Int,
     ) {
         companion object {
             fun parse(bytes: ByteArray): OggFile? {
                 val pages = mutableListOf<OggPage>()
                 val packets = mutableListOf<OggPacket>()
                 val packet = ByteArrayOutputStream()
-                var packetGranule = 0L
                 var p = 0
                 var serial: Int? = null
                 var expectedSequence: Long? = null
@@ -670,75 +691,99 @@ internal object MusicMetadataWriter {
                         val length = bytes[p + 27 + index].toInt() and 0xff
                         packet.write(bytes, bodyOffset, length)
                         bodyOffset += length
+                        // granule 记录的是「包结束所在页面」的位置：Ogg 把页的 granule 归于
+                        // 该页内最后一个完整包，标签包的 granule 因而是 0
                         if (length < 255) {
-                            packetGranule = granule
-                            packets += OggPacket(packet.toByteArray(), packetGranule)
+                            packets += OggPacket(packet.toByteArray(), granule, pages.lastIndex)
                             packet.reset()
                         }
                     }
                     p = pageEnd
                 }
                 if (p != bytes.size || packet.size() != 0 || pages.isEmpty()) return null
-                return OggFile(packets, pages, serial!!, pages.first().sequence)
+                return OggFile(packets, serial!!, pages.first().sequence, pages.first().headerType)
             }
 
             fun build(file: OggFile): ByteArray {
-                val units = mutableListOf<Pair<ByteArray, Boolean>>()
-                file.packets.forEach { packet ->
-                    var offset = 0
-                    while (offset < packet.data.size) {
-                        val length = minOf(255, packet.data.size - offset)
-                        units += packet.data.copyOfRange(offset, offset + length) to (offset + length == packet.data.size && length < 255)
-                        offset += length
-                    }
-                    if (packet.data.isEmpty() || packet.data.size % 255 == 0) units += ByteArray(0) to true
-                }
                 val pages = mutableListOf<ByteArray>()
-                var unitIndex = 0
-                var pageIndex = 0
-                var packetContinues = false
-                while (unitIndex < units.size) {
-                    val capacity = if (pageIndex < file.pages.size) file.pages[pageIndex].segmentCount else 255
-                    val count = minOf(capacity, units.size - unitIndex)
-                    val metadata = file.pages.getOrNull(pageIndex) ?: file.pages.last()
-                    val lacing = units.subList(unitIndex, unitIndex + count)
-                    val body = ByteArrayOutputStream()
-                    lacing.forEach { body.write(it.first) }
-                    val headerType = (metadata.headerType and 0xf8) or
-                        (if (packetContinues) 1 else 0) or
-                        (if (pageIndex == 0 && metadata.headerType and 2 != 0) 2 else 0)
-                    var granule = -1L
-                    lacing.forEachIndexed { index, unit ->
-                        if (unit.second) granule = file.packetsGranuleAt(unitIndex + index)
+                var granule = 0L
+                var continued = false
+                var packetIndex = 0
+                // 按「包 → 原页面」归属成页：标签包长度变化只改变该页的段数，
+                // 不会把后续音频包吸到头包所在的页上——Ogg Opus 要求头两页 granule 为 0
+                while (packetIndex < file.packets.size) {
+                    val endPage = file.packets[packetIndex].endPage
+                    val group = mutableListOf<OggPacket>()
+                    while (packetIndex < file.packets.size && file.packets[packetIndex].endPage == endPage) {
+                        group += file.packets[packetIndex]
+                        packetIndex++
                     }
-                    if (granule == -1L && pageIndex < file.pages.size && !packetContinues) granule = metadata.granulePosition
-                    val page = ByteArrayOutputStream()
-                    page.write("OggS".toByteArray()); page.write(0); page.write(headerType)
-                    page.write(longBytesLE(granule)); page.write(intBytesLE(file.serial)); page.write(intBytesLE(file.firstSequence + pageIndex)); page.write(intBytesLE(0)); page.write(count)
-                    lacing.forEach { page.write(it.first.size) }; page.write(body.toByteArray())
-                    val result = page.toByteArray(); val crc = oggCrc(result)
-                    result[22] = crc.toByte(); result[23] = (crc shr 8).toByte(); result[24] = (crc shr 16).toByte(); result[25] = (crc shr 24).toByte()
-                    pages += result
-                    packetContinues = !lacing.last().second
-                    unitIndex += count; pageIndex++
+                    val units = lacingOf(group)
+                    var offset = 0
+                    while (offset < units.size) {
+                        val count = minOf(MAX_SEGMENTS, units.size - offset)
+                        val lacing = units.subList(offset, offset + count)
+                        val completed = lacing.lastOrNull { it.packet >= 0 }
+                        val pageGranule = if (completed != null) group[completed.packet].granulePosition else granule
+                        val headerType = (if (continued) 1 else 0) or
+                            (if (pages.isEmpty() && file.firstHeaderType and 2 != 0) 2 else 0)
+                        pages += buildPage(headerType, pageGranule, file.serial, file.firstSequence + pages.size, lacing)
+                        // 末段不是包末即包跨页，下一页须标记续包
+                        continued = lacing.last().packet < 0
+                        granule = pageGranule
+                        offset += count
+                    }
                 }
                 if (pages.isNotEmpty()) {
-                    val last = pages.last(); last[5] = (last[5].toInt() and 0xff or 4).toByte()
-                    last[22] = 0; last[23] = 0; last[24] = 0; last[25] = 0
-                    val crc = oggCrc(last); last[22] = crc.toByte(); last[23] = (crc shr 8).toByte(); last[24] = (crc shr 16).toByte(); last[25] = (crc shr 24).toByte()
+                    val last = pages.last()
+                    last[5] = (last[5].toInt() and 0xff or 4).toByte()
+                    patchCrc(last)
                 }
                 return pages.fold(ByteArrayOutputStream()) { out, page -> out.apply { write(page) } }.toByteArray()
             }
 
-            private fun OggFile.packetsGranuleAt(unitIndex: Int): Long {
-                var index = 0
-                packets.forEach { packet ->
-                    val units = (packet.data.size + 254) / 255 + if (packet.data.isEmpty() || packet.data.size % 255 == 0) 1 else 0
-                    if (unitIndex < index + units) return packet.granulePosition
-                    index += units
+            // 段表：每 255 字节一段；包长度为 255 的整数倍（含 0）时补一个空段标记包结束
+            private fun lacingOf(packets: List<OggPacket>): List<LacingUnit> {
+                val units = mutableListOf<LacingUnit>()
+                packets.forEachIndexed { index, packet ->
+                    var offset = 0
+                    while (offset < packet.data.size) {
+                        val length = minOf(255, packet.data.size - offset)
+                        val endsPacket = offset + length == packet.data.size && length < 255
+                        units += LacingUnit(packet.data.copyOfRange(offset, offset + length), if (endsPacket) index else -1)
+                        offset += length
+                    }
+                    if (packet.data.isEmpty() || packet.data.size % 255 == 0) units += LacingUnit(ByteArray(0), index)
                 }
-                return -1L
+                return units
             }
+
+            private fun buildPage(
+                headerType: Int,
+                granule: Long,
+                serial: Int,
+                sequence: Int,
+                lacing: List<LacingUnit>,
+            ): ByteArray {
+                val page = ByteArrayOutputStream()
+                page.write("OggS".toByteArray(StandardCharsets.US_ASCII)); page.write(0); page.write(headerType)
+                page.write(longBytesLE(granule)); page.write(intBytesLE(serial)); page.write(intBytesLE(sequence))
+                page.write(intBytesLE(0)); page.write(lacing.size)
+                lacing.forEach { page.write(it.bytes.size) }
+                lacing.forEach { page.write(it.bytes) }
+                val result = page.toByteArray()
+                patchCrc(result)
+                return result
+            }
+
+            private fun patchCrc(page: ByteArray) {
+                val crc = oggCrc(page)
+                page[22] = crc.toByte(); page[23] = (crc shr 8).toByte()
+                page[24] = (crc shr 16).toByte(); page[25] = (crc shr 24).toByte()
+            }
+
+            // 段与其所属包在成页分组内的序号；-1 表示该段不是包末段
+            private data class LacingUnit(val bytes: ByteArray, val packet: Int)
         }
     }
 
@@ -768,7 +813,20 @@ internal object MusicMetadataWriter {
         }
     }
 
-    private fun oggCrc(bytes: ByteArray): Int { var crc = 0; bytes.forEachIndexed { index, value -> if (index in 22..25) return@forEachIndexed; crc = crc xor ((value.toInt() and 0xff) shl 24); repeat(8) { crc = if (crc and 0x80000000.toInt() != 0) (crc shl 1) xor 0x04c11db7 else crc shl 1 } }; return crc }
+    // Ogg 页面校验和：多项式 0x04C11DB7，起始值 0、不反转、不异或。
+    // 计算时 CRC 字段按零参与——跳过这 4 字节等于少做 32 次移位，算出的校验和必然无效，
+    // 而 Ogg 解码器会校验每页 CRC，无效页会让整个流无法打开
+    private fun oggCrc(bytes: ByteArray): Int {
+        var crc = 0
+        bytes.forEachIndexed { index, value ->
+            val octet = if (index in CRC_FIELD_OFFSET until CRC_FIELD_OFFSET + 4) 0 else value.toInt() and 0xff
+            crc = crc xor (octet shl 24)
+            repeat(8) {
+                crc = if (crc and 0x80000000.toInt() != 0) (crc shl 1) xor 0x04c11db7 else crc shl 1
+            }
+        }
+        return crc
+    }
     private fun int32(b: ByteArray, p: Int) = ByteBuffer.wrap(b, p, 4).order(ByteOrder.BIG_ENDIAN).int
     private fun long64(b: ByteArray, p: Int) = ByteBuffer.wrap(b, p, 8).order(ByteOrder.BIG_ENDIAN).long
     private fun writeInt32(b: ByteArray, p: Int, value: Int) { ByteBuffer.wrap(b, p, 4).order(ByteOrder.BIG_ENDIAN).putInt(value) }
