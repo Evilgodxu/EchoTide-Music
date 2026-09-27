@@ -3,9 +3,7 @@ package com.yichao.evilgodxu.ui.component
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
-// 封面下缘渐隐带长度占封面高度的比例：封面底部由此比例起渐隐为透明；
-// 封面底边之下由沉浸背景铺一层同色衔接层，并按同一比例等长淡出。
-// 两侧等长且共用同一条透明度曲线，接缝上下才是镜像的同一段过渡，颜色与亮度都连续
+// 封面下缘渐隐带长度占封面高度的比例：封面底部由此比例起渐隐为透明，融入封面衍生的沉浸背景
 internal const val COVER_FADE_RATIO = 0.3f
 
 // 渐隐曲线的采样段数：色标之间为线性插值，段数越多越逼近解析曲线。
@@ -16,7 +14,7 @@ private const val FADE_SAMPLE_SEGMENTS = 16
  * 平滑过渡曲线：t 为过渡带内的归一化位置，返回由 1 平滑收敛到 0 的透明度，即 smootherstep 的补。
  * 两端的一阶与二阶导数均为 0，与带外的常值段（全不透明、全透明）平滑相接。
  * 线性渐隐只在分段折点处连续，斜率的突变会被读成一条分界带，故过渡一律按本曲线采样。
- * 封面下缘渐隐、背景衔接层淡出与压暗层缓动共用本曲线，彼此衔接处不会出现折点。
+ * 封面下缘渐隐与背景压暗层缓动共用本曲线，衔接处不会出现折点。
  */
 internal fun smoothFadeAlpha(t: Float): Float {
     val x = t.coerceIn(0f, 1f)

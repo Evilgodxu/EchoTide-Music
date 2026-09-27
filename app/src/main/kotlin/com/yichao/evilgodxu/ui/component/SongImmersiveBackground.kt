@@ -79,7 +79,7 @@ private const val COVER_SCRIM_SAMPLE_SEGMENTS = 12
 // 柔和压暗层色标：顶端 [COVER_SCRIM_TOP_ALPHA] 平滑收敛到 [COVER_SCRIM_ZERO_FRACTION] 处为 0，
 // 再平滑增强到底端 [COVER_SCRIM_BOTTOM_ALPHA]。两半都取自 [smoothFadeAlpha]，
 // 两端与归零点的斜率均为 0：压暗层自身不会在封面的过渡区间内留下层次分界，
-// 与封面下缘渐隐、封面底边之下的同色衔接层叠加后仍是连续的亮度变化。
+// 与封面下缘渐隐叠加后仍是连续的亮度变化。
 // 色标只与常量有关，构造一次后复用
 private val COVER_SCRIM_COLOR_STOPS: Array<Pair<Float, Color>> = buildList {
     for (segment in 0 until COVER_SCRIM_SAMPLE_SEGMENTS) {
@@ -106,8 +106,8 @@ private data class CoverBackgroundLayer(
 
 // 歌曲沉浸式背景：由封面缩略图渲染柔和的叠画背景（见 renderCoverBackgroundFrame），
 // 封面未就绪时回落取色渐变，冷启动可先用 [restoredColors]（上次持久化的取色结果）渲染，避免首帧闪默认色。
-// 渐变与衍生背景顶部都以封面下边缘色为锚（见 extractCoverGradient），
-// 传入 [coverBottomFraction] 后还会在封面底边处铺一层同色衔接层，使封面下边缘与背景同色相接。
+// 背景整屏统一渲染，不随顶置封面位置做局部处理：封面下缘以渐隐蒙层直接融入背景，
+// 左右切页时背景始终连续，封面移出后不会露出与下段割裂的整片实色
 // 默认只渲染一帧静态背景；设置页开启「背景流动」后按固定默认值缓慢推进时间轴。
 // 首页与 3D 封面轮播共用，随传入曲目实时变化；背景代表色经回调暴露供浮层容器复用。
 @Composable
@@ -115,9 +115,6 @@ internal fun SongImmersiveBackground(
     track: MusicTrack?,
     modifier: Modifier = Modifier,
     restoredColors: Pair<Color, Color>? = null,
-    // 顶部沉浸封面下边缘在视口中的位置（占视口高度比例）：给定后背景在封面底边处对齐同色衔接层；
-    // 0 表示当前没有顶部沉浸封面（横屏轮播等），背景不做衔接处理
-    coverBottomFraction: Float = 0f,
     onBackgroundColor: ((Color) -> Unit)? = null,
     onExtractedColors: ((Color, Color) -> Unit)? = null,
 ) {
@@ -133,10 +130,6 @@ internal fun SongImmersiveBackground(
     val effective = extracted ?: restoredColors
     val background = effective?.first ?: md_theme_dark_surface
     LaunchedEffect(background) { onBackgroundColor?.invoke(background) }
-    // 封面下边缘衔接层：把封面底边往下的一段固定为封面下边缘色，再按与封面下缘渐隐带同长、
-    // 同曲线的距离淡出到衍生背景。接缝两侧颜色与亮度变化率都一致，衍生背景的色块不会直接贴到封面下边缘，
-    // 首帧（衍生背景尚未出图）同样成立
-    val edgeBlendBrush = effective?.first?.let { coverEdgeBlendBrush(it, coverBottomFraction) }
 
     // 流动时间轴：仅在开关打开时推进，关闭时归零即回到静态首帧
     val flowEnabled by context.backgroundFlowEnabledFlow().collectAsStateWithLifecycle(initialValue = false)
@@ -194,16 +187,8 @@ internal fun SongImmersiveBackground(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        // 衔接层压在衍生背景之上：封面底边及其下方一段与封面下边缘同色，接缝两侧颜色一致
-        edgeBlendBrush?.let { brush ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(brush),
-            )
-        }
         // 柔和压暗层：封面衍生背景可能整体偏亮，压暗上下边缘保证状态栏与前景文字可读。
-        // 归零点与两端斜率均为 0，叠加在衔接层之上也不会在封面底边处留下亮度分界
+        // 归零点与两端斜率均为 0，不会在背景中段留下亮度分界
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -222,22 +207,9 @@ private fun defaultBackgroundGradient(): Brush =
     )
 
 // 封面未就绪（首帧）时的兜底背景：由封面下边缘色起、封面下半区平均色收（见 extractCoverGradient），
-// 与衔接层同锚色，故首帧底色与封面下边缘连续，不会出现与封面下边缘不协调的其它色块
+// 首帧底色与封面下边缘同锚色，不会出现与封面下边缘不协调的其它色块
 private fun fallbackGradient(edgeColor: Color, deepColor: Color): Brush =
     Brush.verticalGradient(listOf(edgeColor, deepColor))
-
-/**
- * 封面下边缘衔接层：[coverBottomFraction] 为封面下边缘在视口中的纵向位置，此后一段固定为封面下边缘色 [edge]，
- * 再以 [COVER_FADE_RATIO] 确定的长度、按与封面下缘渐隐蒙层相同的曲线淡出，使封面下边缘与背景同色相接。
- * 封面几乎铺满视口时没有可衔接的背景区，返回 null 表示无需衔接层。
- */
-private fun coverEdgeBlendBrush(edge: Color, coverBottomFraction: Float): Brush? {
-    val start = coverBottomFraction.coerceIn(0f, 1f)
-    if (start <= 0f || start >= 1f) return null
-    val end = (start * (1f + COVER_FADE_RATIO)).coerceAtMost(1f)
-    if (end <= start) return null
-    return coverFadeBrush(color = edge, start = start, end = end)
-}
 
 /**
  * 渲染一帧封面衍生背景：在 1/16 视口尺寸的小画布上错位叠画三份高饱和封面，叠加色调蒙层后整体模糊，
