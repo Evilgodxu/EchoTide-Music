@@ -154,6 +154,8 @@ internal fun SongImmersiveBackground(
     // 背景帧：只在封面、视口尺寸或流动时间推进时重算
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
+    // 主色调蒙层：以封面主色调压暗后在整幅画面上叠一层，把画面中占比小的杂色一并拉向主色调，
+    // 背景观感因此始终贴合封面主色；第二层中性黑只负责压暗，不改变色相
     val washPrimary = remember(background) { lerp(background, Color.Black, 0.28f).copy(alpha = 0.34f) }
     val washSecondary = remember { Color.Black.copy(alpha = 0.18f) }
     LaunchedEffect(thumbnail, viewportSize, flowTimeMs, washPrimary, washSecondary) {
@@ -206,10 +208,10 @@ private fun defaultBackgroundGradient(): Brush =
         )
     )
 
-// 封面未就绪（首帧）时的兜底背景：由封面下边缘色起、封面下半区平均色收（见 extractCoverGradient），
-// 首帧底色与封面下边缘同锚色，不会出现与封面下边缘不协调的其它色块
-private fun fallbackGradient(edgeColor: Color, deepColor: Color): Brush =
-    Brush.verticalGradient(listOf(edgeColor, deepColor))
+// 封面未就绪（首帧）时的兜底背景：由封面主色调起、压暗后的深色端收（见 extractCoverGradient），
+// 与封面衍生背景同为偏向主色调的连续色，不会出现与主色调割裂的其它色块
+private fun fallbackGradient(mainColor: Color, deepColor: Color): Brush =
+    Brush.verticalGradient(listOf(mainColor, deepColor))
 
 /**
  * 渲染一帧封面衍生背景：在 1/16 视口尺寸的小画布上错位叠画三份高饱和封面，叠加色调蒙层后整体模糊，

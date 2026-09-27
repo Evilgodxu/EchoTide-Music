@@ -29,7 +29,7 @@ internal fun HomeShell(
             // 冷启动略缩图就绪前先用上次持久化的取色结果，避免首帧闪默认色
             restoredColors = playbackState.restoredGradientFor(playbackState.currentTrack),
             onBackgroundColor = { panelState.backgroundColor = it },
-            onExtractedColors = { edge, deep -> playbackState.saveBackgroundGradient(edge, deep) },
+            onExtractedColors = { main, deep -> playbackState.saveBackgroundGradient(main, deep) },
         )
         Scaffold(
             modifier = Modifier.fillMaxSize(),

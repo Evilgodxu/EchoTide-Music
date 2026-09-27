@@ -95,7 +95,7 @@ class MusicPlaybackState(
     private val savedModeKey = intPreferencesKey("music_saved_mode")
     private val savedSpeedKey = floatPreferencesKey("music_saved_speed")
     // 首页背景渐变取色结果持久化键：与播放快照同库写入，冷启动恢复后首帧即可渲染。
-    // 两端分别为封面下边缘色（背景顶部锚色）与下半区平均色（背景底部深色端）
+    // 两端分别为封面主色调（背景主色）与压暗后的背景底部深色端
     private val savedGradientUriKey = stringPreferencesKey("music_saved_gradient_uri")
     private val savedGradientEdgeKey = intPreferencesKey("music_saved_gradient_edge")
     private val savedGradientDeepKey = intPreferencesKey("music_saved_gradient_deep")
@@ -859,7 +859,7 @@ class MusicPlaybackState(
         val savedMode = preferences[savedModeKey] ?: PlayMode.RepeatAll.ordinal
         val savedSpeed = preferences[savedSpeedKey] ?: PLAYBACK_SPEED_DEFAULT
         val restoredGradientUri = preferences[savedGradientUriKey]
-        val restoredGradientEdge = preferences[savedGradientEdgeKey]
+        val restoredGradientMain = preferences[savedGradientEdgeKey]
         val restoredGradientDeep = preferences[savedGradientDeepKey]
         withContext(Dispatchers.Main) {
             // 无保存来源时处于全量播放列表
@@ -887,8 +887,8 @@ class MusicPlaybackState(
             // 启动镜像已为同一曲目预置取色时不覆盖：两者写入点相同，镜像可能领先一次
             // （取色落盘与状态落盘之间存在进程被杀窗口），覆盖会让首帧背景色回退
             if (restoredGradientUri != savedGradientUri) {
-                savedGradient = if (restoredGradientEdge != null && restoredGradientDeep != null) {
-                    Color(restoredGradientEdge) to Color(restoredGradientDeep)
+                savedGradient = if (restoredGradientMain != null && restoredGradientDeep != null) {
+                    Color(restoredGradientMain) to Color(restoredGradientDeep)
                 } else null
                 savedGradientUri = restoredGradientUri
             }
@@ -1093,7 +1093,7 @@ class MusicPlaybackState(
     var pendingSavedUri: String? = null
     var pendingResumePosition: Long = 0L
     // 已持久化的首页背景取色结果及其所属曲目 URI：冷启动首帧、略缩图就绪前供背景直接使用。
-    // 两端语义见 extractCoverGradient：first 为封面下边缘色，second 为封面下半区平均色
+    // 两端语义见 extractCoverGradient：first 为封面主色调，second 为压暗后的背景底部深色端
     var savedGradient: Pair<Color, Color>? by mutableStateOf(null)
         private set
     var savedGradientUri: String? by mutableStateOf(null)
@@ -1122,14 +1122,14 @@ class MusicPlaybackState(
     }
 
     // 首页背景真实取色成功后持久化，供下次冷启动恢复
-    fun saveBackgroundGradient(edge: Color, deep: Color) {
+    fun saveBackgroundGradient(main: Color, deep: Color) {
         val uri = currentTrack?.audioUri ?: return
-        saveBackgroundGradientFor(uri, edge, deep)
+        saveBackgroundGradientFor(uri, main, deep)
     }
 
     // 取色结果按所属曲目落盘：显示端取色与切歌后台取色共用，避免退出时才保存而丢失
-    private fun saveBackgroundGradientFor(uri: String, edge: Color, deep: Color) {
-        savedGradient = edge to deep
+    private fun saveBackgroundGradientFor(uri: String, main: Color, deep: Color) {
+        savedGradient = main to deep
         savedGradientUri = uri
         // 启动镜像同步更新取色结果：冷启动首帧的背景色同样只能来自镜像
         if (currentTrack?.audioUri == uri) persistBootMirror()
@@ -1138,7 +1138,7 @@ class MusicPlaybackState(
             withContext(Dispatchers.IO) {
                 context.settingsDataStore.edit { preferences ->
                     preferences[savedGradientUriKey] = uri
-                    preferences[savedGradientEdgeKey] = edge.toArgb()
+                    preferences[savedGradientEdgeKey] = main.toArgb()
                     preferences[savedGradientDeepKey] = deep.toArgb()
                 }
             }
@@ -1155,8 +1155,8 @@ class MusicPlaybackState(
             } ?: return@launch
             // 异步取图期间可能已切走：非当前曲目的取色结果落盘会顶掉当前曲目的恢复色
             if (currentTrack?.audioUri != track.audioUri) return@launch
-            val (edge, deep) = extractCoverGradient(bitmap) ?: return@launch
-            saveBackgroundGradientFor(track.audioUri, edge, deep)
+            val (main, deep) = extractCoverGradient(bitmap) ?: return@launch
+            saveBackgroundGradientFor(track.audioUri, main, deep)
         }
     }
 
