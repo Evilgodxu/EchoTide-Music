@@ -63,6 +63,8 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.MarqueeText
 import com.yichao.evilgodxu.ui.component.player.DiscArt
+import com.yichao.evilgodxu.ui.component.player.lyricWordEnds
+import com.yichao.evilgodxu.ui.component.player.lyricWordFillFraction
 import kotlin.math.min
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -314,16 +316,25 @@ internal fun MiniPlayerBar(
                         fontWeight = FontWeight.Medium,
                     )
                 } else {
-                    // 行内演唱进度：按本行到下一行的起止时间折算；填充时长略短于行时长，
-                    // 留出余量让行尾文字在切到下一行前完整揭示
                     val lineEndMs = lyricLines
                         .getOrNull(lyricIndex + 1)
                         ?.timeMs ?: (lyricLine.timeMs + 3000L)
-                    val lineDuration = (lineEndMs - lyricLine.timeMs).coerceAtLeast(1L)
-                    val fillDuration = lineDuration - min(400L, lineDuration / 5)
-                    val progress = ((lyricPosition - lyricLine.timeMs).toFloat() /
-                        fillDuration.toFloat())
-                        .coerceIn(0f, 1f)
+                    // 点亮比例：逐字歌词按每个词自身的起止时间推进，与完整播放器同一套时序，
+                    // 词间空隙不点亮；普通歌词没有词时序，退化为按行时长均分，填充时长略短于行时长，
+                    // 留出余量让行尾文字在切到下一行前完整揭示。关闭逐字渲染时整行高亮，
+                    // 平移动画仍按行时长连续推进，避免逐字时序的空隙让滚动一顿一顿
+                    val progress = if (wordByWordEnabled && lyricLine.words.isNotEmpty()) {
+                        val wordEnds = remember(lyricLine.words, lineEndMs) {
+                            lyricWordEnds(lyricLine.words, lineEndMs)
+                        }
+                        lyricWordFillFraction(lyricLine.words, wordEnds, lyricPosition)
+                    } else {
+                        val lineDuration = (lineEndMs - lyricLine.timeMs).coerceAtLeast(1L)
+                        val fillDuration = lineDuration - min(400L, lineDuration / 5)
+                        ((lyricPosition - lyricLine.timeMs).toFloat() /
+                            fillDuration.toFloat())
+                            .coerceIn(0f, 1f)
+                    }
                     MiniPlayerLyricText(
                         text = lyricLine.text,
                         progress = progress,
@@ -345,7 +356,9 @@ internal fun MiniPlayerBar(
 }
 
 // 迷你条歌词行：整行歌词常显，演唱进度从左向右点亮高亮；文字超宽时跟随点亮边缘平移，
-// 溢出部分随亮起自然滚入视野。关闭逐字渲染时整行高亮，仅保留跟随进度的平移滚动
+// 溢出部分随亮起自然滚入视野。progress 为整行已演唱比例，逐字歌词下按词时序给出，
+// 因此点亮边缘即当前演唱到的时间点，词间空隙停住不推进。关闭逐字渲染时整行高亮，
+// 仅保留跟随进度的平移滚动
 @Composable
 private fun MiniPlayerLyricText(
     text: String,

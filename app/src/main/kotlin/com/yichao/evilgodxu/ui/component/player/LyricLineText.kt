@@ -237,6 +237,44 @@ internal fun wrapLyricText(
     return rows
 }
 
+// 词终点：优先取词自身的时长；增强 LRC 只提供起点（duration 为 0）时用下一个词的起点兜底，
+// 末词用下一行起点兜底，保证每个词都有可用的起止区间
+internal fun lyricWordEnds(words: List<LyricWord>, nextTimeMs: Long): List<Long> {
+    return words.mapIndexed { index, word ->
+        if (word.durationMs > 0) {
+            word.startMs + word.durationMs
+        } else {
+            words.getOrNull(index + 1)?.startMs ?: nextTimeMs
+        }
+    }
+}
+
+// 逐字歌词的行内点亮比例：已唱完的词按整词字数计入，正在演唱的词按词内已过时长折算到字数，
+// 返回整行已点亮字符占比。总字数按词文本累计，与 [LyricLine.text] 同源，故该比例可直接
+// 折算成文字宽度上的点亮边缘；词起点与时长都不均匀（词间可能存在空隙），
+// 因此不做「整行时长按词数均分」的近似
+internal fun lyricWordFillFraction(
+    words: List<LyricWord>,
+    wordEnds: List<Long>,
+    positionMs: Long,
+): Float {
+    val totalChars = words.sumOf { it.text.length }
+    if (totalChars <= 0) return 0f
+    var filledChars = 0f
+    words.forEachIndexed { index, word ->
+        val start = word.startMs
+        // 至少留 1ms 区间：零时长词不能除零，也不能整词瞬间跳过
+        val end = wordEnds[index].coerceAtLeast(start + 1)
+        val charCount = word.text.length
+        filledChars += when {
+            positionMs >= end -> charCount.toFloat()
+            positionMs >= start -> (positionMs - start).toFloat() / (end - start) * charCount
+            else -> 0f
+        }
+    }
+    return (filledChars / totalChars).coerceIn(0f, 1f)
+}
+
 // 逐字歌词：严格按每个词自身的起止时间做卡拉OK式点亮——已唱完的词整词高亮，
 // 正在演唱的词内逐字从左到右亮起并叠加弹簧跳动。词时序来自歌词源，起点与时长都不均匀
 // （词间可能存在空隙），故不做「整行时长按词数均分」的近似
@@ -253,17 +291,8 @@ internal fun WordSplitLyricText(
     widthPx: Int,
     modifier: Modifier = Modifier,
 ) {
-    // 词终点：优先取词自身的时长；增强 LRC 只提供起点（duration 为 0）时用下一个词的起点兜底，
-    // 末词用下一行起点兜底，保证每个词都有可用的起止区间
-    val wordEnds = remember(line.words, nextTimeMs) {
-        line.words.mapIndexed { index, word ->
-            if (word.durationMs > 0) {
-                word.startMs + word.durationMs
-            } else {
-                line.words.getOrNull(index + 1)?.startMs ?: nextTimeMs
-            }
-        }
-    }
+    // 词终点与迷你条歌词共用同一套换算，保证两处点亮时序一致
+    val wordEnds = remember(line.words, nextTimeMs) { lyricWordEnds(line.words, nextTimeMs) }
 
     // 词独立渲染无法借助 Text 软换行，按传入的可用宽度将整行词分成多行：英文词保持完整不截断
     Column(
