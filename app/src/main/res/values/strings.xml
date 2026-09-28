@@ -192,6 +192,8 @@
     <string name="settings_swipe_track_desc">在首页上下滑动切换歌曲</string>
     <string name="settings_background_flow_title">背景流动</string>
     <string name="settings_background_flow_desc">开启后首页背景缓慢流动</string>
+    <string name="settings_usb_exclusive_title">USB 独占</string>
+    <string name="settings_usb_exclusive_desc">连接 USB 解码器后以其为唯一输出，数据不经混音与音效直通</string>
     <string name="settings_typography_title">排版</string>
     <string name="settings_typography_desc">歌词字号与显示行数</string>
 

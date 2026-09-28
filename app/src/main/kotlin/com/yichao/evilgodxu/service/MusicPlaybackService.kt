@@ -13,7 +13,6 @@ import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.AudioSink
-import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
@@ -22,8 +21,14 @@ import com.yichao.evilgodxu.App
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.playback.AudioSignalPathFormat
+import com.yichao.evilgodxu.data.music.playback.PerDeviceAudioSink
+import com.yichao.evilgodxu.data.music.playback.UsbExclusiveOutput
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
+import com.yichao.evilgodxu.data.settings.usbExclusiveModeFlow
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 @OptIn(UnstableApi::class)
@@ -35,6 +40,10 @@ class MusicPlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
+    /** USB 独占输出：把播放钉到 USB 解码器并申请位完美传输 */
+    private lateinit var usbExclusiveOutput: UsbExclusiveOutput
+    // 播放设置的读取与独占输出都要求主线程：ExoPlayer 与其 AudioTrack 均只在主线程访问
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     /** 焦点丢失前是否正在播放：恢复焦点后据此自动续播 */
     private var resumeAfterFocusLoss = false
     private val audioFocusHandler = Handler(Looper.getMainLooper())
@@ -64,10 +73,12 @@ class MusicPlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         audioManager = getSystemService(AudioManager::class.java)
-        // 变速/变调交给 AudioTrack 原生处理，避免 Sonic 软件变速在低速时产生噪声
-        val audioSink = DefaultAudioSink.Builder(this)
-            .setEnableAudioOutputPlaybackParameters(true)
-            .build()
+        // 音频输出由 PerDeviceAudioSink 按目标设备挑选浮点/整型变体并自行重建，
+        // 故此处忽略工厂的浮点与变速参数，固定返回同一实例供渲染器使用
+        val audioSink = PerDeviceAudioSink(this, audioManager) {
+            // 独占输出在播放器之后装配，此处延迟求值；尚未装配时视为未独占
+            if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.exclusiveTargetDevice() else null
+        }
         val renderersFactory = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
                 context: android.content.Context,
@@ -94,6 +105,14 @@ class MusicPlaybackService : MediaSessionService() {
                 val format = tracks.groups.firstOrNull { it.isSelected }?.getTrackFormat(0)
                 val state = stateHolder.state
                 val currentTrack = state.currentTrack
+                // 独占输出的混音器属性按解码格式挑选，格式未变时内部会跳过重复下发
+                if (format != null) {
+                    usbExclusiveOutput.onTrackFormatChanged(
+                        format.sampleRate,
+                        format.channelCount,
+                        format.pcmEncoding,
+                    )
+                }
                 // 每次轨道切换后按解码格式更新信号路径状态
                 val fileFormat = format?.let { f ->
                     currentTrack?.path
@@ -159,6 +178,13 @@ class MusicPlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, SkipProxyPlayer(player))
             .setCallback(sessionCallback)
             .build()
+        // 独占输出不参与媒体会话，在会话建立后单独装配；设置变更即刻生效，无需重启服务
+        usbExclusiveOutput = UsbExclusiveOutput(player, audioManager, mainExecutor)
+        serviceScope.launch {
+            usbExclusiveModeFlow().collect { enabled ->
+                usbExclusiveOutput.setEnabled(enabled)
+            }
+        }
     }
 
     /** 拦截系统媒体面板和耳机/蓝牙媒体键的上一首/下一首操作 */
@@ -281,6 +307,8 @@ class MusicPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         abandonAudioFocus()
+        serviceScope.cancel()
+        usbExclusiveOutput.release()
         mediaSession?.release()
         mediaSession = null
         player.release()

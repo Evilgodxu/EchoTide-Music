@@ -72,5 +72,5 @@
 | 16 KiB 页对齐 | 已启用 | 未压缩条目已按 4 字节与 16 KiB 页双重要求对齐，兼容 4 KiB 与 16 KiB 页设备 | [官方文档](https://developer.android.com/tools/zipalign) |
 | Baseline Profile | 已启用 | 包内含 assets/dexopt/baseline.prof，ART 会在安装期预编译热点路径 | [官方文档](https://developer.android.com/topic/performance/baselineprofiles/overview) |
 | Startup Profile / DEX 布局优化 | 已启用 | 已生成启动配置，R8 会把启动路径的类集中到首个 DEX，减少缺页 | [官方文档](https://developer.android.com/topic/performance/startupprofiles/dex-layout-optimizations) |
-| 签名方案 | 已启用 | 已关闭 v3，minSdk 33 下由 v2 覆盖全部目标设备，产物只带一种校验方案，校验开销最低 | [官方文档](https://developer.android.com/tools/apksigner) |
+| 签名方案 | 已启用 | 已关闭 v3，minSdk 34 下由 v2 覆盖全部目标设备，产物只带一种校验方案，校验开销最低 | [官方文档](https://developer.android.com/tools/apksigner) |
 | 打包排除规则 | 已启用 | 已排除重复的 META-INF 元数据与第三方签名文件 | [官方文档](https://developer.android.com/topic/performance/reduce-apk-size) |

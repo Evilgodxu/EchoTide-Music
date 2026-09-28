@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         // 基准配置生成需要 API 28 及以上；本应用 minSdk 更高，直接对齐
-        minSdk = 33
+        minSdk = 34
         targetSdk = 37
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -34,7 +34,7 @@ android {
 }
 
 // 插件默认行为即为所需：生成结果写回 src/<variant>/generated/baselineProfiles，
-// 并使用已连接设备（需 API 33 及以上）执行生成器。未配置托管设备，
+// 并使用已连接设备（需 API 34 及以上）执行生成器。未配置托管设备，
 // 因此不声明 baselineProfile{} 块，避免依赖尚未稳定的 DSL 字段。
 dependencies {
     implementation(libs.androidx.benchmark.macro.junit4)

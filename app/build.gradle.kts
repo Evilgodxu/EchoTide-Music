@@ -20,7 +20,7 @@ android {
 
     defaultConfig {
         applicationId = "com.yichao.evilgodxu"
-        minSdk = 33
+        minSdk = 34
         targetSdk = 37
         versionCode = 55
         versionName = "4.0.4"
@@ -38,7 +38,7 @@ android {
             storePassword = localProperties.getProperty("KEYSTORE_PASSWORD", "")
             keyAlias = localProperties.getProperty("KEY_ALIAS", "jh")
             keyPassword = localProperties.getProperty("KEY_PASSWORD", "")
-            // minSdk 33 下 v2 已覆盖全部目标设备；显式关闭 v3，否则签名器
+            // minSdk 34 下 v2 已覆盖全部目标设备；显式关闭 v3，否则签名器
             // 会因 minSdk ≥ 28 判定 v3 更优而省略 v2
             enableV2Signing = true
             enableV3Signing = false

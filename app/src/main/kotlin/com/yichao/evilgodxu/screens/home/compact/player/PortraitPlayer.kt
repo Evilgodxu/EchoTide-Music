@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -149,6 +150,8 @@ internal fun PortraitPlayer(
 
     // 首页竖屏歌词排版：字号与可见行数独立可调
     val context = LocalContext.current
+    // 提示文案在协程中取用，需经 Configuration 感知的资源入口，避免语言/字体缩放切换后取到旧值
+    val resources = LocalResources.current
     val homePortraitLayout by context.homePortraitLyricLayoutFlow()
         .collectAsStateWithLifecycle(
             initialValue = LyricLayoutParams(
@@ -426,14 +429,14 @@ internal fun PortraitPlayer(
                                         translateProgress = null
                                         // 失败以外的结局都用轻量提示：没有可补译的内容属于正常结果
                                         val message = when (outcome) {
-                                            is TranslateOutcome.Applied -> context.getString(
+                                            is TranslateOutcome.Applied -> resources.getString(
                                                 R.string.music_panel_auto_translate_done,
                                                 outcome.translated,
                                             )
                                             TranslateOutcome.NothingToDo ->
-                                                context.getString(R.string.music_panel_auto_translate_nothing)
+                                                resources.getString(R.string.music_panel_auto_translate_nothing)
                                             TranslateOutcome.SameLanguage ->
-                                                context.getString(R.string.music_panel_auto_translate_same_language)
+                                                resources.getString(R.string.music_panel_auto_translate_same_language)
                                             TranslateOutcome.Failed -> null
                                         }
                                         message?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }

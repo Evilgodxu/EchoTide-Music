@@ -21,9 +21,11 @@ import com.yichao.evilgodxu.data.settings.miniPlayerEnabledFlow
 import com.yichao.evilgodxu.data.settings.saveBackgroundFlowEnabled
 import com.yichao.evilgodxu.data.settings.saveMiniPlayerEnabled
 import com.yichao.evilgodxu.data.settings.saveSwipeToChangeTrack
+import com.yichao.evilgodxu.data.settings.saveUsbExclusiveMode
 import com.yichao.evilgodxu.data.settings.saveWordByWordRendering
 import com.yichao.evilgodxu.data.settings.swipeToChangeTrackFlow
 import com.yichao.evilgodxu.data.settings.ThemeMode
+import com.yichao.evilgodxu.data.settings.usbExclusiveModeFlow
 import com.yichao.evilgodxu.data.settings.wordByWordRenderingFlow
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.R
@@ -86,6 +88,11 @@ class SettingsViewModel(
         viewModelScope.launch {
             context.backgroundFlowEnabledFlow().collect { enabled ->
                 _uiState.update { it.copy(backgroundFlow = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            context.usbExclusiveModeFlow().collect { enabled ->
+                _uiState.update { it.copy(usbExclusive = enabled) }
             }
         }
         refreshProxySources()
@@ -151,6 +158,13 @@ class SettingsViewModel(
         _uiState.update { it.copy(backgroundFlow = enabled) }
         viewModelScope.launch {
             context.saveBackgroundFlowEnabled(enabled)
+        }
+    }
+
+    fun setUsbExclusive(enabled: Boolean) {
+        _uiState.update { it.copy(usbExclusive = enabled) }
+        viewModelScope.launch {
+            context.saveUsbExclusiveMode(enabled)
         }
     }
 
