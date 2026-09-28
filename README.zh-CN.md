@@ -32,7 +32,7 @@
 | :---: | :---: | :---: |
 | <img src="docs/Screenshot/device-portrait.webp" width="215" alt="竖屏播放器(带壳)" /> | <img src="docs/Screenshot/device-landscape.webp" width="380" alt="横屏播放器(带壳)" /> | <img src="docs/Screenshot/device-carousel.webp" width="380" alt="横屏 3D 封面轮播(带壳)" /> |
 
-> 截图为真机运行画面,机身外壳由 `tools/make_promo_hero.py` 按屏幕短边等比合成;曲目封面与歌词版权归原作者所有,仅作界面演示。
+> 截图为真机运行画面,曲目封面与歌词版权归原作者所有,仅作界面演示。
 
 ## 卖点速览
 

@@ -32,7 +32,7 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 | :---: | :---: | :---: |
 | <img src="docs/Screenshot/device-portrait.webp" width="215" alt="Portrait player (framed)" /> | <img src="docs/Screenshot/device-landscape.webp" width="380" alt="Landscape player (framed)" /> | <img src="docs/Screenshot/device-carousel.webp" width="380" alt="Landscape 3D cover carousel (framed)" /> |
 
-> Real-device captures; the device shells are composed proportionally to the screen's short edge by `tools/make_promo_hero.py`. Cover art and lyrics belong to their respective owners and are shown for interface demonstration only.
+> Real-device captures,Cover art and lyrics belong to their respective owners and are shown for interface demonstration only.
 
 ## Highlights
 
