@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.data.music.api
 
 import java.io.ByteArrayOutputStream
+import java.util.Base64
 import java.util.zip.Deflater
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -148,6 +149,28 @@ class LyricCodecTest {
         val lines = parseKrcText("[0,0]<0,0,0>只有译文")
         assertEquals(1, lines.size)
         assertEquals("只有译文", lines.single().text)
+    }
+
+    @Test
+    fun krcLanguageMetadataIsMergedAsTranslation() {
+        // 酷狗的译文写在 [language:<base64>] 元信息行里，按歌词行顺序 1:1 对齐；
+        // type=0 是音译，只取 type=1 的译文
+        val language = """{"content":[{"type":0,"lyricContent":[["ni "],["hao "]]},{"type":1,"lyricContent":[["你好"]]}],"version":1}"""
+        val encoded = Base64.getEncoder().encodeToString(language.toByteArray(Charsets.UTF_8))
+        val lines = parseKrcText("[ti:歌名]\n[language:$encoded]\n[0,3000]<0,300,0>你<300,400,0>好")
+        assertEquals(1, lines.size)
+        assertEquals("你好", lines.single().translation)
+    }
+
+    @Test
+    fun krcLanguageTranslationFollowsLyricLineOrder() {
+        // 无译文的行在数组中占位为空串，译文须按行序错位对齐，而非按下标直接配对
+        val language = """{"content":[{"type":1,"lyricContent":[[""],["第一句译文"],[""]]}],"version":1}"""
+        val encoded = Base64.getEncoder().encodeToString(language.toByteArray(Charsets.UTF_8))
+        val lines = parseKrcText("[language:$encoded]\n[0,1000]one\n[1000,1000]two\n[2000,1000]three")
+        assertNull(lines[0].translation)
+        assertEquals("第一句译文", lines[1].translation)
+        assertNull(lines[2].translation)
     }
 
     // -----------------------------------------------------------------------

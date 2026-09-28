@@ -3,7 +3,10 @@ package com.yichao.evilgodxu.data.music.api
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.LyricWord
 import java.io.ByteArrayOutputStream
+import java.util.Base64
 import java.util.zip.Inflater
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 /**
  * 歌词文本编解码：把各平台的歌词原文统一解析为 [LyricLine]。
@@ -99,24 +102,69 @@ internal fun parseQrcText(raw: String): List<LyricLine> {
 /**
  * KRC 解析（酷狗逐字歌词）：`[行起点,行时长]<字偏移,字时长,效果>字...`。
  *
- * 字偏移相对行起点，需叠加行起点还原为绝对时间。翻译行与主行同时间戳、字标签全零，单独收集后按时间戳并入主行。
+ * 字偏移相对行起点，需叠加行起点还原为绝对时间。译文有两条来源：其一是内嵌的
+ * `[language:<base64>]` 行，按歌词行顺序 1:1 对齐，是酷狗给出译文的常规通道；
+ * 其二是与主行同时间戳、字标签全零的翻译行。前者按行序、后者按时间戳分别并入主行。
  */
 internal fun parseKrcText(raw: String): List<LyricLine> {
     val main = mutableListOf<LyricLine>()
     val translations = mutableListOf<LyricLine>()
+    val languageTranslations = parseKrcLanguageTranslations(raw)
+    var lyricIndex = 0
     raw.lineSequence().forEach { rawLine ->
         val line = BRACKET_LINE_PATTERN.find(rawLine) ?: return@forEach
         val timeMs = line.groupValues[1].toLong()
         val payload = line.groupValues[3]
+        // [language] 数组按 [行起点,行时长] 行的出现顺序对齐，逐行取下一条
+        val translation = languageTranslations.getOrNull(lyricIndex)
+        lyricIndex++
         if (isZeroOffsetLine(payload, KRC_WORD_PATTERN, KRC_GROUPS)) {
             stripTags(payload, KRC_WORD_PATTERN, KRC_GROUPS).takeIf { it.isNotBlank() }
                 ?.let { translations += LyricLine(timeMs, it) }
             return@forEach
         }
-        buildWordLine(timeMs, payload, KRC_WORD_PATTERN, KRC_GROUPS, absolute = false)?.let { main += it }
+        buildWordLine(timeMs, payload, KRC_WORD_PATTERN, KRC_GROUPS, absolute = false)?.let {
+            main += if (translation.isNullOrBlank()) it else it.copy(translation = translation)
+        }
     }
     return mergeTranslationLines(main, translations)
 }
+
+/**
+ * 解析 KRC 的 `[language:<base64>]` 元信息行，取出与歌词行一一对应的译文。
+ *
+ * 载荷是 base64 编码的 JSON：`content` 为若干语言段，`type=1` 是译文、`type=0` 是音译；
+ * 每段的 `lyricContent` 按歌词行顺序排列，元素为该行拆分后的字块，拼回整行文本即为译文。
+ * 仅取译文段，音译不并入译文位；缺行或载荷非法时返回空列表，解析退化为无译文。
+ */
+private fun parseKrcLanguageTranslations(raw: String): List<String> {
+    val encoded = raw.lineSequence()
+        .firstOrNull { it.startsWith(KRC_LANGUAGE_PREFIX) }
+        ?.removePrefix(KRC_LANGUAGE_PREFIX)
+        ?.removeSuffix("]")
+        ?.takeIf { it.isNotBlank() }
+        ?: return emptyList()
+    return runCatching {
+        val json = String(Base64.getDecoder().decode(encoded), Charsets.UTF_8)
+        KRC_LANGUAGE_JSON.decodeFromString<KrcLanguage>(json)
+    }.getOrNull()
+        ?.content
+        ?.firstOrNull { it.type == KRC_LANGUAGE_TRANSLATION_TYPE }
+        ?.lyricContent
+        ?.map { it.joinToString("") }
+        .orEmpty()
+}
+
+// [language] 载荷的 JSON 结构：content 为语言段列表，type 区分译文/音译
+@Serializable
+private data class KrcLanguage(val content: List<KrcLanguageSegment> = emptyList())
+
+@Serializable
+private data class KrcLanguageSegment(
+    val type: Int = 0,
+    // 每行译文由若干字块拼成，与歌词行顺序逐一对应
+    val lyricContent: List<List<String>> = emptyList(),
+)
 
 /**
  * 酷我 lrcx 解析：`[mm:ss.mmm]<字尾,字起>字...`。
@@ -261,6 +309,11 @@ private val QRC_GROUPS = WordTagGroups(first = 2, second = 3, text = 1)
 // KRC 的字文本写在标签之后：<字偏移, 字时长, 效果>字
 private val KRC_WORD_PATTERN = Regex("""<(-?\d+),(-?\d+)(?:,-?\d+)?>([^<]*)""")
 private val KRC_GROUPS = WordTagGroups(first = 1, second = 2, text = 3)
+
+// KRC 译文元信息行的前缀，其载荷为 base64 编码的 JSON；type=1 的段是译文
+private const val KRC_LANGUAGE_PREFIX = "[language:"
+private const val KRC_LANGUAGE_TRANSLATION_TYPE = 1
+private val KRC_LANGUAGE_JSON = Json { ignoreUnknownKeys = true }
 
 // 酷我 lrcx 的字文本写在标签之后：<区间一端, 区间另一端>字
 private val KUWO_LINE_PATTERN = Regex("""^\[(\d+):(\d+)\.(\d+)](.*)$""")
