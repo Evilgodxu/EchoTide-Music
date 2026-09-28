@@ -31,7 +31,6 @@
 | 竖屏播放器 | 横屏播放器 | 横屏 3D 封面轮播 |
 | :---: | :---: | :---: |
 | <img src="docs/Screenshot/device-portrait.webp" width="215" alt="竖屏播放器(带壳)" /> | <img src="docs/Screenshot/device-landscape.webp" width="380" alt="横屏播放器(带壳)" /> | <img src="docs/Screenshot/device-carousel.webp" width="380" alt="横屏 3D 封面轮播(带壳)" /> |
-| 全宽沉浸封面 + 逐字歌词(原文 / 译文对照)+ 音源格式行 `FLAC · 24bit/48kHz · 1975kbps` + 完整控制栏 | 左封面右歌词的双栏布局,歌词带 3D 透视纵深,竖向进度条贴中轴,控制栏 3 秒自动收起 | 点横屏封面进入轮播:当前曲目居中放大,前后曲目成扇形展开,拖动即切,点击即播 |
 
 > 截图为真机运行画面,机身外壳由 `tools/make_promo_hero.py` 按屏幕短边等比合成;曲目封面与歌词版权归原作者所有,仅作界面演示。
 

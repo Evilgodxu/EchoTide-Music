@@ -31,7 +31,6 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 | Portrait player | Landscape player | Landscape 3D carousel |
 | :---: | :---: | :---: |
 | <img src="docs/Screenshot/device-portrait.webp" width="215" alt="Portrait player (framed)" /> | <img src="docs/Screenshot/device-landscape.webp" width="380" alt="Landscape player (framed)" /> | <img src="docs/Screenshot/device-carousel.webp" width="380" alt="Landscape 3D cover carousel (framed)" /> |
-| Full-width immersive cover + word-level lyrics (original against translation) + the source format line `FLAC · 24bit/48kHz · 1975kbps` + full control bar | Two columns — cover left, lyrics right — with 3D perspective depth, a vertical progress bar on the centre axis, and a control bar that retracts after 3 seconds | Tap the cover in landscape to enter the carousel: the current track stands centre and enlarged, its neighbours fan out, drag to switch, tap to play |
 
 > Real-device captures; the device shells are composed proportionally to the screen's short edge by `tools/make_promo_hero.py`. Cover art and lyrics belong to their respective owners and are shown for interface demonstration only.
 
