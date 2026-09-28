@@ -12,7 +12,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.ExoPlayer
 import com.yichao.evilgodxu.log.CrashLogManager
-import java.util.concurrent.Executor
 
 // USB 解码器会以设备、耳机、配件三类上报，三者都是可直接播放的输出目标
 private val USB_OUTPUT_TYPES = setOf(
@@ -33,13 +32,20 @@ private val USB_OUTPUT_TYPES = setOf(
  * 位完美流只在播放格式与混音器属性逐字段一致（编码、声道掩码、采样率）时接纳播放，
  * 混音器属性因此按当前解码格式挑选，并在换曲导致格式变化时重新下发。
  *
+ * 原生行为（已核实）：
+ * - 受理条件：APM 要求 usage 为 USAGE_MEDIA、设备为已接入的 USB 输出，且存在与目标格式、采样率、
+ *   声道及各行为兼容的动态输出 profile（BIT_PERFECT 对应 AUDIO_OUTPUT_FLAG_BIT_PERFECT），
+ *   任一不满足即返回 BAD_VALUE，此处体现为 set 返回 false；缺少 MODIFY_AUDIO_SETTINGS 则为 PERMISSION_DENIED。
+ * - 拔出：APM 在断连的同一路径内直接清除该端口的偏好且不回调，故只能经 AudioDeviceCallback 感知。
+ * - 格式不符：写出格式与偏好混音器不一致时，AudioFlinger 不会失败，而是把该轨静默混音输出，
+ *   因此输出格式必须与偏好对齐，才不会以「已独占」之名走混音路径。
+ *
  * 所有方法都要求在播放器所属线程（主线程）调用。
  */
 @OptIn(UnstableApi::class)
 class UsbExclusiveOutput(
     private val player: ExoPlayer,
     private val audioManager: AudioManager,
-    private val listenerExecutor: Executor,
 ) {
     private var enabled = false
     private var callbackRegistered = false
@@ -68,17 +74,6 @@ class UsbExclusiveOutput(
             refreshOutputRouting()
         }
     }
-
-    private val mixerAttributesListener =
-        AudioManager.OnPreferredMixerAttributesChangedListener { _, device, mixerAttributes ->
-            // 属性为空表示框架未接纳该配置，位完美流并不存在，记录下来便于定位
-            if (mixerAttributes == null) {
-                CrashLogManager.logException(
-                    "UsbExclusiveOutput",
-                    "USB 输出未接纳位完美混音器属性: ${device.productName}",
-                )
-            }
-        }
 
     /** 开启或关闭独占；关闭时撤销配置并解除路由钉定，播放回到系统默认混音输出 */
     fun setEnabled(value: Boolean) {
@@ -153,7 +148,8 @@ class UsbExclusiveOutput(
             mixerAttributes,
         )
         if (!accepted) {
-            // 未受理时不会建立位完美输出流，播放仍走默认混音；属性本身已记录，避免每次换曲重试
+            // 未受理即属性不合法或设备/配置不受支持，不会建立位完美流，播放走默认混音；
+            // 属性本身已记录，避免每次换曲重试
             CrashLogManager.logException(
                 "UsbExclusiveOutput",
                 "USB 输出拒绝首选混音器属性: ${device.productName}",
@@ -164,7 +160,8 @@ class UsbExclusiveOutput(
 
     private fun releaseConfiguration() {
         val device = targetDevice ?: return
-        // 设备已拔出时属性随设备一同失效，撤销失败无需处理
+        // 拔出时 APM 已在断连路径内清除该端口的偏好，此处 clear 会返回 NAME_NOT_FOUND；
+        // 属性归属 uid 不符时返回 PERMISSION_DENIED。两者都无需处理
         runCatching { audioManager.clearPreferredMixerAttributes(playbackAttributes, device) }
         player.setPreferredAudioDevice(null)
         targetDevice = null
@@ -217,16 +214,11 @@ class UsbExclusiveOutput(
         if (callbackRegistered) return
         callbackRegistered = true
         audioManager.registerAudioDeviceCallback(deviceCallback, audioDeviceHandler)
-        audioManager.addOnPreferredMixerAttributesChangedListener(
-            listenerExecutor,
-            mixerAttributesListener,
-        )
     }
 
     private fun unregisterCallback() {
         if (!callbackRegistered) return
         callbackRegistered = false
         audioManager.unregisterAudioDeviceCallback(deviceCallback)
-        audioManager.removeOnPreferredMixerAttributesChangedListener(mixerAttributesListener)
     }
 }

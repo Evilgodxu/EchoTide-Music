@@ -68,6 +68,7 @@ class PerDeviceAudioSink(
      * 线性 PCM 的设备级浮点能力无从探测（AudioTrack 经混音输出普遍接受浮点，media3 也只按 API 级别
      * 判定支持），按设备分化的只有位完美流的格式匹配，因此仅在独占已钉定设备时决策：
      * 位完美条目含浮点即保持浮点，只有 16 位整型条目则降级为整型——否则高分辨率源永远挂不上位完美流。
+     * 已核实：格式与偏好不符时 AudioFlinger 不会报错，而是把该轨静默混音输出，故只能靠变体切换对齐格式。
      */
     private fun requiresFloatOutput(format: Format): Boolean {
         val device = exclusiveTarget() ?: return true

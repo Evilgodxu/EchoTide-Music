@@ -179,7 +179,7 @@ class MusicPlaybackService : MediaSessionService() {
             .setCallback(sessionCallback)
             .build()
         // 独占输出不参与媒体会话，在会话建立后单独装配；设置变更即刻生效，无需重启服务
-        usbExclusiveOutput = UsbExclusiveOutput(player, audioManager, mainExecutor)
+        usbExclusiveOutput = UsbExclusiveOutput(player, audioManager)
         serviceScope.launch {
             usbExclusiveModeFlow().collect { enabled ->
                 usbExclusiveOutput.setEnabled(enabled)
