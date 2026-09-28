@@ -2,14 +2,17 @@
 
 <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp" width="96" alt="Echo Tide" />
 
-# Echo Tide
+# Echo Tide · 忆潮音乐
 
-**A modern Android music player with a floating music panel, mini player, playlist management, multi-platform online search and playback speed control.**
+**Immersive music player**
+
+**An old-school, lightweight and minimal immersive music player**
 
 **English** | [简体中文](README.zh-CN.md)
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
+![Version](https://img.shields.io/badge/version-4.0.3-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.20-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.0-blue)
@@ -17,53 +20,148 @@
 ![minSdk](https://img.shields.io/badge/minSdk-33-orange)
 ![targetSdk](https://img.shields.io/badge/targetSdk-37-orange)
 
+<img src="docs/Screenshot/promo-hero.webp" width="100%" alt="Echo Tide preview: framed portrait player, landscape player and landscape 3D cover carousel" />
+
 </div>
 
-**Echo Tide (忆潮音乐)** is a full-featured Android music player built with Jetpack Compose. Beyond a regular in-app player, it provides a **floating music panel** and a **mini player** that work on top of any app, so music is always one tap away — in games, browsers or any other screen. A lyric-profile **daily recommendation** carousel, a five-platform aggregated search and a full-track **spectrum analyzer** round out the listening experience.
+## Showcase
 
-## Features
+Both portrait and landscape are designed for minimal distraction and maximum immersion.
 
-- **Floating music panel** — a full-featured playback panel rendered as a system overlay (SYSTEM_ALERT_WINDOW), usable above any app
-- **Mini player** — a compact floating bar shown while the app is in the background during playback, displaying the current lyric; tap it to expand back into the full panel. Can be toggled in settings
-- **Local library** — scans device storage via MediaStore, extracts embedded covers and lyrics, and imports audio through `VIEW`/`SEND` intents and the system file picker
-- **Multi-platform online search** — aggregated search across Netease (网易云), QQ Music, Kugou (酷狗), Kuwo (酷我) and Migu (咪咕). The built-in sources only provide **basic song search, cover lookup and lyric lookup** — playback is not a capability they promise, and the app plays trial clips and free tracks in theory only, when a source happens to return a playable URL. For those tracks the UI still offers search history and quality selection (lossless / high / standard), and a cache of the track is attempted locally (playback moves to the local copy once that succeeds); within the lossless tier Hi-Res is requested first and only falls back to regular lossless, so no additional tier is exposed in the picker. The platform switcher also lists **custom platforms** declared by enabled proxy sources — that is how platforms the app does not build in get search, playback, lyrics and covers (see *Proxy source*)
-- **Daily recommendation** — a lyric-profile recommender: charts from all five platforms are pooled daily (refreshed at 11:00 Beijing time) and scored against your favorites' lyric profile through lexical, conceptual and rhythmic channels, then diversity-reranked (MMR) into a five-track carousel on the search page
-- **Blacklist** — blacklisted tracks and skip-feedback features are persisted: blacklisted tracks are filtered out of recommendations while skipped tracks downweight similar candidates; a settings section shows the count and can reset the whole blacklist
-- **Sharing & ringtones** — share a local track through the system share sheet, or set it as the default ringtone / alarm sound from its advanced menu (online tracks are not supported; setting a ringtone needs the modify-system-settings permission)
-- **Proxy source (代理音源)** — import third-party aggregated music sources (via local file / link / text) to customize search, playback URL, lyric and cover resolution per platform, with enable / disable / remove and automatic fallback to the built-in parser on failure. A source can also declare **custom platforms** (any key other than `wy` / `qq` / `kg` / `kw` / `mg`), which must carry their own name and search action; such a platform has no built-in implementation, so the proxy source is its only provider, and it shows up in the platform switcher exactly where the built-in five do (online search, lyric refresh, cover refresh, lossless upgrade). The per-platform quality map gained a `hires` entry that is tried before `lossless`. The daily-recommendation chart pool deliberately stays on the five built-in platforms. See the [忆潮代理音源规范](docs/忆潮代理音源规范.md) (v1.2.0) for the JSON spec
-- **Playlist system** — smart playlists (Recently Played / Favorites / Albums / Artists) and custom playlists (create / rename / delete / batch add tracks / drag to reorder / quick switch), persisted as JSON
-- **Playlist search** — a shared capsule search field filters the playlist, artist and album lists as you type, each with its own empty-state message
-- **Playlist sorting** — a sort button in the playlist panel header offering default order / modified time / title / artist / album / duration, with an ascending-descending toggle; text fields use locale-aware natural ordering (Chinese by pinyin, English alphabetically, numeric — including Chinese numerals — first), and the default order anchors on the leading title before clustering tracks by artist and then by album. The chosen rule is persisted along with the playlist cache, and sorting is only offered for the default full playlist so custom playlists keep their drag order
-- **Playlist import** — paste a playlist share link from any supported platform, preview the parsed track list, then attempt to cache the whole playlist locally and register it as a custom playlist (Netease is parsed in-app; other platforms require a proxy source)
-- **Synced lyrics** — scrolling lyrics with word-level timing (toggleable), online lyric matching/refresh, local lyric file import, embedded lyrics and raw-lyric editing (timestamp prefix validated), plus fine-grained lyric offset tuning. Word-level timing comes from a single codec layer — QQ Music QRC, Kugou KRC, Kuwo lrcx and the inline `<mm:ss.xxx>` tags of enhanced LRC all normalise into one absolute-millisecond timeline, word-level timing wins, and a platform that ships none of it simply degrades to line-level lyrics; line-level lyrics can also be aligned into word-level timing in-app (a monotonic DP alignment over the decoded audio, resumable in the background). The lyric long-press menu can edit a single line or start auto-translation (see below); drag the lyrics area vertically to scrub playback in real time — the gesture is claimed by the lyrics as soon as vertical movement dominates, so a horizontal drag is left entirely to the panel swipe; once claimed, the gesture is routed by speed: only a slow drag is followed by the lyrics, releasing on a line plays from it and turns the marker into a confirmation colour, otherwise the position springs back, while a quick flick never moves the lyrics at all and is handled as a vertical swipe to switch tracks instead. The music panel dims edge lines by per-line opacity instead of an overlay mask, which keeps the lyric nearest the edge readable
-- **Lyric auto-translation** — fills in Chinese translations for lyric lines that have none yet, through Youdao's public keyless translation endpoint (no API key required). Only lyric body lines are processed — the timestamps on credits and the lead-in title line mark the instrumental length, so translating them helps nobody; lyrics that are already Chinese are skipped outright. Text is submitted in character-budgeted batches with a pause between them, working around the endpoint's per-IP rate limit and its roughly 1000-character per-request ceiling, and a batch rejected for size is split and retried; translations are paired back to the source lines by timestamp (500 ms tolerance) and a batch whose returned line count does not match the submitted one is discarded whole — better to leave a few lines untranslated than to attach a translation to the wrong line. Results are written to the lyric cache and applied immediately, never embedded into the audio file's tags, so the user's files are untouched; the progress dialog offers *Continue in background*, and the action can be re-run at any time to fill in whatever is left
-- **Lyric typography** — per-scene font size and visible-line count for the music panel, home portrait and home landscape (with 3D intensity), adjustable in Typography settings
-- **Cover management** — embedded art, local image candidates and online cover search; the new cover can be written back into the audio file or exported to the gallery. Covers are resolved in tiers: small images (list rows, playlist rows, mini player, music panel) read the system MediaStore thumbnail / album-art cache directly so the first frame is instant, while the large home immersive cover and the panel carousel keep the full embedded-art path for sharpness; enrichment prefers the system album art and only falls back to embedded art and thumbnails
-- **Metadata editing** — rename song title / artist, written back to the file tags, with one-tap copy
-- **Track format display** — shows the currently played source format in the progress area (container format, bit depth, sample rate, bitrate)
-- **Library analysis** — locate tracks by format, detect audio-quality anomalies (fake lossless via spectral analysis) and suspected AI-generated music, and group online tracks; re-runnable at any time. AI detection starts from generator-signature forensics: it reads container metadata (ID3v2 / Vorbis comment / MP4 udta / RIFF INFO) and rules a track AI outright — without any spectral decode — when it finds a C2PA content-credential marker, a generator product name in a producing-software field, or an explicit generation statement; only when no signature is found does it fall back to spectral signals (stereo correlation, a high-frequency notch, a harmonic comb, and non-native bandwidth inside a lossless container — the last one only concludes together with the audio-quality detector's band-limit attribution, never on its own). A track whose verdicts came from a full-track spectrum analysis is locked, so the segmented sampling of a library run never overwrites it — playlist filtering and library statistics therefore share one criterion, and a locally cached or lossless-upgraded track is unlocked to take part in the analysis again
-- **Spectrum analysis** — a dedicated page (long-press a local track in the playlist → *View spectrum*) that decodes the whole file and renders a time-frequency spectrogram: a 2048-point STFT at 50% overlap over a Hann window, a logarithmic frequency axis (20 Hz up to Nyquist, 1-2-5 tick series) and a dB colour scale, with the chart, the frequency axis and the colour bar sharing one vertical coordinate system so readings line up with the bands pixel for pixel. Frames are merged pairwise past a cap, so memory and output size stay bounded for any track length. The same decode also yields the audio-quality and AI-music verdicts under exactly the criteria the library analysis uses, then locks them. Long-pressing the chart offers *Share image* / *Save image*, which renders a 1920 px dark PNG carrying the artist, the source-file parameters, both verdicts and a disclaimer; saving goes through the album's `pending` write path, sharing hands a `cacheDir` intermediate to `FileProvider`
-- **Lossless upgrade** — match a Hi-Res or lossless online source for the current track (Hi-Res first, never downgrading to a lossy tier) and swap the playing source in place. This depends on a **proxy source**: the built-in sources do not return lossless playback URLs, so the feature is limited to platforms covered by an enabled proxy source
-- **Playback speed control** — real-time playback speed adjustment via a dialog (±0.1 steps, tap the value to reset), processed natively by AudioTrack; long-press previous/next to open it on the home screen
-- **Playback controls** — Media3 media session with notification & lock-screen controls, play modes (repeat all / repeat one / shuffle), favorites sorted to the top, play-next and a sleep timer (stop after current track)
-- **Home gestures** — swipe right for online search, swipe left for the playlist panel, and vertical swipes to switch tracks (toggleable); tapping the artist line jumps to that artist's playlist; immersive landscape mode with a rotating disc, a 3D cover carousel and auto-hiding floating controls (the title bar and control bar retract automatically when the playlist panel or the carousel is open, and Back closes the panel first)
-- **Cover-derived background & immersive chrome** — the home background is generated from the current cover: three high-saturation copies of it overlaid at fixed offsets, tinted, blurred on a canvas downscaled to 1/16 of the viewport and upscaled back, so the cost stays negligible. Until the thumbnail is ready it falls back to a gradient extracted from the cover, and on a cold start the colours persisted from last session are used for the very first frame. A *Background flow* switch under Playback settings makes the layers drift slowly (three periods of 120 s / 90 s / 70 s, opposite directions; off by default renders a single static frame). The cover's bottom fade, the background's join-layer fade-out and the dimming layer all share one smootherstep transition curve (zero first and second derivative at both ends), so the join is the same mirrored stretch of transition on either side and neither colour nor brightness steps across it. In portrait the title bar fades out 300 ms after two seconds without touch, comes back on any touch or when the player page is shown again, hides while the playlist panel or the analysis sheet is open, and stops responding to taps while faded. System bars are re-evaluated on any window layout change (rotation, split screen, free-form resize), since the size at the moment of a request may still be the pre-rotation one
-- **Adaptive layout** — responsive UI based on WindowSizeClass
-- **State persistence** — playlist, playback position and play mode are restored across restarts
-- **Theme & localization** — System / Light / Dark themes with a circular reveal transition; in-app hot switching between 简体中文 / English / Follow System without recreating the activity
-- **Crash logging** — uncaught and caught exceptions written to app-specific external storage with automatic cleanup
-- **In-app update** — automatically checks GitHub Releases once a day when returning to the foreground (also manual check on the About screen), showing a dialog with the changelog; the APK can be downloaded and installed in-app or opened in the browser, and every download is verified against the SHA-256 digest published by GitHub Releases before installation (downloads that cannot be verified are rejected)
-- **Storage management** — a dedicated screen inventories image cache, temp files (download, upgrade and spectrum-share intermediates), crash logs, lyric cache, audio cache, update packages, analysis cache and preferences, grouped into clearable / app-private / user-data scopes, with pull-to-refresh sampling and one-tap clearing of the app cache, crash logs and downloaded update packages
+| Portrait player | Landscape player | Landscape 3D carousel |
+| :---: | :---: | :---: |
+| <img src="docs/Screenshot/device-portrait.webp" width="215" alt="Portrait player (framed)" /> | <img src="docs/Screenshot/device-landscape.webp" width="380" alt="Landscape player (framed)" /> | <img src="docs/Screenshot/device-carousel.webp" width="380" alt="Landscape 3D cover carousel (framed)" /> |
+| Full-width immersive cover + word-level lyrics (original against translation) + the source format line `FLAC · 24bit/48kHz · 1975kbps` + full control bar | Two columns — cover left, lyrics right — with 3D perspective depth, a vertical progress bar on the centre axis, and a control bar that retracts after 3 seconds | Tap the cover in landscape to enter the carousel: the current track stands centre and enlarged, its neighbours fan out, drag to switch, tap to play |
+
+> Real-device captures; the device shells are composed proportionally to the screen's short edge by `tools/make_promo_hero.py`. Cover art and lyrics belong to their respective owners and are shown for interface demonstration only.
+
+## Highlights
+
+| | |
+| --- | --- |
+| **Floating music panel** | The full player runs as a system overlay — change tracks, read lyrics and search above any app |
+| **Mini player** | A single lyric bar that docks to the top when you leave the app; one tap expands the full panel |
+| **Word-level lyrics** | Line-level lyrics can be aligned into word-level in-app by algorithm |
+| **Lyric auto-translation** | Fill in Chinese translations for a whole song in one action |
+| **Library analysis** | Locate the whole library by format, flagging fake lossless and suspected AI-generated music |
+| **Full-track spectrum** | A 2048-point STFT time-frequency chart with a logarithmic frequency axis and a dB scale; long-press to export a 1920 px verdict image |
+
+---
+
+## Feature Tour
+
+Each feature is written as *what it is → how to use it*. Every path listed matches the current code.
+
+### 1. Playback & UI
+
+- **Playback speed** — 0.5× to 2.0× in real time, ±0.1 steps, handled natively by AudioTrack with no software resampling.
+  - **How to use**: long-press *previous* or *next* on the home screen → the speed dialog opens → tap the value in the middle to reset to 1.0×.
+- **Sleep timer** — stops after the current track finishes, then ends the app process.
+  - **How to use**: the timer button on the left of the portrait title bar → ±5 minutes (1–999) → confirm. While counting down, the remaining minutes sit under the title and tapping them cancels the timer.
+- **Home gestures** — three side-by-side pages: search / player / playlists, opening on the player.
+  - **How to use**: swipe right → search page; swipe left → playlist page; swipe vertically → next / previous track (switchable in settings — a held swipe first shows a track preview and cancels if the movement returns near the start).
+- **Adaptive layout** — WindowSizeClass switches between the single-column portrait assembly and the two-column landscape assembly.
+  - **How to use**: the rotation button on the right of the portrait title bar forces landscape; in landscape, tapping the cover area enters the 3D cover carousel — drag to switch, tap the centred cover to play, tap a side cover to select it, tap the empty space to exit.
+- **Theme & localization** — system / dark / light, and in-app hot switching between 简体中文 / English / follow system.
+  - **How to use**: Settings → Appearance → Theme (the switch plays a circular reveal); Settings → Language → pick a language.
+
+### 2. Lyrics
+
+- **Lyric rendering** — word-level rendering that jumps in sync, or line-level highlighting.
+  - **How to use**: lyrics scroll with playback; Settings → Playback → *Word-by-word rendering* controls whether words light up individually; a single tap on the lyrics shows or hides the fine-tune buttons (left `−` delays, right `+` advances, 100 ms per step).
+- **Drag-to-scrub and fling track switching** — a vertical drag over the lyrics area scrubs playback in real time.
+  - **How to use**: a slow drag is followed by the lyrics, and releasing on a line plays from it while the marker turns into a confirmation colour; an unaligned release springs back to where it was. A quick flick never moves the lyrics and is handled as a vertical swipe to switch tracks.
+- **Word-level alignment** — turns lyrics that only have a line-level timeline into a word-level timeline using the audio itself.
+  - **How to use**: long-press the lyrics → *Word-level alignment* → decoding and alignment run in the background with progress shown in the portrait title area, and continue while you leave the page.
+- **Lyric auto-translation** — fills in Chinese translations for every lyric line that has none.
+  - **How to use**: long-press the lyrics → *Edit lyrics* → *Auto-translate* → the progress dialog offers *Continue in background*; the action can be re-run at any time to fill in whatever is left.
+- **Lyric editing & import** — long-press the lyrics → *Edit lyrics* → *Edit this line*, or *Local lyrics* to import any text format through the system file picker; the same long-press menu can also search the current track.
+- **Lyric typography** — per-scene font size, visible-line count and landscape 3D intensity for the music panel, home portrait and home landscape.
+  - **How to use**: Settings → Typography (font size 12–24 sp; line counts by scene preset — 3/5, 3/5/7/9/11 and 7/9/11 — and landscape 3D intensity 0–2 in 0.25 steps).
+
+### 3. Music Sources
+
+- **Local library** — scans device audio through MediaStore (only tracks with `IS_MUSIC` and a duration of at least 30 seconds, ordered by title), and imports audio through the system share sheet / open-with.
+  - **How to use**: the scan starts automatically after the first permission grant; the *refresh* button in the queue panel header rescans on demand; choosing *open with Echo Tide* in a file manager, or sharing audio to the app, takes over and plays it in the background with the mini player attached.
+- **Proxy sources & custom platforms** — import a third-party source to define search, playback URL, lyric and cover resolution per platform, gaining full capability.
+  - **How to use**: Settings → Proxy Source → *Import source* → one of three routes: a local file, a link, or pasted text; once imported, the switch on the right of the row enables or disables it and the bin icon removes it. A source opened with Echo Tide or shared to the app is imported the same way. The proxy source development spec is documented in the [忆潮代理音源规范](docs/忆潮代理音源规范.md) (v1.2.0).
+- **Daily recommendation** — a lyric-profile recommender: your favourites' lyric profile scores tracks through lexical, conceptual and rhythmic channels, then diversity-reranking (MMR) produces a five-track carousel.
+  - **How to use**: the daily carousel on the online search page advances every 4 seconds; the refresh button at the top right forces a recompute; tapping a card plays it; the broken-heart button on the right of a card blacklists that track so it is no longer recommended.
+- **Blacklist & skip feedback** — blacklisting takes effect immediately and persists, and skips take part in later recommendations.
+  - **How to use**: swipe a queue row left → blacklist; Settings → Blacklist shows the count and can reset the whole list so those tracks take part in recommendations again.
+
+### 4. Playlists & Queue
+
+- **Smart playlists** — Recently Played / Favourites / Albums / Artists, derived live from the library.
+  - **How to use**: swipe left to the playlist page → open any system playlist card; *Play all* at the top of the detail page plays the whole list; tapping the artist line on the home screen jumps straight to that artist's playlist (a picker appears first when a track has several artists).
+- **Custom playlists** — create / rename / delete / batch add / drag to reorder.
+  - **How to use**: the playlist page → *Create playlist*; *Add tracks* on the detail page multi-selects and adds in bulk; long-pressing a row's sort handle and dragging reorders it (dragging syncs to the playback queue in real time); the *more* button on the right of a playlist row renames or deletes it.
+- **Playback queue** — the playback queue.
+  - **How to use**: the *playlist* button at the bottom right of the player page (same place in landscape) opens it, alongside the floating *scroll to top* and *locate current* buttons; a queue row supports swipe left to blacklist, swipe right for the advanced menu (share / set as ringtone / set as alarm / view spectrum) and long-press to delete.
+- **Playlist sorting** — a sort button in the queue panel header offering default order / modified time / title / artist / album / duration, with an ascending-descending toggle.
+  - **How to use**: the sort button in the queue panel header → pick a rule (offered for the default full queue only, so custom playlists keep their own drag order).
+- **Playlist switching** — the playlist subtitle in the queue panel header.
+  - **How to use**: the playlist subtitle in the queue panel header (same place in landscape) opens it; it shows the current playlist (tap to switch quickly);
+
+### 5. Analysis & Audio Quality
+
+- **Library analysis** — one pass produces two verdicts: fake lossless and suspected AI-generated music; it also locates the whole library by format and jumps straight to it.
+  - **How to use**: in portrait, long-press the *playlist* button on the control bar → the library analysis panel → the analysis starts on its own (closing the panel does not abort it — the portrait title area shows *analysing x/y*); the panel holds a format-share ring and a *locate by format* list whose first two entries are *fake lossless* and *suspected AI*; tapping any row makes that category the playback queue and jumps to the playlist; the refresh button at the top right re-runs the analysis at any time.
+- **Spectrum analysis** — decodes the whole track and renders a time-frequency spectrogram.
+  - **How to use**: swipe a queue row right → advanced menu → *View spectrum* → wait for the decode progress → read the spectrogram, the source file parameters and both verdicts → long-press the chart → *Share image* or *Save image*.
+
+### 6. Floating & System Integration
+
+- **Floating music panel** — the full player rendered as a system overlay (`TYPE_APPLICATION_OVERLAY`), able to cover any app.
+  - **How to use**: Settings → Playback → enable *Floating playback* and grant the overlay permission → the mini player appears at the top while the app keeps playing in the background → **tap the cover** to expand the full panel. Inside the panel: swipe right for search, swipe left for playback settings, swipe down to retract, and Back closes one layer at a time.
+- **Mini player** — a mini capsule bar that docks to the top of the screen while playing in the background.
+  - **How to use**: same *Floating playback* switch; it first shows five control buttons (play mode / previous / play-pause / next / playlist), collapses by itself after 3 seconds without touch and then shows the track title and the current lyric line; swipe left or right to change tracks, swipe down to hide (reset when the app returns to the foreground); tapping the cover expands the full panel and the playlist button opens the mini list. Returning to the foreground hides the mini player automatically.
+- **External audio takeover** — audio opened or shared from a file manager or another app is taken over in the background.
+  - **How to use**: choose Echo Tide when opening an audio file in a file manager, or share audio to the app from the system share sheet; no full-screen panel is shown — playback starts in the background with the mini player attached.
+- **Sharing & ringtones** — a local track can be shared through the system share sheet, or set as the default ringtone / alarm sound.
+  - **How to use**: swipe a queue row right → advanced menu → share / set as ringtone / set as alarm (needs the modify-system-settings permission).
+- **In-app update** — automatically checks GitHub Releases once a day when returning to the foreground, or on demand; a download is verified against a SHA-256 digest before installation.
+  - **How to use**: tap the version number at the bottom of Settings → a manual check runs (a new version opens a dialog with the changelog and *Download* / *Later*, while up-to-date and failure both report a message) → the download triggers the system installer on completion. A failed download offers *Open in browser*, and downloads are HTTPS only.
+- **Storage management** — a dedicated page inventories usage per category, grouped by scope.
+  - **How to use**: Settings → Storage management (the page resamples on entry and supports pull-to-refresh) → *Clear cache* to clean the clearable group in one tap.
+- **Crash logging** — uncaught and caught exceptions are written to app-specific external storage, keeping today's log only and cleaning older ones automatically.
+  - **How to use**: tap `[日志]` at the bottom of Settings to share today's log through the system share sheet.
+- **Permission onboarding** — the first launch walks through permissions with a card dialog that cannot be skipped.
+  - **How to use**: the dialog lists all-files access, music access and image access; *Grant* on each one completes them one by one, and once all are granted the dialog closes itself and the library scan starts automatically.
+
+---
+
+## Interaction Cheat Sheet
+
+| Where | Action | Result |
+| --- | --- | --- |
+| Home player page | Swipe right / left | Search page / playlist page |
+| Home player page | Swipe up / down | Next / previous track (switchable in settings; a held swipe previews first and cancels when it returns near the start) |
+| Portrait cover | Long-press | Search cover / local cover / save cover |
+| Portrait title & artist | Long-press / tap | Copy / rename / search; tapping the artist jumps to that artist's playlist |
+| Portrait lyrics area | Tap | Show or hide the lyric fine-tune buttons (100 ms per step) |
+| Portrait lyrics area | Long-press | Search / local lyrics / edit lyrics (edit this line, auto-translate) / word-level alignment |
+| Portrait lyrics area | Slow vertical drag | Lyrics follow your finger; releasing on a line plays from it |
+| Portrait lyrics area | Quick vertical flick | Lyrics stay put and the flick switches tracks |
+| Control bar | Long-press previous / next | Open the speed dialog |
+| Control bar | Long-press the queue button | Open the library analysis (portrait only) |
+| Control bar | Tap the queue button | Open the playback queue panel |
+| Format line under the progress bar | Tap | Audio-quality upgrade (when a proxy source is available) |
+| Queue row | Swipe left / right / long-press | Blacklist / advanced menu (share, ringtone, spectrum) / delete |
+| Custom playlist row | Drag the sort handle | Reorder tracks |
+| Landscape cover area | Tap | Enter the 3D cover carousel |
+| Spectrum chart | Long-press | Share image / save image |
+| Daily recommendation card | Tap / broken-heart button | Play / blacklist it from recommendations |
 
 ## Screens
 
 | Screen | Contents |
 | --- | --- |
-| Home | Permission onboarding dialog (auto-hides once all are granted), immersive player with a rotating disc cover on a cover-derived background, synced lyrics (font size & line count adjustable, drag vertically to scrub playback, multi-platform word-level lyrics, in-app word-level alignment and lyric auto-translation), refreshable, searchable playlist with sorting and share-link import, favorites, sleep timer, lossless upgrade, library analysis, landscape mode with a 3D cover carousel, online search (5 built-in platforms plus any custom platforms from proxy sources, quality selection, and a daily-recommendation carousel) via right swipe and playlist panel via left swipe, vertical swipe to switch tracks, tap the artist line to jump to that artist's playlist, auto-hiding title bar in portrait (long-press the cover / title for cover & lyrics refresh, lyric editing and rename; long-press a track in the playlist for share, ringtone, alarm and view-spectrum) |
-| Settings | Appearance (theme), Language, Playback (floating mini player / word-by-word rendering / swipe to change track / background flow) with a Typography entry, Blacklist (count + reset), Storage (entry to the cache screen), Proxy Source (import / enable / remove third-party sources), About (version, update check, share today's log, GitHub link, QQ group) |
-| Storage | Cache inventory grouped into temp files (clearable), app data and user data, with total usage, pull-to-refresh resampling and one-tap clearing of the app cache, crash logs and update packages |
-| Spectrum | Full-track time-frequency spectrogram (logarithmic frequency axis, dB colour scale, time labels), a decoding progress indicator, the source file's format parameters and size, and the same two verdicts the library analysis produces; long-press the chart to share or save a 1920 px PNG that carries artist, parameters, verdicts and a disclaimer |
+| Home | Permission onboarding dialog (auto-hides once all are granted), immersive player (full-width cover in portrait, two columns with 3D lyric perspective in landscape), synced lyrics, a refreshable, searchable and sortable playback queue, the playlist panel, search (custom platforms + the daily recommendation carousel), the library analysis entry, sleep timer, speed control and audio-quality upgrade |
+| Settings | Appearance (theme), Language, Playback (floating playback / word-by-word rendering / swipe to change track / background flow) with a Typography entry, Proxy Source (import / enable / remove), Storage management entry, Blacklist (count and reset), About (version doubles as the update check, share today's log, GitHub, QQ group) |
 | Typography | Per-scene lyric font size, visible-line count and landscape 3D intensity for the music panel, home portrait and home landscape |
+| Storage | Cache inventory grouped into temporary files (clearable) / app data / user data, with totals, pull-to-refresh resampling and one-tap clearing |
+| Spectrum | Full-track time-frequency spectrogram (logarithmic frequency axis, dB colour scale, time labels), decoding progress, the source file's format parameters and size, and the same two verdicts the library analysis produces; long-press to share or save a 1920 px PNG |
 
 ## Tech Stack
 
@@ -93,7 +191,7 @@
 │       │   ├── data/                    # Data layer
 │       │   │   ├── cache/               #   Cache inventory (categories, usage, cold-start reclaim)
 │       │   │   ├── music/               #   Music scanning / online sources / metadata / proxy source
-│       │   │   │   ├── api/             #     Online music sources (Netease / QQ / Kugou / Kuwo / Migu), lyric codec (incl. per-platform word-level formats), translation endpoint & HTTP client
+│       │   │   │   ├── api/             #     Search services, translation endpoint & HTTP client
 │       │   │   │   ├── analysis/        #     Lossless-format, audio-quality & AI-music analysis, generator-signature forensics, audio info, word-level lyric alignment, FFT & full-track spectrogram, full-analysis lock
 │       │   │   │   ├── blacklist/       #     Blacklist store
 │       │   │   │   ├── clip/            #     Sharing, default ringtone / alarm installer, readable URIs, spectrum image export
@@ -126,7 +224,7 @@
 │       │   │   └── typography/          #   Lyric typography settings
 │       │   ├── service/                 # MediaSessionService playback engine
 │       │   ├── theme/                   # Material 3 color & typography
-│       │   ├── ui/                      # Shared UI (component → incl. the CoverFade pair / component/dialog / component/player / component/section / icons)
+│       │   ├── ui/                      # Shared UI (component → incl. the cover-fade CoverFade / component/dialog / component/player / component/section / icons)
 │       │   ├── update/                  # Version check, in-app update & APK hash verification
 │       │   ├── utils/                   # Shared utilities
 │       │   ├── windowsize/              # Window size class & landscape form detection
@@ -138,7 +236,7 @@
 ├── gradle/
 │   ├── libs.versions.toml               # Version catalog (dependencies)
 │   └── wrapper/
-├── docs/                                # Proxy source spec (忆潮代理音源规范.md) & notes
+├── docs/                                # Proxy source spec, screenshots & notes
 ├── LICENSE
 ├── build.gradle.kts
 ├── settings.gradle.kts
@@ -192,7 +290,7 @@ Permissions are requested through a transparent onboarding activity that chains 
 ### Build
 
 ```bash
-git clone https://github.com/Evilgodxu/YiChao-Music.git
+git clone https://github.com/Evilgodxu/EchoTide-Music.git
 cd YiChao-Music
 
 # Debug APK
@@ -216,15 +314,23 @@ KEY_PASSWORD=your_key_password
 
 The keystore file is expected at `jh.keystore` in the project root (adjust `storeFile` in `app/build.gradle.kts` if needed). Both files are git-ignored — never commit them.
 
+### Promo Image
+
+The framed screenshots and the hero image used in this README are generated from the device captures in `docs/Screenshot/` by `tools/make_promo_hero.py`. The script derives the bezel thickness, body radius and side-key placement proportionally from the screen's short edge, writing three transparent framed captures (`device-*.webp`) plus the composed `promo-hero.webp`.
+
+```bash
+python tools/make_promo_hero.py
+```
+
 ## Disclaimer
 
-Online music search relies on third-party public web endpoints (Netease / QQ Music / Kugou / Kuwo / Migu). The built-in sources are used for basic song search, cover lookup and lyric lookup only — playback is not a capability they promise, so the app can play trial clips and free tracks in theory only, when a source returns a playable URL; lossless upgrade depends on a proxy source. Lyric auto-translation relies on Youdao's public keyless translation endpoint, whose availability, rate limiting and translation quality are entirely up to that service. Availability varies by region and song. The app is for personal study and communication only — please support the copyright holders.
+Search services rely on public web endpoints. The built-in search services are used for basic song, cover and lyric search only — playback is not a capability they promise, so the app can play trial clips and free tracks in theory only, when a source returns a playable URL; the audio-quality upgrade depends on a proxy source. Lyric auto-translation relies on Youdao's public keyless translation endpoint, whose availability, rate limiting and translation quality are entirely up to that service. Availability varies by region and song. The app is for personal study and communication only — please support the copyright holders.
 
 ## Acknowledgements
 
-- Lyric animations and NetEase cloud music parsing originally referenced from [Qplayer](https://github.com/TIMER-err/qplayer)
-- Drag-reorder of list items originally referenced from [Reorderable](https://github.com/Calvin-LL/Reorderable); now self-implemented in-app (algorithm-equivalent)
-- QQ Music, Kugou, Kuwo and Migu Kotlin-native audio source parsing is based on [musicdl](https://github.com/CharlesPikachu/musicdl)
+- NetEase Cloud Music parsing originally referenced from [Qplayer](https://github.com/TIMER-err/qplayer)
+- Drag-reorder of list items [Reorderable](https://github.com/Calvin-LL/Reorderable); now self-implemented in-app (algorithm-equivalent)
+- NetEase Cloud Music, Kugou, Kuwo, Migu and QQ Kotlin-native audio source parsing is based on [musicdl](https://github.com/CharlesPikachu/musicdl)
 
 ## License
 
