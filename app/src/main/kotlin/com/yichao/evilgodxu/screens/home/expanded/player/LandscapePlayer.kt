@@ -210,6 +210,8 @@ fun LandscapePlayer(
                     playbackState = playbackState,
                     onPlaylistClick = { onPlaylistVisibilityChange(true) },
                     onSpeedLongClick = onSpeedLongClick,
+                    // 播放列表按钮上滑同样打开面板：与竖屏控制栏手势一致
+                    onPlaylistSwipeUp = { onPlaylistVisibilityChange(true) },
                 )
             }
         }

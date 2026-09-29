@@ -44,6 +44,8 @@ internal fun PlayerControls(
     onPlaylistLongClick: () -> Unit = {},
     // 从播放/暂停按钮向上滑动：唤出音频信息弹窗；为 null 时该按钮保持普通点击行为
     onPlayPauseSwipeUp: (() -> Unit)? = null,
+    // 从播放列表按钮向上滑动：打开播放列表面板；为 null 时该按钮保持普通点击行为
+    onPlaylistSwipeUp: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -107,6 +109,7 @@ internal fun PlayerControls(
             contentDescription = stringResource(R.string.music_panel_playlist),
             onClick = onPlaylistClick,
             onLongClick = onPlaylistLongClick,
+            onSwipeUp = onPlaylistSwipeUp,
         )
     }
 }
@@ -136,12 +139,12 @@ private fun PlayerControlButton(
         Box(
             modifier = Modifier
                 .size(48.dp)
-                // 点击与按压反馈仍由 combinedClickable 承担；长按不触发任何动作（空回调），
-                // 仅静默吞掉点击，避免长按后松手误触发播放/暂停
+                // 点击与按压反馈仍由 combinedClickable 承担；无长按行为时传空回调而非省缺，
+                // 静默吞掉长按后的抬手，避免误触发单击动作
                 .combinedClickable(
                     enabled = enabled,
                     onClick = onClick,
-                    onLongClick = {},
+                    onLongClick = onLongClick ?: {},
                 )
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
@@ -180,7 +183,7 @@ private fun PlayerControlButton(
 }
 
 /**
- * 从播放/暂停按钮上滑的手势判定：纵向向上主导、且累计上滑超过 [thresholdPx] 时触发 [onSwipeUp]。
+ * 控制栏按钮上滑的手势判定：纵向向上主导、且累计上滑超过 [thresholdPx] 时触发 [onSwipeUp]。
  *
  * 越过触摸阈值前不消费任何事件，方向由位移判定：横向主导让给左右翻页，
  * 纵向向下让给整页纵向切歌手势；判为向上即接管本次手势（消费位移与抬手），
@@ -226,6 +229,6 @@ private suspend fun PointerInputScope.detectSwipeUp(
     }
 }
 
-// 触发音频信息弹窗所需的最小上升距离：方向判定已由系统触摸阈值把关，此处取其两倍量级，
+// 按钮上滑唤出弹层所需的最小上升距离：方向判定已由系统触摸阈值把关，此处取其两倍量级，
 // 排除轻扫抖动，同时保证一次常规上滑即可唤出
 private val SWIPE_UP_TRIGGER_DISTANCE = 32.dp

@@ -635,6 +635,7 @@ internal fun PortraitPlayer(
                     onSpeedLongClick = onSpeedLongClick,
                     onPlaylistLongClick = { libraryAnalysis.open() },
                     onPlayPauseSwipeUp = { onAudioInfoVisibilityChange(true) },
+                    onPlaylistSwipeUp = { onPlaylistVisibilityChange(true) },
                 )
             }
         }
