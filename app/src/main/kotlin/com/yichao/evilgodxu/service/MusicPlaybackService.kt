@@ -96,13 +96,27 @@ class MusicPlaybackService : MediaSessionService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .build()
+        // 纯音频播放：显式禁用视频轨道。默认渲染器按视频在前的顺序建组，含内嵌视频轨的文件
+        // （MV、带画面的 MP4）会选中视频轨并解码——既白耗解码与播放线程，也会让轨道信息读到视频格式
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
+            .build()
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) requestAudioFocus()
             }
 
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
-                val format = tracks.groups.firstOrNull { it.isSelected }?.getTrackFormat(0)
+                // 只取被选中的音频轨道自身的格式：不能取首个「有选中项」的组——渲染器按视频在前的
+                // 顺序建组，组内含视频轨时会先命中视频格式；也不能固定取组内 0 号轨——多音轨时选中项
+                // 未必在 0 号，取错会把视频或其它音轨的采样率与声道喂给音频输出
+                val format = tracks.groups
+                    .firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
+                    ?.let { group ->
+                        (0 until group.length)
+                            .firstOrNull { group.isTrackSelected(it) }
+                            ?.let(group::getTrackFormat)
+                    }
                 val state = stateHolder.state
                 val currentTrack = state.currentTrack
                 // 独占输出的混音器属性按解码格式挑选，格式未变时内部会跳过重复下发
