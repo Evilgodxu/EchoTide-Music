@@ -22,6 +22,9 @@ internal object KugouMusicApi : OnlineMusicSource {
     // 默认榜单：酷狗音乐 TOP500 热门榜
     private const val CHART_RANK_ID = "8888"
 
+    // 列表缩略图尺寸段：封面 CDN 的 {size} 占位符支持 64/120/400/480
+    private const val COVER_THUMB_SIZE = "120"
+
     // 歌词下载格式：krc 为逐字歌词，lrc 为逐行歌词
     private const val KRC_FORMAT = "krc"
     private const val LRC_FORMAT = "lrc"
@@ -74,17 +77,14 @@ internal object KugouMusicApi : OnlineMusicSource {
         val artist = List(authors.length()) { authors.getJSONObject(it).optString("author_name") }
             .filter { it.isNotBlank() }
             .joinToString(" / ")
-        // 封面地址带 {size} 占位符，替换为实际尺寸段
-        val cover = item.optString("album_sizable_cover")
-            .takeIf { it.isNotBlank() }
-            ?.replace("{size}", "300")
-            ?.let { if (it.startsWith("http://")) "https://${it.removePrefix("http://")}" else it }
+        // 封面地址带 {size} 尺寸段：原图去除该段，缩略图按值替换
+        val rawCover = item.optString("album_sizable_cover").takeIf { it.isNotBlank() }
         return NeteaseSongSearchResult(
             id = stableIdFromString(hash),
             title = item.optString("songname").ifBlank { titleFromFilename(item.optString("filename")) },
             artist = artist,
-            coverUrl = cover,
-            coverThumbUrl = cover,
+            coverUrl = originalCover(rawCover),
+            coverThumbUrl = sizedCover(rawCover, COVER_THUMB_SIZE),
             // duration 为秒
             duration = item.optLong("duration", 0L) * 1000L,
             source = MusicSearchSource.KUGOU,
@@ -98,15 +98,10 @@ internal object KugouMusicApi : OnlineMusicSource {
         val filename = item.optString("filename").ifBlank { item.optString("FileName") }
         val rawTitle = item.optString("songname").ifBlank { item.optString("SongName") }
         val artist = item.optString("singername").ifBlank { item.optString("SingerName") }
-        var cover = item.optJSONObject("trans_param")?.optString("union_cover")
+        val rawCover = item.optJSONObject("trans_param")?.optString("union_cover")
             ?.takeIf { it.isNotBlank() }
             ?: item.optString("cover_url").takeIf { it.isNotBlank() }
             ?: item.optString("Image").takeIf { it.isNotBlank() }
-        if (cover != null && cover.contains("{size}")) cover = cover.replace("{size}", "300")
-        // 封面 CDN 返回 http 明文，统一转 https
-        if (cover != null && cover.startsWith("http://")) {
-            cover = "https://${cover.removePrefix("http://")}"
-        }
         // duration 为秒，timelen 为毫秒，二者取其一
         val durationSec = item.optString("duration").toLongOrNull()
             ?: item.optLong("Duration", 0L)
@@ -115,8 +110,8 @@ internal object KugouMusicApi : OnlineMusicSource {
             id = stableIdFromString(hash),
             title = rawTitle.ifBlank { titleFromFilename(filename) },
             artist = artist,
-            coverUrl = cover,
-            coverThumbUrl = cover,
+            coverUrl = originalCover(rawCover),
+            coverThumbUrl = sizedCover(rawCover, COVER_THUMB_SIZE),
             duration = if (durationSec > 0) durationSec * 1000L else timelen,
             source = MusicSearchSource.KUGOU,
             sourceId = hash
@@ -213,6 +208,18 @@ internal object KugouMusicApi : OnlineMusicSource {
             is JSONArray -> value.optString(0).takeIf { it.isNotBlank() }
             else -> value.toString().takeIf { it.isNotBlank() }
         }
+    }
+
+    // 封面 CDN 地址形如 http://imge.kugou.com/stdmusic/{size}/{path}：{size} 是尺寸段，
+    // 替换为具体值得到对应尺寸的缩略图，去除该段则返回原图；CDN 只发 http，统一升级为 https
+    private fun originalCover(raw: String?): String? = normalizeCoverUrl(raw?.replace("/{size}/", "/"))
+
+    private fun sizedCover(raw: String?, size: String): String? =
+        normalizeCoverUrl(raw?.replace("{size}", size))
+
+    private fun normalizeCoverUrl(url: String?): String? {
+        val value = url?.takeIf { it.isNotBlank() } ?: return null
+        return if (value.startsWith("http://")) "https://${value.removePrefix("http://")}" else value
     }
 
     private fun md5(input: String): String {

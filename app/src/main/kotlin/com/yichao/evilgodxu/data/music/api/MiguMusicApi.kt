@@ -54,7 +54,7 @@ internal object MiguMusicApi : OnlineMusicSource {
                 val artist = List(singers.length()) { singers.getJSONObject(it).optString("name") }
                     .filter { it.isNotBlank() }
                     .joinToString(" / ")
-                val cover = obtainCover(item)
+                val (cover, coverThumb) = obtainCover(item)
                 val identifier = if (contentId.isNotBlank()) {
                     "$contentId|$copyrightId|${buildQualities(item)}"
                 } else null
@@ -63,7 +63,7 @@ internal object MiguMusicApi : OnlineMusicSource {
                     title = item.optString("name"),
                     artist = artist,
                     coverUrl = cover,
-                    coverThumbUrl = cover,
+                    coverThumbUrl = coverThumb,
                     duration = parseDuration(item),
                     source = MusicSearchSource.MIGU,
                     sourceId = identifier
@@ -195,17 +195,26 @@ internal object MiguMusicApi : OnlineMusicSource {
         return raw.split(":").fold(0L) { acc, part -> acc * 60 + (part.toLongOrNull() ?: 0L) } * 1000L
     }
 
-    private fun obtainCover(item: JSONObject): String? {
-        var cover: String? = null
+    // 封面按尺寸分档：imgItems 以 imgSizeType 标记（03 > 02 > 01，数值越大越清晰），
+    // 取最大档作原图、最小档作列表缩略图；无 imgItems 时回退 img3/img2/img1
+    private fun obtainCover(item: JSONObject): Pair<String?, String?> {
         val imgItems = item.optJSONArray("imgItems")
-        if (imgItems != null && imgItems.length() > 0) {
-            cover = imgItems.optJSONObject(imgItems.length() - 1)?.optString("img")
-        }
-        if (cover.isNullOrBlank()) {
-            cover = item.optString("img3").ifBlank { item.optString("img2").ifBlank { item.optString("img1") } }
-        }
-        if (cover.isNullOrBlank()) return null
-        return if (cover.startsWith("http")) cover.toHttps() else "https://d.musicapp.migu.cn$cover"
+        val items = if (imgItems == null) emptyList() else
+            (0 until imgItems.length()).mapNotNull { index ->
+                val entry = imgItems.optJSONObject(index) ?: return@mapNotNull null
+                val img = entry.optString("img").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                entry.optString("imgSizeType") to img
+            }.sortedBy { it.first }
+        val original = items.lastOrNull()?.second
+            ?: item.optString("img3").ifBlank { item.optString("img2").ifBlank { item.optString("img1") } }
+                .takeIf { it.isNotBlank() }
+        val thumb = items.firstOrNull()?.second ?: original
+        return normalizeCover(original) to normalizeCover(thumb)
+    }
+
+    private fun normalizeCover(cover: String?): String? {
+        val value = cover?.takeIf { it.isNotBlank() } ?: return null
+        return if (value.startsWith("http")) value.toHttps() else "https://d.musicapp.migu.cn$value"
     }
 
     private fun getJson(url: String, extraHeaders: Map<String, String> = emptyMap()): JSONObject {

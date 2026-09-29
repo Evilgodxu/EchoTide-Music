@@ -24,6 +24,12 @@ internal object KuwoMusicApi : OnlineMusicSource {
     private const val LYRIC_ENDPOINT = "https://newlyric.kuwo.cn/newlyric.lrc"
     private const val BANG_ENDPOINT = "http://kbangserver.kuwo.cn/ksong.s"
     private const val PIC_ENDPOINT = "https://artistpicserver.kuwo.cn/pic.web"
+    // 封面 CDN：直链形如 {COVER_CDN}/{size}/{path}，size 取 ori 为原图、数字为对应尺寸缩略图
+    private const val COVER_CDN = "https://img1.kuwo.cn/star/albumcover"
+    private const val COVER_ORIGINAL_SIZE = "ori"
+    private const val COVER_THUMB_SIZE = "120"
+    // 自 pic.web 返回的封面直链中提取尺寸段之后的路径，如 /albumcover/120/xx/xx.jpg -> xx/xx.jpg
+    private val COVER_PATH_REGEX = Regex("""/albumcover/\d+/(.+)$""")
     // 默认榜单：飙升榜
     private const val CHART_BANG_ID = "93"
 
@@ -44,15 +50,14 @@ internal object KuwoMusicApi : OnlineMusicSource {
             List(lists.length()) { index ->
                 val item = lists.getJSONObject(index)
                 val rid = item.optString("MUSICRID").ifBlank { item.optString("musicrid") }.removePrefix("MUSIC_")
-                // 专辑封面优先取 web_albumpic_short（形如 120/xx/xx.jpg），拼接 CDN 前缀并放大为 300 尺寸；
+                // 专辑封面优先取 web_albumpic_short（形如 120/xx/xx.jpg），按路径拼接原图与缩略图；
                 // 无专辑封面时回退 hts_MVPIC（MV 图）等兜底字段
                 val albumShort = item.optString("web_albumpic_short")
-                val cover = if (albumShort.isNotBlank()) {
-                    "https://img1.kuwo.cn/star/albumcover/300/" + albumShort.removePrefix("120/")
-                } else {
-                    item.optString("hts_MVPIC").ifBlank { item.optString("albumpic") }
-                        .ifBlank { item.optString("pic") }.takeIf { it.isNotBlank() }?.toHttps()
-                }
+                val coverPath = albumShort.takeIf { it.isNotBlank() }?.removePrefix("120/")
+                val fallback = item.optString("hts_MVPIC").ifBlank { item.optString("albumpic") }
+                    .ifBlank { item.optString("pic") }.takeIf { it.isNotBlank() }?.toHttps()
+                val cover = coverPath?.let { coverAt(it, COVER_ORIGINAL_SIZE) } ?: fallback
+                val coverThumb = coverPath?.let { coverAt(it, COVER_THUMB_SIZE) } ?: fallback
                 val durationSec = item.optString("DURATION").toLongOrNull()
                     ?: item.optLong("duration", 0L)
                 NeteaseSongSearchResult(
@@ -61,7 +66,7 @@ internal object KuwoMusicApi : OnlineMusicSource {
                         .ifBlank { item.optString("songName") },
                     artist = item.optString("ARTIST").ifBlank { item.optString("artist") },
                     coverUrl = cover,
-                    coverThumbUrl = cover,
+                    coverThumbUrl = coverThumb,
                     duration = durationSec * 1000L,
                     source = MusicSearchSource.KUWO,
                     sourceId = rid.ifBlank { null }
@@ -96,13 +101,13 @@ internal object KuwoMusicApi : OnlineMusicSource {
     /** 榜单条目映射：字段命名与搜索接口不同，且只给 rid，封面需另取 */
     private fun bangSong(item: JSONObject): NeteaseSongSearchResult {
         val rid = item.optString("id").ifBlank { item.optString("rid") }.removePrefix("MUSIC_")
-        val cover = rid.takeIf { it.isNotBlank() }?.let { fetchCover(it) }
+        val coverPath = rid.takeIf { it.isNotBlank() }?.let { fetchCoverPath(it) }
         return NeteaseSongSearchResult(
             id = stableIdFromString(rid),
             title = item.optString("name").ifBlank { item.optString("songName") },
             artist = item.optString("artist").ifBlank { item.optString("artistName") },
-            coverUrl = cover,
-            coverThumbUrl = cover,
+            coverUrl = coverPath?.let { coverAt(it, COVER_ORIGINAL_SIZE) },
+            coverThumbUrl = coverPath?.let { coverAt(it, COVER_THUMB_SIZE) },
             // song_duration 为秒；同条目的 duration 字段不是时长
             duration = item.optString("song_duration").toLongOrNull()?.times(1000L) ?: 0L,
             source = MusicSearchSource.KUWO,
@@ -110,12 +115,15 @@ internal object KuwoMusicApi : OnlineMusicSource {
         )
     }
 
-    // 榜单接口不含封面地址，仅给 rid；该接口按 rid 返回封面直链，取不到时留空由占位图兜底
-    private fun fetchCover(rid: String): String? = runCatching {
-        get("$PIC_ENDPOINT?type=rid_pic&pictype=300&size=300&rid=$rid").trim()
+    // 榜单接口不含封面地址，仅给 rid；该接口按 rid 返回封面直链（形如 .../albumcover/120/xx/xx.jpg），
+    // 自其中提取路径供按尺寸拼接原图与缩略图；格式不符或取不到时返回 null，由占位图兜底
+    private fun fetchCoverPath(rid: String): String? = runCatching {
+        get("$PIC_ENDPOINT?type=rid_pic&pictype=$COVER_THUMB_SIZE&size=$COVER_THUMB_SIZE&rid=$rid").trim()
             .takeIf { it.startsWith("http") }
-            ?.toHttps()
+            ?.let { COVER_PATH_REGEX.find(it)?.groupValues?.get(1) }
     }.getOrNull()
+
+    private fun coverAt(path: String, size: String): String = "$COVER_CDN/$size/$path"
 
     /** 获取指定音质播放地址；无损/高品优先 flac，标准使用 mp3，组的后项兜底 */
     suspend fun songUrl(rid: String, quality: MusicQuality = MusicQuality.LOSSLESS): String? = withContext(Dispatchers.IO) {
