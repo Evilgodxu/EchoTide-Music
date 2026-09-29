@@ -1,10 +1,16 @@
 package com.yichao.evilgodxu.ui.component.player
 
+import android.app.Activity
+import android.bluetooth.BluetoothClass
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.OptIn
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -19,9 +25,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -34,14 +42,21 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import com.yichao.evilgodxu.data.music.playback.AudioInfoCollector
 import com.yichao.evilgodxu.data.music.playback.AudioInfoSnapshot
 import com.yichao.evilgodxu.data.music.playback.AudioOutputMode
 import com.yichao.evilgodxu.data.music.playback.AudioTransportState
+import com.yichao.evilgodxu.data.music.playback.BluetoothLinkType
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.OutputDeviceInfo
 import com.yichao.evilgodxu.data.music.playback.OutputDeviceKind
+import com.yichao.evilgodxu.permission.PermissionMonitor
+import com.yichao.evilgodxu.permission.bluetoothConnectPermission
 import com.yichao.evilgodxu.R
 
 // 字段值超过该长度即改为起始对齐：设备信息与文件路径这类长文本换行后以尾对齐阅读成本高
@@ -63,6 +78,8 @@ internal fun AudioInfoContent(
     scrollState: ScrollState = rememberScrollState(),
 ) {
     val snapshot by rememberAudioInfoSnapshot(playbackState)
+    // 蓝牙设备名与真实地址都受授权限制：当前输出是蓝牙而名称读不到时，在展示处就地申请授权
+    BluetoothConnectPermissionRequest(snapshot?.outputDevice)
     Column(
         modifier = modifier.verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -245,22 +262,71 @@ private fun audioInfoGroups(snapshot: AudioInfoSnapshot): List<AudioInfoGroup> =
     ),
     AudioInfoGroup(
         title = stringResource(R.string.audio_info_group_devices),
-        rows = snapshot.outputDevices.mapNotNull { device ->
-            deviceValueText(device)?.let {
-                AudioInfoRow(
-                    stringResource(
-                        when (device.kind) {
-                            OutputDeviceKind.USB -> R.string.audio_info_device_usb
-                            OutputDeviceKind.BLUETOOTH -> R.string.audio_info_device_bluetooth
-                            OutputDeviceKind.SPEAKER -> R.string.audio_info_device_speaker
-                        }
-                    ),
-                    it,
-                )
-            }
-        },
+        rows = outputDeviceRows(snapshot.outputDevice),
     ),
 ).filter { it.rows.isNotEmpty() }
+
+// 输出设备行：只展示当前输出设备，其下为蓝牙链路可读到的附加项；读不到的项不产出
+@Composable
+private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
+    if (device == null) return emptyList()
+    return listOfNotNull(
+        deviceValueText(device)?.let { AudioInfoRow(outputDeviceKindLabel(device.kind), it) },
+        device.bluetooth?.linkType?.let {
+            AudioInfoRow(stringResource(R.string.audio_info_bluetooth_type), bluetoothLinkTypeLabel(it))
+        },
+        device.bluetooth?.deviceClass
+            ?.let { bluetoothDeviceClassLabel(it) }
+            ?.let { AudioInfoRow(stringResource(R.string.audio_info_bluetooth_category), it) },
+    )
+}
+
+// 设备类别名：输出设备行以类别起始，便于一眼区分当前出口
+@Composable
+private fun outputDeviceKindLabel(kind: OutputDeviceKind): String = stringResource(
+    when (kind) {
+        OutputDeviceKind.USB -> R.string.audio_info_device_usb
+        OutputDeviceKind.BLUETOOTH -> R.string.audio_info_device_bluetooth
+        OutputDeviceKind.SPEAKER -> R.string.audio_info_device_speaker
+        OutputDeviceKind.WIRED -> R.string.audio_info_device_wired
+        OutputDeviceKind.OTHER -> R.string.audio_info_device_other
+    }
+)
+
+// 蓝牙链路类型：经典蓝牙承载 A2DP，低功耗蓝牙承载 LE Audio，双模两者兼有
+@Composable
+private fun bluetoothLinkTypeLabel(linkType: BluetoothLinkType): String = stringResource(
+    when (linkType) {
+        BluetoothLinkType.CLASSIC -> R.string.audio_info_bluetooth_type_classic
+        BluetoothLinkType.LE -> R.string.audio_info_bluetooth_type_le
+        BluetoothLinkType.DUAL -> R.string.audio_info_bluetooth_type_dual
+    }
+)
+
+/**
+ * 蓝牙设备类别：设备类字段由厂商声明，只译常见类别，其余留空。
+ *
+ * 未归类音视频设备与音视频大类共用同一编码，故前者一条即可覆盖大类。
+ */
+@Composable
+private fun bluetoothDeviceClassLabel(deviceClass: Int): String? {
+    val labelRes = when (deviceClass) {
+        BluetoothClass.Device.AUDIO_VIDEO_WEARABLE_HEADSET ->
+            R.string.audio_info_bluetooth_class_wearable_headset
+        BluetoothClass.Device.AUDIO_VIDEO_HANDSFREE -> R.string.audio_info_bluetooth_class_handsfree
+        BluetoothClass.Device.AUDIO_VIDEO_LOUDSPEAKER -> R.string.audio_info_bluetooth_class_loudspeaker
+        BluetoothClass.Device.AUDIO_VIDEO_HEADPHONES -> R.string.audio_info_bluetooth_class_headphones
+        BluetoothClass.Device.AUDIO_VIDEO_PORTABLE_AUDIO -> R.string.audio_info_bluetooth_class_portable_audio
+        BluetoothClass.Device.AUDIO_VIDEO_CAR_AUDIO -> R.string.audio_info_bluetooth_class_car_audio
+        BluetoothClass.Device.AUDIO_VIDEO_HIFI_AUDIO -> R.string.audio_info_bluetooth_class_hifi_audio
+        BluetoothClass.Device.AUDIO_VIDEO_UNCATEGORIZED -> R.string.audio_info_bluetooth_class_audio_video
+        BluetoothClass.Device.Major.COMPUTER -> R.string.audio_info_bluetooth_class_computer
+        BluetoothClass.Device.Major.PHONE -> R.string.audio_info_bluetooth_class_phone
+        BluetoothClass.Device.Major.WEARABLE -> R.string.audio_info_bluetooth_class_wearable
+        else -> return null
+    }
+    return stringResource(labelRes)
+}
 
 // 输出设备取值：名称（受权限限制可能不可得）、地址、支持采样率与声道数按序拼接，各项缺失即跳过
 @Composable
@@ -300,8 +366,9 @@ private fun booleanLabel(value: Boolean): String = stringResource(
  * 采集音频信息快照。
  *
  * 曲目、格式与输出链路状态均为 Compose 状态，变化即重算；传输状态、音频会话 ID 与输出设备
- * 不在 Compose 状态中，改由播放器与音频设备回调驱动版本号重算。
+ * 不在 Compose 状态中，改由播放器、音频设备回调与回到前台三类事件驱动版本号重算。
  */
+@OptIn(UnstableApi::class)
 @Composable
 private fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<AudioInfoSnapshot?> {
     val context = LocalContext.current
@@ -344,6 +411,16 @@ private fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<
         onDispose { audioManager?.unregisterAudioDeviceCallback(callback) }
     }
 
+    // 授权变更不在设备回调覆盖范围内：回到前台后重新采集，使刚授予的权限立即反映到设备信息
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) deviceEventVersion++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     return produceState(
         initialValue = null,
         playbackState.currentTrack?.id,
@@ -356,5 +433,37 @@ private fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<
         deviceEventVersion,
     ) {
         value = AudioInfoCollector.collect(context, playbackState)
+    }
+}
+
+/**
+ * 蓝牙授权补申请。
+ *
+ * 远端设备名与真实地址都受 BLUETOOTH_CONNECT 保护，未授权时两者都读不到（地址还会被平台匿名化），
+ * 故在当前输出是蓝牙且名称读不到时就地申请，省去用户自行去系统设置里翻找。
+ * 每次打开面板至多申请一次，避免反复打扰。
+ *
+ * 悬浮窗宿主没有 Activity（系统授权对话框会落在悬浮窗之下，用户无从操作），此处不申请，
+ * 该场景交由首页权限对话框覆盖。
+ */
+@Composable
+private fun BluetoothConnectPermissionRequest(currentOutput: OutputDeviceInfo?) {
+    val context = LocalContext.current
+    // LocalContext 为本地化包装 context，宿主 Activity 需从注册表所有者获取
+    val activity = LocalActivityResultRegistryOwner.current as? Activity ?: return
+    if (currentOutput?.kind != OutputDeviceKind.BLUETOOTH || currentOutput.name != null) return
+    val permissionMonitor = remember(context) { PermissionMonitor(context) }
+    if (permissionMonitor.isBluetoothConnectGranted()) return
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        // 授权结果由回到前台后的重新采集体现，此处无需处理
+    }
+    var requested by remember { mutableStateOf(false) }
+    LaunchedEffect(activity) {
+        if (requested) return@LaunchedEffect
+        requested = true
+        permissionLauncher.launch(bluetoothConnectPermission())
     }
 }

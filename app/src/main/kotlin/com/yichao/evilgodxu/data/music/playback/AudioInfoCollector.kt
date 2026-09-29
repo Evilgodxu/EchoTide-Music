@@ -1,9 +1,12 @@
 package com.yichao.evilgodxu.data.music.playback
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import androidx.annotation.OptIn
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import com.yichao.evilgodxu.data.music.analysis.isLosslessFormatName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,16 +18,33 @@ private val USB_OUTPUT_TYPES = setOf(
     AudioDeviceInfo.TYPE_USB_ACCESSORY,
 )
 
-// 蓝牙音频输出：A2DP 承载媒体音频，SCO 为通话通路，BLE 系列为低功耗音频设备
+// 蓝牙音频输出：A2DP 承载媒体音频，SCO 为通话通路，BLE 系列与助听器为低功耗音频设备
 private val BLUETOOTH_OUTPUT_TYPES = setOf(
     AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
     AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
     AudioDeviceInfo.TYPE_BLE_HEADSET,
     AudioDeviceInfo.TYPE_BLE_SPEAKER,
+    AudioDeviceInfo.TYPE_BLE_BROADCAST,
+    AudioDeviceInfo.TYPE_HEARING_AID,
 )
 
 // 内置扬声器：外放通路
-private val SPEAKER_OUTPUT_TYPES = setOf(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)
+private val SPEAKER_OUTPUT_TYPES = setOf(
+    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER_SAFE,
+)
+
+// 有线通路：耳机与耳麦同为线缆接入
+private val WIRED_OUTPUT_TYPES = setOf(
+    AudioDeviceInfo.TYPE_WIRED_HEADSET,
+    AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+)
+
+// 媒体属性：路由由系统按属性判定，此处与播放器自身的属性（USAGE_MEDIA / CONTENT_TYPE_MUSIC）取同一口径
+private val PLAYBACK_ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
+    .setUsage(AudioAttributes.USAGE_MEDIA)
+    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+    .build()
 
 // 设备支持的采样率最多列出前几项：设备行过长时已被展示层截断，取全量只会白占版面
 private const val MAX_LISTED_SAMPLE_RATES = 4
@@ -41,7 +61,7 @@ internal object AudioInfoCollector {
      * 采集信息快照。
      *
      * 播放器接口只能在创建它的线程调用（MediaController 有线程归属），故先在主线程取完
-     * 会话 ID 与传输状态，再进入 IO 采集设备信息与蓝牙设备名。
+     * 会话 ID 与传输状态，再进入 IO 采集设备信息与蓝牙设备信息。
      */
     suspend fun collect(context: Context, state: MusicPlaybackState): AudioInfoSnapshot {
         val playback = playbackSnapshot(state.player)
@@ -50,10 +70,6 @@ internal object AudioInfoCollector {
             val outputs = runCatching {
                 audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
             }.getOrNull().orEmpty().toList()
-            val bluetoothAddress = outputs
-                .firstOrNull { it.type in BLUETOOTH_OUTPUT_TYPES }
-                ?.address
-                ?.takeIf { it.isNotBlank() }
             AudioInfoSnapshot(
                 sourcePath = sourcePath(state),
                 format = state.audioSignalPathFormat
@@ -83,11 +99,7 @@ internal object AudioInfoCollector {
                 floatOutput = state.audioSinkFloatOutput,
                 latencyMs = nativeOutputLatencyMs(audioManager),
                 transportState = playback.transportState,
-                outputDevices = outputDevices(
-                    outputs = outputs,
-                    bluetoothName = bluetoothAddress
-                        ?.let { BluetoothDeviceNameResolver.resolve(context, it) },
-                ),
+                outputDevice = currentOutputDevice(context, audioManager, state, outputs),
             )
         }
     }
@@ -98,6 +110,7 @@ internal object AudioInfoCollector {
      * MediaController 有线程归属，取值必须在其所属线程完成，故统一切到主线程读取；
      * 已在主线程时不会额外派发，避免与调用方互相等待。
      */
+    @OptIn(UnstableApi::class)
     private suspend fun playbackSnapshot(player: Player?): PlaybackSnapshot =
         withContext(Dispatchers.Main.immediate) {
             PlaybackSnapshot(
@@ -182,32 +195,77 @@ internal object AudioInfoCollector {
     }
 
     /**
-     * 输出设备：USB、蓝牙、扬声器各成一类，每类只取首个设备，避免同类重复成行。
-     * 类别下无设备时不产出条目，由展示层跳过对应行。
+     * 当前输出设备。
+     *
+     * 设备名与蓝牙链路信息分别取自音频栈与蓝牙栈：音频栈给出设备自报名与支持格式，
+     * 蓝牙栈才是远端设备名的可靠来源，故蓝牙设备一律以蓝牙栈的名称为准。
+     * 判定不出当前输出目标时不产出条目，由展示层跳过对应行。
      */
-    private fun outputDevices(
+    private fun currentOutputDevice(
+        context: Context,
+        audioManager: AudioManager?,
+        state: MusicPlaybackState,
         outputs: List<AudioDeviceInfo>,
-        bluetoothName: String?,
-    ): List<OutputDeviceInfo> = listOf(
-        OutputDeviceKind.USB to USB_OUTPUT_TYPES,
-        OutputDeviceKind.BLUETOOTH to BLUETOOTH_OUTPUT_TYPES,
-        OutputDeviceKind.SPEAKER to SPEAKER_OUTPUT_TYPES,
-    ).mapNotNull { (kind, types) ->
-        val device = outputs.firstOrNull { it.type in types } ?: return@mapNotNull null
-        OutputDeviceInfo(
+    ): OutputDeviceInfo? {
+        val device = routedOutputDevice(audioManager, state, outputs) ?: return null
+        val kind = outputDeviceKind(device.type)
+        val address = usableAddress(device.address)
+        val bluetooth = if (kind == OutputDeviceKind.BLUETOOTH) {
+            BluetoothDeviceResolver.resolve(context, address)
+        } else {
+            null
+        }
+        return OutputDeviceInfo(
             kind = kind,
-            // 蓝牙设备名取自蓝牙服务：AudioDeviceInfo.productName 在部分设备上返回本机蓝牙名
             name = if (kind == OutputDeviceKind.BLUETOOTH) {
-                bluetoothName
+                bluetooth?.name
             } else {
                 device.productName?.toString()?.takeIf { it.isNotBlank() }
             },
-            address = device.address.takeIf { it.isNotBlank() && it != ZERO_ADDRESS },
+            address = address,
             supportedSampleRates = device.sampleRates.take(MAX_LISTED_SAMPLE_RATES).toList(),
             channelCount = device.channelCounts.firstOrNull()?.takeIf { it > 0 },
+            bluetooth = bluetooth?.let {
+                BluetoothLinkInfo(linkType = it.linkType, deviceClass = it.deviceClass)
+            },
         )
     }
 
-    // 平台对无地址的设备以上报 0 表示，与空值同为「无地址」
+    /**
+     * 系统策略判定的当前播放输出设备。
+     *
+     * 媒体路由由系统按音频属性选出，属性路由查询的首项即实际输出目标（仅在多路重复时才有第二项）。
+     * 位完美独占是应用把播放直接钉定到 USB 解码器，该钉定未必反映在策略查询结果中，
+     * 故此状态下按 USB 类型取用——独占成立时输出必然是被钉定的那台 USB 解码器。
+     */
+    private fun routedOutputDevice(
+        audioManager: AudioManager?,
+        state: MusicPlaybackState,
+        outputs: List<AudioDeviceInfo>,
+    ): AudioDeviceInfo? {
+        if (state.bitPerfectOutputActive) {
+            outputs.firstOrNull { it.type in USB_OUTPUT_TYPES }?.let { return it }
+        }
+        return runCatching {
+            audioManager?.getAudioDevicesForAttributes(PLAYBACK_ATTRIBUTES)
+        }.getOrNull().orEmpty().firstOrNull { it.isSink }
+    }
+
+    // 设备类别：按类型归类，未归类的通路一律作为其它设备（如 HDMI、线路输出）
+    private fun outputDeviceKind(type: Int): OutputDeviceKind = when {
+        type in USB_OUTPUT_TYPES -> OutputDeviceKind.USB
+        type in BLUETOOTH_OUTPUT_TYPES -> OutputDeviceKind.BLUETOOTH
+        type in SPEAKER_OUTPUT_TYPES -> OutputDeviceKind.SPEAKER
+        type in WIRED_OUTPUT_TYPES -> OutputDeviceKind.WIRED
+        else -> OutputDeviceKind.OTHER
+    }
+
+    // 平台对无地址的设备以上报 0 表示；Android 13 起未授权 BLUETOOTH_CONNECT 时蓝牙地址被匿名化，
+    // 两者都不是真实地址，同为「无地址」
+    private fun usableAddress(raw: String): String? = raw.takeIf {
+        it.isNotBlank() && it != ZERO_ADDRESS && it != ANONYMOUS_ADDRESS
+    }
+
     private const val ZERO_ADDRESS = "0"
+    private const val ANONYMOUS_ADDRESS = "02:00:00:00:00:00"
 }

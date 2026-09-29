@@ -213,6 +213,7 @@ class UsbExclusiveOutput(
  * 独占侧据此下发混音器属性，[PerDeviceAudioSink] 据此选择写出变体，两处共用本函数才不会各自跑偏：
  * 一旦写出编码与所下发的条目不符，AudioFlinger 不报错而是静默混音输出，「已独占」名不副实。
  */
+@OptIn(UnstableApi::class)
 internal fun selectBitPerfectMixer(
     supported: List<AudioMixerAttributes>,
     sampleRate: Int,

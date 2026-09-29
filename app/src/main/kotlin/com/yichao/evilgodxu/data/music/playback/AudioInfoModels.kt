@@ -1,16 +1,27 @@
 package com.yichao.evilgodxu.data.music.playback
 
-// 输出设备类别：区分外接 USB 解码器、蓝牙音频与内置扬声器
-enum class OutputDeviceKind { USB, BLUETOOTH, SPEAKER }
+// 输出设备类别：区分外接 USB 解码器、蓝牙音频、内置扬声器、有线耳机与其它通路
+enum class OutputDeviceKind { USB, BLUETOOTH, SPEAKER, WIRED, OTHER }
 
-// 单个输出设备的信息。各项均为平台上报值，未上报的项留空；
-// 名称受权限限制可能不可得（蓝牙设备名需 BLUETOOTH_CONNECT），由展示层决定是否退回地址作为标识
+// 蓝牙链路类型：经典蓝牙承载 A2DP/SCO，低功耗蓝牙承载 LE Audio，双模两者兼有
+enum class BluetoothLinkType { CLASSIC, LE, DUAL }
+
+// 蓝牙链路的附加信息：取自蓝牙栈而非音频栈，读不到时各项为空
+data class BluetoothLinkInfo(
+    val linkType: BluetoothLinkType?,
+    val deviceClass: Int?,
+)
+
+// 当前输出设备的信息。各项均为平台上报值，未上报的项留空；
+// 蓝牙设备的名称与真实地址受 BLUETOOTH_CONNECT 限制，未授权时留空，由展示层决定是否退回地址作为标识
 data class OutputDeviceInfo(
     val kind: OutputDeviceKind,
     val name: String?,
     val address: String?,
     val supportedSampleRates: List<Int>,
     val channelCount: Int?,
+    /** 蓝牙链路的附加信息；非蓝牙设备为 null */
+    val bluetooth: BluetoothLinkInfo?,
 )
 
 // 音频输出模式：位完美独占（不经混音器、不重采样直出）与系统混音
@@ -44,7 +55,7 @@ data class AudioInfoSnapshot(
     val latencyMs: Float?,
     val transportState: AudioTransportState?,
     // 输出设备
-    val outputDevices: List<OutputDeviceInfo>,
+    val outputDevice: OutputDeviceInfo?,
 ) {
     // 是否发生重采样：原始采样率与输出采样率都已知时才可判定，任一未知即无从比较
     val resampled: Boolean?
