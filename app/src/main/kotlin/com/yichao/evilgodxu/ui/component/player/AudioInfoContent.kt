@@ -115,6 +115,9 @@ private fun AudioInfoGroupView(group: AudioInfoGroup) {
 // 字段行：左侧字段名受主题弱化，右侧为取值
 @Composable
 private fun AudioInfoRowView(row: AudioInfoRow) {
+    // 换行才改为起始对齐：多行文本整行尾对齐阅读成本高，而单行值一律尾对齐——
+    // 按文本长度判定会让未换行的长值（如解码器名）右侧空出一块
+    var wrapped by remember(row.value) { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -137,9 +140,10 @@ private fun AudioInfoRowView(row: AudioInfoRow) {
             text = row.value,
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = 12.sp,
-            textAlign = if (row.value.length > LONG_VALUE_LENGTH) TextAlign.Start else TextAlign.End,
+            textAlign = if (wrapped) TextAlign.Start else TextAlign.End,
             maxLines = VALUE_MAX_LINES,
             overflow = TextOverflow.Ellipsis,
+            onTextLayout = { wrapped = it.lineCount > 1 },
             modifier = Modifier
                 .weight(1.3f)
                 .padding(start = 8.dp),
