@@ -12,7 +12,7 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-4.0.3-informational)
+![Version](https://img.shields.io/badge/version-4.1.0-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.20-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.0-blue)
@@ -44,6 +44,7 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 | **Lyric auto-translation** | Fill in Chinese translations for a whole song in one action |
 | **Library analysis** | Locate the whole library by format, flagging fake lossless and suspected AI-generated music |
 | **Full-track spectrum** | A 2048-point STFT time-frequency chart with a logarithmic frequency axis and a dB scale; long-press to export a 1920 px verdict image |
+| **USB exclusive output** | Hand playback to a USB DAC and ask the system for a bit-perfect stream — no mixing, no volume scaling, no effects |
 
 ---
 
@@ -108,6 +109,8 @@ Each feature is written as *what it is → how to use it*. Every path listed mat
   - **How to use**: in portrait, long-press the *playlist* button on the control bar → the library analysis panel → the analysis starts on its own (closing the panel does not abort it — the portrait title area shows *analysing x/y*); the panel holds a format-share ring and a *locate by format* list whose first two entries are *fake lossless* and *suspected AI*; tapping any row makes that category the playback queue and jumps to the playlist; the refresh button at the top right re-runs the analysis at any time.
 - **Spectrum analysis** — decodes the whole track and renders a time-frequency spectrogram.
   - **How to use**: swipe a queue row right → advanced menu → *View spectrum* → wait for the decode progress → read the spectrogram, the source file parameters and both verdicts → long-press the chart → *Share image* or *Save image*.
+- **USB exclusive output** — pins playback to the USB DAC and asks the native audio policy for a bit-perfect stream (`setPreferredMixerAttributes` + `setPreferredAudioDevice`) — no mixing, no volume scaling, no effects. Mixer attributes are picked from the decoded format and re-issued whenever it changes, so the *exclusive* label never hides a silent fallback to the mixed path.
+  - **How to use**: Settings → Playback → *USB exclusive* (the same switch also sits in the floating panel's playback settings) → with no DAC attached, or with a DAC that ships no bit-perfect profile, playback stays on the default mixed output; plugging the DAC in or out takes effect immediately, with no restart.
 
 ### 6. Floating & System Integration
 
@@ -157,7 +160,7 @@ Each feature is written as *what it is → how to use it*. Every path listed mat
 | Screen | Contents |
 | --- | --- |
 | Home | Permission onboarding dialog (auto-hides once all are granted), immersive player (full-width cover in portrait, two columns with 3D lyric perspective in landscape), synced lyrics, a refreshable, searchable and sortable playback queue, the playlist panel, search (custom platforms + the daily recommendation carousel), the library analysis entry, sleep timer, speed control and audio-quality upgrade |
-| Settings | Appearance (theme), Language, Playback (floating playback / word-by-word rendering / swipe to change track / background flow) with a Typography entry, Proxy Source (import / enable / remove), Storage management entry, Blacklist (count and reset), About (version doubles as the update check, share today's log, GitHub, QQ group) |
+| Settings | Appearance (theme), Language, Playback (floating playback / word-by-word rendering / swipe to change track / background flow / USB exclusive) with a Typography entry, Proxy Source (import / enable / remove), Storage management entry, Blacklist (count and reset), About (version doubles as the update check, share today's log, GitHub, QQ group) |
 | Typography | Per-scene lyric font size, visible-line count and landscape 3D intensity for the music panel, home portrait and home landscape |
 | Storage | Cache inventory grouped into temporary files (clearable) / app data / user data, with totals, pull-to-refresh resampling and one-tap clearing |
 | Spectrum | Full-track time-frequency spectrogram (logarithmic frequency axis, dB colour scale, time labels), decoding progress, the source file's format parameters and size, and the same two verdicts the library analysis produces; long-press to share or save a 1920 px PNG |
@@ -198,7 +201,7 @@ Each feature is written as *what it is → how to use it*. Every path listed mat
 │       │   │   │   ├── metadata/        #     Cover management, metadata & lyric read/write, metadata cache, gallery image writes
 │       │   │   │   ├── model/           #     Track & search data models (platform key as identity)
 │       │   │   │   ├── panel/           #     Panel state holder, search logic & lyric alignment entry
-│       │   │   │   ├── playback/        #     Playback state, player helper, queue switch & playlist sorting
+│       │   │   │   ├── playback/        #     Playback state, player helper, queue switch, playlist sorting, USB exclusive output & per-device audio sink
 │       │   │   │   ├── proxy/           #     Proxy source (import / parse / engine / store), custom-platform registry & playlist syncer
 │       │   │   │   ├── recommend/       #     Daily recommendation (chart pool, lyric features, TF-IDF, MMR)
 │       │   │   │   ├── MusicScanner.kt  #     MediaStore scanning & track enrichment
@@ -259,7 +262,7 @@ Beyond the screens, two pieces of logic are deliberately kept outside the UI tre
 
 Spectrum analysis is a screen of its own: the page keeps its analysis session in a track-keyed `SpectrumViewModel`, runs the decode on `Dispatchers.Default` and lets leaving the page cancel it, while the decode itself (`SpectrogramDecoder`) and the verdict entry point (`FullSpectrumAnalyzer`) sit in `data/music/analysis` beside the library analysis they share a verdict cache and a criterion with. `FullAnalysisLock` is what keeps a full-track verdict authoritative — the segmented sampling of a library run skips locked tracks instead of overwriting them.
 
-Lyric parsing is likewise collected in one place: `data/music/api/LyricCodec` normalises every platform's raw lyrics (plain LRC, the inline tags of enhanced LRC, QQ's QRC, Kugou's KRC, Kuwo's lrcx) into one `LyricLine` list, with all word-level timelines expressed in absolute milliseconds — so the parse results of different platforms are directly comparable, and the "word-level first, degrade to line-level when a platform ships none" policy only has to exist once. Fetching, parsing, cache writes and auto-translation live in `OnlineLyrics`, `LyricCodec`, `MusicMetadataCache` and `data/music/panel/MusicPanelLyricsTranslate` respectively, the last sharing its progress dialog with word-level alignment.
+Lyric parsing is likewise collected in one place: `data/music/api/LyricCodec` normalises every platform's raw lyrics (plain LRC, the inline tags of enhanced LRC, QQ's QRC, Kugou's KRC, Kuwo's lrcx) into one `LyricLine` list, with all word-level timelines expressed in absolute milliseconds — so the parse results of different platforms are directly comparable, and the "word-level first, degrade to line-level when a platform ships none" policy only has to exist once. Fetching, parsing, cache writes and auto-translation live in `OnlineLyrics`, `LyricCodec`, `MusicMetadataCache` and `data/music/panel/MusicPanelLyricsTranslate` respectively, the last sharing its progress dialog with word-level alignment. Kugou's KRC is the one source that carries translations itself: they travel in the `[language]` metadata block (base64 JSON, the `type=1` segment) aligned to the lyric lines by order, so such a track shows a translation without the translation endpoint being called at all — only the zero-word-offset translation lines still merge by timestamp.
 
 ## Permissions
 
@@ -272,7 +275,7 @@ Lyric parsing is likewise collected in one place: `data/music/api/LyricCodec` no
 | Foreground service (`mediaPlayback`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`) | Background playback with notification / lock-screen controls |
 | Notifications (`POST_NOTIFICATIONS`) | Update download completion notification (Android 13+) |
 | Network (`INTERNET`, `ACCESS_NETWORK_STATE`) | Online search, lyrics, cover lookup and update check |
-| Audio settings (`MODIFY_AUDIO_SETTINGS`) | Audio configuration for the playback engine |
+| Audio settings (`MODIFY_AUDIO_SETTINGS`) | Audio configuration for the playback engine, incl. the bit-perfect mixer request behind USB exclusive output |
 | Install packages (`REQUEST_INSTALL_PACKAGES`) | Launching the system installer for an in-app update |
 | Write settings (`WRITE_SETTINGS`) | Setting a track as the default ringtone / alarm sound |
 

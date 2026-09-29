@@ -12,7 +12,7 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-4.0.3-informational)
+![Version](https://img.shields.io/badge/version-4.1.0-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.20-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.0-blue)
@@ -44,6 +44,7 @@
 | **歌词自动补译** | 一键为整首歌词补齐中文译文 |
 | **曲库分析** | 可按格式定位全库,识别音质异常与 AI 合成音频 |
 | **全曲频谱** | 2048 点 STFT 时频图,对数频率轴 + dB 色标,长按即可导出 1920px 结论图 |
+| **USB 音频独占** | 播放交给 USB 解码器,向系统申请位完美输出:不混音、不调音量、不加音效 |
 
 ---
 
@@ -108,6 +109,8 @@
   - **使用路径**:竖屏长按控制栏「播放列表」按钮 → 曲库分析面板 → 自动开始分析(关闭面板不中断,竖屏标题区显示「曲库分析中 x/y」);面板内含格式占比圆环与「按格式定位」列表,顶部两项为「音质异常」与「疑似AI」;点击任一行即把该分类设为播放队列并跳到播放列表;右上刷新按钮可随时重新分析。
 - **频谱分析** —— 解码整首音频并渲染时频频谱图。
   - **使用路径**:播放列表曲目右滑 → 高级菜单 → 「查看频谱」→ 等待解码进度 → 查看频谱图、源文件参数与两路结论 → 长按图表 → 「分享图片」或「保存图片」。
+- **USB 音频独占** —— 把播放钉到 USB 解码器,并向原生音频策略申请位完美输出(`setPreferredMixerAttributes` + `setPreferredAudioDevice`):不混音、不调音量、不加音效。混音器属性按当前解码格式挑选,格式变化即重新下发,不会以「已独占」之名静默走回混音路径。
+  - **使用路径**:设置 → 播放 → 「USB 音频独占」(悬浮面板的播放设置内同一开关);未接入解码器、或解码器未实现位完美混音时,播放保持系统默认混音输出;解码器插拔即刻生效,无需重启。
 
 ### 六、悬浮与系统集成
 
@@ -157,7 +160,7 @@
 | 页面 | 内容 |
 | --- | --- |
 | 首页 | 权限引导对话框(全部授权后自动关闭)、沉浸式播放器(竖屏全宽封面 / 横屏双栏 + 3D 歌词透视)、同步歌词、可刷新可搜索可排序的播放队列、歌单面板、搜索(自定义平台 + 每日推荐)、曲库分析入口、定时关闭、变速、音质升级 |
-| 设置 | 外观(主题)、语言、播放(悬浮播放 / 逐字渲染 / 滑动切歌 / 背景流动)与排版入口、代理音源(导入 / 启停 / 移除)、存储管理入口、黑名单(数量与重置)、关于(版本即检查更新、分享今日日志、GitHub、QQ 群) |
+| 设置 | 外观(主题)、语言、播放(悬浮播放 / 逐字渲染 / 滑动切歌 / 背景流动 / USB 独占)与排版入口、代理音源(导入 / 启停 / 移除)、存储管理入口、黑名单(数量与重置)、关于(版本即检查更新、分享今日日志、GitHub、QQ 群) |
 | 排版 | 音乐面板 / 首页竖屏 / 首页横屏三场景的歌词字号、显示行数与横屏 3D 强度 |
 | 存储 | 缓存台账,按「临时文件(可清理)/ 应用数据 / 用户数据」分组展示各分类占用与总量,支持下拉重新采样与一键清理 |
 | 频谱 | 全曲时频频谱图(对数频率轴、dB 色标、时间刻度)、解码进度、源文件格式参数与体积、与曲库分析口径一致的两路结论;长按可分享或保存 1920px PNG |
@@ -198,7 +201,7 @@
 │       │   │   │   ├── metadata/        #     封面管理、元数据与歌词读写、元数据缓存、相册图片写入
 │       │   │   │   ├── model/           #     曲目与搜索数据模型(以平台键为身份)
 │       │   │   │   ├── panel/           #     面板状态持有器、搜索逻辑与逐字对齐入口
-│       │   │   │   ├── playback/        #     播放状态、播放器工具、队列切换与歌单排序
+│       │   │   │   ├── playback/        #     播放状态、播放器工具、队列切换、歌单排序、USB 独占输出与按设备音频输出
 │       │   │   │   ├── proxy/           #     代理音源(导入 / 解析 / 引擎 / 存储)、自定义平台注册表与歌单同步
 │       │   │   │   ├── recommend/       #     每日推荐(榜单候选池、歌词特征、TF-IDF、MMR)
 │       │   │   │   ├── MusicScanner.kt  #     MediaStore 扫描与曲目补全
@@ -259,7 +262,7 @@
 
 频谱分析是独立页面:分析会话按曲目挂在 `SpectrumViewModel` 中,解码跑在 `Dispatchers.Default` 上,离开页面即随作用域取消;解码本体(`SpectrogramDecoder`)与判定入口(`FullSpectrumAnalyzer`)置于 `data/music/analysis`,与曲库分析共用判定缓存与判据。`FullAnalysisLock` 是「以完整分析为准」的落点——曲库分析的分段采样遇到锁定曲目一律跳过,不再改写其结论。
 
-歌词解析同样收在一处:`data/music/api/LyricCodec` 把各平台的歌词原文(普通 LRC、增强 LRC 的行内字标签、QQ 的 QRC、酷狗的 KRC、酷我的 lrcx)统一解析为同一份 `LyricLine` 列表,逐字时间轴一律归一为绝对毫秒,因此各平台的解析结果可直接互换比较,「逐字优先、无字标签则退化为逐行」的选取策略也只需实现一次。取词、解析、缓存写入与自动补译分别落在 `OnlineLyrics`、`LyricCodec`、`MusicMetadataCache` 与 `data/music/panel/MusicPanelLyricsTranslate`,后者的进度对话框与逐字对齐共用同一组件。
+歌词解析同样收在一处:`data/music/api/LyricCodec` 把各平台的歌词原文(普通 LRC、增强 LRC 的行内字标签、QQ 的 QRC、酷狗的 KRC、酷我的 lrcx)统一解析为同一份 `LyricLine` 列表,逐字时间轴一律归一为绝对毫秒,因此各平台的解析结果可直接互换比较,「逐字优先、无字标签则退化为逐行」的选取策略也只需实现一次。取词、解析、缓存写入与自动补译分别落在 `OnlineLyrics`、`LyricCodec`、`MusicMetadataCache` 与 `data/music/panel/MusicPanelLyricsTranslate`,后者的进度对话框与逐字对齐共用同一组件。酷狗 KRC 是唯一自带译文的来源:`[language]` 元信息块(base64 编码的 JSON,取 `type=1` 段)内的译文按歌词行顺序 1:1 对齐,这类曲目无需调用翻译接口即带译文;只有字标签全零的翻译行仍按时间戳并入。
 
 ## 权限
 
@@ -272,7 +275,7 @@
 | 前台服务(`mediaPlayback`、`FOREGROUND_SERVICE_MEDIA_PLAYBACK`) | 后台播放 + 通知栏 / 锁屏控制 |
 | 通知(`POST_NOTIFICATIONS`) | 版本更新下载完成通知(Android 13+) |
 | 网络(`INTERNET`、`ACCESS_NETWORK_STATE`) | 在线搜索、歌词与封面获取、检查更新 |
-| 音频设置(`MODIFY_AUDIO_SETTINGS`) | 播放引擎的音频配置 |
+| 音频设置(`MODIFY_AUDIO_SETTINGS`) | 播放引擎的音频配置,含 USB 独占申请位完美混音器所需 |
 | 安装应用(`REQUEST_INSTALL_PACKAGES`) | 应用内更新时拉起系统安装器 |
 | 修改系统设置(`WRITE_SETTINGS`) | 将曲目设为默认来电铃声 / 闹钟铃声 |
 
