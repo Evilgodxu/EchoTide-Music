@@ -47,7 +47,7 @@ private val PLAYBACK_ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
     .build()
 
-// 设备支持的采样率最多列出前几项：设备行过长时已被展示层截断，取全量只会白占版面
+// 设备支持的采样率最多列出前几项：该行过长时会被展示层截断，取全量只会白占版面
 private const val MAX_LISTED_SAMPLE_RATES = 4
 
 /**

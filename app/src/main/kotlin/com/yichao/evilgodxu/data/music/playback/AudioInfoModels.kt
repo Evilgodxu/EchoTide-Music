@@ -13,7 +13,7 @@ data class BluetoothLinkInfo(
 )
 
 // 当前输出设备的信息。各项均为平台上报值，未上报的项留空；
-// 蓝牙设备的名称与真实地址受 BLUETOOTH_CONNECT 限制，未授权时留空，由展示层决定是否退回地址作为标识
+// 蓝牙设备的名称与真实地址受 BLUETOOTH_CONNECT 限制，未授权时两项都读不到，同为留空
 data class OutputDeviceInfo(
     val kind: OutputDeviceKind,
     val name: String?,

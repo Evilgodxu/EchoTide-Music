@@ -271,12 +271,35 @@ private fun audioInfoGroups(snapshot: AudioInfoSnapshot): List<AudioInfoGroup> =
     ),
 ).filter { it.rows.isNotEmpty() }
 
-// 输出设备行：只展示当前输出设备，其下为蓝牙链路可读到的附加项；读不到的项不产出
+// 输出设备行：类型、名称、地址与支持格式各自成条，读不到的项不产出
 @Composable
 private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
     if (device == null) return emptyList()
     return listOfNotNull(
-        deviceValueText(device)?.let { AudioInfoRow(outputDeviceKindLabel(device.kind), it) },
+        AudioInfoRow(
+            stringResource(R.string.audio_info_device_kind),
+            outputDeviceKindLabel(device.kind),
+        ),
+        device.name
+            ?.takeIf { it.isNotBlank() }
+            ?.let { AudioInfoRow(stringResource(R.string.audio_info_device_name), it) },
+        device.address?.let {
+            AudioInfoRow(stringResource(R.string.audio_info_device_address), it)
+        },
+        device.supportedSampleRates
+            .takeIf { it.isNotEmpty() }
+            ?.let {
+                AudioInfoRow(
+                    stringResource(R.string.audio_info_device_sample_rates),
+                    stringResource(R.string.audio_info_value_hz_list, it.joinToString("/")),
+                )
+            },
+        device.channelCount?.let {
+            AudioInfoRow(
+                stringResource(R.string.audio_info_device_channels),
+                stringResource(R.string.audio_info_value_channels, it),
+            )
+        },
         device.bluetooth?.linkType?.let {
             AudioInfoRow(stringResource(R.string.audio_info_bluetooth_type), bluetoothLinkTypeLabel(it))
         },
@@ -286,7 +309,7 @@ private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
     )
 }
 
-// 设备类别名：输出设备行以类别起始，便于一眼区分当前出口
+// 设备类型名：便于一眼区分当前出口通路的类别
 @Composable
 private fun outputDeviceKindLabel(kind: OutputDeviceKind): String = stringResource(
     when (kind) {
@@ -332,17 +355,6 @@ private fun bluetoothDeviceClassLabel(deviceClass: Int): String? {
     }
     return stringResource(labelRes)
 }
-
-// 输出设备取值：名称（受权限限制可能不可得）、地址、支持采样率与声道数按序拼接，各项缺失即跳过
-@Composable
-private fun deviceValueText(device: OutputDeviceInfo): String? = listOfNotNull(
-    device.name,
-    device.address?.let { stringResource(R.string.audio_info_value_address, it) },
-    device.supportedSampleRates
-        .takeIf { it.isNotEmpty() }
-        ?.let { stringResource(R.string.audio_info_value_hz_list, it.joinToString("/")) },
-    device.channelCount?.let { stringResource(R.string.audio_info_value_channels, it) },
-).joinToString(" · ").takeIf { it.isNotBlank() }
 
 // 品质：以格式判定有无损失，位深可得时一并展示（位深属源文件规格，与有无损失相互独立）
 @Composable

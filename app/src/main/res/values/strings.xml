@@ -185,6 +185,11 @@
     <string name="audio_info_device_speaker">扬声器</string>
     <string name="audio_info_device_wired">有线设备</string>
     <string name="audio_info_device_other">其它设备</string>
+    <string name="audio_info_device_kind">设备类型</string>
+    <string name="audio_info_device_name">设备名称</string>
+    <string name="audio_info_device_address">设备地址</string>
+    <string name="audio_info_device_sample_rates">支持采样率</string>
+    <string name="audio_info_device_channels">支持通道数</string>
     <string name="audio_info_bluetooth_type">蓝牙类型</string>
     <string name="audio_info_bluetooth_type_classic">经典蓝牙</string>
     <string name="audio_info_bluetooth_type_le">低功耗蓝牙</string>
@@ -219,7 +224,6 @@
     <string name="audio_info_value_pcm_24bit">24 位整型</string>
     <string name="audio_info_value_pcm_32bit">32 位整型</string>
     <string name="audio_info_value_pcm_float">32 位浮点</string>
-    <string name="audio_info_value_address">地址 %s</string>
     <string name="audio_info_output_mode_bit_perfect">位完美独占</string>
     <string name="audio_info_output_mode_mixer">系统混音</string>
     <string name="audio_info_quality_lossless_bit_depth">%dbit 无损</string>

@@ -185,6 +185,11 @@
     <string name="audio_info_device_speaker">Speaker</string>
     <string name="audio_info_device_wired">Wired device</string>
     <string name="audio_info_device_other">Other device</string>
+    <string name="audio_info_device_kind">Device type</string>
+    <string name="audio_info_device_name">Device name</string>
+    <string name="audio_info_device_address">Device address</string>
+    <string name="audio_info_device_sample_rates">Supported sample rates</string>
+    <string name="audio_info_device_channels">Supported channel counts</string>
     <string name="audio_info_bluetooth_type">Bluetooth type</string>
     <string name="audio_info_bluetooth_type_classic">Classic Bluetooth</string>
     <string name="audio_info_bluetooth_type_le">Bluetooth LE</string>
@@ -219,7 +224,6 @@
     <string name="audio_info_value_pcm_24bit">24-bit integer</string>
     <string name="audio_info_value_pcm_32bit">32-bit integer</string>
     <string name="audio_info_value_pcm_float">32-bit float</string>
-    <string name="audio_info_value_address">Address %s</string>
     <string name="audio_info_output_mode_bit_perfect">Bit-perfect exclusive</string>
     <string name="audio_info_output_mode_mixer">System mixer</string>
     <string name="audio_info_quality_lossless_bit_depth">%dbit lossless</string>
