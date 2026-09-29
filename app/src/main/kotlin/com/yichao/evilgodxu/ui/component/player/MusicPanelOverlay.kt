@@ -55,7 +55,9 @@ import com.yichao.evilgodxu.data.music.model.RecentCover
 import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
 import com.yichao.evilgodxu.data.settings.LyricLayoutParams
 import com.yichao.evilgodxu.data.settings.musicPanelLyricLayoutFlow
+import com.yichao.evilgodxu.data.settings.saveUsbExclusiveMode
 import com.yichao.evilgodxu.data.settings.ThemeMode
+import com.yichao.evilgodxu.data.settings.usbExclusiveModeFlow
 import com.yichao.evilgodxu.data.music.panel.applyCoverCandidate
 import com.yichao.evilgodxu.data.music.panel.applyLyricsCandidate
 import com.yichao.evilgodxu.data.music.panel.performSearch
@@ -112,6 +114,9 @@ fun MusicPanelOverlay(
                 LyricLayoutDefaults.MUSIC_PANEL_VISIBLE_LINES,
             ),
         )
+    // 音乐面板的 USB 独占开关与设置页共用同一偏好，播放服务监听该偏好切换输出，这里只做读写
+    val usbExclusive by context.usbExclusiveModeFlow()
+        .collectAsStateWithLifecycle(initialValue = false)
     val isSystemDark = isSystemInDarkTheme()
     val isDarkTheme = when (settings?.themeMode) {
         ThemeMode.DARK -> true
@@ -459,6 +464,10 @@ fun MusicPanelOverlay(
 
                     SettingsOverlay(
                         visible = showSettings,
+                        usbExclusive = usbExclusive,
+                        onUsbExclusiveChange = { enabled ->
+                            scope.launch { context.saveUsbExclusiveMode(enabled) }
+                        },
                         showSoundEffects = showSoundEffects,
                         onShowSoundEffectsChange = { showSoundEffects = it },
                         onDismiss = { showSettings = false }

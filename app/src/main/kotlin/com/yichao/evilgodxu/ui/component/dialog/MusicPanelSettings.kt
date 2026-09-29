@@ -44,6 +44,8 @@ import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
 @Composable
 internal fun SettingsOverlay(
     visible: Boolean,
+    usbExclusive: Boolean,
+    onUsbExclusiveChange: (Boolean) -> Unit,
     showSoundEffects: Boolean,
     onShowSoundEffectsChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
@@ -116,12 +118,12 @@ internal fun SettingsOverlay(
                                     .weight(1f)
                                     .verticalScroll(rememberScrollState())
                             ) {
+                                // USB 独占与设置页共用同一偏好，播放服务监听该偏好即时切换输出
                                 SettingsSwitchRow(
                                     title = stringResource(R.string.music_panel_usb_exclusive),
-                                    subtitle = stringResource(R.string.music_panel_usb_not_implemented),
-                                    checked = false,
-                                    onCheckedChange = null,
-                                    enabled = false,
+                                    subtitle = stringResource(R.string.settings_usb_exclusive_desc),
+                                    checked = usbExclusive,
+                                    onCheckedChange = onUsbExclusiveChange,
                                 )
 
                                 Spacer(modifier = Modifier.height(12.dp))
@@ -184,7 +186,6 @@ internal fun SettingsSwitchRow(
     subtitle: String,
     checked: Boolean,
     onCheckedChange: ((Boolean) -> Unit)? = null,
-    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
@@ -214,8 +215,7 @@ internal fun SettingsSwitchRow(
         Spacer(modifier = Modifier.width(12.dp))
         AppSwitch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
-            enabled = enabled
+            onCheckedChange = onCheckedChange
         )
     }
 }

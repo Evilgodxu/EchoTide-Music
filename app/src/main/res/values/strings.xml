@@ -81,7 +81,6 @@
     <string name="music_quality_standard">标准</string>
     <string name="music_panel_playback_settings">播放设置</string>
     <string name="music_panel_usb_exclusive">USB 音频独占</string>
-    <string name="music_panel_usb_not_implemented">暂未实现usb独占</string>
     <string name="music_panel_sound_effects_title">音效设置</string>
     <string name="music_panel_sound_effects_enter">进入</string>
     <string name="music_panel_sound_effects_not_implemented">暂未实现</string>
@@ -193,7 +192,7 @@
     <string name="settings_background_flow_title">背景流动</string>
     <string name="settings_background_flow_desc">开启后首页背景缓慢流动</string>
     <string name="settings_usb_exclusive_title">USB 独占</string>
-    <string name="settings_usb_exclusive_desc">PCM/DSD 直出，DoP 需 DAC 兼容</string>
+    <string name="settings_usb_exclusive_desc">锁定 USB 解码器，位完美直通</string>
     <string name="settings_typography_title">排版</string>
     <string name="settings_typography_desc">歌词字号与显示行数</string>
 

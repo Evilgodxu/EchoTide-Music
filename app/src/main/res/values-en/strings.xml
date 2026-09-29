@@ -81,7 +81,6 @@
     <string name="music_quality_standard">Standard</string>
     <string name="music_panel_playback_settings">Playback settings</string>
     <string name="music_panel_usb_exclusive">USB audio exclusive</string>
-    <string name="music_panel_usb_not_implemented">USB exclusive not implemented</string>
     <string name="music_panel_sound_effects_title">Sound effects</string>
     <string name="music_panel_sound_effects_enter">Open</string>
     <string name="music_panel_sound_effects_not_implemented">Not implemented</string>
@@ -193,7 +192,7 @@
     <string name="settings_background_flow_title">Flowing background</string>
     <string name="settings_background_flow_desc">Home background slowly flows with the cover; off keeps it static</string>
     <string name="settings_usb_exclusive_title">USB exclusive</string>
-    <string name="settings_usb_exclusive_desc">Use the USB DAC as the only output, passing data through without mixing or effects</string>
+    <string name="settings_usb_exclusive_desc">Bit-perfect USB DAC passthrough</string>
     <string name="settings_typography_title">Typography</string>
     <string name="settings_typography_desc">Lyric font size and visible lines</string>
 
