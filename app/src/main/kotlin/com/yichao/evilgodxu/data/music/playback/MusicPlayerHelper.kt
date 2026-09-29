@@ -112,6 +112,11 @@ private fun toMediaItem(track: MusicTrack): MediaItem {
     val metadata = androidx.media3.common.MediaMetadata.Builder()
         .setTitle(track.title)
         .setArtist(track.artist)
+    // 专辑与时长是蓝牙车机侧仅有的两个可补充字段：分别对应平台会话的 ALBUM 与 DURATION，
+    // 后者即 AVRCP GetElementAttributes 的 PLAYING_TIME。两项缺失时车机分别落到空串与 0，
+    // 时长未知时不填 0，交给播放器自身的时长承担进度展示
+    track.albumName.takeIf { it.isNotBlank() }?.let { metadata.setAlbumTitle(it) }
+    track.duration.takeIf { it > 0 }?.let { metadata.setDurationMs(it) }
     // 系统媒体面板（通知栏/锁屏/Android Auto）的封面：本地曲目给系统封面 URI（MediaProvider
     // 的专辑封面缓存，列表略缩图读的是同一份）；在线曲目给在线封面地址，由 media3 的
     // BitmapLoader 异步下载并在就绪后自动刷新通知，应用侧不自行下载、不落盘
