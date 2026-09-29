@@ -176,7 +176,8 @@
     <string name="audio_info_quality">Quality</string>
     <string name="audio_info_output_mode">Output mode</string>
     <string name="audio_info_session_id">Audio session ID</string>
-    <string name="audio_info_float_output">DSP float support</string>
+    <string name="audio_info_float_output">Float output</string>
+    <string name="audio_info_output_encoding">Output encoding</string>
     <string name="audio_info_latency">Average latency</string>
     <string name="audio_info_transport_state">Transfer state</string>
     <string name="audio_info_device_usb">USB device</string>
@@ -210,8 +211,14 @@
     <string name="audio_info_value_stereo">Stereo</string>
     <string name="audio_info_value_yes">Yes</string>
     <string name="audio_info_value_no">No</string>
-    <string name="audio_info_value_supported">Supported</string>
-    <string name="audio_info_value_unsupported">Unsupported</string>
+    <string name="audio_info_value_enabled">Enabled</string>
+    <string name="audio_info_value_disabled">Disabled</string>
+    <string name="audio_info_value_not_established">Not established</string>
+    <string name="audio_info_value_pcm_8bit">8-bit integer</string>
+    <string name="audio_info_value_pcm_16bit">16-bit integer</string>
+    <string name="audio_info_value_pcm_24bit">24-bit integer</string>
+    <string name="audio_info_value_pcm_32bit">32-bit integer</string>
+    <string name="audio_info_value_pcm_float">32-bit float</string>
     <string name="audio_info_value_address">Address %s</string>
     <string name="audio_info_output_mode_bit_perfect">Bit-perfect exclusive</string>
     <string name="audio_info_output_mode_mixer">System mixer</string>

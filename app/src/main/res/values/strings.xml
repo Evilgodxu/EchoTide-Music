@@ -176,7 +176,8 @@
     <string name="audio_info_quality">品质</string>
     <string name="audio_info_output_mode">音频输出模式</string>
     <string name="audio_info_session_id">音频会话 ID</string>
-    <string name="audio_info_float_output">DSP 浮点支持</string>
+    <string name="audio_info_float_output">浮点输出</string>
+    <string name="audio_info_output_encoding">输出编码</string>
     <string name="audio_info_latency">平均延迟</string>
     <string name="audio_info_transport_state">传输状态</string>
     <string name="audio_info_device_usb">USB 设备</string>
@@ -210,8 +211,14 @@
     <string name="audio_info_value_stereo">立体声</string>
     <string name="audio_info_value_yes">是</string>
     <string name="audio_info_value_no">否</string>
-    <string name="audio_info_value_supported">支持</string>
-    <string name="audio_info_value_unsupported">不支持</string>
+    <string name="audio_info_value_enabled">已启用</string>
+    <string name="audio_info_value_disabled">未启用</string>
+    <string name="audio_info_value_not_established">未建立</string>
+    <string name="audio_info_value_pcm_8bit">8 位整型</string>
+    <string name="audio_info_value_pcm_16bit">16 位整型</string>
+    <string name="audio_info_value_pcm_24bit">24 位整型</string>
+    <string name="audio_info_value_pcm_32bit">32 位整型</string>
+    <string name="audio_info_value_pcm_float">32 位浮点</string>
     <string name="audio_info_value_address">地址 %s</string>
     <string name="audio_info_output_mode_bit_perfect">位完美独占</string>
     <string name="audio_info_output_mode_mixer">系统混音</string>

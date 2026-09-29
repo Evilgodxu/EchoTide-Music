@@ -3,6 +3,7 @@ package com.yichao.evilgodxu.data.music.playback
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
+import android.media.AudioFormat
 import android.media.AudioManager
 import androidx.annotation.OptIn
 import androidx.media3.common.Player
@@ -96,7 +97,8 @@ internal object AudioInfoCollector {
                     ?.let(::isLosslessFormatName),
                 outputMode = outputMode(state),
                 audioSessionId = playback.audioSessionId,
-                floatOutput = state.audioSinkFloatOutput,
+                floatOutput = floatOutputState(state),
+                outputEncoding = outputEncoding(state),
                 latencyMs = nativeOutputLatencyMs(audioManager),
                 transportState = playback.transportState,
                 outputDevice = currentOutputDevice(context, audioManager, state, outputs),
@@ -148,6 +150,41 @@ internal object AudioInfoCollector {
     private fun outputMode(state: MusicPlaybackState): AudioOutputMode? {
         if (state.currentTrack == null) return null
         return if (state.bitPerfectOutputActive) AudioOutputMode.BIT_PERFECT else AudioOutputMode.MIXER
+    }
+
+    /**
+     * 浮点写出状态。
+     *
+     * 未装载曲目时输出链路的取向无意义，与 [outputMode] 同口径不展示；已装载而输出未建立时保留为
+     * 独立状态，交由展示层与「未启用」分开表述。
+     */
+    private fun floatOutputState(state: MusicPlaybackState): FloatOutputState? {
+        if (state.currentTrack == null) return null
+        return when (state.audioSinkFloatOutput) {
+            true -> FloatOutputState.ENABLED
+            false -> FloatOutputState.DISABLED
+            null -> FloatOutputState.NOT_ESTABLISHED
+        }
+    }
+
+    /**
+     * 输出编码。
+     *
+     * 取音频轨被创建时的实际写出编码，解码格式与位完美混音器属性都可能改写它，故不按源格式推算。
+     * 未装载曲目时无从谈起，与 [outputMode] 同口径不展示；直通压缩格式等非 PCM 编码无位深可言，
+     * 同样不产出条目。
+     */
+    private fun outputEncoding(state: MusicPlaybackState): OutputEncoding? {
+        if (state.currentTrack == null) return null
+        return when (state.audioSinkOutputEncoding) {
+            AudioFormat.ENCODING_PCM_8BIT -> OutputEncoding.PCM_8BIT
+            AudioFormat.ENCODING_PCM_16BIT -> OutputEncoding.PCM_16BIT
+            AudioFormat.ENCODING_PCM_24BIT_PACKED -> OutputEncoding.PCM_24BIT
+            AudioFormat.ENCODING_PCM_32BIT -> OutputEncoding.PCM_32BIT
+            AudioFormat.ENCODING_PCM_FLOAT -> OutputEncoding.PCM_FLOAT
+            null -> OutputEncoding.NOT_ESTABLISHED
+            else -> null
+        }
     }
 
     /**

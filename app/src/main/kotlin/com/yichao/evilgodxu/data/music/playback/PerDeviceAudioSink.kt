@@ -40,6 +40,8 @@ class PerDeviceAudioSink(
     private val exclusiveTarget: () -> AudioDeviceInfo?,
     /** 输出变体变更回调：报告本次配置后是否以浮点 PCM 写出 */
     private val onOutputVariantChanged: (Boolean) -> Unit = {},
+    /** 输出编码变更回调：报告音频轨实际写出的 PCM 编码，null 表示音频轨已释放 */
+    private val onOutputEncodingChanged: (Int?) -> Unit = {},
 ) : AudioSink {
 
     /** 默认变体：高分辨率源以 32 位浮点写出，保留解码精度 */
@@ -48,10 +50,36 @@ class PerDeviceAudioSink(
     /** 降级变体：一律以 16 位整型写出，供位完美流只提供整型格式的设备使用 */
     private val intSink: AudioSink = buildSink(context, enableFloatOutput = false)
 
-    private var listener: AudioSink.Listener = SILENT_LISTENER
+    /**
+     * 渲染器的接收回调：先经 [OutputEncodingListener] 截取音频轨的写出编码，再透传给实际生效的变体。
+     * 渲染器尚未接管时（监听器仍为静默实现）也要照常截取，避免起播瞬间的编码漏报。
+     */
+    private var forwardingListener: AudioSink.Listener =
+        OutputEncodingListener(SILENT_LISTENER, ::reportOutputEncoding)
+
+    /**
+     * 各变体当前音频轨的写出编码，以变体取向为键。
+     *
+     * 变体被切回时其音频轨可能被复用，此时不会重新触发创建回调，只能沿用此处的取值。
+     */
+    private val variantOutputEncodings = mutableMapOf<Boolean, Int>()
 
     /** 当前生效的变体；初始按浮点输出，与无独占设备时的决策一致 */
     private var floatActive = true
+
+    /**
+     * 记录并上报音频轨的写出编码。
+     *
+     * 回调只会来自当前生效的变体（未生效的一方已接管静默监听器），故记录时以此变体为键。
+     */
+    private fun reportOutputEncoding(encoding: Int?) {
+        if (encoding == null) {
+            variantOutputEncodings.remove(floatActive)
+        } else {
+            variantOutputEncodings[floatActive] = encoding
+        }
+        onOutputEncodingChanged(encoding)
+    }
 
     private fun buildSink(context: Context, enableFloatOutput: Boolean): AudioSink =
         // 变速/变调交给 AudioTrack 原生处理，避免 Sonic 软件变速在低速时产生噪声
@@ -100,7 +128,10 @@ class PerDeviceAudioSink(
             it.reset()
         }
         floatActive = useFloat
-        active().setListener(listener)
+        active().setListener(forwardingListener)
+        // 进入方若复用其手上的音频轨，创建回调不会重来，先按该变体上一次的取值上报；
+        // 复用条件要求输出配置逐字段相同（含编码），故该取值仍是这条音频轨的真实编码
+        variantOutputEncodings[useFloat]?.let(::reportOutputEncoding)
     }
 
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
@@ -110,8 +141,8 @@ class PerDeviceAudioSink(
     }
 
     override fun setListener(listener: AudioSink.Listener) {
-        this.listener = listener
-        forEachSink { it.setListener(listener) }
+        forwardingListener = OutputEncodingListener(listener, ::reportOutputEncoding)
+        forEachSink { it.setListener(forwardingListener) }
     }
 
     override fun supportsFormat(format: Format): Boolean = active().supportsFormat(format)
@@ -214,4 +245,54 @@ class PerDeviceAudioSink(
             override fun onSkipSilenceEnabledChanged(skipSilenceEnabled: Boolean) = Unit
         }
     }
+}
+
+/**
+ * 音频接收回调的转接器：透传渲染器的回调，并截取音频轨被创建与被释放时的写出编码。
+ *
+ * 写出编码只在音频轨被创建的那一刻可知，且不经监听器无从取得，故在此截取而非按源格式与变体推测
+ * ——16 位及以下源在浮点变体下同样写成整型，推测值未必等于实际写出的编码。
+ *
+ * 接口的默认方法不会随委托转出（Kotlin 的接口委托只为抽象方法生成转发），故每个回调都必须显式透传，
+ * 漏写会让渲染器收不到对应事件。
+ */
+private class OutputEncodingListener(
+    private val delegate: AudioSink.Listener,
+    private val onOutputEncodingChanged: (Int?) -> Unit,
+) : AudioSink.Listener {
+
+    override fun onAudioTrackInitialized(audioTrackConfig: AudioSink.AudioTrackConfig) {
+        onOutputEncodingChanged(audioTrackConfig.encoding)
+        delegate.onAudioTrackInitialized(audioTrackConfig)
+    }
+
+    override fun onAudioTrackReleased(audioTrackConfig: AudioSink.AudioTrackConfig) {
+        onOutputEncodingChanged(null)
+        delegate.onAudioTrackReleased(audioTrackConfig)
+    }
+
+    override fun onPositionDiscontinuity() = delegate.onPositionDiscontinuity()
+
+    override fun onPositionAdvancing(playbackPositionUs: Long) =
+        delegate.onPositionAdvancing(playbackPositionUs)
+
+    override fun onUnderrun(bufferSize: Int, bufferSizeMs: Long, elapsedSinceLastFeedMs: Long) =
+        delegate.onUnderrun(bufferSize, bufferSizeMs, elapsedSinceLastFeedMs)
+
+    override fun onSkipSilenceEnabledChanged(skipSilenceEnabled: Boolean) =
+        delegate.onSkipSilenceEnabledChanged(skipSilenceEnabled)
+
+    override fun onOffloadBufferEmptying() = delegate.onOffloadBufferEmptying()
+
+    override fun onOffloadBufferFull() = delegate.onOffloadBufferFull()
+
+    override fun onAudioSinkError(audioSinkError: Exception) =
+        delegate.onAudioSinkError(audioSinkError)
+
+    override fun onAudioCapabilitiesChanged() = delegate.onAudioCapabilitiesChanged()
+
+    override fun onSilenceSkipped() = delegate.onSilenceSkipped()
+
+    override fun onAudioSessionIdChanged(audioSessionId: Int) =
+        delegate.onAudioSessionIdChanged(audioSessionId)
 }

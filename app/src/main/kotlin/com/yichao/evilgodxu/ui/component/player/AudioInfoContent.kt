@@ -52,9 +52,11 @@ import com.yichao.evilgodxu.data.music.playback.AudioInfoSnapshot
 import com.yichao.evilgodxu.data.music.playback.AudioOutputMode
 import com.yichao.evilgodxu.data.music.playback.AudioTransportState
 import com.yichao.evilgodxu.data.music.playback.BluetoothLinkType
+import com.yichao.evilgodxu.data.music.playback.FloatOutputState
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.OutputDeviceInfo
 import com.yichao.evilgodxu.data.music.playback.OutputDeviceKind
+import com.yichao.evilgodxu.data.music.playback.OutputEncoding
 import com.yichao.evilgodxu.permission.PermissionMonitor
 import com.yichao.evilgodxu.permission.bluetoothConnectPermission
 import com.yichao.evilgodxu.R
@@ -232,10 +234,13 @@ private fun audioInfoGroups(snapshot: AudioInfoSnapshot): List<AudioInfoGroup> =
             snapshot.floatOutput?.let {
                 AudioInfoRow(
                     stringResource(R.string.audio_info_float_output),
-                    stringResource(
-                        if (it) R.string.audio_info_value_supported
-                        else R.string.audio_info_value_unsupported
-                    ),
+                    floatOutputLabel(it),
+                )
+            },
+            snapshot.outputEncoding?.let {
+                AudioInfoRow(
+                    stringResource(R.string.audio_info_output_encoding),
+                    outputEncodingLabel(it),
                 )
             },
             snapshot.latencyMs?.let {
@@ -362,6 +367,29 @@ private fun booleanLabel(value: Boolean): String = stringResource(
     if (value) R.string.audio_info_value_yes else R.string.audio_info_value_no
 )
 
+// 浮点写出状态：直述链路当前取向；输出未建立与未启用分开表述，前者说明尚未起播而非能力欠缺
+@Composable
+private fun floatOutputLabel(state: FloatOutputState): String = stringResource(
+    when (state) {
+        FloatOutputState.ENABLED -> R.string.audio_info_value_enabled
+        FloatOutputState.DISABLED -> R.string.audio_info_value_disabled
+        FloatOutputState.NOT_ESTABLISHED -> R.string.audio_info_value_not_established
+    }
+)
+
+// 输出编码：音频轨实际写出的 PCM 编码，位深与整型/浮点一并给出，与链路的浮点取向相互独立
+@Composable
+private fun outputEncodingLabel(encoding: OutputEncoding): String = stringResource(
+    when (encoding) {
+        OutputEncoding.PCM_8BIT -> R.string.audio_info_value_pcm_8bit
+        OutputEncoding.PCM_16BIT -> R.string.audio_info_value_pcm_16bit
+        OutputEncoding.PCM_24BIT -> R.string.audio_info_value_pcm_24bit
+        OutputEncoding.PCM_32BIT -> R.string.audio_info_value_pcm_32bit
+        OutputEncoding.PCM_FLOAT -> R.string.audio_info_value_pcm_float
+        OutputEncoding.NOT_ESTABLISHED -> R.string.audio_info_value_not_established
+    }
+)
+
 /**
  * 采集音频信息快照。
  *
@@ -428,6 +456,7 @@ private fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<
         playbackState.isAudioSignalPathCurrent,
         playbackState.audioDecoderName,
         playbackState.audioSinkFloatOutput,
+        playbackState.audioSinkOutputEncoding,
         playbackState.bitPerfectOutputActive,
         playerEventVersion,
         deviceEventVersion,

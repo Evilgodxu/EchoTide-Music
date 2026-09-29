@@ -87,6 +87,10 @@ class MusicPlaybackService : MediaSessionService() {
             onOutputVariantChanged = { floatOutput ->
                 stateHolder.state.audioSinkFloatOutput = floatOutput
             },
+            // 音频轨的创建与释放都在渲染器所属线程即本服务的主线程回调，同样可直接回写
+            onOutputEncodingChanged = { encoding ->
+                stateHolder.state.audioSinkOutputEncoding = encoding
+            },
         )
         val renderersFactory = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
@@ -120,10 +124,11 @@ class MusicPlaybackService : MediaSessionService() {
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
-                // 输出已拆解（停止、释放或加载失败）：上一次的浮点写出状态不再成立，
+                // 输出已拆解（停止、释放或加载失败）：上一次的浮点写出与写出编码都不再成立，
                 // 清空以免音频信息停留在已不存在的输出链路上
                 if (playbackState == Player.STATE_IDLE) {
                     stateHolder.state.audioSinkFloatOutput = null
+                    stateHolder.state.audioSinkOutputEncoding = null
                 }
             }
 
