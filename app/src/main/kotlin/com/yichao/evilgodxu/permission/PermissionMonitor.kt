@@ -18,6 +18,7 @@ enum class PermissionType {
     WRITE_SETTINGS,          // 修改系统设置（系统特殊权限）
     MEDIA_AUDIO,             // 音乐访问（运行时权限）
     MEDIA_IMAGES,            // 图片访问（运行时权限）
+    NOTIFICATIONS,           // 通知（运行时权限，系统页改写授权态）
 }
 
 // 音乐访问的运行时权限名
@@ -25,6 +26,9 @@ fun mediaAudioPermission(): String = Manifest.permission.READ_MEDIA_AUDIO
 
 // 图片访问的运行时权限名
 fun mediaImagePermission(): String = Manifest.permission.READ_MEDIA_IMAGES
+
+// 通知的运行时权限名：前台播放通知与锁屏控制依赖它
+fun notificationPermission(): String = Manifest.permission.POST_NOTIFICATIONS
 
 // 权限状态监控器
 class PermissionMonitor(private val context: Context) {
@@ -41,12 +45,16 @@ class PermissionMonitor(private val context: Context) {
     fun isMediaImageGranted(): Boolean =
         context.checkSelfPermission(mediaImagePermission()) == PackageManager.PERMISSION_GRANTED
 
+    fun isNotificationGranted(): Boolean =
+        context.checkSelfPermission(notificationPermission()) == PackageManager.PERMISSION_GRANTED
+
     fun isGranted(permissionType: PermissionType): Boolean = when (permissionType) {
         PermissionType.OVERLAY -> isOverlayGranted()
         PermissionType.MANAGE_EXTERNAL_STORAGE -> isAllFilesGranted()
         PermissionType.WRITE_SETTINGS -> isWriteSettingsGranted()
         PermissionType.MEDIA_AUDIO -> isMediaAudioGranted()
         PermissionType.MEDIA_IMAGES -> isMediaImageGranted()
+        PermissionType.NOTIFICATIONS -> isNotificationGranted()
     }
 
     // 持续监控指定权限，直到授权后返回 true

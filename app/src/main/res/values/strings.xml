@@ -37,6 +37,7 @@
     <string name="permission_all_files_title">全部文件</string>
     <string name="permission_music_title">音乐访问</string>
     <string name="permission_image_title">图片访问</string>
+    <string name="permission_notification_title">通知</string>
 
     <!-- 音乐面板 -->
     <string name="music_panel_empty">暂无本地音乐</string>
@@ -195,6 +196,9 @@
     <string name="settings_usb_exclusive_desc">锁定 USB 解码器,需 DAC 兼容</string>
     <string name="settings_typography_title">排版</string>
     <string name="settings_typography_desc">歌词字号与显示行数</string>
+    <string name="settings_battery_whitelist_title">后台播放保护</string>
+    <string name="settings_battery_whitelist_desc">加入电池优化白名单，熄屏播放不被系统中断</string>
+    <string name="settings_battery_whitelist_granted">已加入白名单，后台播放不受系统限制</string>
 
     <!-- 黑名单 -->
     <string name="settings_section_blacklist">黑名单</string>

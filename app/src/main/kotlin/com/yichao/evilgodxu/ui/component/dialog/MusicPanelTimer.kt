@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.ui.component.DialogCard
 
 @Composable
@@ -124,7 +125,10 @@ private fun TimerPanelContent(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            TimerAdjustButton(text = "−", onClick = { onMinutesChange((minutes - 5).coerceAtLeast(1)) })
+            TimerAdjustButton(
+                text = "−",
+                onClick = { onMinutesChange(minutes - MusicPlaybackState.TIMER_STEP_MINUTES) }
+            )
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = minutes.toString(),
@@ -138,7 +142,10 @@ private fun TimerPanelContent(
                     fontSize = 11.sp
                 )
             }
-            TimerAdjustButton(text = "+", onClick = { onMinutesChange((minutes + 5).coerceAtMost(999)) })
+            TimerAdjustButton(
+                text = "+",
+                onClick = { onMinutesChange(minutes + MusicPlaybackState.TIMER_STEP_MINUTES) }
+            )
         }
         Spacer(modifier = Modifier.height(16.dp))
         Row(

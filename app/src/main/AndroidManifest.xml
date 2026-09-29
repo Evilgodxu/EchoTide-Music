@@ -17,6 +17,10 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- 熄屏后台播放保活：ExoPlayer 熄屏期间持有的 CPU 唤醒锁与 WLAN 锁均要求该权限 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- 申请电池优化白名单：免 Doze 的唤醒锁屏蔽与网络限流，长时间熄屏播放不被中断 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- 在线音乐搜索与歌词获取 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

@@ -96,6 +96,10 @@ class MusicPlaybackService : MediaSessionService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .build()
+        // 熄屏保活：在线音源经网络拉流，需同时持有 CPU 唤醒锁与 WLAN 锁（WAKE_MODE_NETWORK）。
+        // 仅 WAKE_MODE_LOCAL 时 WLAN 锁不启用，熄屏后 Wi-Fi 进入省电、缓冲停滞，
+        // 长时间无进展会被系统回收播放进程
+        player.setWakeMode(C.WAKE_MODE_NETWORK)
         // 纯音频播放：显式禁用视频轨道。默认渲染器按视频在前的顺序建组，含内嵌视频轨的文件
         // （MV、带画面的 MP4）会选中视频轨并解码——既白耗解码与播放线程，也会让轨道信息读到视频格式
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
@@ -300,14 +304,21 @@ class MusicPlaybackService : MediaSessionService() {
 
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
         super.onUpdateNotification(session, startInForegroundRequired)
-        if (!player.isPlaying && player.playbackState == Player.STATE_IDLE) {
+        // 播放会话仍在推进（含缓冲中与曲目间隙）时不得停止服务：
+        // 网络抖动会让播放器短暂回落 STATE_IDLE，此时结束服务等于直接终结后台播放
+        if (!isPlaybackOngoing && !isPlaybackInProgress()) {
             stopSelf()
         }
     }
 
+    // 播放是否仍在推进：playWhenReady 为真表示会话未结束，需保留服务等待续播
+    private fun isPlaybackInProgress(): Boolean =
+        player.playWhenReady || player.playbackState == Player.STATE_BUFFERING
+
     override fun onTaskRemoved(rootIntent: Intent?) {
-        if (!player.isPlaying) {
-            stopSelf()
+        // 与 media3 默认语义一致：后台播放进行中保留服务，否则释放播放资源并停止
+        if (!isPlaybackOngoing || !player.isPlaying) {
+            stopPlayback()
         }
     }
 

@@ -72,6 +72,10 @@ class MusicPlaybackState(
         const val PLAYBACK_SPEED_MIN = 0.5f
         const val PLAYBACK_SPEED_MAX = 2.0f
         const val PLAYBACK_SPEED_DEFAULT = 1.0f
+        // 定时关闭时长（分钟）：单次调节步长、下限与上限
+        const val TIMER_STEP_MINUTES = 5
+        const val TIMER_MIN_MINUTES = 5
+        const val TIMER_MAX_MINUTES = 999
         private const val RECENT_WINDOW_DAYS = 3
         private const val RECENT_MIN_PLAYS = 2
         // 播放期间周期性持久化间隔：保证冷启动/异常退出也能恢复当前曲目与进度
@@ -1376,9 +1380,10 @@ class MusicPlaybackState(
 
     // 启动定时关闭（分钟）：到点后播完当前整曲即停止播放并退出应用
     fun startTimer(minutes: Int) {
+        val target = minutes.coerceIn(TIMER_MIN_MINUTES, TIMER_MAX_MINUTES)
         stopTimer()
-        timerMinutes = minutes
-        timerRemaining = minutes
+        timerMinutes = target
+        timerRemaining = target
         countdownJob = timerScope.launch {
             while (timerRemaining > 0) {
                 delay(60_000L)
@@ -1695,7 +1700,9 @@ class MusicPlaybackState(
     @JvmName("updateErrorMsg")
     fun setErrorMsg(message: String?) { errorMsg = message }
     @JvmName("updateTimerMinutes")
-    fun setTimerMinutes(minutes: Int) { timerMinutes = minutes }
+    fun setTimerMinutes(minutes: Int) {
+        timerMinutes = minutes.coerceIn(TIMER_MIN_MINUTES, TIMER_MAX_MINUTES)
+    }
     @JvmName("updateCurrentPosition")
     fun setCurrentPosition(position: Long) {
         // 拖动进度条直接改写位置：复位单调基准，避免被钳回拖动前的位置

@@ -37,6 +37,7 @@
     <string name="permission_all_files_title">All files access</string>
     <string name="permission_music_title">Music access</string>
     <string name="permission_image_title">Image access</string>
+    <string name="permission_notification_title">Notifications</string>
 
     <!-- Music panel -->
     <string name="music_panel_empty">No local music</string>
@@ -195,6 +196,9 @@
     <string name="settings_usb_exclusive_desc">Bit-perfect USB DAC passthrough</string>
     <string name="settings_typography_title">Typography</string>
     <string name="settings_typography_desc">Lyric font size and visible lines</string>
+    <string name="settings_battery_whitelist_title">Background playback protection</string>
+    <string name="settings_battery_whitelist_desc">Allowlist for battery optimization so screen-off playback is not interrupted by the system</string>
+    <string name="settings_battery_whitelist_granted">Allowlisted; background playback is not restricted by the system</string>
 
     <!-- Blacklist -->
     <string name="settings_section_blacklist">Blacklist</string>
