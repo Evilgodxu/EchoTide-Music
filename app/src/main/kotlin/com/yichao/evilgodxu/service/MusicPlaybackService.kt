@@ -83,11 +83,11 @@ class MusicPlaybackService : MediaSessionService() {
                 // 独占输出在播放器之后装配，此处延迟求值；尚未装配时视为未独占
                 if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.exclusiveTargetDevice() else null
             },
-            // 变体切换只发生在渲染器重配点，即本服务的主线程，可直接回写共享状态
+            // 变体切换发生在渲染器重配点，即 ExoPlayer 的播放线程，回写共享状态无需切线程
             onOutputVariantChanged = { floatOutput ->
                 stateHolder.state.audioSinkFloatOutput = floatOutput
             },
-            // 音频轨的创建与释放都在渲染器所属线程即本服务的主线程回调，同样可直接回写
+            // 音频轨的创建与释放同样在播放线程回调，口径同上
             onOutputEncodingChanged = { encoding ->
                 stateHolder.state.audioSinkOutputEncoding = encoding
             },

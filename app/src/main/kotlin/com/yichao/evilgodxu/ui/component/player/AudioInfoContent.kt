@@ -61,9 +61,6 @@ import com.yichao.evilgodxu.permission.PermissionMonitor
 import com.yichao.evilgodxu.permission.bluetoothConnectPermission
 import com.yichao.evilgodxu.R
 
-// 字段值超过该长度即改为起始对齐：设备信息与文件路径这类长文本换行后以尾对齐阅读成本高
-private const val LONG_VALUE_LENGTH = 22
-
 // 行内文本最大行数：超出以省略号截断，避免个别超长设备描述撑开整块面板
 private const val VALUE_MAX_LINES = 3
 
