@@ -8,10 +8,16 @@ data class HomeUiState(
     val mediaImageGranted: Boolean = false,
     val bluetoothConnectGranted: Boolean = false,
     val notificationGranted: Boolean = false,
+    val batteryWhitelistGranted: Boolean = false,
 ) {
-    // 全部权限已授权时隐藏权限状态分区。
-    // 通知与蓝牙权限刻意不计入：两者只影响局部能力（通知展示、蓝牙设备名），
-    // 缺失时对话框应正常关闭，否则用户拒绝其一就会永久锁死首页
-    val allPermissionsGranted: Boolean
+    // 阻塞式核心权限：缺失时首页无法工作，权限对话框因此不可关闭
+    val blockingPermissionsGranted: Boolean
         get() = allFilesGranted && mediaAudioGranted && mediaImageGranted
+
+    // 任一权限缺失都要以对话框形式呈现，启动时不直接弹系统权限窗。
+    // 蓝牙、通知与电池优化白名单只影响局部能力（设备名、通知展示、熄屏后台播放），
+    // 不计入 blockingPermissionsGranted：用户拒绝其一时对话框仍可关闭，否则首页会被永久占用
+    val allPermissionsSatisfied: Boolean
+        get() = blockingPermissionsGranted && bluetoothConnectGranted &&
+            notificationGranted && batteryWhitelistGranted
 }

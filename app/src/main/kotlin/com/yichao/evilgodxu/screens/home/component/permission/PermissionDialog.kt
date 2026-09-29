@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -22,6 +24,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -35,15 +38,19 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.yichao.evilgodxu.permission.bluetoothConnectPermission
+import com.yichao.evilgodxu.permission.isBatteryOptimizationIgnored
 import com.yichao.evilgodxu.permission.mediaAudioPermission
 import com.yichao.evilgodxu.permission.mediaImagePermission
 import com.yichao.evilgodxu.permission.notificationPermission
+import com.yichao.evilgodxu.permission.requestIgnoreBatteryOptimizations
 import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.screens.home.HomeUiState
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 权限状态对话框：未全部授权时显示且不可关闭，列表 + 右侧按钮申请，全部授权后自动隐藏
+// 权限状态对话框：任一权限缺失时列出并逐项申请，全部授权后自动隐藏。
+// 所有权限统一由这里的按钮发起：系统弹窗没有用途说明也不体现先后顺序，
+// 启动时替用户弹出会让其在不了解用途的情况下授权与拒绝
 @Composable
 fun PermissionDialog(
     uiState: HomeUiState,
@@ -57,7 +64,15 @@ fun PermissionDialog(
     // LocalContext 为本地化包装 context，宿主 Activity 需从注册表所有者获取
     val activity = LocalActivityResultRegistryOwner.current as? Activity
 
-    // 运行时权限（音乐访问、蓝牙）申请结果回调后统一刷新状态
+    // 电池优化白名单：已加入时不重复申请；授权页返回后由权限监控把应用带回前台
+    val requestBatteryWhitelist: () -> Unit = {
+        if (!isBatteryOptimizationIgnored(context)) {
+            activity?.let { onStartPermissionMonitor(PermissionType.BATTERY_OPTIMIZATION, it) }
+            requestIgnoreBatteryOptimizations(context)
+        }
+    }
+
+    // 运行时权限（音乐访问、图片、蓝牙、通知）申请结果回调后统一刷新状态
     val runtimePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
@@ -102,12 +117,17 @@ fun PermissionDialog(
         }
     }
 
-    if (!uiState.allPermissionsGranted) {
+    // 核心权限齐备、仅可选权限缺失时允许关闭：拒绝后首页不应被永久占用。
+    // 关闭状态跨页面跳转保留，下次启动时重新列出
+    val dismissible = uiState.blockingPermissionsGranted
+    var dismissed by rememberSaveable { mutableStateOf(false) }
+
+    if (!uiState.allPermissionsSatisfied && !dismissed) {
         Dialog(
-            onDismissRequest = {},
+            onDismissRequest = { if (dismissible) dismissed = true },
             properties = DialogProperties(
-                dismissOnBackPress = false,
-                dismissOnClickOutside = false,
+                dismissOnBackPress = dismissible,
+                dismissOnClickOutside = dismissible,
             ),
         ) {
             Surface(
@@ -119,7 +139,10 @@ fun PermissionDialog(
                     .padding(horizontal = 24.dp),
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
+                    // 可选权限逐项补入后行数不定，横屏或小屏下需可滚动，避免末项被窗口裁掉
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 20.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Column {
@@ -191,7 +214,7 @@ fun PermissionDialog(
                             runtimePermissionLauncher.launch(arrayOf(mediaImagePermission()))
                         },
                     )
-                    // 通知与蓝牙仅在缺失时列出：两者的授权与否都不参与对话框关闭判定，
+                    // 蓝牙、通知与电池优化白名单仅在缺失时列出：三者都不参与对话框关闭判定，
                     // 否则用户拒绝其一就会让首页被权限对话框永久占用
                     if (!uiState.bluetoothConnectGranted) {
                         PermissionCardRow(
@@ -221,6 +244,20 @@ fun PermissionDialog(
                             title = stringResource(R.string.permission_notification_title),
                             granted = false,
                             onRequest = requestNotificationPermission,
+                        )
+                    }
+                    if (!uiState.batteryWhitelistGranted) {
+                        PermissionCardRow(
+                            icon = {
+                                Icon(
+                                    AppIcons.BatterySaver,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            },
+                            title = stringResource(R.string.permission_battery_title),
+                            granted = false,
+                            onRequest = requestBatteryWhitelist,
                         )
                     }
                 }

@@ -20,6 +20,7 @@ enum class PermissionType {
     MEDIA_IMAGES,            // 图片访问（运行时权限）
     BLUETOOTH_CONNECT,       // 蓝牙设备访问（运行时权限）
     NOTIFICATIONS,           // 通知（运行时权限，系统页改写授权态）
+    BATTERY_OPTIMIZATION,    // 电池优化白名单（系统特殊权限，授权页改写授权态）
 }
 
 // 音乐访问的运行时权限名
@@ -63,6 +64,7 @@ class PermissionMonitor(private val context: Context) {
         PermissionType.MEDIA_IMAGES -> isMediaImageGranted()
         PermissionType.BLUETOOTH_CONNECT -> isBluetoothConnectGranted()
         PermissionType.NOTIFICATIONS -> isNotificationGranted()
+        PermissionType.BATTERY_OPTIMIZATION -> isBatteryOptimizationIgnored(context)
     }
 
     // 持续监控指定权限，直到授权后返回 true

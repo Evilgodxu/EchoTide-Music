@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.permission.bringAppToFront
+import com.yichao.evilgodxu.permission.isBatteryOptimizationIgnored
 import com.yichao.evilgodxu.permission.PermissionMonitor
 import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
@@ -38,7 +39,7 @@ class HomeViewModel(
 
     // 刷新全部权限状态，从系统设置页返回时调用
     fun refreshPermissions() {
-        val wasAllGranted = _state.value.allPermissionsGranted
+        val wasAllGranted = _state.value.blockingPermissionsGranted
         _state.update {
             it.copy(
                 allFilesGranted = permissionMonitor.isAllFilesGranted(),
@@ -46,10 +47,12 @@ class HomeViewModel(
                 mediaImageGranted = permissionMonitor.isMediaImageGranted(),
                 bluetoothConnectGranted = permissionMonitor.isBluetoothConnectGranted(),
                 notificationGranted = permissionMonitor.isNotificationGranted(),
+                batteryWhitelistGranted =
+                    isBatteryOptimizationIgnored(getApplication<Application>()),
             )
         }
-        // 权限从未全部授权变为全部授权时，自动扫描歌曲并补全封面/歌词
-        if (!wasAllGranted && _state.value.allPermissionsGranted) {
+        // 核心权限从未全部授权变为全部授权时，自动扫描歌曲并补全封面/歌词
+        if (!wasAllGranted && _state.value.blockingPermissionsGranted) {
             autoScanAfterPermissionGranted()
         }
     }
