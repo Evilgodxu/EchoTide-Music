@@ -34,6 +34,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.yichao.evilgodxu.permission.bluetoothConnectPermission
 import com.yichao.evilgodxu.permission.mediaAudioPermission
 import com.yichao.evilgodxu.permission.mediaImagePermission
 import com.yichao.evilgodxu.permission.notificationPermission
@@ -190,8 +191,24 @@ fun PermissionDialog(
                             runtimePermissionLauncher.launch(arrayOf(mediaImagePermission()))
                         },
                     )
-                    // 通知仅在缺失时列出：其授权与否不参与对话框关闭判定，
-                    // 否则用户拒绝通知会让首页被权限对话框永久占用
+                    // 通知与蓝牙仅在缺失时列出：两者的授权与否都不参与对话框关闭判定，
+                    // 否则用户拒绝其一就会让首页被权限对话框永久占用
+                    if (!uiState.bluetoothConnectGranted) {
+                        PermissionCardRow(
+                            icon = {
+                                Icon(
+                                    AppIcons.Bluetooth,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            },
+                            title = stringResource(R.string.permission_bluetooth_title),
+                            granted = false,
+                            onRequest = {
+                                runtimePermissionLauncher.launch(arrayOf(bluetoothConnectPermission()))
+                            },
+                        )
+                    }
                     if (!uiState.notificationGranted) {
                         PermissionCardRow(
                             icon = {

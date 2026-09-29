@@ -58,6 +58,9 @@ class UsbExclusiveOutput(
     private var decodedChannelCount = 0
     private var decodedPcmEncoding = 0
 
+    /** 独占路由变更回调：钉定或解除独占时报告当前设备，null 表示已回到系统混音输出 */
+    var onRoutingChanged: ((AudioDeviceInfo?) -> Unit)? = null
+
     private val audioDeviceHandler = Handler(Looper.getMainLooper())
 
     // 复用播放器自身的音频属性：原生侧按属性匹配播放记录，另建一份等价属性会对不上
@@ -129,7 +132,7 @@ class UsbExclusiveOutput(
             // 属性先于路由下发：播放改道到该设备时，才按已配置的属性建立位完美输出流
             applyMixerAttributes(device, mixerAttributes)
             player.setPreferredAudioDevice(device)
-            targetDevice = device
+            updateTargetDevice(device)
             return
         }
         if (mixerAttributes != appliedMixerAttributes) {
@@ -163,8 +166,15 @@ class UsbExclusiveOutput(
         // 属性归属 uid 不符时返回 PERMISSION_DENIED。两者都无需处理
         runCatching { audioManager.clearPreferredMixerAttributes(playbackAttributes, device) }
         player.setPreferredAudioDevice(null)
-        targetDevice = null
         appliedMixerAttributes = null
+        updateTargetDevice(null)
+    }
+
+    // 独占设备变更的唯一出口：赋值与对外通知同处一处，避免内部状态与上报值脱节
+    private fun updateTargetDevice(device: AudioDeviceInfo?) {
+        if (device == targetDevice) return
+        targetDevice = device
+        onRoutingChanged?.invoke(device)
     }
 
     private fun findUsbOutputDevice(): AudioDeviceInfo? =

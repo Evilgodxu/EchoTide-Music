@@ -38,6 +38,8 @@ class PerDeviceAudioSink(
     private val audioManager: AudioManager,
     /** 独占已钉定的 USB 输出设备，null 表示当前未独占 */
     private val exclusiveTarget: () -> AudioDeviceInfo?,
+    /** 输出变体变更回调：报告本次配置后是否以浮点 PCM 写出 */
+    private val onOutputVariantChanged: (Boolean) -> Unit = {},
 ) : AudioSink {
 
     /** 默认变体：高分辨率源以 32 位浮点写出，保留解码精度 */
@@ -103,6 +105,7 @@ class PerDeviceAudioSink(
 
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
         switchTo(requiresFloatOutput(audioSinkConfig.format))
+        onOutputVariantChanged(floatActive)
         active().configure(audioSinkConfig)
     }
 

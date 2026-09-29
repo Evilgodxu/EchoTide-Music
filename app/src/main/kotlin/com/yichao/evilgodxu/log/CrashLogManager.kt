@@ -28,7 +28,7 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
     private const val LOG_DIR_NAME = "logs"
 
     /** 日志文件名前缀 */
-    private const val LOG_FILE_PREFIX = "YiChaoMusic_"
+    private const val LOG_FILE_PREFIX = "EchoTideMusic_"
 
     private val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd")
     private val timeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
@@ -171,7 +171,7 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
 
     /** 写入日志文件头：设备、系统、版本固定信息 */
     private fun writeHeader(writer: FileWriter) {
-        writer.appendLine("======== YiChaoMusic 日志 ========")
+        writer.appendLine("======== EchoTideMusic 日志 ========")
         writer.appendLine("设备: ${Build.MANUFACTURER} ${Build.MODEL}")
         writer.appendLine("系统: Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
         writer.appendLine("版本: $appVersion")

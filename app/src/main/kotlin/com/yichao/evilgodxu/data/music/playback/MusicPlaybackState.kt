@@ -630,6 +630,14 @@ class MusicPlaybackState(
     // 仅以 ID 判定"已是最新"会漏刷新（信息条停留在旧格式），故与 ID 一并作为归属标识
     var audioSignalPathSourceUri by mutableStateOf<String?>(null)
 
+    // 当前音频渲染器实际使用的平台解码器名（如 c2.android.flac.decoder）。
+    // 由播放服务的解码器初始化回调写入；解码器可跨曲复用，复用时不重复回调，故不随切歌清空
+    var audioDecoderName by mutableStateOf<String?>(null)
+    // 音频输出链路当前是否以浮点 PCM 写出：null 表示输出尚未建立（未起播或已停止）
+    var audioSinkFloatOutput by mutableStateOf<Boolean?>(null)
+    // 位完美独占当前是否已钉定输出设备：未启用、无设备接入或设备不支持位完美时均为 false
+    var bitPerfectOutputActive by mutableStateOf(false)
+
     // 收藏的歌曲 ID 集合（面板级内存状态）
     var likedIds by mutableStateOf<Set<Long>>(emptySet())
 

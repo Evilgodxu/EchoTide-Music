@@ -12,13 +12,11 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,16 +27,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 待实现功能占位面板：仅保留标题与关闭入口，功能待后续实现
+/**
+ * 音乐面板的音频信息覆盖层：外壳与音乐面板的播放列表覆盖层一致
+ * （同一张卡片内滑入、点击任意处收起、右上角关闭按钮）。
+ */
 @Composable
-fun PendingFeatureOverlay(
+internal fun AudioInfoOverlay(
     visible: Boolean,
+    playbackState: MusicPlaybackState,
     onDismiss: () -> Unit,
 ) {
-    val title = stringResource(R.string.music_panel_pending_feature_title)
     AnimatedContent(
         targetState = visible,
         transitionSpec = {
@@ -46,13 +48,13 @@ fun PendingFeatureOverlay(
                 slideOutVertically { it } + fadeOut()
             )
         },
-        label = title,
+        label = "audio_info",
     ) { show ->
         if (show) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -66,28 +68,22 @@ fun PendingFeatureOverlay(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = title,
+                        text = stringResource(R.string.audio_info_title),
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                     HeaderIconButton(
                         icon = AppIcons.Close,
+                        contentDescription = stringResource(R.string.audio_info_close),
                         onClick = onDismiss,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier.size(24.dp),
                     )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Box(
+                AudioInfoContent(
+                    playbackState = playbackState,
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = stringResource(R.string.music_panel_feature_not_implemented),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 14.sp,
-                    )
-                }
+                )
             }
         } else {
             Box(modifier = Modifier.fillMaxSize())

@@ -97,7 +97,7 @@ internal fun CompactAssembly(
     // 纵向切歌手势：挂在播放器页上，横向翻页由 Pager 承担
     val trackSwipe = rememberHomeTrackSwipeGesture(
         playbackState = playbackState,
-        playlistSheetVisible = panelState.playlistVisible,
+        sheetVisible = panelState.playlistVisible || panelState.audioInfoVisible,
     )
     // 对话框收起后的后台分析进度：在标题区居中展示
     val analysisCenterTitle = if (!panelState.libraryAnalysis.visible && panelState.libraryAnalysis.analyzing) {
@@ -135,9 +135,11 @@ internal fun CompactAssembly(
     LaunchedEffect(panelState.currentPage) {
         if (panelState.currentPage == HomePage.PLAYER) revealTopBar()
     }
-    // 播放列表与曲库分析展开时收起，避免遮挡面板内容
-    LaunchedEffect(panelState.playlistVisible, panelState.libraryAnalysis.visible) {
-        if (panelState.playlistVisible || panelState.libraryAnalysis.visible) topBarVisible = false
+    // 底部弹层与曲库分析展开时收起，避免遮挡面板内容
+    LaunchedEffect(panelState.playlistVisible, panelState.audioInfoVisible, panelState.libraryAnalysis.visible) {
+        if (panelState.playlistVisible || panelState.audioInfoVisible || panelState.libraryAnalysis.visible) {
+            topBarVisible = false
+        }
     }
     val topBarAlpha by animateFloatAsState(
         targetValue = if (topBarVisible || !autoHideTopBar) 1f else 0f,
@@ -196,6 +198,9 @@ internal fun CompactAssembly(
                     lyricsAlignment = panelState.lyricsAlignment,
                     playlistVisible = panelState.playlistVisible,
                     onPlaylistVisibilityChange = { panelState.playlistVisible = it },
+                    // 长按播放/暂停后上滑唤出的音频信息弹窗
+                    audioInfoVisible = panelState.audioInfoVisible,
+                    onAudioInfoVisibilityChange = { panelState.audioInfoVisible = it },
                     onSpeedLongClick = { panelState.showSpeed = true },
                     // 长按标题/艺术家菜单"在线搜索"：切到在线搜索页并自动按当前菜单文本搜索
                     onOpenOnlineSearch = { query ->

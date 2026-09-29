@@ -72,10 +72,10 @@ import com.yichao.evilgodxu.LocalPlaylistRefresher
 import com.yichao.evilgodxu.LocalSettingsRepository
 import com.yichao.evilgodxu.theme.DarkColorScheme
 import com.yichao.evilgodxu.theme.LightColorScheme
+import com.yichao.evilgodxu.ui.component.player.AudioInfoOverlay
 import com.yichao.evilgodxu.ui.component.player.ControlBar
 import com.yichao.evilgodxu.ui.component.player.HeaderRow
 import com.yichao.evilgodxu.ui.component.player.MusicErrorBanner
-import com.yichao.evilgodxu.ui.component.player.PendingFeatureOverlay
 import com.yichao.evilgodxu.ui.component.player.PlaylistOverlay
 import com.yichao.evilgodxu.ui.component.player.ProgressSection
 import com.yichao.evilgodxu.ui.component.player.applyLocalCover
@@ -632,8 +632,9 @@ fun MusicPanelOverlay(
                         )
                     }
 
-                    PendingFeatureOverlay(
+                    AudioInfoOverlay(
                         visible = showAudioSignalPath,
+                        playbackState = playbackState,
                         onDismiss = { showAudioSignalPath = false },
                     )
                 }

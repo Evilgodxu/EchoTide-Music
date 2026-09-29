@@ -37,6 +37,7 @@
     <string name="permission_all_files_title">全部文件</string>
     <string name="permission_music_title">音乐访问</string>
     <string name="permission_image_title">图片访问</string>
+    <string name="permission_bluetooth_title">蓝牙设备</string>
     <string name="permission_notification_title">通知</string>
 
     <!-- 音乐面板 -->
@@ -154,9 +155,55 @@
     <string name="music_scanner_unknown_artist">未知艺术家</string>
     <string name="music_scanner_unknown_song">未知歌曲</string>
 
-    <!-- 待实现功能面板 -->
-    <string name="music_panel_pending_feature_title">待实现功能1</string>
-    <string name="music_panel_feature_not_implemented">暂未实现</string>
+    <!-- 音频信息弹窗 -->
+    <string name="audio_info_title">音频信息</string>
+    <string name="audio_info_close">关闭音频信息</string>
+    <string name="audio_info_empty">当前播放链路暂无可展示的音频信息</string>
+    <string name="audio_info_group_source">音频源</string>
+    <string name="audio_info_group_parameters">音频参数</string>
+    <string name="audio_info_group_chain">播放链路</string>
+    <string name="audio_info_group_devices">输出设备</string>
+    <string name="audio_info_file_path">文件路径</string>
+    <string name="audio_info_format">音频格式</string>
+    <string name="audio_info_decoder">解码器</string>
+    <string name="audio_info_source_sample_rate">原始采样率</string>
+    <string name="audio_info_output_sample_rate">输出采样率</string>
+    <string name="audio_info_bitrate">比特率</string>
+    <string name="audio_info_channel_layout">声道</string>
+    <string name="audio_info_channel_count">通道数</string>
+    <string name="audio_info_resampled">重采样</string>
+    <string name="audio_info_quality">品质</string>
+    <string name="audio_info_output_mode">音频输出模式</string>
+    <string name="audio_info_session_id">音频会话 ID</string>
+    <string name="audio_info_float_output">DSP 浮点支持</string>
+    <string name="audio_info_latency">平均延迟</string>
+    <string name="audio_info_transport_state">传输状态</string>
+    <string name="audio_info_device_usb">USB 设备</string>
+    <string name="audio_info_device_bluetooth">蓝牙设备</string>
+    <string name="audio_info_device_speaker">扬声器</string>
+    <string name="audio_info_value_hz">%d Hz</string>
+    <string name="audio_info_value_hz_list">%s Hz</string>
+    <string name="audio_info_value_kbps">%d kbps</string>
+    <string name="audio_info_value_ms">%.1f ms</string>
+    <string name="audio_info_value_channels">%d 声道</string>
+    <string name="audio_info_value_channel_count">%d</string>
+    <string name="audio_info_value_mono">单声道</string>
+    <string name="audio_info_value_stereo">立体声</string>
+    <string name="audio_info_value_yes">是</string>
+    <string name="audio_info_value_no">否</string>
+    <string name="audio_info_value_supported">支持</string>
+    <string name="audio_info_value_unsupported">不支持</string>
+    <string name="audio_info_value_address">地址 %s</string>
+    <string name="audio_info_output_mode_bit_perfect">位完美独占</string>
+    <string name="audio_info_output_mode_mixer">系统混音</string>
+    <string name="audio_info_quality_lossless_bit_depth">%dbit 无损</string>
+    <string name="audio_info_quality_lossless">无损</string>
+    <string name="audio_info_quality_lossy">有损</string>
+    <string name="audio_info_transport_playing">播放中</string>
+    <string name="audio_info_transport_buffering">缓冲中</string>
+    <string name="audio_info_transport_paused">已暂停</string>
+    <string name="audio_info_transport_ended">已结束</string>
+    <string name="audio_info_transport_idle">空闲</string>
 
     <!-- 迷你播放器 -->
     <string name="mini_player_cover">专辑封面</string>

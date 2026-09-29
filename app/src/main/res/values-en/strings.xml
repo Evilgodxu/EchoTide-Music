@@ -37,6 +37,7 @@
     <string name="permission_all_files_title">All files access</string>
     <string name="permission_music_title">Music access</string>
     <string name="permission_image_title">Image access</string>
+    <string name="permission_bluetooth_title">Bluetooth</string>
     <string name="permission_notification_title">Notifications</string>
 
     <!-- Music panel -->
@@ -154,9 +155,55 @@
     <string name="music_scanner_unknown_artist">Unknown artist</string>
     <string name="music_scanner_unknown_song">Unknown song</string>
 
-    <!-- Pending feature panel -->
-    <string name="music_panel_pending_feature_title">Pending feature 1</string>
-    <string name="music_panel_feature_not_implemented">Not implemented</string>
+    <!-- Audio info dialog -->
+    <string name="audio_info_title">Audio info</string>
+    <string name="audio_info_close">Close audio info</string>
+    <string name="audio_info_empty">No audio info available for the current playback chain</string>
+    <string name="audio_info_group_source">Audio source</string>
+    <string name="audio_info_group_parameters">Audio parameters</string>
+    <string name="audio_info_group_chain">Playback chain</string>
+    <string name="audio_info_group_devices">Output devices</string>
+    <string name="audio_info_file_path">File path</string>
+    <string name="audio_info_format">Format</string>
+    <string name="audio_info_decoder">Decoder</string>
+    <string name="audio_info_source_sample_rate">Source sample rate</string>
+    <string name="audio_info_output_sample_rate">Output sample rate</string>
+    <string name="audio_info_bitrate">Bitrate</string>
+    <string name="audio_info_channel_layout">Channels</string>
+    <string name="audio_info_channel_count">Channel count</string>
+    <string name="audio_info_resampled">Resampled</string>
+    <string name="audio_info_quality">Quality</string>
+    <string name="audio_info_output_mode">Output mode</string>
+    <string name="audio_info_session_id">Audio session ID</string>
+    <string name="audio_info_float_output">DSP float support</string>
+    <string name="audio_info_latency">Average latency</string>
+    <string name="audio_info_transport_state">Transfer state</string>
+    <string name="audio_info_device_usb">USB device</string>
+    <string name="audio_info_device_bluetooth">Bluetooth device</string>
+    <string name="audio_info_device_speaker">Speaker</string>
+    <string name="audio_info_value_hz">%d Hz</string>
+    <string name="audio_info_value_hz_list">%s Hz</string>
+    <string name="audio_info_value_kbps">%d kbps</string>
+    <string name="audio_info_value_ms">%.1f ms</string>
+    <string name="audio_info_value_channels">%d channels</string>
+    <string name="audio_info_value_channel_count">%d</string>
+    <string name="audio_info_value_mono">Mono</string>
+    <string name="audio_info_value_stereo">Stereo</string>
+    <string name="audio_info_value_yes">Yes</string>
+    <string name="audio_info_value_no">No</string>
+    <string name="audio_info_value_supported">Supported</string>
+    <string name="audio_info_value_unsupported">Unsupported</string>
+    <string name="audio_info_value_address">Address %s</string>
+    <string name="audio_info_output_mode_bit_perfect">Bit-perfect exclusive</string>
+    <string name="audio_info_output_mode_mixer">System mixer</string>
+    <string name="audio_info_quality_lossless_bit_depth">%dbit lossless</string>
+    <string name="audio_info_quality_lossless">Lossless</string>
+    <string name="audio_info_quality_lossy">Lossy</string>
+    <string name="audio_info_transport_playing">Playing</string>
+    <string name="audio_info_transport_buffering">Buffering</string>
+    <string name="audio_info_transport_paused">Paused</string>
+    <string name="audio_info_transport_ended">Ended</string>
+    <string name="audio_info_transport_idle">Idle</string>
 
     <!-- Mini player -->
     <string name="mini_player_cover">Album cover</string>

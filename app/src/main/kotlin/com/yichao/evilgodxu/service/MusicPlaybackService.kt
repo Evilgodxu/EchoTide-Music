@@ -15,6 +15,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.yichao.evilgodxu.App
@@ -75,10 +76,18 @@ class MusicPlaybackService : MediaSessionService() {
         audioManager = getSystemService(AudioManager::class.java)
         // 音频输出由 PerDeviceAudioSink 按目标设备挑选浮点/整型变体并自行重建，
         // 故此处忽略工厂的浮点与变速参数，固定返回同一实例供渲染器使用
-        val audioSink = PerDeviceAudioSink(this, audioManager) {
-            // 独占输出在播放器之后装配，此处延迟求值；尚未装配时视为未独占
-            if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.exclusiveTargetDevice() else null
-        }
+        val audioSink = PerDeviceAudioSink(
+            context = this,
+            audioManager = audioManager,
+            exclusiveTarget = {
+                // 独占输出在播放器之后装配，此处延迟求值；尚未装配时视为未独占
+                if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.exclusiveTargetDevice() else null
+            },
+            // 变体切换只发生在渲染器重配点，即本服务的主线程，可直接回写共享状态
+            onOutputVariantChanged = { floatOutput ->
+                stateHolder.state.audioSinkFloatOutput = floatOutput
+            },
+        )
         val renderersFactory = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
                 context: android.content.Context,
@@ -108,6 +117,14 @@ class MusicPlaybackService : MediaSessionService() {
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) requestAudioFocus()
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                // 输出已拆解（停止、释放或加载失败）：上一次的浮点写出状态不再成立，
+                // 清空以免音频信息停留在已不存在的输出链路上
+                if (playbackState == Player.STATE_IDLE) {
+                    stateHolder.state.audioSinkFloatOutput = null
+                }
             }
 
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -193,11 +210,28 @@ class MusicPlaybackService : MediaSessionService() {
                 }
             }
         })
+        // 记录平台实际使用的解码器实现名，供音频信息展示。
+        // 解码器可跨曲复用，复用时不重复回调，故该值始终对应当前渲染器正在使用的解码器
+        player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onAudioDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+                initializedTimestampMs: Long,
+                initializationDurationMs: Long,
+            ) {
+                stateHolder.state.audioDecoderName = decoderName
+            }
+        })
         mediaSession = MediaSession.Builder(this, SkipProxyPlayer(player))
             .setCallback(sessionCallback)
             .build()
         // 独占输出不参与媒体会话，在会话建立后单独装配；设置变更即刻生效，无需重启服务
         usbExclusiveOutput = UsbExclusiveOutput(player, audioManager)
+        // 独占是否生效由路由钉定结果决定（设备缺失或未实现位完美时不成立），
+        // 不能以设置开关代替——开关打开而设备不支撑时播放仍走系统混音
+        usbExclusiveOutput.onRoutingChanged = { device ->
+            stateHolder.state.bitPerfectOutputActive = device != null
+        }
         serviceScope.launch {
             usbExclusiveModeFlow().collect { enabled ->
                 usbExclusiveOutput.setEnabled(enabled)

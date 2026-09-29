@@ -47,7 +47,7 @@ internal class HomeTrackSwipeGesture(
     private val context: Context,
     private val scope: CoroutineScope,
     private val swipeToChangeTrack: State<Boolean>,
-    private val playlistSheetVisible: State<Boolean>,
+    private val sheetVisible: State<Boolean>,
     private val nextPreviewText: State<String>,
     private val previousPreviewText: State<String>,
     private val cancelPreviewText: State<String>,
@@ -89,7 +89,7 @@ internal class HomeTrackSwipeGesture(
                 }
                 if (!locked || horizontal) return@awaitEachGesture
                 // 首页播放列表显示期间让出纵向手势：不消费事件也不切歌，滚动交由播放列表处理
-                if (playlistSheetVisible.value) return@awaitEachGesture
+                if (sheetVisible.value) return@awaitEachGesture
                 val previewEnabled = swipeToChangeTrack.value
                 // 滑动开始后持续按住（未松手）才实时显示将播放的曲目方向，滑回起点附近松手取消切歌；
                 // 瞬间滑动（一甩即松手）保持原逻辑直接切歌，不显示提示
@@ -125,7 +125,7 @@ internal class HomeTrackSwipeGesture(
      * 偏好关闭或播放列表弹层展开时不切歌。
      */
     fun switchTrack(next: Boolean) {
-        if (!swipeToChangeTrack.value || playlistSheetVisible.value) return
+        if (!swipeToChangeTrack.value || sheetVisible.value) return
         val index = if (next) playbackState.nextIndex() else playbackState.previousIndex()
         if (index >= 0) scope.launch { playTrackAt(context, playbackState, index) }
     }
@@ -152,8 +152,8 @@ internal class HomeTrackSwipeGesture(
 @Composable
 internal fun rememberHomeTrackSwipeGesture(
     playbackState: MusicPlaybackState,
-    // 播放列表弹层可见时让出纵向手势
-    playlistSheetVisible: Boolean,
+    // 底部弹层（播放列表、音频信息）可见时让出纵向手势
+    sheetVisible: Boolean,
 ): HomeTrackSwipeGesture {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -161,7 +161,7 @@ internal fun rememberHomeTrackSwipeGesture(
     val swipeToChangeTrack by context.swipeToChangeTrackFlow()
         .collectAsStateWithLifecycle(initialValue = true)
     val swipeToChangeTrackState = rememberUpdatedState(swipeToChangeTrack)
-    val playlistSheetVisibleState = rememberUpdatedState(playlistSheetVisible)
+    val sheetVisibleState = rememberUpdatedState(sheetVisible)
     // 提示文案随语言切换更新，同样以 State 形式供手势协程读取
     val nextPreviewText = rememberUpdatedState(stringResource(R.string.home_player_swipe_preview_next))
     val previousPreviewText = rememberUpdatedState(stringResource(R.string.home_player_swipe_preview_previous))
@@ -176,7 +176,7 @@ internal fun rememberHomeTrackSwipeGesture(
             context = context,
             scope = scope,
             swipeToChangeTrack = swipeToChangeTrackState,
-            playlistSheetVisible = playlistSheetVisibleState,
+            sheetVisible = sheetVisibleState,
             nextPreviewText = nextPreviewText,
             previousPreviewText = previousPreviewText,
             cancelPreviewText = cancelPreviewText,

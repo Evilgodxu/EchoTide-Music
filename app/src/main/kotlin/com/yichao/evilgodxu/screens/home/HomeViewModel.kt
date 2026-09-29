@@ -44,6 +44,7 @@ class HomeViewModel(
                 allFilesGranted = permissionMonitor.isAllFilesGranted(),
                 mediaAudioGranted = permissionMonitor.isMediaAudioGranted(),
                 mediaImageGranted = permissionMonitor.isMediaImageGranted(),
+                bluetoothConnectGranted = permissionMonitor.isBluetoothConnectGranted(),
                 notificationGranted = permissionMonitor.isNotificationGranted(),
             )
         }

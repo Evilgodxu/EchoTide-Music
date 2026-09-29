@@ -18,6 +18,7 @@ enum class PermissionType {
     WRITE_SETTINGS,          // 修改系统设置（系统特殊权限）
     MEDIA_AUDIO,             // 音乐访问（运行时权限）
     MEDIA_IMAGES,            // 图片访问（运行时权限）
+    BLUETOOTH_CONNECT,       // 蓝牙设备访问（运行时权限）
     NOTIFICATIONS,           // 通知（运行时权限，系统页改写授权态）
 }
 
@@ -26,6 +27,9 @@ fun mediaAudioPermission(): String = Manifest.permission.READ_MEDIA_AUDIO
 
 // 图片访问的运行时权限名
 fun mediaImagePermission(): String = Manifest.permission.READ_MEDIA_IMAGES
+
+// 蓝牙设备访问的运行时权限名：读取已连接蓝牙设备（含远端设备名）依赖它
+fun bluetoothConnectPermission(): String = Manifest.permission.BLUETOOTH_CONNECT
 
 // 通知的运行时权限名：前台播放通知与锁屏控制依赖它
 fun notificationPermission(): String = Manifest.permission.POST_NOTIFICATIONS
@@ -45,6 +49,9 @@ class PermissionMonitor(private val context: Context) {
     fun isMediaImageGranted(): Boolean =
         context.checkSelfPermission(mediaImagePermission()) == PackageManager.PERMISSION_GRANTED
 
+    fun isBluetoothConnectGranted(): Boolean =
+        context.checkSelfPermission(bluetoothConnectPermission()) == PackageManager.PERMISSION_GRANTED
+
     fun isNotificationGranted(): Boolean =
         context.checkSelfPermission(notificationPermission()) == PackageManager.PERMISSION_GRANTED
 
@@ -54,6 +61,7 @@ class PermissionMonitor(private val context: Context) {
         PermissionType.WRITE_SETTINGS -> isWriteSettingsGranted()
         PermissionType.MEDIA_AUDIO -> isMediaAudioGranted()
         PermissionType.MEDIA_IMAGES -> isMediaImageGranted()
+        PermissionType.BLUETOOTH_CONNECT -> isBluetoothConnectGranted()
         PermissionType.NOTIFICATIONS -> isNotificationGranted()
     }
 

@@ -88,6 +88,7 @@ import com.yichao.evilgodxu.screens.home.component.player.PlayerControls
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisController
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisSheet
 import com.yichao.evilgodxu.screens.home.component.player.LyricsAlignmentController
+import com.yichao.evilgodxu.screens.home.component.audioinfo.AudioInfoSheet
 import com.yichao.evilgodxu.screens.home.component.queue.PlaylistSheet
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.player.currentTrackNeedsLosslessUpgrade
@@ -131,6 +132,9 @@ internal fun PortraitPlayer(
     // 播放列表面板显隐：由首页层持有，显示期间禁用上下滑动切歌
     playlistVisible: Boolean,
     onPlaylistVisibilityChange: (Boolean) -> Unit,
+    // 音频信息弹窗显隐：由首页层持有，显示期间禁用上下滑动切歌
+    audioInfoVisible: Boolean,
+    onAudioInfoVisibilityChange: (Boolean) -> Unit,
     // 长按上一曲/下一曲唤出调速对话框：弹窗宿主在首页对话框层
     onSpeedLongClick: () -> Unit,
     onOpenOnlineSearch: (String) -> Unit = {},
@@ -141,9 +145,13 @@ internal fun PortraitPlayer(
 ) {
     val playbackState = LocalMusicPanelStateHolder.current.state
 
-    // 播放列表与曲库分析展开时，系统返回键收起面板（曲库分析关闭不中断后台任务）
-    BackHandler(enabled = playlistVisible || libraryAnalysis.visible) {
-        if (libraryAnalysis.visible) libraryAnalysis.dismiss() else onPlaylistVisibilityChange(false)
+    // 播放列表与音频信息弹层展开时，系统返回键收起弹层（曲库分析关闭不中断后台任务）
+    BackHandler(enabled = playlistVisible || audioInfoVisible || libraryAnalysis.visible) {
+        when {
+            libraryAnalysis.visible -> libraryAnalysis.dismiss()
+            audioInfoVisible -> onAudioInfoVisibilityChange(false)
+            else -> onPlaylistVisibilityChange(false)
+        }
     }
 
     // 播放进度由 MusicPlaybackState 全局 ticker 驱动，此处不再独立轮询
@@ -626,6 +634,7 @@ internal fun PortraitPlayer(
                     onPlaylistClick = { onPlaylistVisibilityChange(!playlistVisible) },
                     onSpeedLongClick = onSpeedLongClick,
                     onPlaylistLongClick = { libraryAnalysis.open() },
+                    onPlayPauseSwipeUp = { onAudioInfoVisibilityChange(true) },
                 )
             }
         }
@@ -635,6 +644,12 @@ internal fun PortraitPlayer(
             playbackState = playbackState,
             onDismiss = { onPlaylistVisibilityChange(false) },
             onViewSpectrum = onOpenSpectrum,
+        )
+
+        AudioInfoSheet(
+            visible = audioInfoVisible,
+            playbackState = playbackState,
+            onDismiss = { onAudioInfoVisibilityChange(false) },
         )
 
         LibraryAnalysisSheet(

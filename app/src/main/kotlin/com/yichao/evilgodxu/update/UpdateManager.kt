@@ -163,7 +163,7 @@ object UpdateManager {
         val request = Request.Builder()
             .url(url)
             .header("Accept", "application/json")
-            .header("User-Agent", "YiChaoMusic/$GITHUB_REPO")
+            .header("User-Agent", "EchoTideMusic/$GITHUB_REPO")
             .build()
         return MusicHttpClient.client.newCall(request).execute().use { resp ->
             val text = resp.body.string().orEmpty()
@@ -213,7 +213,7 @@ object UpdateManager {
         updateInfo: UpdateInfo,
         onProgress: (Float) -> Unit = {}
     ): Boolean {
-        val fileName = "YiChaoMusic_${updateInfo.latestVersion}.apk"
+        val fileName = "EchoTideMusic_${updateInfo.latestVersion}.apk"
         val outFile = java.io.File(
             context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
             fileName

@@ -32,6 +32,8 @@ internal class HomePanelState(
 ) {
     // 首页播放列表面板（底部弹出）显隐：显示期间让出纵向手势，滚动交由播放列表处理
     var playlistVisible by mutableStateOf(false)
+    // 首页音频信息弹窗（底部弹出）显隐：与播放列表同属底部弹层，显隐期间一并让出纵向手势
+    var audioInfoVisible by mutableStateOf(false)
     // 定时关闭对话框显隐
     var showTimer by mutableStateOf(false)
     // 播放速度对话框显隐

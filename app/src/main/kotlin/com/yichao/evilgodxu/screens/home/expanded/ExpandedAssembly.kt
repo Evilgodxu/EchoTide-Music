@@ -48,7 +48,7 @@ internal fun ExpandedAssembly(
     // 纵向切歌手势：挂在播放器页上，横向翻页由 Pager 承担
     val trackSwipe = rememberHomeTrackSwipeGesture(
         playbackState = playbackState,
-        playlistSheetVisible = panelState.playlistVisible,
+        sheetVisible = panelState.playlistVisible,
     )
     // 横屏下标题栏与控制栏的统一显隐状态
     var chromeVisible by remember { mutableStateOf(false) }

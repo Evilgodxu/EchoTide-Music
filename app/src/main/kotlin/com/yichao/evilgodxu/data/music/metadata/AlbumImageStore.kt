@@ -13,7 +13,7 @@ import com.yichao.evilgodxu.log.CrashLogManager
 internal object AlbumImageStore {
 
     // 相册内的应用目录名：与公共下载目录下的缓存目录同名，便于用户把两者对上
-    const val ALBUM_DIR_NAME = "YiChaoMusic"
+    const val ALBUM_DIR_NAME = "EchoTideMusic"
 
     /** 把图片字节写入相册。阻塞 IO，调用方须在 IO 线程调用；返回是否写入成功 */
     fun write(context: Context, name: String, mime: String, bytes: ByteArray): Boolean {
