@@ -198,7 +198,7 @@ internal fun CompactAssembly(
                     lyricsAlignment = panelState.lyricsAlignment,
                     playlistVisible = panelState.playlistVisible,
                     onPlaylistVisibilityChange = { panelState.playlistVisible = it },
-                    // 长按播放/暂停后上滑唤出的音频信息弹窗
+                    // 播放按钮上滑唤出的音频信息弹窗
                     audioInfoVisible = panelState.audioInfoVisible,
                     onAudioInfoVisibilityChange = { panelState.audioInfoVisible = it },
                     onSpeedLongClick = { panelState.showSpeed = true },
