@@ -4,7 +4,6 @@ import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
-import android.media.AudioMixerAttributes
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.AuxEffectInfo
@@ -66,26 +65,23 @@ class PerDeviceAudioSink(
      * 该曲目是否需要浮点写出。
      *
      * 线性 PCM 的设备级浮点能力无从探测（AudioTrack 经混音输出普遍接受浮点，media3 也只按 API 级别
-     * 判定支持），按设备分化的只有位完美流的格式匹配，因此仅在独占已钉定设备时决策：
-     * 位完美条目含浮点即保持浮点，只有 16 位整型条目则降级为整型——否则高分辨率源永远挂不上位完美流。
-     * 已核实：格式与偏好不符时 AudioFlinger 不会报错，而是把该轨静默混音输出，故只能靠变体切换对齐格式。
+     * 判定支持），按设备分化的只有位完美流的格式匹配，因此仅在独占已钉定设备时决策。
+     * 判定与独占侧共用 [selectBitPerfectMixer]：选中的条目即独占侧待下发的混音器属性，写出编码须与
+     * 之逐字段一致——已核实，格式与偏好不符时 AudioFlinger 不会报错，而是把该轨静默混音输出，
+     * 「已独占」名不副实，故两处必须取同一口径。
      */
     private fun requiresFloatOutput(format: Format): Boolean {
         val device = exclusiveTarget() ?: return true
-        // 16 位源在两种变体下都写成整型，重建不会改变挂接结果
+        // 16 位及以下源在两种变体下都写成整型，重建不会改变挂接结果
         if (!Util.isEncodingHighResolutionPcm(format.pcmEncoding)) return true
-        val bitPerfectAtRate = audioManager.getSupportedMixerAttributes(device)
-            .filter {
-                it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT &&
-                    it.format.sampleRate == format.sampleRate
-            }
-        return when {
-            bitPerfectAtRate.isEmpty() -> true
-            bitPerfectAtRate.any { it.format.encoding == AudioFormat.ENCODING_PCM_FLOAT } -> true
-            bitPerfectAtRate.any { it.format.encoding == AudioFormat.ENCODING_PCM_16BIT } -> false
-            // 只剩 24/32 位整型条目：两种变体都挂不上，保持浮点以免无谓损失精度
-            else -> true
-        }
+        val bitPerfect = selectBitPerfectMixer(
+            audioManager.getSupportedMixerAttributes(device),
+            format.sampleRate,
+            format.channelCount,
+            format.pcmEncoding,
+        )
+        // 只有 16 位整型条目可挂接时降级为整型变体；其余（含仅 24/32 位整型条目、无条目）保持浮点
+        return bitPerfect?.format?.encoding != AudioFormat.ENCODING_PCM_16BIT
     }
 
     private fun forEachSink(action: (AudioSink) -> Unit) {

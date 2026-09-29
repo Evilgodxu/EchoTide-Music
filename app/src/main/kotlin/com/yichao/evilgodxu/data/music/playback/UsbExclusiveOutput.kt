@@ -53,10 +53,10 @@ class UsbExclusiveOutput(
     private var targetDevice: AudioDeviceInfo? = null
     /** 已下发的混音器属性：重复下发会让框架重开输出流，故仅在取值变化时调用 */
     private var appliedMixerAttributes: AudioMixerAttributes? = null
-    /** 当前曲目的解码格式与播放器实际写出的编码，混音器属性需与之匹配才能被位完美流接纳 */
+    /** 当前曲目的解码格式，混音器属性需与之逐字段（采样率、声道、编码）匹配才能被位完美流接纳 */
     private var decodedSampleRate = 0
     private var decodedChannelCount = 0
-    private var trackEncoding = 0
+    private var decodedPcmEncoding = 0
 
     private val audioDeviceHandler = Handler(Looper.getMainLooper())
 
@@ -93,18 +93,17 @@ class UsbExclusiveOutput(
 
     /**
      * 解码格式变化（换曲、换源）后记录新格式，独占开启时据此重新挑选混音器属性。
-     * [pcmEncoding] 是解码头输出的 PCM 编码，播放器写出的编码由它推算。
+     * [pcmEncoding] 是解码头输出的 PCM 编码，挑选混音器条目时据它决定播放器实际写出的编码。
      */
     fun onTrackFormatChanged(sampleRate: Int, channelCount: Int, pcmEncoding: Int) {
-        val encoding = trackEncodingOf(pcmEncoding)
         if (sampleRate == decodedSampleRate && channelCount == decodedChannelCount &&
-            encoding == trackEncoding
+            pcmEncoding == decodedPcmEncoding
         ) {
             return
         }
         decodedSampleRate = sampleRate
         decodedChannelCount = channelCount
-        trackEncoding = encoding
+        decodedPcmEncoding = pcmEncoding
         refreshOutputRouting()
     }
 
@@ -174,41 +173,11 @@ class UsbExclusiveOutput(
 
     /**
      * 挑出可承载当前曲目的位完美混音器。
-     * 只取位完美行为的条目：厂商未实现时宁可退回默认混音，也不以「已独占」的名义继续走混音路径；
-     * 采样率必须与解码格式一致——位完美流只接纳格式逐字段吻合的播放，配错采样率只会白白重开输出流。
+     * 只取位完美行为的条目：厂商未实现时宁可退回默认混音，也不以「已独占」的名义继续走混音路径。
+     * 解码格式未知（尚未起播）时不下发，等轨道信息就绪后由 onTrackFormatChanged 触发。
      */
-    private fun pickMixerAttributes(supported: List<AudioMixerAttributes>): AudioMixerAttributes? {
-        // 解码格式未知（尚未起播）时不下发，等轨道信息就绪后由 onTrackFormatChanged 触发
-        if (decodedSampleRate <= 0) return null
-        return supported
-            .filter {
-                it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT &&
-                    it.format.sampleRate == decodedSampleRate
-            }
-            .maxByOrNull { bitPerfectMatchScore(it.format) }
-    }
-
-    // 采样率已先行筛定，此处只比声道与编码：声道数与播放一致才能挂上，
-    // 编码优先取实际输出编码，与 AudioTrack 一致时才可能被位完美流接纳
-    private fun bitPerfectMatchScore(format: AudioFormat): Int {
-        var score = 0
-        if (decodedChannelCount > 0 && format.channelCount == decodedChannelCount) score += 2
-        if (format.encoding == trackEncoding) score += 1
-        return score
-    }
-
-    /**
-     * 播放器实际写入 AudioTrack 的 PCM 编码。
-     *
-     * 服务侧开启了浮点输出：DefaultAudioSink 只把高分辨率 PCM（24 位、32 位整型与 32 位浮点）
-     * 转为 32 位浮点，其余一律落回 16 位整型，此处沿用其判定口径。
-     */
-    private fun trackEncodingOf(pcmEncoding: Int): Int =
-        if (Util.isEncodingHighResolutionPcm(pcmEncoding)) {
-            AudioFormat.ENCODING_PCM_FLOAT
-        } else {
-            AudioFormat.ENCODING_PCM_16BIT
-        }
+    private fun pickMixerAttributes(supported: List<AudioMixerAttributes>): AudioMixerAttributes? =
+        selectBitPerfectMixer(supported, decodedSampleRate, decodedChannelCount, decodedPcmEncoding)
 
     private fun registerCallback() {
         if (callbackRegistered) return
@@ -220,5 +189,44 @@ class UsbExclusiveOutput(
         if (!callbackRegistered) return
         callbackRegistered = false
         audioManager.unregisterAudioDeviceCallback(deviceCallback)
+    }
+}
+
+/**
+ * 从设备支持的混音器属性中挑出可承载解码格式的位完美条目，无可用条目时返回 null。
+ *
+ * 位完美流只接纳与混音器属性逐字段一致的播放，故候选先按采样率与声道数筛定——声道不符的条目挂不上，
+ * 选中它只会让播放静默落回混音路径；无声道一致的条目时退回全量候选，交由编码挑出最接近者。
+ * 再按播放器实际写出的 PCM 编码排序：高分辨率源首选浮点条目（浮点变体写浮点），无浮点条目时退选
+ * 16 位整型（整型变体写 16 位）；16 位及以下源两种变体都写 16 位整型，故首选 16 位整型条目。
+ *
+ * 独占侧据此下发混音器属性，[PerDeviceAudioSink] 据此选择写出变体，两处共用本函数才不会各自跑偏：
+ * 一旦写出编码与所下发的条目不符，AudioFlinger 不报错而是静默混音输出，「已独占」名不副实。
+ */
+internal fun selectBitPerfectMixer(
+    supported: List<AudioMixerAttributes>,
+    sampleRate: Int,
+    channelCount: Int,
+    inputPcmEncoding: Int,
+): AudioMixerAttributes? {
+    if (sampleRate <= 0) return null
+    val bitPerfectAtRate = supported.filter {
+        it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT &&
+            it.format.sampleRate == sampleRate
+    }
+    val channelMatched = if (channelCount > 0) {
+        bitPerfectAtRate.filter { it.format.channelCount == channelCount }
+    } else {
+        emptyList()
+    }
+    val candidates = channelMatched.ifEmpty { bitPerfectAtRate }
+    if (candidates.isEmpty()) return null
+    val preferFloat = Util.isEncodingHighResolutionPcm(inputPcmEncoding)
+    return candidates.maxByOrNull { attributes ->
+        when (attributes.format.encoding) {
+            AudioFormat.ENCODING_PCM_FLOAT -> if (preferFloat) 1 else 0
+            AudioFormat.ENCODING_PCM_16BIT -> if (preferFloat) 0 else 1
+            else -> 0
+        }
     }
 }
