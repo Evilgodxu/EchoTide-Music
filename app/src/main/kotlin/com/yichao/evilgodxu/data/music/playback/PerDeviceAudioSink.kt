@@ -59,11 +59,13 @@ class PerDeviceAudioSink(
     private val floatListener: AudioSink.Listener = OutputEncodingListener(
         delegate = { delegateFor(useFloat = true) },
         onOutputEncodingChanged = { reportOutputEncoding(useFloat = true, it) },
+        onOutputReleased = { reportOutputReleased(useFloat = true) },
     )
 
     private val intListener: AudioSink.Listener = OutputEncodingListener(
         delegate = { delegateFor(useFloat = false) },
         onOutputEncodingChanged = { reportOutputEncoding(useFloat = false, it) },
+        onOutputReleased = { reportOutputReleased(useFloat = false) },
     )
 
     /** 渲染器交给本接收器的回调出口：未接管时为静默实现 */
@@ -71,6 +73,20 @@ class PerDeviceAudioSink(
 
     /** 当前生效的变体；初始按浮点输出，与无独占设备时的决策一致 */
     private var floatActive = true
+
+    /**
+     * 自上次音频轨建立以来，输出是否已被请求释放。
+     *
+     * 释放音频轨走 media3 的共享异步释放线程（起步延迟 20ms），真正释放后才把释放事件投回播放线程，
+     * 投递时不校验发出方是否已被替换。因此「上一个音频轨的释放」可能晚于「本次音频轨的建立」到达，
+     * 若照搬释放事件清空编码，就会把当前链路的有效编码抹掉，且在下一次建轨前无从恢复——这正是编码
+     * 偶发显示为未建立的成因。
+     *
+     * 故释放事件只在标志仍立着时才算属于当前链路：请求过释放（[flush]、[reset]）而其间未重新建轨，
+     * 说明当前确无音频轨；建轨（[reportOutputEncoding]）即撤销标志。标志与音频轨事件同在播放线程读写，
+     * 无需额外同步。
+     */
+    private var outputReleaseRequested = false
 
     init {
         floatSink.setListener(floatListener)
@@ -89,11 +105,25 @@ class PerDeviceAudioSink(
      * 上报音频轨的写出编码。
      *
      * 只认生效方的取值：变体切换会复位退出方，其音频轨的释放回调随之到达，而该轨已不属于当前链路，
-     * 照搬会把生效方已建立的值清成空。
+     * 照搬会把生效方已建立的值清成空。建轨即撤销释放请求——当前链路又有音频轨了。
      */
     private fun reportOutputEncoding(useFloat: Boolean, encoding: Int?) {
         if (useFloat != floatActive) return
+        outputReleaseRequested = false
         onOutputEncodingChanged(encoding)
+    }
+
+    /**
+     * 上报音频轨的释放。
+     *
+     * 释放事件异步投回，可能晚于后续建轨到达，那时链路已由新音频轨接管，清空会把它的编码一并抹掉，
+     * 故只认「请求过释放而其间未重新建轨」的释放。
+     */
+    private fun reportOutputReleased(useFloat: Boolean) {
+        if (useFloat != floatActive) return
+        if (!outputReleaseRequested) return
+        outputReleaseRequested = false
+        onOutputEncodingChanged(null)
     }
 
     private fun buildSink(context: Context, enableFloatOutput: Boolean): AudioSink =
@@ -190,7 +220,12 @@ class PerDeviceAudioSink(
 
     override fun pause() = active().pause()
 
-    override fun flush() = active().flush()
+    // 音频轨的实际释放只发生在 media3 的 flush 内（释放异步延后），故释放请求在此登记；
+    // 登记的时点早于释放事件，后续建轨会撤销它，据此把迟到的释放事件判为不属于当前链路
+    override fun flush() {
+        outputReleaseRequested = true
+        active().flush()
+    }
 
     override fun playToEndOfStream() = active().playToEndOfStream()
 
@@ -238,7 +273,10 @@ class PerDeviceAudioSink(
     override fun setAudioOutputProvider(audioOutputProvider: AudioOutputProvider) =
         forEachSink { it.setAudioOutputProvider(audioOutputProvider) }
 
-    override fun reset() = forEachSink { it.reset() }
+    override fun reset() {
+        outputReleaseRequested = true
+        forEachSink { it.reset() }
+    }
 
     override fun release() = forEachSink { it.release() }
 
@@ -265,7 +303,7 @@ class PerDeviceAudioSink(
  * ——16 位及以下源在浮点变体下同样写成整型，推测值未必等于实际写出的编码。
  *
  * 出口按调用时刻取值：变体退出使用后其音频轨的释放回调仍会到达，此时出口已回到静默实现，事件不外泄；
- * 编码则交由 [PerDeviceAudioSink] 按变体归属判定去留。
+ * 编码与释放则交由 [PerDeviceAudioSink] 按变体归属与释放请求判定去留。
  *
  * 接口的默认方法不会随委托转出（Kotlin 的接口委托只为抽象方法生成转发），故每个回调都必须显式透传，
  * 漏写会让渲染器收不到对应事件。
@@ -273,6 +311,7 @@ class PerDeviceAudioSink(
 private class OutputEncodingListener(
     private val delegate: () -> AudioSink.Listener,
     private val onOutputEncodingChanged: (Int?) -> Unit,
+    private val onOutputReleased: () -> Unit,
 ) : AudioSink.Listener {
 
     override fun onAudioTrackInitialized(audioTrackConfig: AudioSink.AudioTrackConfig) {
@@ -281,7 +320,7 @@ private class OutputEncodingListener(
     }
 
     override fun onAudioTrackReleased(audioTrackConfig: AudioSink.AudioTrackConfig) {
-        onOutputEncodingChanged(null)
+        onOutputReleased()
         delegate().onAudioTrackReleased(audioTrackConfig)
     }
 
