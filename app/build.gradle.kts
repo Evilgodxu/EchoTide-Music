@@ -104,6 +104,13 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
+    testOptions {
+        unitTests {
+            // 失败分支的日志与扫描调用经 android.util 桩：桩默认抛异常会让「记录日志后跳过」的
+            // 分支无法在 JVM 上验证，改为按默认值返回，使这类分支可被测试覆盖
+            isReturnDefaultValues = true
+        }
+    }
     buildFeatures {
         compose = true
     }

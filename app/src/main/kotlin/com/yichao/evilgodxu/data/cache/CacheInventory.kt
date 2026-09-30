@@ -87,7 +87,12 @@ internal object CacheInventory {
     const val AUDIO_DIR_NAME = "Audio"
 
     /** 中转文件前缀：与 File.createTempFile 的 prefix 参数及频谱图分享中转文件名的前缀对应 */
-    val TEMP_FILE_PREFIXES = listOf("download", "upgrade", SpectrumImageSharing.SHARE_FILE_PREFIX)
+    val TEMP_FILE_PREFIXES = listOf(
+        "download",
+        "upgrade",
+        "metadata",
+        SpectrumImageSharing.SHARE_FILE_PREFIX,
+    )
 
     private const val TAG = "CacheInventory"
 
