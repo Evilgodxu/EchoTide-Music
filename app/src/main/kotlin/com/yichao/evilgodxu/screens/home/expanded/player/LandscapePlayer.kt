@@ -11,18 +11,16 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,7 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -41,21 +38,16 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.settings.landscapeLyricLayoutFlow
 import com.yichao.evilgodxu.data.settings.LandscapeLyricLayoutParams
 import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
-import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
-import com.yichao.evilgodxu.screens.home.component.dialog.ArtistPickerDialog
 import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
-import com.yichao.evilgodxu.screens.home.component.player.HomeAlbumArt
-import com.yichao.evilgodxu.screens.home.component.player.MarqueeInfoLine
+import com.yichao.evilgodxu.screens.home.component.player.HomeBlendedCover
 import com.yichao.evilgodxu.screens.home.component.player.PlayerControls
 import com.yichao.evilgodxu.screens.home.component.queue.PlaylistSheet
 import com.yichao.evilgodxu.ui.component.player.currentTrackNeedsLosslessUpgrade
@@ -80,8 +72,6 @@ fun LandscapePlayer(
     coverCarouselVisible: Boolean,
     onCoverCarouselVisibilityChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    // 点击歌手信息：跳转到该歌手的歌单页
-    onOpenArtistPlaylist: (String) -> Unit = {},
     // 播放列表高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
     onOpenSpectrum: (Long) -> Unit = {},
     // 播放列表高级菜单的「编辑元数据」：跳转元数据编辑页，只传曲目标识
@@ -94,10 +84,6 @@ fun LandscapePlayer(
     // 封面与点击检测层在窗口坐标系下的位置，用于判定点击是否命中封面
     var tapBounds by remember { mutableStateOf<Rect?>(null) }
     var coverBounds by remember { mutableStateOf<Rect?>(null) }
-    // 艺术家行在窗口坐标系下的位置，用于判定点击是否命中艺术家信息
-    var artistBounds by remember { mutableStateOf<Rect?>(null) }
-    // 点击歌手信息时待选择的歌手候选：多位歌手时弹出选择对话框
-    var artistPicker by remember { mutableStateOf<List<String>>(emptyList()) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -110,8 +96,8 @@ fun LandscapePlayer(
 
     Box(modifier = modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxSize()) {
-            // 左：封面视觉区，封面下方叠放标题与艺术家两行信息，水平居中
-            Box(
+            // 左：封面视觉区，封面四边羽化融入背景，上下左右居中
+            BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
@@ -120,11 +106,11 @@ fun LandscapePlayer(
             ) {
                 val track = playbackState.currentTrack
                 if (track != null) {
-                    CoverInfo(
+                    HomeBlendedCover(
                         track = track,
-                        onCoverBounds = { coverBounds = it },
-                        onArtistBounds = { artistBounds = it },
-                        modifier = Modifier.fillMaxWidth(LANDSCAPE_COVER_FRACTION),
+                        modifier = Modifier
+                            .size(minOf(maxWidth, maxHeight) * LANDSCAPE_COVER_FRACTION)
+                            .onGloballyPositioned { coords -> coverBounds = coords.boundsInWindow() },
                     )
                 }
             }
@@ -148,21 +134,11 @@ fun LandscapePlayer(
                         if (coverCarouselVisible) return@detectTapGestures
                         val tap = tapBounds ?: return@detectTapGestures
                         val windowPoint = Offset(tap.left + offset.x, tap.top + offset.y)
-                        // 艺术家行位于封面下方，两者不相交：命中艺术家行按歌手信息处理，多位歌手先弹选择对话框
-                        val artist = artistBounds
                         val cover = coverBounds
-                        when {
-                            artist != null && artist.contains(windowPoint) -> {
-                                val artists = parseTrackArtists(playbackState.currentTrack?.artist.orEmpty())
-                                    .filter { it.isNotBlank() }
-                                if (artists.size > 1) {
-                                    artistPicker = artists
-                                } else {
-                                    artists.firstOrNull()?.let(onOpenArtistPlaylist)
-                                }
-                            }
-                            cover != null && cover.contains(windowPoint) -> onCoverCarouselVisibilityChange(true)
-                            else -> onToggleChrome()
+                        if (cover != null && cover.contains(windowPoint)) {
+                            onCoverCarouselVisibilityChange(true)
+                        } else {
+                            onToggleChrome()
                         }
                     }
                 },
@@ -224,16 +200,6 @@ fun LandscapePlayer(
             onDismiss = { onPlaylistVisibilityChange(false) },
             onViewSpectrum = onOpenSpectrum,
             onEditMetadata = onOpenMetadata,
-        )
-
-        // 多位歌手的曲目：点击歌手信息后弹出的歌手选择对话框
-        ArtistPickerDialog(
-            artists = artistPicker,
-            onSelect = { artist ->
-                artistPicker = emptyList()
-                onOpenArtistPlaylist(artist)
-            },
-            onDismiss = { artistPicker = emptyList() },
         )
 
         // 音频信息条点击触发的无损升级确认对话框
@@ -318,46 +284,5 @@ private fun LyricsPerspectiveZone(
     }
 }
 
-// 横屏封面宽度占比：基准 0.68 缩放 70%
-private const val LANDSCAPE_COVER_FRACTION = 0.68f * 0.7f
-// 封面下方文本行宽度 = 封面宽度的 80%
-private const val INFO_WIDTH_FRACTION = 0.8f
-
-// 封面信息区：封面 + 封面宽度 80% 的标题与艺术家两行，溢出时跑马灯滚动并叠加歌词同款边缘渐变
-@Composable
-private fun CoverInfo(
-    track: MusicTrack,
-    onCoverBounds: (Rect?) -> Unit,
-    onArtistBounds: (Rect?) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        HomeAlbumArt(
-            track = track,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(24.dp))
-                .onGloballyPositioned { coords -> onCoverBounds(coords.boundsInWindow()) },
-        )
-        Spacer(Modifier.height(16.dp))
-        MarqueeInfoLine(
-            text = track.title,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.White,
-            modifier = Modifier.fillMaxWidth(INFO_WIDTH_FRACTION),
-        )
-        Spacer(Modifier.height(6.dp))
-        MarqueeInfoLine(
-            text = track.artist,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            color = Color.White.copy(alpha = 0.72f),
-            modifier = Modifier
-                .fillMaxWidth(INFO_WIDTH_FRACTION)
-                // 全屏点击层覆盖在信息区之上，艺术家行的命中判定交由该层按此范围裁决
-                .onGloballyPositioned { coords -> onArtistBounds(coords.boundsInWindow()) },
-        )
-    }
-}
+// 横屏封面边长占比：占左栏可用较短边（宽高中较小者）的比例，居中留出四边羽化渐隐的过渡带
+private const val LANDSCAPE_COVER_FRACTION = 0.72f

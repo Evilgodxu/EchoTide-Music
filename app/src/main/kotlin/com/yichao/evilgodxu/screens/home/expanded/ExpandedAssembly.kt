@@ -7,8 +7,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -18,11 +23,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
 import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.screens.home.component.bar.HomeTopBar
+import com.yichao.evilgodxu.screens.home.component.dialog.ArtistPickerDialog
 import com.yichao.evilgodxu.screens.home.component.dialog.HomeDialogs
 import com.yichao.evilgodxu.screens.home.component.panel.HomePanels
 import com.yichao.evilgodxu.screens.home.component.panel.HomePanelState
+import com.yichao.evilgodxu.screens.home.component.player.MarqueeInfoLine
 import com.yichao.evilgodxu.screens.home.component.shell.HomeShell
 import com.yichao.evilgodxu.screens.home.component.swipe.rememberHomeTrackSwipeGesture
 import com.yichao.evilgodxu.screens.home.expanded.player.LandscapePlayer
@@ -55,6 +67,9 @@ internal fun ExpandedAssembly(
     var chromeVisible by remember { mutableStateOf(false) }
     // 3D 封面轮播显隐：与 chrome 同层持有，进入沉浸覆盖层时联动隐藏标题栏与控制栏
     var coverCarouselVisible by remember { mutableStateOf(false) }
+    // 点击标题栏中的艺术家行时待选择的歌手候选：多位歌手时弹出选择对话框。
+    // 置于标题栏显隐子树之外，标题栏自动收起不会中断已弹出的选择
+    var artistPicker by remember { mutableStateOf<List<String>>(emptyList()) }
 
     // 横屏下标题栏与控制栏显示 3 秒后自动隐藏
     LaunchedEffect(chromeVisible) {
@@ -95,8 +110,6 @@ internal fun ExpandedAssembly(
                     onSpeedLongClick = { panelState.showSpeed = true },
                     coverCarouselVisible = coverCarouselVisible,
                     onCoverCarouselVisibilityChange = { coverCarouselVisible = it },
-                    // 点击歌手信息：切到歌单面板并进入该歌手的曲目列表
-                    onOpenArtistPlaylist = panelState::openArtistPlaylist,
                     onOpenSpectrum = onOpenSpectrum,
                     onOpenMetadata = onOpenMetadata,
                     // 歌词区快速滑动同样按切歌处理，复用整页纵向切歌的判定与偏好
@@ -121,8 +134,50 @@ internal fun ExpandedAssembly(
                 onToggleFavorite = { currentTrackId?.let { playbackState.toggleFavorite(it) } },
                 onToggleLandscape = onToggleLandscape,
                 onOpenSettings = onOpenSettings,
+                // 曲名与艺术家居中于标题栏，随标题栏一同显隐
+                centerContent = {
+                    playbackState.currentTrack?.let { track ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            MarqueeInfoLine(
+                                text = track.title,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            MarqueeInfoLine(
+                                text = track.artist,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White.copy(alpha = 0.72f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    // 多位歌手先弹选择对话框，单一时直接进入该歌手的歌单页
+                                    .clickable {
+                                        val artists = parseTrackArtists(track.artist)
+                                            .filter { it.isNotBlank() }
+                                        if (artists.size > 1) {
+                                            artistPicker = artists
+                                        } else {
+                                            artists.firstOrNull()?.let(panelState::openArtistPlaylist)
+                                        }
+                                    },
+                            )
+                        }
+                    }
+                },
             )
         }
+        // 标题栏艺术家行点击多位歌手后弹出的选择对话框（宿主在显隐子树之外，收起标题栏不中断选择）
+        ArtistPickerDialog(
+            artists = artistPicker,
+            onSelect = { artist ->
+                artistPicker = emptyList()
+                panelState.openArtistPlaylist(artist)
+            },
+            onDismiss = { artistPicker = emptyList() },
+        )
         HomeDialogs(
             panelState = panelState,
             uiState = uiState,

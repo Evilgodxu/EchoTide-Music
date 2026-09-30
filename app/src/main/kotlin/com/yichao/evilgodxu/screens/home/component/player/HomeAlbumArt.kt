@@ -12,6 +12,7 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.FilterQuality
@@ -69,6 +70,43 @@ internal fun HomeImmersiveCover(
         track = track,
         modifier = modifier.bottomFadeMask(),
     )
+}
+
+// 横屏沉浸封面：四边羽化渐隐，与同源封面衍生的背景无缝衔接，不再呈现为一张有硬边的卡片
+@Composable
+internal fun HomeBlendedCover(
+    track: MusicTrack?,
+    modifier: Modifier = Modifier,
+) {
+    HomeAlbumArt(
+        track = track,
+        modifier = modifier.edgeFeatherMask(),
+    )
+}
+
+// 四边羽化蒙层：先按水平方向在左右边缘淡出，再按垂直方向在上下边缘淡出；
+// 两次 DstIn 的透明度相乘，得到四边同时渐隐、四角衰减更强的矩形羽化。
+// 与背景衔接处不再有可辨认的硬边（DstIn 只取蒙层透明度，实色段用黑色即可）
+private fun Modifier.edgeFeatherMask(fadeRatio: Float = 0.22f): Modifier = drawWithCache {
+    val horizontal = Brush.horizontalGradient(
+        0f to Color.Transparent,
+        fadeRatio to Color.Black,
+        1f - fadeRatio to Color.Black,
+        1f to Color.Transparent,
+    )
+    val vertical = Brush.verticalGradient(
+        0f to Color.Transparent,
+        fadeRatio to Color.Black,
+        1f - fadeRatio to Color.Black,
+        1f to Color.Transparent,
+    )
+    onDrawWithContent {
+        drawIntoCanvas { canvas -> canvas.saveLayer(Rect(Offset.Zero, size), Paint()) }
+        drawContent()
+        drawRect(brush = horizontal, size = size, blendMode = BlendMode.DstIn)
+        drawRect(brush = vertical, size = size, blendMode = BlendMode.DstIn)
+        drawIntoCanvas { canvas -> canvas.restore() }
+    }
 }
 
 // 下边缘渐隐蒙层：与跑马灯同款 DstIn 处理，封面下缘按与背景衔接层共享的平滑曲线渐隐为透明
