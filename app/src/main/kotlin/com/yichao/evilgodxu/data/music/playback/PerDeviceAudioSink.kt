@@ -307,7 +307,10 @@ class PerDeviceAudioSink(
  *
  * 接口的默认方法不会随委托转出（Kotlin 的接口委托只为抽象方法生成转发），故每个回调都必须显式透传，
  * 漏写会让渲染器收不到对应事件。
+ *
+ * [AudioSink.Listener] 及其回调参数属 media3 的非稳定接口，实现该接口须显式 opt-in
  */
+@OptIn(UnstableApi::class)
 private class OutputEncodingListener(
     private val delegate: () -> AudioSink.Listener,
     private val onOutputEncodingChanged: (Int?) -> Unit,
