@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,10 +77,10 @@ internal fun PlaylistPanel(
     visible: Boolean,
     playbackState: MusicPlaybackState,
     menuBackgroundColor: Color,
+    modifier: Modifier = Modifier,
     // 点击播放器歌手信息后请求打开的歌手名：非空时跳转到该歌手的曲目列表
     pendingArtist: String? = null,
     onPendingArtistHandled: () -> Unit = {},
-    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val playlistStore = LocalPlaylistStore.current
@@ -319,13 +320,13 @@ private fun PlaylistOverview(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     SmartPlaylistCard(
                         type = SmartPlaylistType.RECENT,
-                        countText = stringResource(R.string.music_panel_track_count, recentCount),
+                        countText = pluralStringResource(R.plurals.music_panel_track_count, recentCount, recentCount),
                         onClick = { onOpenSmart(SmartPlaylistType.RECENT) },
                         modifier = Modifier.weight(1f),
                     )
                     SmartPlaylistCard(
                         type = SmartPlaylistType.FAVORITE,
-                        countText = stringResource(R.string.music_panel_track_count, favoriteCount),
+                        countText = pluralStringResource(R.plurals.music_panel_track_count, favoriteCount, favoriteCount),
                         onClick = { onOpenSmart(SmartPlaylistType.FAVORITE) },
                         modifier = Modifier.weight(1f),
                     )
@@ -333,14 +334,14 @@ private fun PlaylistOverview(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     SmartPlaylistCard(
                         type = SmartPlaylistType.ALBUM,
-                        countText = stringResource(R.string.playlist_album_count, albumCount),
+                        countText = pluralStringResource(R.plurals.playlist_album_count, albumCount, albumCount),
                         onClick = { onOpenSmart(SmartPlaylistType.ALBUM) },
                         modifier = Modifier.weight(1f),
                         coverTrack = firstAlbumCover,
                     )
                     SmartPlaylistCard(
                         type = SmartPlaylistType.ARTIST,
-                        countText = stringResource(R.string.playlist_artist_count, artistCount),
+                        countText = pluralStringResource(R.plurals.playlist_artist_count, artistCount, artistCount),
                         onClick = { onOpenSmart(SmartPlaylistType.ARTIST) },
                         modifier = Modifier.weight(1f),
                         coverTrack = firstArtistCover,
@@ -492,7 +493,7 @@ private fun PlaylistListRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = stringResource(R.string.music_panel_track_count, count),
+                text = pluralStringResource(R.plurals.music_panel_track_count, count, count),
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 10.sp,
             )

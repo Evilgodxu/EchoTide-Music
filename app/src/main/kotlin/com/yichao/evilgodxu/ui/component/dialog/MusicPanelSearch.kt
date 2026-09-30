@@ -62,6 +62,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -296,7 +297,7 @@ internal fun SearchResultsOverlay(
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = stringResource(R.string.music_panel_track_count, playbackState.searchResults.size),
+                            text = pluralStringResource(R.plurals.music_panel_track_count, playbackState.searchResults.size, playbackState.searchResults.size),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 10.sp
                         )

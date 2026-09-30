@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -197,7 +198,7 @@ internal fun PlaylistGroupsPage(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    text = stringResource(R.string.music_panel_track_count, group.trackIds.size),
+                                    text = pluralStringResource(R.plurals.music_panel_track_count, group.trackIds.size, group.trackIds.size),
                                     color = Color.White.copy(alpha = 0.6f),
                                     fontSize = 10.sp,
                                     lineHeight = 12.sp,
@@ -425,7 +426,7 @@ private fun TracksContent(
             Spacer(modifier = Modifier.weight(1f))
             trailingAction()
             Text(
-                text = stringResource(R.string.music_panel_track_count, orderedTracks.size),
+                text = pluralStringResource(R.plurals.music_panel_track_count, orderedTracks.size, orderedTracks.size),
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 10.sp,
                 modifier = Modifier.padding(start = 8.dp),

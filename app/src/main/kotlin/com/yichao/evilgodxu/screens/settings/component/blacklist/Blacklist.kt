@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -42,7 +43,11 @@ fun Blacklist(
         SettingsEntry(
             icon = AppIcons.Block,
             title = stringResource(R.string.settings_blacklist_reset_title),
-            subtitle = stringResource(R.string.settings_blacklist_reset_desc, blockedCount),
+            subtitle = pluralStringResource(
+                R.plurals.settings_blacklist_reset_desc,
+                blockedCount,
+                blockedCount,
+            ),
             onClick = { showConfirm = true },
         )
     }

@@ -439,8 +439,9 @@ internal fun PortraitPlayer(
                                         translateProgress = null
                                         // 失败以外的结局都用轻量提示：没有可补译的内容属于正常结果
                                         val message = when (outcome) {
-                                            is TranslateOutcome.Applied -> resources.getString(
-                                                R.string.music_panel_auto_translate_done,
+                                            is TranslateOutcome.Applied -> resources.getQuantityString(
+                                                R.plurals.music_panel_auto_translate_done,
+                                                outcome.translated,
                                                 outcome.translated,
                                             )
                                             TranslateOutcome.NothingToDo ->

@@ -1,4 +1,4 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">Echo Tide</string>
 
     <!-- Home -->
@@ -59,7 +59,10 @@
     <string name="music_panel_delete_cancel">Cancel</string>
     <string name="music_panel_delete_confirm">Delete</string>
     <string name="music_panel_no_lyrics">No lyrics</string>
-    <string name="music_panel_track_count">%d tracks</string>
+    <plurals name="music_panel_track_count">
+        <item quantity="one">%d track</item>
+        <item quantity="other">%d tracks</item>
+    </plurals>
     <string name="music_panel_search_history">Search history</string>
     <string name="music_panel_search_history_clear">Clear history</string>
     <string name="music_panel_search_history_delete">Delete</string>
@@ -112,7 +115,10 @@
     <string name="music_panel_auto_translate_pending">Preparing lyrics…</string>
     <string name="music_panel_auto_translate_progress">Translating line %1$d / %2$d</string>
     <string name="music_panel_auto_translate_background">Continue in background</string>
-    <string name="music_panel_auto_translate_done">Translated %1$d lines</string>
+    <plurals name="music_panel_auto_translate_done">
+        <item quantity="one">Translated %1$d line</item>
+        <item quantity="other">Translated %1$d lines</item>
+    </plurals>
     <string name="music_panel_auto_translate_nothing">No lyrics need translation</string>
     <string name="music_panel_auto_translate_same_language">Lyrics are already Chinese</string>
     <string name="music_panel_auto_translate_failed">Auto-translate failed, try again</string>
@@ -213,11 +219,15 @@
     <string name="audio_info_bluetooth_class_wearable">Wearable device</string>
     <string name="audio_info_value_hz">%d Hz</string>
     <string name="audio_info_value_hz_list">%s Hz</string>
-    <string name="audio_info_value_bit">%d bit</string>
+    <!-- Bit depth is a unit ("24 bit"), not a countable noun; no plural form applies -->
+    <string name="audio_info_value_bit" tools:ignore="PluralsCandidate">%d bit</string>
     <string name="audio_info_value_kbps">%d kbps</string>
     <string name="audio_info_value_file_size">%1$s / %2$s</string>
     <string name="audio_info_value_ms">%.1f ms</string>
-    <string name="audio_info_value_channels">%d channels</string>
+    <plurals name="audio_info_value_channels">
+        <item quantity="one">%d channel</item>
+        <item quantity="other">%d channels</item>
+    </plurals>
     <string name="audio_info_value_channel_count">%d</string>
     <string name="audio_info_value_mono">Mono</string>
     <string name="audio_info_value_stereo">Stereo</string>
@@ -233,7 +243,8 @@
     <string name="audio_info_value_pcm_float">32-bit float</string>
     <string name="audio_info_output_mode_bit_perfect">Bit-perfect exclusive</string>
     <string name="audio_info_output_mode_mixer">System mixer</string>
-    <string name="audio_info_quality_lossless_bit_depth">%dbit lossless</string>
+    <!-- "24bit" is the concatenated unit notation, not a countable noun -->
+    <string name="audio_info_quality_lossless_bit_depth" tools:ignore="PluralsCandidate">%dbit lossless</string>
     <string name="audio_info_quality_lossless">Lossless</string>
     <string name="audio_info_quality_lossy">Lossy</string>
     <string name="audio_info_transport_playing">Playing</string>
@@ -284,7 +295,10 @@
     <!-- Blacklist -->
     <string name="settings_section_blacklist">Blacklist</string>
     <string name="settings_blacklist_reset_title">Reset blacklist</string>
-    <string name="settings_blacklist_reset_desc">%1$d blocked, reset to recommend them again</string>
+    <plurals name="settings_blacklist_reset_desc">
+        <item quantity="one">%1$d blocked, reset to recommend it again</item>
+        <item quantity="other">%1$d blocked, reset to recommend them again</item>
+    </plurals>
     <string name="settings_blacklist_reset_confirm_title">Reset blacklist</string>
     <string name="settings_blacklist_reset_confirm_message">Blocked songs and features accumulated from skipped tracks will be eligible for recommendations again</string>
     <string name="settings_blacklist_reset_confirm">Reset</string>
@@ -315,7 +329,10 @@
     <string name="metadata_field_album">Album</string>
     <string name="metadata_field_hint">Written to the audio file tags; untouched fields keep their values</string>
     <string name="metadata_section_lyrics">Lyrics</string>
-    <string name="metadata_lyrics_line_count">%1$d lines</string>
+    <plurals name="metadata_lyrics_line_count">
+        <item quantity="one">%1$d line</item>
+        <item quantity="other">%1$d lines</item>
+    </plurals>
     <string name="metadata_lyrics_empty">No lyrics</string>
     <string name="metadata_lyrics_expand">Expand lyrics</string>
     <string name="metadata_lyrics_collapse">Collapse lyrics</string>
@@ -330,16 +347,12 @@
     <string name="spectrum_screen_title">Spectrum</string>
     <string name="spectrum_generating">Generating spectrogram…</string>
     <string name="spectrum_unavailable">Unable to analyse this audio</string>
-    <string name="spectrum_info_format">Format</string>
-    <string name="spectrum_info_sample_rate">Sample rate</string>
-    <string name="spectrum_info_bit_depth">Bit depth</string>
-    <string name="spectrum_info_channels">Channels</string>
     <string name="spectrum_info_mono">Mono</string>
     <string name="spectrum_info_stereo">Stereo</string>
-    <string name="spectrum_info_channel_count">%1$d channels</string>
-    <string name="spectrum_info_bitrate">Bitrate</string>
-    <string name="spectrum_info_size">Size</string>
-    <string name="spectrum_analysis_title">Track analysis</string>
+    <plurals name="spectrum_info_channel_count">
+        <item quantity="one">%1$d channel</item>
+        <item quantity="other">%1$d channels</item>
+    </plurals>
     <string name="spectrum_analysis_fake_lossless">Audio quality</string>
     <string name="spectrum_analysis_ai_music">AI generated</string>
     <string name="spectrum_analysis_checking">Checking…</string>
@@ -397,7 +410,10 @@
     <string name="cache_release_refresh">Release to refresh</string>
     <string name="cache_clear">Clear cache</string>
     <string name="cache_clearing">Clearing…</string>
-    <string name="cache_usage">%1$d items · %2$s</string>
+    <plurals name="cache_usage">
+        <item quantity="one">%1$d item · %2$s</item>
+        <item quantity="other">%1$d items · %2$s</item>
+    </plurals>
     <string name="cache_category_image">Image cache</string>
     <string name="cache_category_temp">Temp files</string>
     <string name="cache_category_log">Error logs</string>
@@ -441,11 +457,20 @@
     <string name="playlist_picker_title">Add songs to "%1$s"</string>
     <string name="playlist_picker_select_all">Select all</string>
     <string name="playlist_picker_select_none">Deselect all</string>
-    <string name="playlist_picker_selected">%1$d selected</string>
+    <plurals name="playlist_picker_selected">
+        <item quantity="one">%1$d selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
     <string name="playlist_picker_add">Add (%1$d)</string>
     <string name="playlist_picker_empty">No songs to add</string>
-    <string name="playlist_album_count">%1$d albums</string>
-    <string name="playlist_artist_count">%1$d artists</string>
+    <plurals name="playlist_album_count">
+        <item quantity="one">%1$d album</item>
+        <item quantity="other">%1$d albums</item>
+    </plurals>
+    <plurals name="playlist_artist_count">
+        <item quantity="one">%1$d artist</item>
+        <item quantity="other">%1$d artists</item>
+    </plurals>
     <string name="playlist_unknown_album">Unknown album</string>
     <string name="playlist_more">More options</string>
     <string name="playlist_switch_title">Switch playlist</string>
@@ -459,7 +484,10 @@
     <string name="playlist_import_parse">Parse</string>
     <string name="playlist_import_parsing">Parsing…</string>
     <string name="playlist_import_name_hint">Playlist name</string>
-    <string name="playlist_import_preview_songs">%1$d songs, all will be downloaded locally</string>
+    <plurals name="playlist_import_preview_songs">
+        <item quantity="one">%1$d song, all will be downloaded locally</item>
+        <item quantity="other">%1$d songs, all will be downloaded locally</item>
+    </plurals>
     <string name="playlist_import_start">Start sync</string>
     <string name="playlist_import_quality_title">Select download quality</string>
     <string name="playlist_import_invalid_link">Cannot recognize this share link</string>
@@ -469,7 +497,9 @@
     <string name="playlist_import_default_name">Imported playlist</string>
     <string name="playlist_import_progress">Syncing %1$d/%2$d · %3$s</string>
     <string name="playlist_import_preparing">Syncing…</string>
-    <string name="playlist_import_done">Sync done · %1$d added · %2$d existing · %3$d failed</string>
+    <!-- Three independent counts in one summary line: no single count governs plurality,
+         so the wording is kept count-neutral ("added"/"existing"/"failed" as bare past participles) -->
+    <string name="playlist_import_done" tools:ignore="PluralsCandidate">Sync done · %1$d added · %2$d existing · %3$d failed</string>
     <string name="playlist_search_placeholder">Search playlist</string>
     <string name="playlist_search_no_results">No matching songs</string>
     <string name="playlist_search_artist_placeholder">Search artists</string>
@@ -482,7 +512,10 @@
     <!-- Library analysis -->
     <string name="library_analysis_title">Library Analysis</string>
     <string name="library_analysis_select_format">Find by format</string>
-    <string name="library_analysis_formats">%d formats</string>
+    <plurals name="library_analysis_formats">
+        <item quantity="one">%d format</item>
+        <item quantity="other">%d formats</item>
+    </plurals>
     <string name="library_analysis_empty">Library is empty</string>
     <string name="library_analysis_other">Other</string>
     <string name="library_analysis_online">Online</string>

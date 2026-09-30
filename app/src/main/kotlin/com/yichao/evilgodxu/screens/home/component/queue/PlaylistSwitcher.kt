@@ -30,6 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -154,7 +155,7 @@ private fun PlaylistSwitchList(
             SwitchRow(
                 icon = AppIcons.QueueMusic,
                 title = stringResource(R.string.playlist_switch_default),
-                subtitle = stringResource(R.string.music_panel_track_count, library.size),
+                subtitle = pluralStringResource(R.plurals.music_panel_track_count, library.size, library.size),
                 isCurrent = currentKey == null,
                 onClick = { onSwitch(null) },
             )
@@ -163,7 +164,11 @@ private fun PlaylistSwitchList(
             SwitchRow(
                 icon = AppIcons.History,
                 title = recentLabel,
-                subtitle = stringResource(R.string.music_panel_track_count, smartTrackCount(library, playbackState.recentPlayedIds)),
+                subtitle = pluralStringResource(
+                    R.plurals.music_panel_track_count,
+                    smartTrackCount(library, playbackState.recentPlayedIds),
+                    smartTrackCount(library, playbackState.recentPlayedIds),
+                ),
                 isCurrent = currentKey == "smart:RECENT",
                 onClick = {
                     onSwitch(PlaylistSource("smart:RECENT", recentLabel))
@@ -174,7 +179,11 @@ private fun PlaylistSwitchList(
             SwitchRow(
                 icon = AppIcons.Favorite,
                 title = favoriteLabel,
-                subtitle = stringResource(R.string.music_panel_track_count, smartTrackCount(library, playbackState.likedIds)),
+                subtitle = pluralStringResource(
+                    R.plurals.music_panel_track_count,
+                    smartTrackCount(library, playbackState.likedIds),
+                    smartTrackCount(library, playbackState.likedIds),
+                ),
                 isCurrent = currentKey == "smart:FAVORITE",
                 onClick = {
                     onSwitch(PlaylistSource("smart:FAVORITE", favoriteLabel))
@@ -216,7 +225,7 @@ private fun PlaylistSwitchList(
             SwitchRow(
                 icon = AppIcons.QueueMusic,
                 title = playlist.name,
-                subtitle = stringResource(R.string.music_panel_track_count, playlist.trackIds.size),
+                subtitle = pluralStringResource(R.plurals.music_panel_track_count, playlist.trackIds.size, playlist.trackIds.size),
                 isCurrent = currentKey == "custom:${playlist.id}",
                 coverTrack = playlist.trackIds.firstOrNull()?.let { libraryById[it] },
                 onClick = {
@@ -262,7 +271,7 @@ private fun PlaylistSwitchGroups(
             SwitchRow(
                 icon = icon,
                 title = group.name,
-                subtitle = stringResource(R.string.music_panel_track_count, group.trackIds.size),
+                subtitle = pluralStringResource(R.plurals.music_panel_track_count, group.trackIds.size, group.trackIds.size),
                 isCurrent = currentKey == group.key,
                 coverTrack = tracks.firstOrNull(),
                 onClick = { onSwitch(PlaylistSource(group.key, group.name)) },

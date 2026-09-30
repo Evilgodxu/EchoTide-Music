@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -312,7 +313,7 @@ private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
         device.channelCount?.let {
             AudioInfoRow(
                 stringResource(R.string.audio_info_device_channels),
-                stringResource(R.string.audio_info_value_channels, it),
+                pluralStringResource(R.plurals.audio_info_value_channels, it, it),
             )
         },
         device.bluetooth?.linkType?.let {
@@ -416,7 +417,7 @@ private fun qualityLabel(snapshot: AudioInfoSnapshot): String? = when {
 private fun channelLayoutLabel(channelCount: Int): String = when (channelCount) {
     1 -> stringResource(R.string.audio_info_value_mono)
     2 -> stringResource(R.string.audio_info_value_stereo)
-    else -> stringResource(R.string.audio_info_value_channels, channelCount)
+    else -> pluralStringResource(R.plurals.audio_info_value_channels, channelCount, channelCount)
 }
 
 @Composable

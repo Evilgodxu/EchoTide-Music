@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,7 +78,7 @@ internal fun MiniPlaylistPanel(
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = stringResource(R.string.music_panel_track_count, playbackState.playlist.size),
+                text = pluralStringResource(R.plurals.music_panel_track_count, playbackState.playlist.size, playbackState.playlist.size),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 10.sp
             )

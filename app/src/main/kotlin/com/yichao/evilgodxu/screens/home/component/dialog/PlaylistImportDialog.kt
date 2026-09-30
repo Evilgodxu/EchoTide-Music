@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -132,7 +133,7 @@ internal fun PlaylistImportDialog(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = stringResource(R.string.playlist_import_preview_songs, totalSongs),
+                    text = pluralStringResource(R.plurals.playlist_import_preview_songs, totalSongs, totalSongs),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     textAlign = TextAlign.Center,

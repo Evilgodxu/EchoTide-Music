@@ -1,4 +1,4 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">忆潮音乐</string>
 
     <!-- 主页 -->
@@ -59,7 +59,9 @@
     <string name="music_panel_delete_cancel">取消</string>
     <string name="music_panel_delete_confirm">删除</string>
     <string name="music_panel_no_lyrics">暂无歌词</string>
-    <string name="music_panel_track_count">%d 首</string>
+    <plurals name="music_panel_track_count">
+        <item quantity="other">%d 首</item>
+    </plurals>
     <string name="music_panel_search_history">搜索历史</string>
     <string name="music_panel_search_history_clear">清理全部历史</string>
     <string name="music_panel_search_history_delete">删除历史</string>
@@ -112,7 +114,9 @@
     <string name="music_panel_auto_translate_pending">正在准备歌词…</string>
     <string name="music_panel_auto_translate_progress">正在翻译第 %1$d / %2$d 行</string>
     <string name="music_panel_auto_translate_background">后台继续</string>
-    <string name="music_panel_auto_translate_done">已补译 %1$d 行</string>
+    <plurals name="music_panel_auto_translate_done">
+        <item quantity="other">已补译 %1$d 行</item>
+    </plurals>
     <string name="music_panel_auto_translate_nothing">没有需要补译的歌词行</string>
     <string name="music_panel_auto_translate_same_language">歌词已是中文，无需补译</string>
     <string name="music_panel_auto_translate_failed">自动补译失败，请重试</string>
@@ -213,11 +217,14 @@
     <string name="audio_info_bluetooth_class_wearable">可穿戴设备</string>
     <string name="audio_info_value_hz">%d Hz</string>
     <string name="audio_info_value_hz_list">%s Hz</string>
-    <string name="audio_info_value_bit">%d 位</string>
+    <!-- 位深是无量纲单位（「24 位」），不是可数名词，不适用复数形式 -->
+    <string name="audio_info_value_bit" tools:ignore="PluralsCandidate">%d 位</string>
     <string name="audio_info_value_kbps">%d kbps</string>
     <string name="audio_info_value_file_size">%1$s / %2$s</string>
     <string name="audio_info_value_ms">%.1f ms</string>
-    <string name="audio_info_value_channels">%d 声道</string>
+    <plurals name="audio_info_value_channels">
+        <item quantity="other">%d 声道</item>
+    </plurals>
     <string name="audio_info_value_channel_count">%d</string>
     <string name="audio_info_value_mono">单声道</string>
     <string name="audio_info_value_stereo">立体声</string>
@@ -233,7 +240,8 @@
     <string name="audio_info_value_pcm_float">32 位浮点</string>
     <string name="audio_info_output_mode_bit_perfect">位完美独占</string>
     <string name="audio_info_output_mode_mixer">系统混音</string>
-    <string name="audio_info_quality_lossless_bit_depth">%dbit 无损</string>
+    <!-- 「24bit」是位深单位写法（数字与单位连排），不是可数名词 -->
+    <string name="audio_info_quality_lossless_bit_depth" tools:ignore="PluralsCandidate">%dbit 无损</string>
     <string name="audio_info_quality_lossless">无损</string>
     <string name="audio_info_quality_lossy">有损</string>
     <string name="audio_info_transport_playing">播放中</string>
@@ -284,7 +292,9 @@
     <!-- 黑名单 -->
     <string name="settings_section_blacklist">黑名单</string>
     <string name="settings_blacklist_reset_title">重置黑名单</string>
-    <string name="settings_blacklist_reset_desc">已拉黑 %1$d 首，重置后重新参与推荐</string>
+    <plurals name="settings_blacklist_reset_desc">
+        <item quantity="other">已拉黑 %1$d 首，重置后重新参与推荐</item>
+    </plurals>
     <string name="settings_blacklist_reset_confirm_title">重置黑名单</string>
     <string name="settings_blacklist_reset_confirm_message">重置后已拉黑的歌曲与跳过反馈累积的特征将重新参与推荐排序</string>
     <string name="settings_blacklist_reset_confirm">重置</string>
@@ -315,7 +325,9 @@
     <string name="metadata_field_album">专辑</string>
     <string name="metadata_field_hint">写入音频文件的内嵌标签，未改动的字段保持原值</string>
     <string name="metadata_section_lyrics">歌词</string>
-    <string name="metadata_lyrics_line_count">共 %1$d 行</string>
+    <plurals name="metadata_lyrics_line_count">
+        <item quantity="other">共 %1$d 行</item>
+    </plurals>
     <string name="metadata_lyrics_empty">暂无歌词</string>
     <string name="metadata_lyrics_expand">展开歌词</string>
     <string name="metadata_lyrics_collapse">收起歌词</string>
@@ -330,16 +342,11 @@
     <string name="spectrum_screen_title">频谱分析</string>
     <string name="spectrum_generating">正在生成频谱图…</string>
     <string name="spectrum_unavailable">无法分析该音频的频谱</string>
-    <string name="spectrum_info_format">格式</string>
-    <string name="spectrum_info_sample_rate">采样率</string>
-    <string name="spectrum_info_bit_depth">位深</string>
-    <string name="spectrum_info_channels">声道</string>
     <string name="spectrum_info_mono">单声道</string>
     <string name="spectrum_info_stereo">立体声</string>
-    <string name="spectrum_info_channel_count">%1$d 声道</string>
-    <string name="spectrum_info_bitrate">码率</string>
-    <string name="spectrum_info_size">大小</string>
-    <string name="spectrum_analysis_title">曲目分析</string>
+    <plurals name="spectrum_info_channel_count">
+        <item quantity="other">%1$d 声道</item>
+    </plurals>
     <string name="spectrum_analysis_fake_lossless">音质异常</string>
     <string name="spectrum_analysis_ai_music">AI 合成</string>
     <string name="spectrum_analysis_checking">校验中…</string>
@@ -397,7 +404,9 @@
     <string name="cache_release_refresh">松开刷新列表</string>
     <string name="cache_clear">清理缓存</string>
     <string name="cache_clearing">正在清理…</string>
-    <string name="cache_usage">%1$d 项 · %2$s</string>
+    <plurals name="cache_usage">
+        <item quantity="other">%1$d 项 · %2$s</item>
+    </plurals>
     <string name="cache_category_image">图片缓存</string>
     <string name="cache_category_temp">中转文件</string>
     <string name="cache_category_log">异常日志</string>
@@ -441,11 +450,17 @@
     <string name="playlist_picker_title">添加歌曲到「%1$s」</string>
     <string name="playlist_picker_select_all">全选</string>
     <string name="playlist_picker_select_none">取消全选</string>
-    <string name="playlist_picker_selected">已选 %1$d 首</string>
+    <plurals name="playlist_picker_selected">
+        <item quantity="other">已选 %1$d 首</item>
+    </plurals>
     <string name="playlist_picker_add">添加 (%1$d)</string>
     <string name="playlist_picker_empty">没有可添加的歌曲</string>
-    <string name="playlist_album_count">%1$d 张</string>
-    <string name="playlist_artist_count">%1$d 位</string>
+    <plurals name="playlist_album_count">
+        <item quantity="other">%1$d 张</item>
+    </plurals>
+    <plurals name="playlist_artist_count">
+        <item quantity="other">%1$d 位</item>
+    </plurals>
     <string name="playlist_unknown_album">未知专辑</string>
     <string name="playlist_more">更多操作</string>
     <string name="playlist_switch_title">切换歌单</string>
@@ -459,7 +474,9 @@
     <string name="playlist_import_parse">解析</string>
     <string name="playlist_import_parsing">正在解析…</string>
     <string name="playlist_import_name_hint">歌单名称</string>
-    <string name="playlist_import_preview_songs">共 %1$d 首歌曲，将全部下载到本地</string>
+    <plurals name="playlist_import_preview_songs">
+        <item quantity="other">共 %1$d 首歌曲，将全部下载到本地</item>
+    </plurals>
     <string name="playlist_import_start">开始同步</string>
     <string name="playlist_import_quality_title">选择下载音质</string>
     <string name="playlist_import_invalid_link">无法识别该分享链接</string>
@@ -482,7 +499,9 @@
     <!-- 曲库分析 -->
     <string name="library_analysis_title">曲库分析</string>
     <string name="library_analysis_select_format">按格式定位</string>
-    <string name="library_analysis_formats">%d 种格式</string>
+    <plurals name="library_analysis_formats">
+        <item quantity="other">%d 种格式</item>
+    </plurals>
     <string name="library_analysis_empty">曲库为空</string>
     <string name="library_analysis_other">其他</string>
     <string name="library_analysis_online">在线</string>

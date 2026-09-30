@@ -53,6 +53,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -421,7 +422,7 @@ private fun SearchResultList(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = stringResource(R.string.music_panel_track_count, playbackState.searchResults.size),
+                text = pluralStringResource(R.plurals.music_panel_track_count, playbackState.searchResults.size, playbackState.searchResults.size),
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 11.sp
             )

@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -117,7 +118,11 @@ internal fun LibraryAnalysisSheet(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = stringResource(R.string.library_analysis_formats, stats.size),
+                    text = pluralStringResource(
+                        R.plurals.library_analysis_formats,
+                        stats.size,
+                        stats.size,
+                    ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
                 )
@@ -202,13 +207,17 @@ internal fun LibraryAnalysisSheet(
                         )
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = stringResource(R.string.music_panel_track_count, total),
+                                text = pluralStringResource(R.plurals.music_panel_track_count, total, total),
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Text(
-                                text = stringResource(R.string.library_analysis_formats, stats.size),
+                                text = pluralStringResource(
+                                    R.plurals.library_analysis_formats,
+                                    stats.size,
+                                    stats.size,
+                                ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 11.sp,
                             )
@@ -456,7 +465,7 @@ private fun FormatStatRow(
             modifier = Modifier.weight(1f),
         )
         Text(
-            text = stringResource(R.string.music_panel_track_count, stat.count),
+            text = pluralStringResource(R.plurals.music_panel_track_count, stat.count, stat.count),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 12.sp,
             lineHeight = 15.sp,

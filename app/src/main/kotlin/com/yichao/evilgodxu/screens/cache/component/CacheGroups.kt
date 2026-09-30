@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -196,7 +197,12 @@ private fun CacheUsageRow(usage: CacheUsage) {
             color = MaterialTheme.colorScheme.onSurface,
         )
         Text(
-            text = stringResource(R.string.cache_usage, usage.fileCount, formatBytes(usage.sizeBytes)),
+            text = pluralStringResource(
+                R.plurals.cache_usage,
+                usage.fileCount,
+                usage.fileCount,
+                formatBytes(usage.sizeBytes),
+            ),
             fontSize = 14.sp,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
         )

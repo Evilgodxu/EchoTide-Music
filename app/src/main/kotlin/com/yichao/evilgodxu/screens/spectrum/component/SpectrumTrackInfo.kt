@@ -46,7 +46,7 @@ internal fun spectrumInfoText(
         when (it) {
             1 -> context.getString(R.string.spectrum_info_mono)
             2 -> context.getString(R.string.spectrum_info_stereo)
-            else -> context.getString(R.string.spectrum_info_channel_count, it)
+            else -> context.resources.getQuantityString(R.plurals.spectrum_info_channel_count, it, it)
         }
     }
     return buildString {
