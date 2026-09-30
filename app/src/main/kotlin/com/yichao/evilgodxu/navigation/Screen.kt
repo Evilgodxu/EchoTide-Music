@@ -20,3 +20,7 @@ data object Cache : NavKey
 // 同一曲目重复进入应复用同一路由，故以曲目标识参与相等性
 @Serializable
 data class Spectrum(val trackId: Long) : NavKey
+
+// 元数据编辑页路由：同样只带曲目标识，标签内容由页面从音频文件读取
+@Serializable
+data class Metadata(val trackId: Long) : NavKey

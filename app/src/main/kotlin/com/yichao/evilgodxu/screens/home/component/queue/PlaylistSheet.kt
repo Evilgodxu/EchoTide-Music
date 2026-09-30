@@ -103,6 +103,8 @@ internal fun PlaylistSheet(
     onDismiss: () -> Unit,
     // 高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
     onViewSpectrum: (Long) -> Unit = {},
+    // 高级菜单的「编辑元数据」：跳转元数据编辑页，只传曲目标识
+    onEditMetadata: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -606,6 +608,15 @@ internal fun PlaylistSheet(
                 if (target != null) {
                     onDismiss()
                     onViewSpectrum(target.id)
+                }
+            },
+            onEditMetadata = {
+                // 与频谱页同一处理：先收起面板再跳转，返回时不停在展开的面板上
+                val target = advancedTrack
+                advancedTrack = null
+                if (target != null) {
+                    onDismiss()
+                    onEditMetadata(target.id)
                 }
             },
             onDismiss = { advancedTrack = null },

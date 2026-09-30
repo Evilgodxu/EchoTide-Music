@@ -83,6 +83,8 @@ fun LandscapePlayer(
     onOpenArtistPlaylist: (String) -> Unit = {},
     // 播放列表高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
     onOpenSpectrum: (Long) -> Unit = {},
+    // 播放列表高级菜单的「编辑元数据」：跳转元数据编辑页，只传曲目标识
+    onOpenMetadata: (Long) -> Unit = {},
     // 歌词区快速纵向滑动的切歌出口（true 为下一曲）：与整页上下滑动切歌同一套判定
     onVerticalFling: ((next: Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -221,6 +223,7 @@ fun LandscapePlayer(
             playbackState = playbackState,
             onDismiss = { onPlaylistVisibilityChange(false) },
             onViewSpectrum = onOpenSpectrum,
+            onEditMetadata = onOpenMetadata,
         )
 
         // 多位歌手的曲目：点击歌手信息后弹出的歌手选择对话框

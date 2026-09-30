@@ -80,6 +80,7 @@ internal fun CompactAssembly(
     panelState: HomePanelState,
     onOpenSettings: () -> Unit,
     onOpenSpectrum: (Long) -> Unit,
+    onOpenMetadata: (Long) -> Unit,
     onToggleLandscape: () -> Unit,
     onRefreshPermissions: () -> Unit,
     onStartPermissionMonitor: (PermissionType, Activity) -> Unit,
@@ -212,6 +213,7 @@ internal fun CompactAssembly(
                     // 点击歌手信息：切到歌单面板并进入该歌手的曲目列表
                     onOpenArtistPlaylist = panelState::openArtistPlaylist,
                     onOpenSpectrum = onOpenSpectrum,
+                    onOpenMetadata = onOpenMetadata,
                 )
             }
         }

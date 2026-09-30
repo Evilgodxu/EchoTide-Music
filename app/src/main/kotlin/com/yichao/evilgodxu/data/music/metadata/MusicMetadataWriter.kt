@@ -88,6 +88,22 @@ internal object MusicMetadataWriter {
     suspend fun writeCover(context: Context, track: MusicTrack, coverBytes: ByteArray): Boolean =
         writeToTrack(context, track) { source -> plan(source, null, null, null, coverBytes, null) }
 
+    /**
+     * 一次写入整批文本与封面字段，供元数据编辑页保存使用。
+     *
+     * 字段为 null 表示不改该项，由容器解析保留文件中的既有值；一次调用只重写一遍文件 ——
+     * 各容器的标签重建都要搬运音频躯干，逐字段分别写入会把同一份音频复制多遍。
+     */
+    suspend fun writeFields(
+        context: Context,
+        track: MusicTrack,
+        title: String?,
+        artist: String?,
+        album: String?,
+        cover: ByteArray?,
+        lyrics: String?,
+    ): Boolean = writeToTrack(context, track) { source -> plan(source, title, artist, album, cover, lyrics) }
+
     // 一次性写入标题/艺术家/封面：本地文件走文件路径重建，在线缓存歌走 content URI 就地重写
     suspend fun writeMetadataToSource(
         context: Context,

@@ -297,7 +297,30 @@
     <string name="playlist_advanced_menu_ringtone">设为来电铃声</string>
     <string name="playlist_advanced_menu_alarm">设为闹钟铃声</string>
     <string name="playlist_advanced_menu_spectrum">查看频谱</string>
+    <string name="playlist_advanced_menu_metadata">编辑元数据</string>
     <string name="playlist_advanced_unavailable">在线曲目暂不支持该操作</string>
+
+    <!-- 元数据编辑 -->
+    <string name="metadata_screen_title">元数据编辑</string>
+    <string name="metadata_unavailable">该曲目没有本地音频文件，无法编辑元数据</string>
+    <string name="metadata_track_duration">时长 %1$s</string>
+    <string name="metadata_section_cover">封面</string>
+    <string name="metadata_cover_title">内嵌封面</string>
+    <string name="metadata_cover_empty">无封面</string>
+    <string name="metadata_cover_pick">选择图片</string>
+    <string name="metadata_cover_remove">移除封面</string>
+    <string name="metadata_section_basic">基本信息</string>
+    <string name="metadata_field_title">标题</string>
+    <string name="metadata_field_artist">艺术家</string>
+    <string name="metadata_field_album">专辑</string>
+    <string name="metadata_field_hint">写入音频文件的内嵌标签，未改动的字段保持原值</string>
+    <string name="metadata_section_lyrics">歌词</string>
+    <string name="metadata_field_lyrics">歌词文本</string>
+    <string name="metadata_field_lyrics_hint">增强 LRC 格式，支持 [mm:ss.xxx] 行时间戳与行内逐字时间戳</string>
+    <string name="metadata_lyrics_invalid">歌词格式无法解析，请检查时间戳格式</string>
+    <string name="metadata_save">保存</string>
+    <string name="metadata_save_done">元数据已写入音频文件</string>
+    <string name="metadata_save_failed">写入失败：文件格式不支持或无法写入</string>
 
     <!-- 频谱分析 -->
     <string name="spectrum_screen_title">频谱分析</string>

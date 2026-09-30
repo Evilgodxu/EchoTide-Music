@@ -33,6 +33,8 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     // 播放列表高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
     onOpenSpectrum: (Long) -> Unit,
+    // 播放列表高级菜单的「编辑元数据」：跳转元数据编辑页，只传曲目标识
+    onOpenMetadata: (Long) -> Unit,
 ) {
     val application = LocalApplication.current
     val stateHolder = LocalMusicPanelStateHolder.current
@@ -138,6 +140,7 @@ fun HomeScreen(
             panelState = panelState,
             onOpenSettings = onOpenSettings,
             onOpenSpectrum = onOpenSpectrum,
+            onOpenMetadata = onOpenMetadata,
             onToggleLandscape = onToggleLandscape,
             onRefreshPermissions = viewModel::refreshPermissions,
             onStartPermissionMonitor = viewModel::startPermissionMonitor,
@@ -150,6 +153,7 @@ fun HomeScreen(
             panelState = panelState,
             onOpenSettings = onOpenSettings,
             onOpenSpectrum = onOpenSpectrum,
+            onOpenMetadata = onOpenMetadata,
             onToggleLandscape = onToggleLandscape,
             onRefreshPermissions = viewModel::refreshPermissions,
             onStartPermissionMonitor = viewModel::startPermissionMonitor,
