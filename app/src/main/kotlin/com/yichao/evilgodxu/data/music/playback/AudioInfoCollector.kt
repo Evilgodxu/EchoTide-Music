@@ -8,6 +8,7 @@ import android.media.AudioManager
 import androidx.annotation.OptIn
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.analysis.isLosslessFormatName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -62,7 +63,7 @@ internal object AudioInfoCollector {
      * 采集信息快照。
      *
      * 播放器接口只能在创建它的线程调用（MediaController 有线程归属），故先在主线程取完
-     * 会话 ID 与传输状态，再进入 IO 采集设备信息与蓝牙设备信息。
+     * 会话 ID 与传输状态，再进入 IO 采集设备信息、蓝牙设备信息与源文件大小。
      */
     suspend fun collect(context: Context, state: MusicPlaybackState): AudioInfoSnapshot {
         val playback = playbackSnapshot(state.player)
@@ -73,6 +74,7 @@ internal object AudioInfoCollector {
             }.getOrNull().orEmpty().toList()
             AudioInfoSnapshot(
                 sourcePath = sourcePath(state),
+                fileSizeBytes = fileSizeBytes(context, state),
                 format = state.audioSignalPathFormat
                     .takeIf { state.isAudioSignalPathCurrent }
                     ?.format
@@ -132,6 +134,13 @@ internal object AudioInfoCollector {
         return track.path.takeIf { it.isNotBlank() }
             ?: track.audioUri.takeIf { it.isNotBlank() }
     }
+
+    // 源文件字节数：复用格式读取的大小入口，本地文件与 content URI 都能取得，
+    // 在线音源读不到即留空，与其余字段同口径由展示层跳过该行
+    private fun fileSizeBytes(context: Context, state: MusicPlaybackState): Long? =
+        state.currentTrack
+            ?.let { TrackAudioInfoReader.readFileSize(context, it) }
+            ?.takeIf { it > 0 }
 
     // 源采样率：取自当前曲目解码所得的格式信息
     private fun MusicPlaybackState.sourceSampleRate(): Int? =

@@ -165,6 +165,7 @@
     <string name="audio_info_group_chain">Playback chain</string>
     <string name="audio_info_group_devices">Current output device</string>
     <string name="audio_info_file_path">File path</string>
+    <string name="audio_info_file_size">File size</string>
     <string name="audio_info_format">Format</string>
     <string name="audio_info_decoder">Decoder</string>
     <string name="audio_info_source_sample_rate">Source sample rate</string>
@@ -209,6 +210,7 @@
     <string name="audio_info_value_hz">%d Hz</string>
     <string name="audio_info_value_hz_list">%s Hz</string>
     <string name="audio_info_value_kbps">%d kbps</string>
+    <string name="audio_info_value_file_size">%1$s / %2$s</string>
     <string name="audio_info_value_ms">%.1f ms</string>
     <string name="audio_info_value_channels">%d channels</string>
     <string name="audio_info_value_channel_count">%d</string>

@@ -73,6 +73,8 @@ enum class OutputEncoding {
 data class AudioInfoSnapshot(
     // 音频源
     val sourcePath: String?,
+    /** 源文件字节数；在线音源与读不到大小的本地源为 null */
+    val fileSizeBytes: Long?,
     val format: String?,
     val decoder: String?,
     // 音频参数

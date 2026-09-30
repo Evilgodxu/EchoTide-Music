@@ -59,6 +59,8 @@ import com.yichao.evilgodxu.data.music.playback.OutputDeviceKind
 import com.yichao.evilgodxu.data.music.playback.OutputEncoding
 import com.yichao.evilgodxu.permission.PermissionMonitor
 import com.yichao.evilgodxu.permission.bluetoothConnectPermission
+import com.yichao.evilgodxu.utils.formatMebibytes
+import com.yichao.evilgodxu.utils.formatMegabytes
 import com.yichao.evilgodxu.R
 
 // 行内文本最大行数：超出以省略号截断，避免个别超长设备描述撑开整块面板
@@ -165,6 +167,16 @@ private fun audioInfoGroups(snapshot: AudioInfoSnapshot): List<AudioInfoGroup> =
         rows = listOfNotNull(
             snapshot.sourcePath?.let {
                 AudioInfoRow(stringResource(R.string.audio_info_file_path), it)
+            },
+            snapshot.fileSizeBytes?.let {
+                AudioInfoRow(
+                    stringResource(R.string.audio_info_file_size),
+                    stringResource(
+                        R.string.audio_info_value_file_size,
+                        formatMegabytes(it),
+                        formatMebibytes(it),
+                    ),
+                )
             },
             snapshot.format?.let {
                 AudioInfoRow(stringResource(R.string.audio_info_format), it)
