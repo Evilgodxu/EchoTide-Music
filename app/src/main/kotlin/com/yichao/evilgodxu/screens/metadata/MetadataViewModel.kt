@@ -87,7 +87,9 @@ class MetadataViewModel(
         }
         // 曲目引用可能已被上一轮保存整体替换，快照与待写入状态一并按当前曲目重置
         resetEditingState()
-        _uiState.update { it.copy(loading = true, editable = true, message = null, editing = null) }
+        _uiState.update {
+            it.copy(loading = true, editable = true, message = null, editing = null, lyricLineDraft = null)
+        }
         loadTags(target)
     }
 
@@ -160,14 +162,26 @@ class MetadataViewModel(
         }
     }
 
-    // 点击条目进入编辑态：同时只允许一行可编辑，切换目标即放弃当前行的未确认输入
+    // 点击条目进入编辑态：同时只允许一行可编辑。切换到其它条目时先提交上一行的原文草稿，
+    // 避免正在编辑的歌词行因切换而丢掉改动
     fun onEditStart(target: MetadataEditTarget) {
         if (_uiState.value.saving || _uiState.value.loading) return
-        _uiState.update { it.copy(editing = target, message = null) }
+        if (_uiState.value.editing == target) return
+        commitLyricDraft()
+        // 原文行进入编辑态时预填完整增强 LRC（行时间戳 + 逐字标签 + 文本，不含翻译），
+        // 使时间戳可被完整修改，能力对齐首页歌词编辑模块
+        val draft = (target as? MetadataEditTarget.LyricLineAt)
+            ?.let { _uiState.value.lyricLines.getOrNull(it.index) }
+            ?.let { MusicMetadataCache.encodeLyricLine(it, includeTranslation = false) }
+        _uiState.update { it.copy(editing = target, message = null, lyricLineDraft = draft) }
     }
 
-    // 结束编辑态：改动已在输入过程中提交，这里只收起输入框
-    fun onEditEnd() = _uiState.update { it.copy(editing = null) }
+    // 结束编辑态：先提交原文草稿再收起输入框。
+    // 由「完成」键与点击其它区域触发，两者都是用户的明确意图，不依赖焦点事件时序
+    fun onEditEnd() {
+        commitLyricDraft()
+        _uiState.update { it.copy(editing = null, lyricLineDraft = null) }
+    }
 
     fun onTitleChange(value: String) = updateField(MetadataField.TITLE, value)
 
@@ -186,12 +200,48 @@ class MetadataViewModel(
         scheduleFieldSave(field, value)
     }
 
-    // 歌词行改写：按位置替换该行的文本，逐字时间戳与翻译随行保留
-    fun onLyricLineChange(index: Int, text: String) {
+    // 原文行内联草稿：仅暂存用户输入，不解析也不落盘。
+    // 编辑过程中文本可能处于中间态（如 <mm:ss.5 标签尚未补全），此时解析会丢字，故等到编辑结束再提交
+    fun onLyricRawChange(raw: String) =
+        _uiState.update { it.copy(lyricLineDraft = raw, message = null) }
+
+    // 翻译行改写：与原文行互不干扰，留空即清除该行翻译
+    fun onLyricTranslationChange(index: Int, text: String) {
         val lines = _uiState.value.lyricLines
         if (index !in lines.indices) return
-        val updated = lines.toMutableList().also { it[index] = it[index].copy(text = text) }
+        val translation = text.trim().takeIf { it.isNotEmpty() }
+        if (lines[index].translation == translation) return
+        val updated = lines.toMutableList().also { it[index] = it[index].copy(translation = translation) }
         _uiState.update { it.copy(lyricLines = updated, message = null) }
+        scheduleLyricsSave(updated)
+    }
+
+    /**
+     * 提交歌词原文草稿：把内联编辑的完整增强 LRC 解析回该行。
+     *
+     * 解析结果可能拆分为多行（与首页一致），整体替换原位置；解析不出行时保留原行并提示格式问题，
+     * 避免一次误删时间戳前缀就丢掉整行。翻译不由原文入口维护，提交后按原值保留。
+     */
+    private fun commitLyricDraft() {
+        val target = _uiState.value.editing as? MetadataEditTarget.LyricLineAt ?: return
+        val draft = _uiState.value.lyricLineDraft ?: return
+        val lines = _uiState.value.lyricLines
+        val existing = lines.getOrNull(target.index) ?: return
+        val parsed = MusicMetadataCache.parseLyricsText(draft)
+        if (parsed.isEmpty()) {
+            _uiState.update {
+                it.copy(messageIsError = true, message = message(R.string.metadata_lyrics_invalid))
+            }
+            return
+        }
+        val replaced = parsed.map { it.copy(translation = existing.translation) }
+        val updated = lines.toMutableList().also {
+            it.removeAt(target.index)
+            it.addAll(target.index, replaced)
+        }
+        // 文本未变（如仅打开又退出）时不做任何写入与状态刷新
+        if (updated == lines) return
+        _uiState.update { it.copy(lyricLines = updated) }
         scheduleLyricsSave(updated)
     }
 
@@ -210,23 +260,27 @@ class MetadataViewModel(
         scheduleSave()
     }
 
-    // 文本字段待写入值：去空白后的内容，与快照比较可判断是否真的变了
+    // 文本字段待写入值：去空白后的内容。
+    // 等于快照原值时把该条目的待写入值清回 null —— 否则「改回原值」会残留上一轮记录的旧值，
+    // 停顿时仍按旧值重写文件，出现「内容没变也写入」
     private fun scheduleFieldSave(field: MetadataField, value: String) {
-        val trimmed = value.trim()
-        if (trimmed == snapshot.value(field)) return
-        val changes = pending ?: PendingChanges().also { pending = it }
+        val newValue = value.trim().takeIf { it != snapshot.value(field) }
+        val changes = pending ?: if (newValue != null) PendingChanges().also { pending = it } else return
         when (field) {
-            MetadataField.TITLE -> changes.title = trimmed
-            MetadataField.ARTIST -> changes.artist = trimmed
-            MetadataField.ALBUM -> changes.album = trimmed
+            MetadataField.TITLE -> changes.title = newValue
+            MetadataField.ARTIST -> changes.artist = newValue
+            MetadataField.ALBUM -> changes.album = newValue
         }
+        if (changes.isEmpty && !coverChanged) return
         scheduleSave()
     }
 
+    // 歌词待写入值：与文本字段同理，改回原歌词时清掉待写入值，避免按旧值重写文件
     private fun scheduleLyricsSave(lines: List<LyricLine>) {
-        if (lines == snapshot.lyricLines) return
-        val changes = pending ?: PendingChanges().also { pending = it }
-        changes.lyrics = lines
+        val newValue = lines.takeIf { it != snapshot.lyricLines }
+        val changes = pending ?: if (newValue != null) PendingChanges().also { pending = it } else return
+        changes.lyrics = newValue
+        if (changes.isEmpty && !coverChanged) return
         scheduleSave()
     }
 

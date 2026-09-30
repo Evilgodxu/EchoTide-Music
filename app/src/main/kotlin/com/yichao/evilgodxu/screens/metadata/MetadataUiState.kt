@@ -15,6 +15,9 @@ sealed interface MetadataEditTarget {
 
     // 歌词行按解析结果的下标标识：同一行的时间戳可能重复，文本也可重名，只有位置能唯一确定一行
     data class LyricLineAt(val index: Int) : MetadataEditTarget
+
+    // 歌词翻译行：与原文行分属不同编辑位，互不干扰，可独立进入与退出编辑
+    data class LyricTranslationAt(val index: Int) : MetadataEditTarget
 }
 
 // 元数据编辑页状态：每次进入页面重新读取音频文件的内嵌标签回填表单，
@@ -40,6 +43,10 @@ data class MetadataUiState(
     val editable: Boolean = true,
     // 当前处于编辑态的条目；为 null 时全部条目为只读展示
     val editing: MetadataEditTarget? = null,
+    // 歌词原文行的内联草稿：完整增强 LRC 文本，仅在原文行编辑态非空。
+    // 文本需原样保留用户输入（含尚未成形的标签），不能由解析结果反推，故单独存放；
+    // 放在状态里而非组件内，使「点击外部退出」也能提交草稿
+    val lyricLineDraft: String? = null,
     // 自动保存结果提示：成功或失败原因，显示后可被下次保存覆盖
     val message: String? = null,
     val messageIsError: Boolean = false,

@@ -334,6 +334,7 @@
     </plurals>
     <string name="metadata_lyrics_empty">No lyrics</string>
     <string name="metadata_lyrics_invalid">Lyrics cannot be parsed; check the timestamp format</string>
+    <string name="metadata_lyrics_translation_hint">Translation (leave empty to clear)</string>
     <string name="metadata_save_done">Metadata written to the audio file</string>
     <string name="metadata_save_failed">Write failed: the file format is unsupported or not writable</string>
 

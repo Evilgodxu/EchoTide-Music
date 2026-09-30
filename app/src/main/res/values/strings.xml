@@ -329,6 +329,7 @@
     </plurals>
     <string name="metadata_lyrics_empty">暂无歌词</string>
     <string name="metadata_lyrics_invalid">歌词格式无法解析，请检查时间戳格式</string>
+    <string name="metadata_lyrics_translation_hint">翻译（留空则清除）</string>
     <string name="metadata_save_done">元数据已写入音频文件</string>
     <string name="metadata_save_failed">写入失败：文件格式不支持或无法写入</string>
 

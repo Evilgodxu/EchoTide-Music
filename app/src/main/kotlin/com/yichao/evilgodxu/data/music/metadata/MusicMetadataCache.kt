@@ -173,12 +173,23 @@ internal object MusicMetadataCache {
 
     // 歌词按增强 LRC 文本序列化：标准 [mm:ss.xxx] 行 + 行内 <mm:ss.xxx> 逐字时间戳，翻译以 [tr][/tr] 追加
     internal fun encodeLyrics(lines: List<LyricLine>): String =
-        lines.joinToString("\n") { line ->
-            val timestamp = lrcTimestamp(line.timeMs)
-            val translation = line.translation?.takeIf { it.isNotBlank() }?.let { "[tr]$it[/tr]" }.orEmpty()
-            if (line.words.isEmpty()) "[$timestamp]${line.text}$translation"
-            else "[$timestamp]" + line.words.joinToString("") { "<${lrcTimestamp(it.startMs)}>${it.text}" } + translation
+        lines.joinToString("\n") { encodeLyricLine(it) }
+
+    // 单行序列化。includeTranslation=false 供「原文与翻译分属不同编辑入口」的场景使用：
+    // 只暴露时间戳/逐字/文本，翻译由独立入口维护，避免编辑原文时误改翻译
+    internal fun encodeLyricLine(line: LyricLine, includeTranslation: Boolean = true): String {
+        val timestamp = lrcTimestamp(line.timeMs)
+        val translation = if (includeTranslation) {
+            line.translation?.takeIf { it.isNotBlank() }?.let { "[tr]$it[/tr]" }.orEmpty()
+        } else {
+            ""
         }
+        return if (line.words.isEmpty()) {
+            "[$timestamp]${line.text}$translation"
+        } else {
+            "[$timestamp]" + line.words.joinToString("") { "<${lrcTimestamp(it.startMs)}>${it.text}" } + translation
+        }
+    }
 
     // 按“标题 - 艺术家”查找已存在的歌词缓存文件：在线播放/手动刷新保存的 .lrc 可直接复用
     fun findLyrics(context: Context, title: String, artist: String): String? {
