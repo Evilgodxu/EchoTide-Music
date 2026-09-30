@@ -90,12 +90,15 @@
             </intent-filter>
         </activity>
 
-        <!-- 音乐播放前台服务：媒体会话控制通知栏/锁屏 -->
+        <!-- 音乐播放前台服务：媒体会话控制通知栏/锁屏。
+             须 exported 才能被系统媒体会话框架与外部控制器绑定；无权限保护是
+             MediaSessionService 的既定形态——会话只暴露播放控制，不接受任意指令 -->
         <service
             android:name=".service.MusicPlaybackService"
             android:enabled="true"
             android:exported="true"
-            android:foregroundServiceType="mediaPlayback">
+            android:foregroundServiceType="mediaPlayback"
+            tools:ignore="ExportedService">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>

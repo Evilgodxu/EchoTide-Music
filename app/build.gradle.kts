@@ -28,6 +28,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
+            // 仅打包 arm64：ChromeOS 上的 Android 运行时为 x86_64，加入该 ABI 会显著增大
+            // 安装包体积，而本应用的音频直通与 USB 独占面向的是 arm64 移动设备
             abiFilters += listOf("arm64-v8a")
         }
     }
@@ -113,6 +115,14 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+
+    lint {
+        // 仅打包 arm64 是有意为之（见 defaultConfig.ndk 注释），ChromeOS 不在目标设备内。
+        // 该检查无源码级抑制手段，只能在 lint 配置里关掉；关闭范围仅此一项
+        disable += "ChromeOsAbiSupport"
+        // 定向抑制（如 media3 通知图标的覆盖资源）写在 lint.xml，避免整体关掉某项检查
+        lintConfig = file("lint.xml")
     }
 }
 

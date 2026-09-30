@@ -60,7 +60,7 @@ class MiniPlayerViewManager(
     private val playlistExpanded = mutableStateOf(false)
     // 视觉展开状态：收起动画播放期间保持展开内容与全屏窗口，动画结束才恢复紧凑
     private val visualExpanded = mutableStateOf(false)
-    private var statusBarHeight = getStatusBarHeight()
+    private var statusBarHeight = currentTopInset()
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -269,28 +269,28 @@ class MiniPlayerViewManager(
     private fun barWidthPx(): Int =
         dpToPx(MINI_PADDING_H_DP * 2 + MINI_COVER_DP + MINI_BUTTON_COUNT * MINI_BUTTON_DP)
 
-    @SuppressLint("DiscouragedApi")
-    private fun getStatusBarHeight(): Int {
-        val res = context.resources
-        val id = res.getIdentifier("status_bar_height", "dimen", "android")
-        return if (id > 0) res.getDimensionPixelSize(id) else 0
-    }
-
     // 横屏时状态栏位于屏幕侧边，顶部偏移为 0
     private fun isLandscape(): Boolean =
         context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    // 实时获取当前窗口顶部状态栏 inset（横屏时状态栏位于侧边，顶部为 0）
+    /**
+     * 当前窗口顶部状态栏 inset。
+     *
+     * 取不到 inset 时返回 0 而非读系统内部尺寸：`status_bar_height` 是私有的框架资源，
+     * 各厂商与版本都不保证存在或准确。位置会在下一次 inset 回调里按真实值校正，
+     * 因此瞬时偏差只影响首帧，不会长期停在错误位置
+     */
     private fun currentTopInset(): Int = runCatching {
         windowManager.currentWindowMetrics.windowInsets
             .getInsets(WindowInsets.Type.statusBars()).top
-    }.getOrElse { if (isLandscape()) 0 else getStatusBarHeight() }
+    }.getOrDefault(0)
 
     // 迷你播放器纵向位置：横屏状态栏在侧边，顶部仅保留 1dp 间距；
-    // 竖屏位于状态栏下方，状态栏高度未刷新（横屏遗留）时回退到系统标准高度，避免嵌入状态栏
+    // 竖屏位于状态栏下方。max 保留已记录的最大值：状态栏高度在横竖屏切换瞬间可能短暂读到 0，
+    // 取较大值可避免迷你条在这一帧跳到屏幕顶端
     private fun topOffsetPx(): Int =
         if (isLandscape()) dpToPx(LANDSCAPE_TOP_GAP_DP)
-        else max(statusBarHeight, getStatusBarHeight())
+        else max(statusBarHeight, currentTopInset())
 
     private fun dpToPx(value: Int): Int = (value * context.resources.displayMetrics.density).roundToInt()
 

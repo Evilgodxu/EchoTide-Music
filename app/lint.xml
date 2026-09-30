@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- UnusedResources 的定向排除：仅作用于下列资源，其余资源仍照常检查。
+
+     media3_icon_circular_play.png 是对 media3-session 通知图标的覆盖：
+     media3-session 的 values.xml 声明 media3_notification_small_icon 指向该名称，
+     库在运行期按名解析，故应用内不存在任何文本引用，被误报为未使用。
+     删掉它会静默回落到库自带的默认图标（两者字节不同，本文件是自定义图标）。
+     置于 drawable-nodpi：通知小图标须按原尺寸呈现，不随屏幕密度缩放 -->
+<lint>
+    <issue id="UnusedResources">
+        <ignore path="src/main/res/drawable-nodpi/media3_icon_circular_play.png" />
+    </issue>
+</lint>
