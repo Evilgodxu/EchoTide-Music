@@ -195,6 +195,10 @@
     <string name="audio_info_bluetooth_type_classic">经典蓝牙</string>
     <string name="audio_info_bluetooth_type_le">低功耗蓝牙</string>
     <string name="audio_info_bluetooth_type_dual">双模蓝牙</string>
+    <string name="audio_info_bluetooth_codec">蓝牙解码器</string>
+    <string name="audio_info_bluetooth_codec_sample_rate">蓝牙采样率</string>
+    <string name="audio_info_bluetooth_codec_bits_per_sample">蓝牙每样本位数</string>
+    <string name="audio_info_bluetooth_codec_channel_mode">蓝牙声道模式</string>
     <string name="audio_info_bluetooth_category">设备类别</string>
     <string name="audio_info_bluetooth_class_wearable_headset">佩戴式耳机</string>
     <string name="audio_info_bluetooth_class_handsfree">免提设备</string>
@@ -209,6 +213,7 @@
     <string name="audio_info_bluetooth_class_wearable">可穿戴设备</string>
     <string name="audio_info_value_hz">%d Hz</string>
     <string name="audio_info_value_hz_list">%s Hz</string>
+    <string name="audio_info_value_bit">%d 位</string>
     <string name="audio_info_value_kbps">%d kbps</string>
     <string name="audio_info_value_file_size">%1$s / %2$s</string>
     <string name="audio_info_value_ms">%.1f ms</string>

@@ -9,17 +9,18 @@ import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.pm.PackageManager
 import com.yichao.evilgodxu.log.CrashLogManager
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * 蓝牙设备信息解析。
  *
  * 音频栈对蓝牙设备只有一份泛化描述：AudioDeviceInfo.productName 在部分设备上返回的是本机蓝牙名称
- * 而非远端设备名称，不能作为设备名来源，故设备名与链路附加信息一律经官方蓝牙接口读取——
- * 名称取别名（用户自定义名）优先、其次广播名，链路类型与设备类别同样取自蓝牙栈。
+ * 而非远端设备名称，不能作为设备名来源，故设备名、链路附加信息与编解码器参数一律经官方蓝牙接口
+ * 读取——名称取别名（用户自定义名）优先、其次广播名，链路类型与设备类别同样取自蓝牙栈。
  *
  * BLUETOOTH_CONNECT 属运行时权限，未授权时直接返回 null，此时设备名与地址都无从取得，
  * 展示层只保留音频栈给出的支持格式。部分 ROM（如小米）不支持按 Profile 查询已连接设备，
- * 逐个 Profile 容错。
+ * 逐个 Profile 容错。编解码器参数另有系统接口的权限限制，取不到时单独留空，不影响其余各项。
  */
 internal object BluetoothDeviceResolver {
 
@@ -27,20 +28,25 @@ internal object BluetoothDeviceResolver {
     private val AUDIO_PROFILES = listOf(BluetoothProfile.A2DP, BluetoothProfile.HEADSET)
 
     /** 解析指定地址的远端设备信息；权限不足或定位不到设备时返回 null */
-    fun resolve(context: Context, address: String?): BluetoothDeviceFacts? {
+    suspend fun resolve(context: Context, address: String?): BluetoothDeviceFacts? {
         if (!hasPermission(context)) return null
         val manager = context.getSystemService(BluetoothManager::class.java) ?: return null
         val adapter = manager.adapter ?: return null
-        return runCatching { resolveFacts(manager, adapter, address) }
-            .onFailure {
-                CrashLogManager.logException("BluetoothDeviceResolver", "解析蓝牙设备信息失败", it)
-            }
-            .getOrNull()
+        // 编解码器参数的读取会挂起，采集协程取消时要放行取消信号，不能与查询异常一并吞掉
+        return try {
+            resolveFacts(context, manager, adapter, address)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            CrashLogManager.logException("BluetoothDeviceResolver", "解析蓝牙设备信息失败", e)
+            null
+        }
     }
 
     // 各蓝牙查询接口均受 BLUETOOTH_CONNECT 保护，入口已校验权限，故此处标注 SuppressLint
     @SuppressLint("MissingPermission")
-    private fun resolveFacts(
+    private suspend fun resolveFacts(
+        context: Context,
         manager: BluetoothManager,
         adapter: BluetoothAdapter,
         address: String?,
@@ -50,6 +56,7 @@ internal object BluetoothDeviceResolver {
             name = device.displayName(),
             linkType = device.linkType(),
             deviceClass = device.bluetoothClass?.deviceClass,
+            codec = BluetoothCodecResolver.resolve(context, device),
         )
     }
 
@@ -105,9 +112,10 @@ internal object BluetoothDeviceResolver {
             PackageManager.PERMISSION_GRANTED
 }
 
-// 蓝牙栈读到的远端设备信息：均为未加工的平台取值，由采集侧映射为快照字段
+// 蓝牙栈读到的远端设备信息：除编解码器参数外均为未加工的平台取值，由采集侧映射为快照字段
 internal data class BluetoothDeviceFacts(
     val name: String?,
     val linkType: BluetoothLinkType?,
     val deviceClass: Int?,
+    val codec: BluetoothCodecInfo?,
 )

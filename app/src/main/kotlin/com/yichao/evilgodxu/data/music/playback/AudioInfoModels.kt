@@ -6,10 +6,26 @@ enum class OutputDeviceKind { USB, BLUETOOTH, SPEAKER, WIRED, OTHER }
 // 蓝牙链路类型：经典蓝牙承载 A2DP/SCO，低功耗蓝牙承载 LE Audio，双模两者兼有
 enum class BluetoothLinkType { CLASSIC, LE, DUAL }
 
+// 蓝牙编解码器声道模式
+enum class BluetoothChannelMode { MONO, STEREO }
+
+// 蓝牙编解码器参数：A2DP 链路上实际协商出的编码规格，各项未上报时为空
+data class BluetoothCodecInfo(
+    /** 编解码器名称，取自平台对编解码器标识的命名，厂商编解码器同样有名称 */
+    val name: String?,
+    /** 编码采样率 */
+    val sampleRateHz: Int?,
+    /** 每样本位数 */
+    val bitsPerSample: Int?,
+    val channelMode: BluetoothChannelMode?,
+)
+
 // 蓝牙链路的附加信息：取自蓝牙栈而非音频栈，读不到时各项为空
 data class BluetoothLinkInfo(
     val linkType: BluetoothLinkType?,
     val deviceClass: Int?,
+    /** 当前链路的编解码器参数；未协商完成或读不到时为 null */
+    val codec: BluetoothCodecInfo?,
 )
 
 // 当前输出设备的信息。各项均为平台上报值，未上报的项留空；

@@ -244,10 +244,11 @@ internal object AudioInfoCollector {
      * 当前输出设备。
      *
      * 设备名与蓝牙链路信息分别取自音频栈与蓝牙栈：音频栈给出设备自报名与支持格式，
-     * 蓝牙栈才是远端设备名的可靠来源，故蓝牙设备一律以蓝牙栈的名称为准。
+     * 蓝牙栈才是远端设备名的可靠来源，故蓝牙设备一律以蓝牙栈的名称为准；编解码器参数同属蓝牙栈，
+     * 但那项另受系统接口的权限限制，取不到时留空不影响设备本身的信息。
      * 判定不出当前输出目标时不产出条目，由展示层跳过对应行。
      */
-    private fun currentOutputDevice(
+    private suspend fun currentOutputDevice(
         context: Context,
         audioManager: AudioManager?,
         state: MusicPlaybackState,
@@ -272,7 +273,7 @@ internal object AudioInfoCollector {
             supportedSampleRates = device.sampleRates.take(MAX_LISTED_SAMPLE_RATES).toList(),
             channelCount = device.channelCounts.firstOrNull()?.takeIf { it > 0 },
             bluetooth = bluetooth?.let {
-                BluetoothLinkInfo(linkType = it.linkType, deviceClass = it.deviceClass)
+                BluetoothLinkInfo(linkType = it.linkType, deviceClass = it.deviceClass, codec = it.codec)
             },
         )
     }

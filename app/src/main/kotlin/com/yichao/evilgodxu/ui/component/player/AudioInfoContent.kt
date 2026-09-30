@@ -51,6 +51,7 @@ import com.yichao.evilgodxu.data.music.playback.AudioInfoCollector
 import com.yichao.evilgodxu.data.music.playback.AudioInfoSnapshot
 import com.yichao.evilgodxu.data.music.playback.AudioOutputMode
 import com.yichao.evilgodxu.data.music.playback.AudioTransportState
+import com.yichao.evilgodxu.data.music.playback.BluetoothChannelMode
 import com.yichao.evilgodxu.data.music.playback.BluetoothLinkType
 import com.yichao.evilgodxu.data.music.playback.FloatOutputState
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
@@ -284,10 +285,11 @@ private fun audioInfoGroups(snapshot: AudioInfoSnapshot): List<AudioInfoGroup> =
     ),
 ).filter { it.rows.isNotEmpty() }
 
-// 输出设备行：类型、名称、地址与支持格式各自成条，读不到的项不产出
+// 输出设备行：类型、名称、地址、支持格式与蓝牙链路各自成条，读不到的项不产出
 @Composable
 private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
     if (device == null) return emptyList()
+    val codec = device.bluetooth?.codec
     return listOfNotNull(
         AudioInfoRow(
             stringResource(R.string.audio_info_device_kind),
@@ -316,6 +318,27 @@ private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
         device.bluetooth?.linkType?.let {
             AudioInfoRow(stringResource(R.string.audio_info_bluetooth_type), bluetoothLinkTypeLabel(it))
         },
+        codec?.name
+            ?.takeIf { it.isNotBlank() }
+            ?.let { AudioInfoRow(stringResource(R.string.audio_info_bluetooth_codec), it) },
+        codec?.sampleRateHz?.let {
+            AudioInfoRow(
+                stringResource(R.string.audio_info_bluetooth_codec_sample_rate),
+                stringResource(R.string.audio_info_value_hz, it),
+            )
+        },
+        codec?.bitsPerSample?.let {
+            AudioInfoRow(
+                stringResource(R.string.audio_info_bluetooth_codec_bits_per_sample),
+                stringResource(R.string.audio_info_value_bit, it),
+            )
+        },
+        codec?.channelMode?.let {
+            AudioInfoRow(
+                stringResource(R.string.audio_info_bluetooth_codec_channel_mode),
+                bluetoothChannelModeLabel(it),
+            )
+        },
         device.bluetooth?.deviceClass
             ?.let { bluetoothDeviceClassLabel(it) }
             ?.let { AudioInfoRow(stringResource(R.string.audio_info_bluetooth_category), it) },
@@ -341,6 +364,15 @@ private fun bluetoothLinkTypeLabel(linkType: BluetoothLinkType): String = string
         BluetoothLinkType.CLASSIC -> R.string.audio_info_bluetooth_type_classic
         BluetoothLinkType.LE -> R.string.audio_info_bluetooth_type_le
         BluetoothLinkType.DUAL -> R.string.audio_info_bluetooth_type_dual
+    }
+)
+
+// 蓝牙编解码器声道模式：与音频参数的声道布局同义，复用同一组文案
+@Composable
+private fun bluetoothChannelModeLabel(mode: BluetoothChannelMode): String = stringResource(
+    when (mode) {
+        BluetoothChannelMode.MONO -> R.string.audio_info_value_mono
+        BluetoothChannelMode.STEREO -> R.string.audio_info_value_stereo
     }
 )
 

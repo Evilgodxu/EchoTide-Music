@@ -195,6 +195,10 @@
     <string name="audio_info_bluetooth_type_classic">Classic Bluetooth</string>
     <string name="audio_info_bluetooth_type_le">Bluetooth LE</string>
     <string name="audio_info_bluetooth_type_dual">Dual-mode Bluetooth</string>
+    <string name="audio_info_bluetooth_codec">Bluetooth codec</string>
+    <string name="audio_info_bluetooth_codec_sample_rate">Bluetooth sample rate</string>
+    <string name="audio_info_bluetooth_codec_bits_per_sample">Bluetooth bits per sample</string>
+    <string name="audio_info_bluetooth_codec_channel_mode">Bluetooth channel mode</string>
     <string name="audio_info_bluetooth_category">Device category</string>
     <string name="audio_info_bluetooth_class_wearable_headset">Wearable headset</string>
     <string name="audio_info_bluetooth_class_handsfree">Hands-free device</string>
@@ -209,6 +213,7 @@
     <string name="audio_info_bluetooth_class_wearable">Wearable device</string>
     <string name="audio_info_value_hz">%d Hz</string>
     <string name="audio_info_value_hz_list">%s Hz</string>
+    <string name="audio_info_value_bit">%d bit</string>
     <string name="audio_info_value_kbps">%d kbps</string>
     <string name="audio_info_value_file_size">%1$s / %2$s</string>
     <string name="audio_info_value_ms">%.1f ms</string>
