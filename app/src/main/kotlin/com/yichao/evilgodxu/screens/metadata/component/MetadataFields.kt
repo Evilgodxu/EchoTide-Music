@@ -1,16 +1,20 @@
 package com.yichao.evilgodxu.screens.metadata.component
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -22,7 +26,10 @@ import com.yichao.evilgodxu.screens.metadata.MetadataEditTarget
 private val LYRIC_ORIGINAL_FONT_SIZE = 15.sp
 private val LYRIC_TRANSLATION_FONT_SIZE = 13.sp
 
-// 原文行编辑框的最大行数：整行增强 LRC(含逐字标签)较长，允许折行以便完整核对
+// 全文编辑框的字号：整篇文本较长，取行内字号略小以便一屏容纳更多行
+private val LYRIC_WHOLE_FONT_SIZE = 13.sp
+
+// 单行原文编辑框的最大行数：整行增强 LRC(含逐字标签)较长，允许折行以便完整核对
 private const val LYRIC_RAW_MAX_LINES = 4
 
 // 无翻译时的空白行仍保留可点击高度，点击即进入「添加翻译」
@@ -32,13 +39,15 @@ private val LYRIC_TRANSLATION_MIN_HEIGHT = 30.dp
 private val LYRIC_GROUP_GAP = 6.dp
 
 /**
- * 歌词分组：每行歌词由「原文行 + 翻译行」两条独立条目组成，各自进入编辑态。
+ * 歌词分组：默认逐行编辑，可切换到全文编辑。
  *
- * 以行为编辑单位而非整篇文本：歌词行各有自己的时间戳，整篇改写会让用户在数百行文本里
- * 定位一行；逐行编辑则把「改哪一行」交给点击位置表达，行序与时间戳由行本身携带。
+ * 逐行编辑：每行由「原文行 + 翻译行」两条独立条目组成，各自进入编辑态。以行为编辑单位而非
+ * 整篇文本，是因为歌词行各有自己的时间戳，整篇改写会让用户在数百行文本里定位一行；逐行编辑
+ * 把「改哪一行」交给点击位置表达。原文行内联编辑完整增强 LRC（行时间戳 + 逐字标签 + 文本），
+ * 能力对齐首页歌词编辑模块；翻译行独立编辑，留空即清除，二者互不干扰。
  *
- * 原文行内联编辑完整增强 LRC（行时间戳 + 逐字标签 + 文本），能力对齐首页歌词编辑模块；
- * 翻译行独立编辑，留空即清除，二者互不干扰。
+ * 全文编辑：整篇以增强 LRC 文本一次性编辑，适合批量改写或整体替换。两种模式共用同一编辑位，
+ * 由 [MetadataEditTarget.LyricsWhole] 标识，互斥且不会同时生效。
  */
 @Composable
 internal fun LyricsSection(
@@ -68,7 +77,29 @@ internal fun LyricsSection(
             )
             return@MetadataSection
         }
-        LyricLineCount(lines.size)
+        val wholeEditing = editing == MetadataEditTarget.LyricsWhole
+        LyricsHeader(
+            lineCount = lines.size,
+            wholeEditing = wholeEditing,
+            enabled = enabled,
+            // 切换按钮同时承担进入与退出：全文与逐行共用同一编辑位，再点一次即回到逐行
+            onToggle = {
+                if (wholeEditing) onEditDone() else onStartEdit(MetadataEditTarget.LyricsWhole)
+            },
+        )
+        if (wholeEditing) {
+            EntryTextField(
+                value = lyricLineDraft.orEmpty(),
+                enabled = enabled,
+                singleLine = false,
+                placeholder = "",
+                onValueChange = onRawChange,
+                onEditDone = onEditDone,
+                fontSize = LYRIC_WHOLE_FONT_SIZE,
+                maxLines = Int.MAX_VALUE,
+            )
+            return@MetadataSection
+        }
         lines.forEachIndexed { index, line ->
             Column(
                 modifier = Modifier
@@ -116,6 +147,38 @@ internal fun LyricsSection(
     }
 }
 
+// 歌词区头部：左侧行数概览，右侧全文/逐行编辑切换按钮
+@Composable
+private fun LyricsHeader(
+    lineCount: Int,
+    wholeEditing: Boolean,
+    enabled: Boolean,
+    onToggle: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = ROW_HORIZONTAL_PADDING),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = pluralStringResource(R.plurals.metadata_lyrics_line_count, lineCount, lineCount),
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = stringResource(
+                if (wholeEditing) R.string.metadata_lyrics_line_edit else R.string.metadata_lyrics_whole_edit
+            ),
+            color = MaterialTheme.colorScheme.primary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .clickable(enabled = enabled, onClick = onToggle)
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
+}
+
 // 原文行展示：只呈现歌词文本，时间戳只在进入编辑态后的原始文本里出现
 @Composable
 private fun LyricOriginalRow(
@@ -156,15 +219,4 @@ private fun LyricTranslationRow(
             modifier = Modifier.weight(1f),
         )
     }
-}
-
-// 行数概览：让用户先知道整篇有多少行，再决定是否逐行查看
-@Composable
-private fun LyricLineCount(count: Int) {
-    Text(
-        text = pluralStringResource(R.plurals.metadata_lyrics_line_count, count, count),
-        fontSize = 12.sp,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.fillMaxWidth().padding(start = ROW_HORIZONTAL_PADDING),
-    )
 }

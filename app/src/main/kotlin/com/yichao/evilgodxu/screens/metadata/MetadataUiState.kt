@@ -18,6 +18,9 @@ sealed interface MetadataEditTarget {
 
     // 歌词翻译行：与原文行分属不同编辑位，互不干扰，可独立进入与退出编辑
     data class LyricTranslationAt(val index: Int) : MetadataEditTarget
+
+    // 歌词全文编辑：整篇以增强 LRC 文本一次性编辑，与逐行编辑共用同一编辑位，二者互斥
+    data object LyricsWhole : MetadataEditTarget
 }
 
 // 元数据编辑页状态：每次进入页面重新读取音频文件的内嵌标签回填表单，

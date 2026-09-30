@@ -168,11 +168,14 @@ class MetadataViewModel(
         if (_uiState.value.saving || _uiState.value.loading) return
         if (_uiState.value.editing == target) return
         commitLyricDraft()
-        // 原文行进入编辑态时预填完整增强 LRC（行时间戳 + 逐字标签 + 文本，不含翻译），
-        // 使时间戳可被完整修改，能力对齐首页歌词编辑模块
-        val draft = (target as? MetadataEditTarget.LyricLineAt)
-            ?.let { _uiState.value.lyricLines.getOrNull(it.index) }
-            ?.let { MusicMetadataCache.encodeLyricLine(it, includeTranslation = false) }
+        // 歌词原文行预填完整增强 LRC（行时间戳 + 逐字标签 + 文本，不含翻译），
+        // 使时间戳可被完整修改，能力对齐首页歌词编辑模块；全文编辑预填整篇歌词的增强 LRC
+        val draft = when (target) {
+            is MetadataEditTarget.LyricLineAt -> _uiState.value.lyricLines.getOrNull(target.index)
+                ?.let { MusicMetadataCache.encodeLyricLine(it, includeTranslation = false) }
+            MetadataEditTarget.LyricsWhole -> MusicMetadataCache.encodeLyrics(_uiState.value.lyricLines)
+            else -> null
+        }
         _uiState.update { it.copy(editing = target, message = null, lyricLineDraft = draft) }
     }
 
@@ -217,16 +220,16 @@ class MetadataViewModel(
     }
 
     /**
-     * 提交歌词原文草稿：把内联编辑的完整增强 LRC 解析回该行。
+     * 提交歌词草稿：把内联编辑的增强 LRC 解析回歌词。
      *
-     * 解析结果可能拆分为多行（与首页一致），整体替换原位置；解析不出行时保留原行并提示格式问题，
-     * 避免一次误删时间戳前缀就丢掉整行。翻译不由原文入口维护，提交后按原值保留。
+     * 逐行编辑整体替换该行（解析结果可能拆分为多行，与首页一致），全文编辑整体替换整篇。
+     * 解析不出行时保留原歌词并提示格式问题，避免一次误删时间戳前缀就丢掉内容。
+     * 翻译不由原文入口维护，逐行提交后按原值保留。
      */
     private fun commitLyricDraft() {
-        val target = _uiState.value.editing as? MetadataEditTarget.LyricLineAt ?: return
         val draft = _uiState.value.lyricLineDraft ?: return
+        val target = _uiState.value.editing ?: return
         val lines = _uiState.value.lyricLines
-        val existing = lines.getOrNull(target.index) ?: return
         val parsed = MusicMetadataCache.parseLyricsText(draft)
         if (parsed.isEmpty()) {
             _uiState.update {
@@ -234,10 +237,17 @@ class MetadataViewModel(
             }
             return
         }
-        val replaced = parsed.map { it.copy(translation = existing.translation) }
-        val updated = lines.toMutableList().also {
-            it.removeAt(target.index)
-            it.addAll(target.index, replaced)
+        val updated: List<LyricLine> = when (target) {
+            is MetadataEditTarget.LyricLineAt -> {
+                val existing = lines.getOrNull(target.index) ?: return
+                val replaced = parsed.map { it.copy(translation = existing.translation) }
+                lines.toMutableList().also {
+                    it.removeAt(target.index)
+                    it.addAll(target.index, replaced)
+                }
+            }
+            MetadataEditTarget.LyricsWhole -> parsed
+            else -> return
         }
         // 文本未变（如仅打开又退出）时不做任何写入与状态刷新
         if (updated == lines) return
