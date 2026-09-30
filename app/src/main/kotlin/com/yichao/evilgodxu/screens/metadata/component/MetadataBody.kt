@@ -53,8 +53,7 @@ private val ENTRY_FIELD_CONTENT_PADDING = 10.dp
 // 值文本默认字号：编辑态与展示态保持一致
 private val ENTRY_VALUE_FONT_SIZE = 15.sp
 
-// 行/块的圆角底色：用容器的 surfaceVariant 原色区分单行而不引入外层大卡片。
-// 不叠加透明度——叠加后浅色主题下只剩极淡的一层，行与页面背景几乎分辨不出
+// 行/块的圆角形状。底色在各自的容器里取，与播放列表「当前曲目」行同款（见下）
 private val ROW_SHAPE = RoundedCornerShape(10.dp)
 
 /**
@@ -84,8 +83,9 @@ internal fun MetadataSection(
 }
 
 /**
- * 字段行容器：弱化圆角底色 + 行内边距，可选整行点击。
+ * 字段行容器：整行弱化底色 + 行内边距，可选整行点击。
  *
+ * 底色取「播放列表当前曲目」同款——主题色淡染，页内条目与列表选中项保持同一套视觉语言。
  * 单独抽出使展示行与输入控件在各分组里保持同一外观与内缩。
  */
 @Composable
@@ -97,7 +97,7 @@ internal fun MetadataRowContainer(
 ) {
     val base = modifier
         .fillMaxWidth()
-        .background(MaterialTheme.colorScheme.surfaceVariant, ROW_SHAPE)
+        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f), ROW_SHAPE)
     val interactive = if (onClick != null) base.clickable(enabled = enabled, onClick = onClick) else base
     Row(
         modifier = interactive.padding(horizontal = ROW_HORIZONTAL_PADDING, vertical = 8.dp),
@@ -107,7 +107,7 @@ internal fun MetadataRowContainer(
 }
 
 /**
- * 成块内容的容器：与字段行同一套弱化底色，供整篇歌词卡片等纵向成块内容复用。
+ * 成块内容的容器：与字段行同一套底色，供整篇歌词卡片等纵向成块内容复用。
  */
 @Composable
 internal fun MetadataBlockContainer(
@@ -118,7 +118,7 @@ internal fun MetadataBlockContainer(
 ) {
     val base = modifier
         .fillMaxWidth()
-        .background(MaterialTheme.colorScheme.surfaceVariant, ROW_SHAPE)
+        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f), ROW_SHAPE)
     val interactive = if (onClick != null) base.clickable(enabled = enabled, onClick = onClick) else base
     Column(
         modifier = interactive.padding(horizontal = ROW_HORIZONTAL_PADDING, vertical = 10.dp),

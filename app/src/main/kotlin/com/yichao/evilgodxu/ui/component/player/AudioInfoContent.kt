@@ -126,7 +126,8 @@ private fun AudioInfoRowView(row: AudioInfoRow) {
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                // 与播放列表「当前曲目」行同款底色：主题色淡染，全应用选中态统一
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
                 shape = RoundedCornerShape(10.dp),
             )
             .padding(horizontal = 10.dp, vertical = 8.dp),
