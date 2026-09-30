@@ -120,6 +120,11 @@ private fun AppDialogHeader(
     trailing: (@Composable () -> Unit)?,
     titleAlignment: TextAlign,
 ) {
+    // 两侧为图标按钮预留的宽度：居中标题必须左右对称留白，单侧留白会把文字整体挤偏；
+    // 左对齐标题则按各自实际按钮占位，避免无谓的左侧缩进
+    val startReserve = if (onBack != null) DIALOG_HEADER_ICON_SIZE else 0.dp
+    val endReserve = if (trailing != null || onClose != null) DIALOG_HEADER_ICON_SIZE else 0.dp
+    val centered = titleAlignment == TextAlign.Center
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -137,8 +142,8 @@ private fun AppDialogHeader(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
-                    start = if (onBack != null) DIALOG_HEADER_ICON_SIZE else 0.dp,
-                    end = if (trailing != null || onClose != null) DIALOG_HEADER_ICON_SIZE else 0.dp,
+                    start = if (centered) maxOf(startReserve, endReserve) else startReserve,
+                    end = if (centered) maxOf(startReserve, endReserve) else endReserve,
                 ),
         )
         if (onBack != null) {
