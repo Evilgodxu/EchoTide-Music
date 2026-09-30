@@ -12,7 +12,7 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-4.2.0-informational)
+![Version](https://img.shields.io/badge/version-4.3.0-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.20-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.0-blue)
@@ -45,6 +45,7 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 | **Library analysis** | Locate the whole library by format, flagging fake lossless and suspected AI-generated music |
 | **Full-track spectrum** | A 2048-point STFT time-frequency chart with a logarithmic frequency axis and a dB scale; long-press to export a 1920 px verdict image |
 | **USB exclusive output** | Hand playback to a USB DAC and ask the system for a bit-perfect stream — no mixing, no volume scaling, no effects |
+| **Playback chain info** | One panel holding the whole chain: source file and size, decoder, source / output sample rate, resampling, output mode, the PCM encoding actually written and the active output device's real parameters — down to the negotiated Bluetooth codec |
 
 ---
 
@@ -97,7 +98,7 @@ Each feature is written as *what it is → how to use it*. Every path listed mat
 - **Custom playlists** — create / rename / delete / batch add / drag to reorder.
   - **How to use**: the playlist page → *Create playlist*; *Add tracks* on the detail page multi-selects and adds in bulk; long-pressing a row's sort handle and dragging reorders it (dragging syncs to the playback queue in real time); the *more* button on the right of a playlist row renames or deletes it.
 - **Playback queue** — the playback queue.
-  - **How to use**: the *playlist* button at the bottom right of the player page (same place in landscape) opens it, alongside the floating *scroll to top* and *locate current* buttons; a queue row supports swipe left to blacklist, swipe right for the advanced menu (share / set as ringtone / set as alarm / view spectrum) and long-press to delete.
+  - **How to use**: the *playlist* button at the bottom right of the player page (same place in landscape) opens it, and so does a swipe up on that button (portrait and landscape alike), alongside the floating *scroll to top* and *locate current* buttons; a queue row supports swipe left to blacklist, swipe right for the advanced menu (share / set as ringtone / set as alarm / view spectrum) and long-press to delete.
 - **Playlist sorting** — a sort button in the queue panel header offering default order / modified time / title / artist / album / duration, with an ascending-descending toggle.
   - **How to use**: the sort button in the queue panel header → pick a rule (offered for the default full queue only, so custom playlists keep their own drag order).
 - **Playlist switching** — the playlist subtitle in the queue panel header.
@@ -111,11 +112,14 @@ Each feature is written as *what it is → how to use it*. Every path listed mat
   - **How to use**: swipe a queue row right → advanced menu → *View spectrum* → wait for the decode progress → read the spectrogram, the source file parameters and both verdicts → long-press the chart → *Share image* or *Save image*.
 - **USB exclusive output** — pins playback to the USB DAC and asks the native audio policy for a bit-perfect stream (`setPreferredMixerAttributes` + `setPreferredAudioDevice`) — no mixing, no volume scaling, no effects. Mixer attributes are picked from the decoded format and re-issued whenever it changes, so the *exclusive* label never hides a silent fallback to the mixed path.
   - **How to use**: Settings → Playback → *USB exclusive* (the same switch also sits in the floating panel's playback settings) → with no DAC attached, or with a DAC that ships no bit-perfect profile, playback stays on the default mixed output; plugging the DAC in or out takes effect immediately, with no restart.
+- **Audio info** — the whole playback chain in one panel, grouped into audio source / audio parameters / playback chain / current output device; fields the platform cannot report are dropped rather than shown blank.
+  - **What it shows**: source file path and size, format, decoder, source / output sample rate, bitrate, channel layout, resampling, quality; output mode (bit-perfect exclusive or system mixer), audio session ID, float output, the PCM encoding the audio track actually writes, average latency, transfer state; and the current output device's type, name, address, supported sample rates, channel count, plus — on Bluetooth — link type, negotiated codec, codec sample rate, bits per sample, channel mode and device category. The panel re-reads the whole chain as playback goes on.
+  - **How to use**: in portrait, swipe up on the play/pause button on the control bar → the panel slides in (the floating panel opens it the same way, by a swipe up anywhere on the panel); drag down, tap the close button or tap outside to dismiss. Reading a Bluetooth device's name and address needs the Bluetooth permission, which the panel asks for in place — a floating panel has no activity to host the system dialog, so the home permission dialog covers it there.
 
 ### 6. Floating & System Integration
 
 - **Floating music panel** — the full player rendered as a system overlay (`TYPE_APPLICATION_OVERLAY`), able to cover any app.
-  - **How to use**: Settings → Playback → enable *Floating playback* and grant the overlay permission → the mini player appears at the top while the app keeps playing in the background → **tap the cover** to expand the full panel. Inside the panel: swipe right for search, swipe left for playback settings, swipe down to retract, and Back closes one layer at a time.
+  - **How to use**: Settings → Playback → enable *Floating playback* and grant the overlay permission → the mini player appears at the top while the app keeps playing in the background → **tap the cover** to expand the full panel. Inside the panel: swipe up for the audio info, swipe right for search, swipe left for playback settings, and a downward swipe closes the audio info overlay; a tap outside the card or Back closes one layer at a time, and Back on the base layer retracts the panel.
 - **Mini player** — a mini capsule bar that docks to the top of the screen while playing in the background.
   - **How to use**: same *Floating playback* switch; it first shows five control buttons (play mode / previous / play-pause / next / playlist), collapses by itself after 3 seconds without touch and then shows the track title and the current lyric line, which lights up word by word as it is sung (whole-line highlighting when *Word-by-word rendering* is off); swipe left or right to change tracks, swipe down to hide (reset when the app returns to the foreground); tapping the cover expands the full panel and the playlist button opens the mini list. Returning to the foreground hides the mini player automatically.
 - **External audio takeover** — audio opened or shared from a file manager or another app is taken over in the background.
@@ -128,8 +132,8 @@ Each feature is written as *what it is → how to use it*. Every path listed mat
   - **How to use**: Settings → Storage management (the page resamples on entry and supports pull-to-refresh) → *Clear cache* to clean the clearable group in one tap.
 - **Crash logging** — uncaught and caught exceptions are written to app-specific external storage, keeping today's log only and cleaning older ones automatically.
   - **How to use**: tap `[日志]` at the bottom of Settings to share today's log through the system share sheet.
-- **Permission onboarding** — the first launch walks through permissions with a card dialog that cannot be skipped.
-  - **How to use**: the dialog lists all-files access, music access and image access; *Grant* on each one completes them one by one, and once all are granted the dialog closes itself and the library scan starts automatically.
+- **Permission onboarding** — the first launch walks through permissions with a card dialog; the library permissions block, the rest are optional.
+  - **How to use**: the dialog lists all-files access, music access and image access — the three the home screen cannot work without — each with its own *Grant* button; Bluetooth, notifications and the battery-optimization whitelist (*background playback*) are appended only while they are missing and never stop the dialog from closing, and the whole list scrolls so no row is cut off on a small screen. Once the three library permissions are granted the dialog closes itself and the library scan starts automatically; a system settings page hands the app back on its own.
 
 ---
 
@@ -146,12 +150,15 @@ Each feature is written as *what it is → how to use it*. Every path listed mat
 | Portrait lyrics area | Slow vertical drag | Lyrics follow your finger; releasing on a line plays from it |
 | Portrait lyrics area | Quick vertical flick | Lyrics stay put and the flick switches tracks |
 | Control bar | Long-press previous / next | Open the speed dialog |
+| Control bar | Swipe up on play/pause | Open the audio info panel (portrait only) |
 | Control bar | Long-press the queue button | Open the library analysis (portrait only) |
 | Control bar | Tap the queue button | Open the playback queue panel |
+| Control bar | Swipe up on the queue button | Open the playback queue panel (portrait and landscape) |
 | Format line under the progress bar | Tap | Audio-quality upgrade (when a proxy source is available) |
 | Queue row | Swipe left / right / long-press | Blacklist / advanced menu (share, ringtone, spectrum) / delete |
 | Custom playlist row | Drag the sort handle | Reorder tracks |
 | Landscape cover area | Tap | Enter the 3D cover carousel |
+| Floating panel | Swipe up / swipe down | Open the audio info / close the audio info |
 | Spectrum chart | Long-press | Share image / save image |
 | Daily recommendation card | Tap / broken-heart button | Play / blacklist it from recommendations |
 
@@ -159,7 +166,7 @@ Each feature is written as *what it is → how to use it*. Every path listed mat
 
 | Screen | Contents |
 | --- | --- |
-| Home | Permission onboarding dialog (auto-hides once all are granted), immersive player (full-width cover in portrait, two columns with 3D lyric perspective in landscape), synced lyrics, a refreshable, searchable and sortable playback queue, the playlist panel, search (custom platforms + the daily recommendation carousel), the library analysis entry, sleep timer, speed control and audio-quality upgrade |
+| Home | Permission onboarding dialog (auto-hides once the three library permissions are granted, with Bluetooth / notifications / battery whitelist listed while missing), immersive player (full-width cover in portrait, two columns with 3D lyric perspective in landscape), synced lyrics, a refreshable, searchable and sortable playback queue, the playlist panel, the audio info panel (source / parameters / playback chain / current output device), search (custom platforms + the daily recommendation carousel), the library analysis entry, sleep timer, speed control and audio-quality upgrade |
 | Settings | Appearance (theme), Language, Playback (floating playback / word-by-word rendering / swipe to change track / background flow / USB exclusive) with a Typography entry, Proxy Source (import / enable / remove), Storage management entry, Blacklist (count and reset), About (version doubles as the update check, share today's log, GitHub, QQ group) |
 | Typography | Per-scene lyric font size, visible-line count and landscape 3D intensity for the music panel, home portrait and home landscape |
 | Storage | Cache inventory grouped into temporary files (clearable) / app data / user data, with totals, pull-to-refresh resampling and one-tap clearing |
@@ -198,10 +205,10 @@ Each feature is written as *what it is → how to use it*. Every path listed mat
 │       │   │   │   ├── blacklist/       #     Blacklist store
 │       │   │   │   ├── clip/            #     Sharing, default ringtone / alarm installer, readable URIs, spectrum image export
 │       │   │   │   ├── download/        #     Online track download & cache
-│       │   │   │   ├── metadata/        #     Cover management, metadata & lyric read/write, metadata cache, gallery image writes
+│       │   │   │   ├── metadata/        #     Cover management, metadata & lyric read/write (ranged streaming tag I/O), metadata cache, gallery image writes
 │       │   │   │   ├── model/           #     Track & search data models (platform key as identity)
 │       │   │   │   ├── panel/           #     Panel state holder, search logic & lyric alignment entry
-│       │   │   │   ├── playback/        #     Playback state, player helper, queue switch, playlist sorting, USB exclusive output & per-device audio sink
+│       │   │   │   ├── playback/        #     Playback state, player helper, queue switch, playlist sorting, USB exclusive output, per-device audio sink, audio-info snapshot (incl. Bluetooth link & codec resolution)
 │       │   │   │   ├── proxy/           #     Proxy source (import / parse / engine / store), custom-platform registry & playlist syncer
 │       │   │   │   ├── recommend/       #     Daily recommendation (chart pool, lyric features, TF-IDF, MMR)
 │       │   │   │   ├── MusicScanner.kt  #     MediaStore scanning & track enrichment
@@ -214,19 +221,19 @@ Each feature is written as *what it is → how to use it*. Every path listed mat
 │       │   ├── localization/            # In-app localization manager
 │       │   ├── log/                     # CrashLogManager
 │       │   ├── navigation/              # Navigation3 typed routes & nav host
-│       │   ├── permission/              # Permission & overlay-grant monitors
+│       │   ├── permission/              # Permission, overlay-grant & battery-whitelist monitors
 │       │   ├── screens/                 # Screens (home / settings / cache / typography / spectrum)
 │       │   │   ├── home/                #   Home player + permission flow + playlists + online search
 │       │   │   │   ├── compact/         #     Portrait assembly, player & player parts
 │       │   │   │   ├── expanded/        #     Landscape assembly, player & player parts
-│       │   │   │   └── component/       #     analysis / bar / dialog / panel / permission / player / playlist / queue / search / shell / swipe
+│       │   │   │   └── component/       #     analysis / audioinfo / bar / dialog / panel / permission / player / playlist / queue / search / shell / swipe
 │       │   │   ├── settings/            #   Appearance / blacklist / cache / language / playback / proxy source / about
 │       │   │   ├── cache/               #   Storage / cache management
 │       │   │   ├── spectrum/            #   Spectrum analysis page (compact / expanded / component)
 │       │   │   └── typography/          #   Lyric typography settings
 │       │   ├── service/                 # MediaSessionService playback engine
 │       │   ├── theme/                   # Material 3 color & typography
-│       │   ├── ui/                      # Shared UI (component → incl. the cover-fade CoverFade / component/dialog / component/player / component/section / icons)
+│       │   ├── ui/                      # Shared UI (component → incl. the cover-fade CoverFade / component/dialog / component/player → incl. the audio info overlay & content / component/section / icons)
 │       │   ├── update/                  # Version check, in-app update & APK hash verification
 │       │   ├── utils/                   # Shared utilities
 │       │   ├── windowsize/              # Window size class & landscape form detection
@@ -264,6 +271,10 @@ Spectrum analysis is a screen of its own: the page keeps its analysis session in
 
 Lyric parsing is likewise collected in one place: `data/music/api/LyricCodec` normalises every platform's raw lyrics (plain LRC, the inline tags of enhanced LRC, QQ's QRC, Kugou's KRC, Kuwo's lrcx) into one `LyricLine` list, with all word-level timelines expressed in absolute milliseconds — so the parse results of different platforms are directly comparable, and the "word-level first, degrade to line-level when a platform ships none" policy only has to exist once. Fetching, parsing, cache writes and auto-translation live in `OnlineLyrics`, `LyricCodec`, `MusicMetadataCache` and `data/music/panel/MusicPanelLyricsTranslate` respectively, the last sharing its progress dialog with word-level alignment. Kugou's KRC is the one source that carries translations itself: they travel in the `[language]` metadata block (base64 JSON, the `type=1` segment) aligned to the lyric lines by order, so such a track shows a translation without the translation endpoint being called at all — only the zero-word-offset translation lines still merge by timestamp.
 
+The audio info panel reads the playback path instead of being wired into any player layout: `AudioInfoCollector` assembles one `AudioInfoSnapshot` from the shared playback state, and the Compose side recomputes it off a version counter that the player's own callbacks (playback state, play-when-ready, audio session id), the `AudioDeviceCallback` (device plugged or unplugged) and `ON_RESUME` (so a permission just granted shows up at once) each bump. Every field is nullable and an unreadable field produces no row at all, which is why the same panel works over a speaker, a USB DAC and a Bluetooth link without branching on the UI side. The chain values it prints — float output, the PCM encoding actually written, bit-perfect exclusive — are reported upwards by the per-device sink and the USB exclusive module into that shared state, so the panel reads the same source the playback path writes rather than guessing from the source format.
+
+Tag rewriting on lossless and linear-PCM containers goes through `TagSource`, which exposes only ranged reads and ranged copies: the tag layout is computed from the headers plus a window at the end of the file, and the audio body is streamed across from its original offsets. A Hi-Res file several hundred megabytes long is therefore no longer held in memory for a tag edit. Container layouts — ID3v2, M4A/MP4 box tables, FLAC Vorbis comments, Ogg page sequences and the IFF/RIFF-style chunks of AIFF, DSDIFF, DSF, APE and WAV — only have to produce "header bytes + audio body range + tail bytes" for the writer.
+
 ## Permissions
 
 | Permission | Purpose |
@@ -272,14 +283,17 @@ Lyric parsing is likewise collected in one place: `data/music/api/LyricCodec` no
 | All files access | Import and manage local music files |
 | Music access (`READ_MEDIA_AUDIO`) | Play tracks from the device library |
 | Images (`READ_MEDIA_IMAGES`) | Embedded art & local cover candidates |
+| Bluetooth (`BLUETOOTH_CONNECT`) | Name, address and negotiated codec of the current Bluetooth output device (audio info) |
 | Foreground service (`mediaPlayback`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`) | Background playback with notification / lock-screen controls |
 | Notifications (`POST_NOTIFICATIONS`) | Update download completion notification (Android 13+) |
 | Network (`INTERNET`, `ACCESS_NETWORK_STATE`) | Online search, lyrics, cover lookup and update check |
 | Audio settings (`MODIFY_AUDIO_SETTINGS`) | Audio configuration for the playback engine, incl. the bit-perfect mixer request behind USB exclusive output |
+| Wake lock (`WAKE_LOCK`) | Keeps the playback engine running with the screen off |
+| Ignore battery optimizations (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) | Keeps background playback from being killed by the system |
 | Install packages (`REQUEST_INSTALL_PACKAGES`) | Launching the system installer for an in-app update |
 | Write settings (`WRITE_SETTINGS`) | Setting a track as the default ringtone / alarm sound |
 
-Permissions are requested through a transparent onboarding activity that chains them one by one and closes automatically once all are granted.
+Permissions are requested from the onboarding dialog one at a time: the three library permissions are required, while Bluetooth, notifications and the battery whitelist are optional and listed only while missing. The Bluetooth permission is additionally requested on the spot by the audio info panel when the current output is a Bluetooth device.
 
 ## Getting Started
 
@@ -292,7 +306,7 @@ Permissions are requested through a transparent onboarding activity that chains 
 ### Build
 
 ```bash
-git clone https://github.com/Evilgodxu/EchoTide-Music.git
+git clone https://github.com/Evilgodxu/YiChao-Music.git
 cd YiChao-Music
 
 # Debug APK
@@ -302,7 +316,7 @@ cd YiChao-Music
 ./gradlew assembleRelease
 ```
 
-APKs are emitted as `EchoTideMusic-<versionName>-arm64.apk` under `app/build/outputs/apk/`. Only the `arm64-v8a` ABI is built.
+APKs are emitted as `EchoTideMusic-<versionName>-arm64-v8a.apk` under `app/build/outputs/apk/`. Only the `arm64-v8a` ABI is built.
 
 ### Release Signing
 
