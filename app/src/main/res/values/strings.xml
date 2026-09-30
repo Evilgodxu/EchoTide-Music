@@ -149,6 +149,7 @@
     <string name="music_panel_sort_descending">逆序</string>
     <string name="music_panel_sort_ascending">正序</string>
     <string name="music_panel_sort_default">默认顺序</string>
+    <string name="music_panel_sort_by_favorite">收藏</string>
     <string name="music_panel_sort_modified">新旧</string>
     <string name="music_panel_sort_by_title">标题</string>
     <string name="music_panel_sort_by_artist">歌手</string>

@@ -721,6 +721,7 @@ private fun PlaylistSortDialog(
 // 排序字段对应的文案资源
 private fun sortFieldLabelRes(field: PlaylistSortField): Int = when (field) {
     PlaylistSortField.DEFAULT -> R.string.music_panel_sort_default
+    PlaylistSortField.FAVORITE -> R.string.music_panel_sort_by_favorite
     PlaylistSortField.MODIFIED_TIME -> R.string.music_panel_sort_modified
     PlaylistSortField.TITLE -> R.string.music_panel_sort_by_title
     PlaylistSortField.ARTIST -> R.string.music_panel_sort_by_artist

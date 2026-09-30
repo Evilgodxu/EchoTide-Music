@@ -4,9 +4,10 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import java.text.Collator
 import java.util.Locale
 
-// 播放列表排序字段：默认顺序 / 文件修改时间 / 标题 / 歌手 / 专辑 / 时长
+// 播放列表排序字段：默认顺序 / 收藏 / 文件修改时间 / 标题 / 歌手 / 专辑 / 时长
 enum class PlaylistSortField {
     DEFAULT,
+    FAVORITE,
     MODIFIED_TIME,
     TITLE,
     ARTIST,
@@ -24,6 +25,12 @@ internal fun sortTracks(
 ): List<MusicTrack> {
     val ordered = when (field) {
         PlaylistSortField.DEFAULT -> tracks.sortedByDefaultOrder()
+        PlaylistSortField.FAVORITE ->
+            // 收藏：已收藏者靠前，同一收藏态内仍按标题自然序
+            tracks.sortedWith(
+                compareByDescending<MusicTrack> { it.isFavorite }
+                    .then(naturalStringComparator<MusicTrack> { it.title })
+            )
         PlaylistSortField.MODIFIED_TIME ->
             // 新旧：仅按文件修改时间排序（新在前），不附加任何其它排序机制
             tracks.sortedWith(compareByDescending<MusicTrack> { it.fileModifiedMs })

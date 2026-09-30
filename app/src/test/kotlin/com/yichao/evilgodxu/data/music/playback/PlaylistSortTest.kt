@@ -50,6 +50,21 @@ class PlaylistSortTest {
     // -----------------------------------------------------------------------
 
     @Test
+    fun favoritePlacesLikedFirstThenNaturalTitleOrder() {
+        val tracks = listOf(
+            track(1, "C"),
+            track(2, "10 年", isFavorite = true),
+            track(3, "B", isFavorite = true),
+            track(4, "A"),
+        )
+        // 收藏态优先：已收藏者整体在前；同一收藏态内仍按标题自然序（数字开头靠前）
+        assertEquals(
+            listOf("10 年", "B", "A", "C"),
+            titles(sortTracks(tracks, PlaylistSortField.FAVORITE, false)),
+        )
+    }
+
+    @Test
     fun modifiedTimePlacesNewestFirst() {
         val tracks = listOf(
             track(1, "旧", fileModifiedMs = 100),
@@ -164,6 +179,7 @@ class PlaylistSortTest {
         albumId: Long = id,
         albumName: String = "专辑$id",
         fileModifiedMs: Long = 0L,
+        isFavorite: Boolean = false,
     ): MusicTrack = MusicTrack(
         id = id,
         path = "/music/$id.flac",
@@ -174,5 +190,6 @@ class PlaylistSortTest {
         albumId = albumId,
         albumName = albumName,
         fileModifiedMs = fileModifiedMs,
+        isFavorite = isFavorite,
     )
 }

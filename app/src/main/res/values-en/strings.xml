@@ -151,6 +151,7 @@
     <string name="music_panel_sort_descending">Descending</string>
     <string name="music_panel_sort_ascending">Ascending</string>
     <string name="music_panel_sort_default">Default order</string>
+    <string name="music_panel_sort_by_favorite">Favorites</string>
     <string name="music_panel_sort_modified">Newest</string>
     <string name="music_panel_sort_by_title">Title</string>
     <string name="music_panel_sort_by_artist">Artist</string>
