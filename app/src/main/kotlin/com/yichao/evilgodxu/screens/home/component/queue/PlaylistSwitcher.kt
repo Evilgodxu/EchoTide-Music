@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
@@ -48,7 +47,7 @@ import com.yichao.evilgodxu.data.music.playback.PlaylistSource
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.AppDialog
-import com.yichao.evilgodxu.ui.component.DIALOG_CONTENT_MAX_HEIGHT
+import com.yichao.evilgodxu.ui.component.DIALOG_LIST_HEIGHT_FRACTION
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 
@@ -72,9 +71,9 @@ internal fun PlaylistSwitcher(
         title = if (type == null) stringResource(R.string.playlist_switch_title)
         else smartTypeLabel(type),
         onBack = if (type != null) ({ showGroups = null }) else null,
-        onClose = onDismiss,
         // 列表自带 LazyColumn 滚动，不能与外壳滚动嵌套
         scrollable = false,
+        contentHeightFraction = DIALOG_LIST_HEIGHT_FRACTION,
     ) {
         if (type == null) {
             PlaylistSwitchList(
@@ -116,9 +115,7 @@ private fun PlaylistSwitchList(
     val recentLabel = stringResource(R.string.playlist_smart_recent)
     val favoriteLabel = stringResource(R.string.playlist_smart_favorite)
     LazyColumn(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = DIALOG_CONTENT_MAX_HEIGHT),
+        modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         item {
@@ -229,9 +226,7 @@ private fun PlaylistSwitchGroups(
     val libraryById = remember(library) { library.associateBy { it.id } }
     val icon: ImageVector = if (type == SmartPlaylistType.ALBUM) AppIcons.Album else AppIcons.Person
     LazyColumn(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = DIALOG_CONTENT_MAX_HEIGHT),
+        modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         items(groups, key = { it.key }) { group ->
@@ -252,7 +247,7 @@ private fun PlaylistSwitchGroups(
     }
 }
 
-// 切换项行：图标/封面 + 名称 + 数量 + 当前标识/下级箭头，几何与排版对齐歌单列表行
+// 切换项行：图标/封面 + 名称 + 数量 + 下级箭头；当前项以背景高亮 + 加粗标识，几何与排版对齐歌单列表行
 @Composable
 private fun SwitchRow(
     icon: ImageVector,
@@ -311,14 +306,9 @@ private fun SwitchRow(
                 )
             }
         }
-        when {
-            isCurrent -> Icon(
-                imageVector = AppIcons.Check,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
-            )
-            showChevron -> Icon(
+        // 选中态只以背景高亮 + 加粗表示，不用勾选图标，与排序等对话框选项行一致
+        if (showChevron) {
+            Icon(
                 imageVector = AppIcons.KeyboardArrowRight,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,

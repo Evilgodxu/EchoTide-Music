@@ -61,6 +61,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,6 +83,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.AppDialog
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
+import com.yichao.evilgodxu.ui.component.DIALOG_LIST_HEIGHT_FRACTION
 import com.yichao.evilgodxu.ui.component.DialogOption
 import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
 import com.yichao.evilgodxu.ui.component.player.PlaylistRow
@@ -699,6 +701,9 @@ private fun PlaylistSortDialog(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             )
         },
+        // 标题左对齐：标题区右侧带文字按钮（逆序/正序）时，左对齐标题视觉更均衡、更美观
+        titleAlignment = TextAlign.Start,
+        contentHeightFraction = DIALOG_LIST_HEIGHT_FRACTION,
     ) {
         PlaylistSortField.entries.forEach { field ->
             DialogOption(

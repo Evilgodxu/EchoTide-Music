@@ -26,8 +26,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -37,8 +37,10 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 对话框内容区最大高度：超出后在卡片内滚动，避免长列表把对话框撑满屏幕；列表类内容据此约束自身高度
-internal val DIALOG_CONTENT_MAX_HEIGHT = 360.dp
+// 非列表对话框内容区的最大高度：超出后在卡片内滚动，避免长内容把对话框撑满屏幕
+private val DIALOG_CONTENT_MAX_HEIGHT = 320.dp
+// 列表类对话框内容区占屏幕高度的比例：列表过长时在该高度内滚动，保证对话框高度上限稳定
+internal const val DIALOG_LIST_HEIGHT_FRACTION = 0.36f
 // 标题栏高度与图标按钮尺寸：保证带按钮时标题区依然紧凑，不产生额外留白
 private val DIALOG_HEADER_HEIGHT = 32.dp
 private val DIALOG_HEADER_ICON_SIZE = 32.dp
@@ -56,8 +58,16 @@ internal fun AppDialog(
     buttons: (@Composable RowScope.() -> Unit)? = null,
     // 列表类内容自带滚动时置 false，避免与外层滚动嵌套
     scrollable: Boolean = true,
+    // 传入时内容区按屏幕高度占比取固定高度（列表类对话框用），否则高度由内容撑开
+    contentHeightFraction: Float? = null,
+    // 标题对齐方式：默认居中，标题区右侧带文字按钮时左对齐更美观
+    titleAlignment: TextAlign = TextAlign.Center,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val scrollState = rememberScrollState()
+    val fixedContentHeight = contentHeightFraction?.let {
+        LocalConfiguration.current.screenHeightDp.dp * it
+    }
     DialogCard(onDismiss = onDismiss) {
         Column(
             modifier = Modifier
@@ -65,20 +75,30 @@ internal fun AppDialog(
                 .padding(DIALOG_PADDING),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            AppDialogHeader(title = title, onBack = onBack, onClose = onClose, trailing = trailing)
+            AppDialogHeader(
+                title = title,
+                onBack = onBack,
+                onClose = onClose,
+                trailing = trailing,
+                titleAlignment = titleAlignment,
+            )
             Spacer(Modifier.height(8.dp))
-            if (scrollable) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = DIALOG_CONTENT_MAX_HEIGHT)
-                        .verticalScroll(rememberScrollState()),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    content = content,
-                )
-            } else {
-                content()
-            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        when {
+                            fixedContentHeight != null && scrollable ->
+                                Modifier.height(fixedContentHeight).verticalScroll(scrollState)
+                            fixedContentHeight != null -> Modifier.height(fixedContentHeight)
+                            scrollable ->
+                                Modifier.heightIn(max = DIALOG_CONTENT_MAX_HEIGHT).verticalScroll(scrollState)
+                            else -> Modifier
+                        }
+                    ),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                content = content,
+            )
             if (buttons != null) {
                 Spacer(Modifier.height(16.dp))
                 Row(
@@ -91,13 +111,14 @@ internal fun AppDialog(
     }
 }
 
-// 标题栏：标题居中；返回、关闭与尾部操作仅在传入时渲染，未传入的按钮不占位
+// 标题栏：标题默认居中；返回、关闭与尾部操作仅在传入时渲染，未传入的按钮不占位
 @Composable
 private fun AppDialogHeader(
     title: String,
     onBack: (() -> Unit)?,
     onClose: (() -> Unit)?,
     trailing: (@Composable () -> Unit)?,
+    titleAlignment: TextAlign,
 ) {
     Box(
         modifier = Modifier
@@ -112,7 +133,7 @@ private fun AppDialogHeader(
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
+            textAlign = titleAlignment,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
@@ -168,7 +189,8 @@ private fun AppDialogHeaderIcon(
     }
 }
 
-// 对话框选项行：文本居中，带图标时改为图标 + 左对齐文案；选中态与禁用态在此统一着色
+// 对话框选项行：文本居中，带图标时改为图标 + 左对齐文案。
+// 选中态只以背景高亮 + 加粗表示，与切换歌单列表项同色（primary 10% 底），不使用勾选图标
 @Composable
 internal fun DialogOption(
     label: String,
@@ -177,18 +199,10 @@ internal fun DialogOption(
     selected: Boolean = false,
     enabled: Boolean = true,
 ) {
-    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val background = when {
-        selected && isDarkTheme -> MaterialTheme.colorScheme.primaryContainer
-        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-        else -> MaterialTheme.colorScheme.surface
-    }
-    val contentColor = when {
-        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-        selected && isDarkTheme -> MaterialTheme.colorScheme.onPrimaryContainer
-        selected -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.onSurface
-    }
+    val background = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+    else MaterialTheme.colorScheme.surface
+    val contentColor = if (enabled) MaterialTheme.colorScheme.onSurface
+    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
     Row(
         modifier = Modifier
             .fillMaxWidth()
