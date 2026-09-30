@@ -460,7 +460,7 @@ class LosslessContainerTagsTest {
     // 按写路径返回的三段结构拼出新文件
     private fun apply(source: ByteArray, rewrite: LosslessContainerTags.TagRewrite): ByteArray = Builder()
         .bytes(rewrite.head)
-        .bytes(source.copyOfRange(rewrite.bodyStart, rewrite.bodyEnd))
+        .bytes(source.copyOfRange(rewrite.bodyStart.toInt(), rewrite.bodyEnd.toInt()))
         .bytes(rewrite.tail)
         .toBytes()
 

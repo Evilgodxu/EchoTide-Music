@@ -75,7 +75,7 @@ class WavRealFileProbeTest {
             val plan = rewrite!!
             target.outputStream().use { out ->
                 out.write(plan.head)
-                out.write(source, plan.bodyStart, plan.bodyEnd - plan.bodyStart)
+                out.write(source, plan.bodyStart.toInt(), (plan.bodyEnd - plan.bodyStart).toInt())
                 out.write(plan.tail)
             }
             val rewritten = target.readBytes()

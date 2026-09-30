@@ -9,9 +9,7 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.io.InputStream
 import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -24,12 +22,13 @@ import kotlinx.coroutines.withContext
 internal object MusicMetadataWriter {
 
     // 元数据写入结果：Full 为整曲重建；HeadAndTail 仅重建头部标签，
-    // 音频躯干按 audioStart 偏移从源复制，降低大文件写入的峰值内存
+    // 音频躯干按 audioStart 偏移从源复制，降低大文件写入的峰值内存。
+    // 区间偏移用 Long：高解析无损单文件可越过 2GB 的 Int 边界
     private sealed interface WriteResult {
         data class Full(val bytes: ByteArray) : WriteResult
-        data class HeadAndTail(val head: ByteArray, val audioStart: Int) : WriteResult
+        data class HeadAndTail(val head: ByteArray, val audioStart: Long) : WriteResult
         // 中间音频体按 [bodyStart, bodyEnd) 流式复制，尾部追加元数据（用于 WAV 文件尾 ID3 标签）
-        data class HeadAndRange(val head: ByteArray, val bodyStart: Int, val bodyEnd: Int, val tail: ByteArray) : WriteResult
+        data class HeadAndRange(val head: ByteArray, val bodyStart: Long, val bodyEnd: Long, val tail: ByteArray) : WriteResult
     }
 
     /**
@@ -54,79 +53,6 @@ internal object MusicMetadataWriter {
         }
     }
 
-    // 音频躯干的写入来源：只暴露区间读取与区间搬运，解析与写出都不必持有整文件
-    private interface TagSource {
-        // 源文件长度；无法取得时返回 UNKNOWN_SIZE，区间搬运以 EOF 为准
-        val size: Long
-
-        // 读取 [offset, offset + length) 区间；区间不可读返回 null，短读按实际读到的字节返回
-        fun read(offset: Long, length: Int): ByteArray?
-
-        // 把 [start, end) 区间逐块搬运到 out，不整体驻留内存
-        fun copyRange(start: Long, end: Long, out: OutputStream)
-    }
-
-    // 本地文件源：每次读取都按请求长度定位后读，不缓存文件内容
-    private class FileTagSource(private val file: File) : TagSource {
-        override val size: Long = file.length()
-
-        override fun read(offset: Long, length: Int): ByteArray? = runCatching {
-            FileInputStream(file).use { input ->
-                if (!skipFully(input, offset)) return@use null
-                readUpTo(input, length)
-            }
-        }.getOrNull()
-
-        override fun copyRange(start: Long, end: Long, out: OutputStream) {
-            FileInputStream(file).use { input ->
-                check(skipFully(input, start)) { "音频躯干定位失败: offset=$start" }
-                copyUpTo(input, end - start, out)
-            }
-        }
-    }
-
-    // 在线缓存源（content URI）：定位读取同样按 ContentResolver 打开流后跳过，
-    // 长度取文件描述符上报值，读不到时按不可知处理
-    private class ContentUriTagSource(private val context: Context, private val uri: Uri) : TagSource {
-        override val size: Long = runCatching {
-            context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize }
-        }.getOrNull()?.takeIf { it > 0 } ?: UNKNOWN_SIZE
-
-        override fun read(offset: Long, length: Int): ByteArray? = runCatching {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                if (!skipFully(input, offset)) return@use null
-                readUpTo(input, length)
-            }
-        }.getOrNull()
-
-        override fun copyRange(start: Long, end: Long, out: OutputStream) {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                check(skipFully(input, start)) { "音频躯干定位失败: offset=$start" }
-                copyUpTo(input, end - start, out)
-            } ?: throw IllegalStateException("无法打开音频输入流: uri=$uri")
-        }
-    }
-
-    // 已驻留内存的字节源：整文件解析路径与字节入口共用同一套方案与写出逻辑
-    private class ByteArrayTagSource(private val bytes: ByteArray) : TagSource {
-        override val size: Long = bytes.size.toLong()
-
-        override fun read(offset: Long, length: Int): ByteArray? {
-            if (offset !in 0L..size) return null
-            val end = minOf(size, offset + length).toInt()
-            return bytes.copyOfRange(offset.toInt(), end)
-        }
-
-        override fun copyRange(start: Long, end: Long, out: OutputStream) {
-            val from = start.coerceIn(0L, size).toInt()
-            val to = end.coerceIn(from.toLong(), size).toInt()
-            if (to > from) out.write(bytes, from, to - from)
-        }
-    }
-
-    // 源长度不可知的标记值：区间搬运以 EOF 为准，逐字节的边界判断按该值跳过
-    private const val UNKNOWN_SIZE = Long.MAX_VALUE
-
     // 流式复制音频躯干时的读缓冲大小
     private const val STREAM_BUFFER_SIZE = 64 * 1024
 
@@ -137,9 +63,9 @@ internal object MusicMetadataWriter {
     // 超过即放弃本次重写并记日志，不无限扩大驻留量
     private const val MAX_IN_MEMORY_BYTES = 32 * 1024 * 1024
 
-    // 整文件解析上限：WAV/AIFF/DSF/APE 的块表与 Ogg 的页序列需要遍历全文才能定位标签，
-    // 仅在不超过该尺寸时读全量解析，超限跳过本次重写并记日志，绝不把大文件读进堆
-    private const val FULL_PARSE_LIMIT_BYTES = 32L * 1024 * 1024
+    // Ogg 页序列重排上限：标签页数变化后需逐页重编号与重算 CRC，故须持有整条包流；
+    // 超过该上限即跳过本次重写并记日志
+    private const val OGG_PARSE_LIMIT_BYTES = 32L * 1024 * 1024
 
     // MP4 顶层盒子的长度字段宽度与盒子标识字段宽度
     private const val MP4_BOX_HEADER_BYTES = 8
@@ -202,7 +128,7 @@ internal object MusicMetadataWriter {
                 CrashLogManager.logException(
                     "MusicMetadataWriter",
                     "写入音频文件元数据失败: 文件为空/损坏、格式无法识别或超出解析上限," +
-                        " 路径=$path, 大小=${source.size}, 头部=${hexPrefix(source.read(0, 16) ?: ByteArray(0))}",
+                        " 路径=$path, 大小=${source.size}, 头部=${hexPrefix(source.readAt(0, 16) ?: ByteArray(0))}",
                 )
                 return false
             }
@@ -245,7 +171,7 @@ internal object MusicMetadataWriter {
                 CrashLogManager.logException(
                     "MusicMetadataWriter",
                     "经 content URI 写入元数据失败: 文件为空/损坏、格式无法识别或超出解析上限," +
-                        " uri=$uriString, 大小=${source.size}, 头部=${hexPrefix(source.read(0, 16) ?: ByteArray(0))}",
+                        " uri=$uriString, 大小=${source.size}, 头部=${hexPrefix(source.readAt(0, 16) ?: ByteArray(0))}",
                 )
                 return false
             }
@@ -303,13 +229,13 @@ internal object MusicMetadataWriter {
         cover: ByteArray?,
         lyrics: String?,
     ): RewritePlan? {
-        val head = source.read(0, SNIFF_WINDOW_BYTES) ?: return null
+        val head = source.readAt(0, SNIFF_WINDOW_BYTES) ?: return null
         return when {
             isMp3(head) -> mp3Plan(source, head, title, artist, album, cover, lyrics)
             isFlac(head) -> flacPlan(source, title, artist, album, cover, lyrics)
             isMp4(head) -> mp4Plan(source, title, artist, album, cover, lyrics)
-            isOpus(head) || LosslessContainerTags.matches(head) ->
-                fullParsePlan(source, title, artist, album, cover, lyrics)
+            isOpus(head) -> oggPlan(source, title, artist, album, cover, lyrics)
+            LosslessContainerTags.matches(head) -> losslessPlan(source, title, artist, album, cover, lyrics)
             else -> null
         }
     }
@@ -341,7 +267,7 @@ internal object MusicMetadataWriter {
         cover: ByteArray?,
         lyrics: String?,
     ): RewritePlan? {
-        var window = source.read(0, SNIFF_WINDOW_BYTES) ?: return null
+        var window = source.readAt(0, SNIFF_WINDOW_BYTES) ?: return null
         while (true) {
             val metadataEnd = flacMetadataEnd(window)
             if (metadataEnd != null) {
@@ -356,7 +282,7 @@ internal object MusicMetadataWriter {
                 )
                 return null
             }
-            window = source.read(0, grown) ?: return null
+            window = source.readAt(0, grown) ?: return null
             // 短读说明文件短于窗口：末块标记缺失即结构不完整，不做截断猜测
             if (window.size < grown) return null
         }
@@ -440,7 +366,7 @@ internal object MusicMetadataWriter {
         val boxes = mutableListOf<Mp4TopBox>()
         var offset = 0L
         while (offset < source.size) {
-            val header = source.read(offset, MP4_BOX_HEADER_BYTES) ?: return null
+            val header = source.readAt(offset, MP4_BOX_HEADER_BYTES) ?: return null
             if (header.size < MP4_BOX_HEADER_BYTES) return null
             val size = int32(header, 0).toLong() and 0xffffffffL
             // 长度字段为 1（64 位长度）或 0（延续到文件末尾）不解析：与旧实现「解析失败即放弃」同口径
@@ -460,16 +386,16 @@ internal object MusicMetadataWriter {
             )
             return null
         }
-        val window = source.read(offset, size.toInt()) ?: return null
+        val window = source.readAt(offset, size.toInt()) ?: return null
         return window.takeIf { it.size.toLong() == size }
     }
 
     /**
-     * 整文件解析路径：标签定位需要遍历全文时（WAV/AIFF/DSF/APE 的块表、Ogg 的页序列），
-     * 仅在不超过 [FULL_PARSE_LIMIT_BYTES] 时读全量解析。超限即跳过本次重写并记日志 ——
-     * 以标签覆盖换内存峰值，绝不把大文件读进堆。
+     * 无损与线性 PCM 容器（WAV、AIFF/AIFC、DSDIFF、DSF、APE）：标签布局由 LosslessContainerTags
+     * 按块表 / 尾部标签结构计算，返回头部字面字节 + 音频体区间 + 尾部字面字节，
+     * 定位只读块头与标签区，音频体按区间搬运。
      */
-    private fun fullParsePlan(
+    private fun losslessPlan(
         source: TagSource,
         title: String?,
         artist: String?,
@@ -477,28 +403,40 @@ internal object MusicMetadataWriter {
         cover: ByteArray?,
         lyrics: String?,
     ): RewritePlan? {
-        if (source.size > FULL_PARSE_LIMIT_BYTES) {
+        val rewrite = LosslessContainerTags.write(source, title, artist, album, cover, lyrics) ?: return null
+        return RewritePlan(rewrite.head, rewrite.bodyStart, rewrite.bodyEnd, rewrite.tail)
+    }
+
+    /**
+     * Ogg/Opus：标签包与音频包同处一条页序列，标签长度变化会改变标签页数，
+     * 其后每页的序号与 CRC 都要随之重排，故需要整条包流才能定位。
+     * 超过 [OGG_PARSE_LIMIT_BYTES] 即跳过本次重写并记日志，不把大文件读进堆。
+     */
+    private fun oggPlan(
+        source: TagSource,
+        title: String?,
+        artist: String?,
+        album: String?,
+        cover: ByteArray?,
+        lyrics: String?,
+    ): RewritePlan? {
+        if (source.size > OGG_PARSE_LIMIT_BYTES) {
             CrashLogManager.logException(
                 "MusicMetadataWriter",
-                "音频文件超出整文件解析上限，跳过元数据重写: 大小=${source.size}B",
+                "Ogg 文件超出页序列重排上限，跳过元数据重写: 大小=${source.size}B",
             )
             return null
         }
-        val bytes = source.read(0, source.size.toInt()) ?: return null
+        val bytes = source.readAt(0, source.size.toInt()) ?: return null
         if (bytes.size.toLong() < source.size) return null
-        val result = when {
-            isOpus(bytes) -> writeOpus(bytes, title, artist, album, cover, lyrics)
-            LosslessContainerTags.matches(bytes) -> writeLosslessContainer(bytes, title, artist, album, cover, lyrics)
-            else -> null
-        } ?: return null
-        return result.toPlan(ByteArrayTagSource(bytes))
+        return writeOpus(bytes, title, artist, album, cover, lyrics)?.toPlan(ByteArrayTagSource(bytes))
     }
 
     // 把整文件解析结果转为重写方案：音频体区间落在给定的字节源上，写出时按区间搬运
     private fun WriteResult.toPlan(source: TagSource): RewritePlan = when (this) {
         is WriteResult.Full -> RewritePlan(bytes, 0L, 0L, ByteArray(0))
-        is WriteResult.HeadAndTail -> RewritePlan(head, audioStart.toLong(), source.size, ByteArray(0))
-        is WriteResult.HeadAndRange -> RewritePlan(head, bodyStart.toLong(), bodyEnd.toLong(), tail)
+        is WriteResult.HeadAndTail -> RewritePlan(head, audioStart, source.size, ByteArray(0))
+        is WriteResult.HeadAndRange -> RewritePlan(head, bodyStart, bodyEnd, tail)
     }
 
     /**
@@ -536,18 +474,6 @@ internal object MusicMetadataWriter {
 
     // 容器标签布局统一由 LosslessContainerTags 计算，返回的头部字面字节 + 音频体区间 +
     // 尾部字面字节直接落到流式写入分支
-    private fun writeLosslessContainer(
-        source: ByteArray,
-        title: String?,
-        artist: String?,
-        album: String?,
-        cover: ByteArray?,
-        lyrics: String?,
-    ): WriteResult? {
-        val rewrite = LosslessContainerTags.write(source, title, artist, album, cover, lyrics) ?: return null
-        return WriteResult.HeadAndRange(rewrite.head, rewrite.bodyStart, rewrite.bodyEnd, rewrite.tail)
-    }
-
     private fun isMp3(bytes: ByteArray) =
         bytes.startsWith("ID3") || (bytes.size >= 2 && bytes[0].toInt() and 0xff == 0xff && bytes[1].toInt() and 0xe0 == 0xe0)
 
@@ -608,7 +534,7 @@ internal object MusicMetadataWriter {
         tag.write(Id3v2Tag.syncsafeBytes(frames.size())); tag.write(frames.toByteArray())
         // 头部为重建的 ID3 标签，音频躯干按原偏移流式复制，避免整曲二次驻留内存
         val audioStart = if (hasId3) tagEnd else 0
-        return WriteResult.HeadAndTail(tag.toByteArray(), audioStart)
+        return WriteResult.HeadAndTail(tag.toByteArray(), audioStart.toLong())
     }
 
     private fun id3FrameStart(source: ByteArray, version: Int, flags: Int, tagEnd: Int): Int {
@@ -659,7 +585,7 @@ internal object MusicMetadataWriter {
             blocks.add(FlacBlock(6, pictureBlock(cover)))
         }
         // 头部为重建的元数据块，音频帧按原偏移流式复制
-        return WriteResult.HeadAndTail(buildFlac(blocks), p)
+        return WriteResult.HeadAndTail(buildFlac(blocks), p.toLong())
     }
 
     private data class FlacBlock(val type: Int, val data: ByteArray)
@@ -1099,48 +1025,6 @@ internal object MusicMetadataWriter {
     // 文件头字节的十六进制表示，写入失败日志用于判断读取到的数据是否完整
     private fun hexPrefix(bytes: ByteArray, max: Int = 16): String =
         bytes.take(max).joinToString("") { "%02x".format(it) }
-
-    // 跳过指定字节数：InputStream.skip 允许少跳，而 content URI 的流还可能直接返回 0
-    // （不可定位的流），故在 skip 无进展时退化为读取丢弃；未跳到位返回 false
-    private fun skipFully(input: InputStream, count: Long): Boolean {
-        var remaining = count
-        val buffer = ByteArray(STREAM_BUFFER_SIZE)
-        while (remaining > 0) {
-            val step = input.skip(remaining)
-            if (step > 0) {
-                remaining -= step
-                continue
-            }
-            val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-            if (read <= 0) return false
-            remaining -= read
-        }
-        return true
-    }
-
-    // 读取至多 size 字节，短读按实际读到的字节返回
-    private fun readUpTo(input: InputStream, size: Int): ByteArray {
-        val buffer = ByteArray(size)
-        var read = 0
-        while (read < size) {
-            val step = input.read(buffer, read, size - read)
-            if (step <= 0) break
-            read += step
-        }
-        return buffer.copyOf(read)
-    }
-
-    // 按块搬运至多 length 字节（length 为 Long.MAX_VALUE 时搬到 EOF），不整体驻留内存
-    private fun copyUpTo(input: InputStream, length: Long, output: OutputStream) {
-        val buffer = ByteArray(STREAM_BUFFER_SIZE)
-        var remaining = length
-        while (remaining > 0) {
-            val step = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-            if (step <= 0) return
-            output.write(buffer, 0, step)
-            remaining -= step
-        }
-    }
 
     // 用中转文件替换目标：优先原子移动，文件系统不支持时退化为覆盖式移动
     private fun moveReplacing(temporary: File, target: File) {
