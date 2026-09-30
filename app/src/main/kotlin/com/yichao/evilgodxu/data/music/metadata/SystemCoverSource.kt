@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.data.music.metadata
 
 import android.net.Uri
+import androidx.core.net.toUri
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 
 // 系统封面来源：封面取自系统（MediaProvider 的专辑封面缓存），应用不为系统面板另存封面。
@@ -31,12 +32,12 @@ internal val MusicTrack.isMediaStoreIndexed: Boolean
 internal fun panelArtworkUri(track: MusicTrack?): Uri? {
     val target = track ?: return null
     if (target.isMediaStoreIndexed) {
-        return Uri.parse(target.audioUri)
+        return target.audioUri.toUri()
             .buildUpon()
             .clearQuery()
             .fragment(null)
             .appendPath("albumart")
             .build()
     }
-    return target.neteaseCoverUrl.takeIf { it.isNotBlank() }?.let(Uri::parse)
+    return target.neteaseCoverUrl.takeIf { it.isNotBlank() }?.toUri()
 }

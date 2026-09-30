@@ -8,6 +8,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import androidx.core.net.toUri
 import com.yichao.evilgodxu.data.music.metadata.panelArtworkUri
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.PlayMode
@@ -123,7 +124,7 @@ private fun toMediaItem(track: MusicTrack): MediaItem {
     panelArtworkUri(track)?.let { metadata.setArtworkUri(it) }
     return MediaItem.Builder()
         .setMediaId(track.id.toString())
-        .setUri(Uri.parse(track.audioUri))
+        .setUri(track.audioUri.toUri())
         .setMediaMetadata(metadata.build())
         .build()
 }

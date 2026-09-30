@@ -2,6 +2,7 @@ package com.yichao.evilgodxu.data.music.proxy
 
 import android.content.Context
 import android.net.Uri
+import androidx.core.net.toUri
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
 import com.yichao.evilgodxu.data.music.api.MusicQuality
 import com.yichao.evilgodxu.data.music.api.NeteaseMusicApi
@@ -57,7 +58,7 @@ internal object PlaylistSyncer {
     }
 
     private fun parseLinkDirect(raw: String): RemotePlaylistLink? {
-        val uri = runCatching { Uri.parse(raw.trim()) }.getOrNull() ?: return null
+        val uri = runCatching { raw.trim().toUri() }.getOrNull() ?: return null
         val host = uri.host?.lowercase().orEmpty()
         return when {
             host.contains("163") -> RemotePlaylistLink(MusicSearchSource.NETEASE, idParam(uri) ?: return null)
@@ -80,7 +81,7 @@ internal object PlaylistSyncer {
             ?.let { return it }
         val fragment = uri.fragment ?: return null
         return runCatching {
-            Uri.parse("https://x/?$fragment").getQueryParameter("id")
+            "https://x/?$fragment".toUri().getQueryParameter("id")
                 ?.takeIf { it.isNotBlank() && it.all(Char::isDigit) }
         }.getOrNull()
     }

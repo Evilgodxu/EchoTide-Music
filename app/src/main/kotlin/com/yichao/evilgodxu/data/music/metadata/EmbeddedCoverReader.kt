@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import androidx.core.net.toUri
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
 import kotlinx.coroutines.Dispatchers
@@ -76,7 +77,7 @@ internal object EmbeddedCoverReader {
                 Picture.Unavailable -> Unit
             }
         }
-        val uri = runCatching { Uri.parse(audioUri) }.getOrNull() ?: return Picture.Unavailable
+        val uri = runCatching { audioUri.toUri() }.getOrNull() ?: return Picture.Unavailable
         // 非本地协议（在线 http 流）无内嵌图片可取，属「本就没有」而非「读不出」
         if (uri.scheme != "content" && uri.scheme != "file") return Picture.Absent
         return pictureFromUri(context, uri)

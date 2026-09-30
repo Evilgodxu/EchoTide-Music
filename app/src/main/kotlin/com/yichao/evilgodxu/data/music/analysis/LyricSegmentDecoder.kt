@@ -4,7 +4,7 @@ import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import android.net.Uri
+import androidx.core.net.toUri
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
@@ -231,7 +231,7 @@ internal class LyricSegmentDecoder private constructor(
                 if (track.path.isNotBlank()) {
                     extractor.setDataSource(track.path)
                 } else {
-                    extractor.setDataSource(context, Uri.parse(track.audioUri), null)
+                    extractor.setDataSource(context, track.audioUri.toUri(), null)
                 }
                 var trackIndex = -1
                 for (i in 0 until extractor.trackCount) {

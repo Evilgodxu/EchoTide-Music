@@ -7,6 +7,8 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Environment
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
 import com.yichao.evilgodxu.log.CrashLogManager
@@ -132,12 +134,12 @@ object UpdateManager {
 
                 // 同步写盘：待更新信息用于冷启动恢复，异步落盘存在进程被杀丢失窗口
                 withContext(Dispatchers.IO) {
-                    prefs.edit()
-                        .putString(KEY_LAST_CHECK_DAY, day)
-                        .putString(KEY_PENDING_VERSION, latest)
-                        .putString(KEY_PENDING_URL, downloadUrl)
-                        .putString(KEY_PENDING_CHANGELOG, release.body)
-                        .commit()
+                    prefs.edit(commit = true) {
+                        putString(KEY_LAST_CHECK_DAY, day)
+                        putString(KEY_PENDING_VERSION, latest)
+                        putString(KEY_PENDING_URL, downloadUrl)
+                        putString(KEY_PENDING_CHANGELOG, release.body)
+                    }
                 }
 
                 UpdateInfo(
@@ -148,7 +150,7 @@ object UpdateManager {
                 )
             } else {
                 withContext(Dispatchers.IO) {
-                    prefs.edit().putString(KEY_LAST_CHECK_DAY, day).commit()
+                    prefs.edit(commit = true) { putString(KEY_LAST_CHECK_DAY, day) }
                 }
                 null
             }
@@ -232,7 +234,7 @@ object UpdateManager {
             }
 
             val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            val req = DownloadManager.Request(Uri.parse(requireHttps(updateInfo.downloadUrl)))
+            val req = DownloadManager.Request(requireHttps(updateInfo.downloadUrl).toUri())
                 .setTitle(context.getString(R.string.update_notification_title))
                 .setDescription(context.getString(R.string.update_notification_downloading, updateInfo.latestVersion))
                 .setDestinationUri(Uri.fromFile(outFile))
@@ -362,11 +364,11 @@ object UpdateManager {
      */
     suspend fun clearPendingUpdate(context: Context) {
         withContext(Dispatchers.IO) {
-            prefs(context).edit()
-                .remove(KEY_PENDING_VERSION)
-                .remove(KEY_PENDING_URL)
-                .remove(KEY_PENDING_CHANGELOG)
-                .commit()
+            prefs(context).edit(commit = true) {
+                remove(KEY_PENDING_VERSION)
+                remove(KEY_PENDING_URL)
+                remove(KEY_PENDING_CHANGELOG)
+            }
         }
     }
 
@@ -375,12 +377,12 @@ object UpdateManager {
      */
     suspend fun ignoreVersion(context: Context, version: String) {
         withContext(Dispatchers.IO) {
-            prefs(context).edit()
-                .putString(KEY_IGNORED_VERSION, version)
-                .remove(KEY_PENDING_VERSION)
-                .remove(KEY_PENDING_URL)
-                .remove(KEY_PENDING_CHANGELOG)
-                .commit()
+            prefs(context).edit(commit = true) {
+                putString(KEY_IGNORED_VERSION, version)
+                remove(KEY_PENDING_VERSION)
+                remove(KEY_PENDING_URL)
+                remove(KEY_PENDING_CHANGELOG)
+            }
         }
     }
 

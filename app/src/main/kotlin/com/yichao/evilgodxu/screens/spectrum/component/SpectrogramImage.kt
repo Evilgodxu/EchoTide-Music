@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
+import androidx.core.graphics.createBitmap
 import com.yichao.evilgodxu.data.music.analysis.Spectrogram
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -112,7 +113,7 @@ internal fun renderSpectrogramBitmap(
             pixels[y * bitmapWidth + x] = spectrumColor(if (count > 0) sum / count else 0f)
         }
     }
-    val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
+    val bitmap = createBitmap(bitmapWidth, bitmapHeight)
     bitmap.setPixels(pixels, 0, bitmapWidth, 0, 0, bitmapWidth, bitmapHeight)
     return bitmap
 }

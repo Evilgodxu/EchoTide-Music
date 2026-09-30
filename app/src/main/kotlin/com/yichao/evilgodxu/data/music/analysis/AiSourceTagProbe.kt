@@ -1,7 +1,7 @@
 package com.yichao.evilgodxu.data.music.analysis
 
 import android.content.Context
-import android.net.Uri
+import androidx.core.net.toUri
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import java.io.File
 import java.io.FileInputStream
@@ -334,7 +334,7 @@ internal object AiSourceTagProbe {
         track.path.isNotBlank() -> runCatching { FileInputStream(track.path) }.getOrNull()
         track.audioUri.startsWith("content:") || track.audioUri.startsWith("file:") ->
             runCatching {
-                context.contentResolver.openInputStream(Uri.parse(track.audioUri))
+                context.contentResolver.openInputStream(track.audioUri.toUri())
             }.getOrNull()
         else -> null
     }

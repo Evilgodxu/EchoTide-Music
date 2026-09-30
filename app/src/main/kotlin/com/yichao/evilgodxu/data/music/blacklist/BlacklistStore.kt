@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.edit
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.TrackIdentity
 import com.yichao.evilgodxu.log.CrashLogManager
@@ -113,14 +114,14 @@ internal object BlacklistStore {
     private suspend fun write(context: Context, values: Set<String>) = withContext(Dispatchers.IO) {
         val array = JSONArray()
         values.forEach { array.put(it) }
-        prefs(context).edit().putString(KEY_ENTRIES, array.toString()).apply()
+        prefs(context).edit { putString(KEY_ENTRIES, array.toString()) }
     }
 
     private suspend fun writeSkipFeatures(context: Context, values: Map<String, Int>) =
         withContext(Dispatchers.IO) {
             val json = JSONObject()
             values.forEach { (feature, count) -> json.put(feature, count) }
-            prefs(context).edit().putString(KEY_SKIP_FEATURES, json.toString()).apply()
+            prefs(context).edit { putString(KEY_SKIP_FEATURES, json.toString()) }
         }
 
     private fun prefs(context: Context) =

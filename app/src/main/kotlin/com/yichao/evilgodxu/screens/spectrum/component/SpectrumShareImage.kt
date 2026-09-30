@@ -8,6 +8,7 @@ import android.graphics.Shader
 import android.graphics.Typeface
 import android.text.TextPaint
 import android.text.TextUtils
+import androidx.core.graphics.createBitmap
 import com.yichao.evilgodxu.data.music.analysis.SPECTROGRAM_DYNAMIC_RANGE_DB
 import com.yichao.evilgodxu.data.music.analysis.Spectrogram
 import com.yichao.evilgodxu.utils.formatTime
@@ -118,7 +119,7 @@ internal object SpectrumShareImage {
         val creditBaseline = baselineOfTop(creditPaint, y)
         val height = (y + maxOf(lineHeight(creditPaint), lineHeight(notePaint)) + PAD).toInt()
 
-        val bitmap = Bitmap.createBitmap(WIDTH, height, Bitmap.Config.ARGB_8888)
+        val bitmap = createBitmap(WIDTH, height)
         val canvas = Canvas(bitmap)
         canvas.drawColor(BACKGROUND)
         canvas.drawBitmap(

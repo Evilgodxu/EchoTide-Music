@@ -1,7 +1,6 @@
 package com.yichao.evilgodxu
 
 import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +11,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.core.net.toUri
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -108,7 +108,7 @@ fun AppContent() {
                 onOpenBrowser = {
                     val url = UpdateManager.GITHUB_REPOSITORY_URL
                     if (url.startsWith("http")) {
-                        activity?.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        activity?.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
                     }
                     updateViewModel.dismissUpdateDialog()
                 },

@@ -2,7 +2,7 @@ package com.yichao.evilgodxu.data.music.analysis
 
 import android.content.Context
 import android.media.MediaMetadataRetriever
-import android.net.Uri
+import androidx.core.net.toUri
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.playback.AudioSignalPathFormat
 import com.yichao.evilgodxu.log.CrashLogManager
@@ -150,7 +150,7 @@ internal object TrackAudioInfoReader {
         if (track.path.isNotBlank()) {
             retriever.setDataSource(track.path)
         } else {
-            retriever.setDataSource(context, Uri.parse(track.audioUri))
+            retriever.setDataSource(context, track.audioUri.toUri())
         }
     }
 
@@ -169,7 +169,7 @@ internal object TrackAudioInfoReader {
             if (file.isFile) return file.length()
         } else if (track.audioUri.startsWith("content:") || track.audioUri.startsWith("file:")) {
             return runCatching {
-                Uri.parse(track.audioUri).let {
+                track.audioUri.toUri().let {
                     context.contentResolver.openFileDescriptor(it, "r")?.use { fd -> fd.statSize }
                 }
             }.getOrNull()
@@ -193,7 +193,7 @@ internal object TrackAudioInfoReader {
     private fun openInputStream(context: Context, track: MusicTrack): InputStream? = when {
         track.path.isNotBlank() -> runCatching { FileInputStream(track.path) }.getOrNull()
         track.audioUri.startsWith("content:") || track.audioUri.startsWith("file:") ->
-            runCatching { context.contentResolver.openInputStream(Uri.parse(track.audioUri)) }
+            runCatching { context.contentResolver.openInputStream(track.audioUri.toUri()) }
                 .getOrNull()
         else -> null
     }
@@ -254,7 +254,7 @@ private val FORMAT_EXTENSION_NAMES = mapOf(
 internal fun trackFormatCategory(context: Context, track: MusicTrack): String {
     val extension = track.path.substringAfterLast('.', "").uppercase()
     if (extension.isNotBlank()) return FORMAT_EXTENSION_NAMES[extension] ?: extension
-    val scheme = runCatching { Uri.parse(track.audioUri).scheme }.getOrNull()
+    val scheme = runCatching { track.audioUri.toUri().scheme }.getOrNull()
     return if (scheme == "http" || scheme == "https") {
         context.getString(R.string.library_analysis_online)
     } else {

@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.data.settings
 
 import android.content.Context
+import androidx.core.content.edit
 
 // 启动语言镜像：与 settings DataStore 并存的单键副本，DataStore 始终是唯一事实源。
 // 存在的唯一理由是 attachBaseContext 必须在主线程同步拿到启动语言，而 DataStore 首次读取
@@ -22,8 +23,8 @@ fun readBootLanguage(context: Context): AppLanguage? {
 fun writeBootLanguage(context: Context, language: AppLanguage) {
     runCatching {
         context.getSharedPreferences(BOOT_PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(BOOT_KEY, language.name)
-            .commit()
+            .edit(commit = true) {
+                putString(BOOT_KEY, language.name)
+            }
     }
 }

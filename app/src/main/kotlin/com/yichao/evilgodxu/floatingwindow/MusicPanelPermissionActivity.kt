@@ -3,12 +3,12 @@ package com.yichao.evilgodxu.floatingwindow
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.Manifest
-import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.net.toUri
 
 // 透明权限申请 Activity，用于从 Service/无障碍服务上下文动态申请权限：
 // 1. 申请 READ_MEDIA_AUDIO（音频文件访问）
@@ -56,7 +56,10 @@ class MusicPanelPermissionActivity : ComponentActivity() {
     }
 
     private fun hasImagePermission(): Boolean {
+        // 与 PermissionMonitor 同口径：只拿到「选中的照片」也足以挑选封面，不再重复索要
         return checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) ==
+                PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) ==
                 PackageManager.PERMISSION_GRANTED
     }
 
@@ -65,7 +68,7 @@ class MusicPanelPermissionActivity : ComponentActivity() {
     private fun launchAllFilesSettings() {
         val intent = Intent(
             Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-            Uri.parse("package:$packageName")
+            "package:$packageName".toUri()
         )
         try {
             allFilesSettingsLauncher.launch(intent)
@@ -74,7 +77,7 @@ class MusicPanelPermissionActivity : ComponentActivity() {
             allFilesSettingsLauncher.launch(
                 Intent(
                     Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:$packageName")
+                    "package:$packageName".toUri()
                 )
             )
         }

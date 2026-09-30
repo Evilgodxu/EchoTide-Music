@@ -3,9 +3,9 @@ package com.yichao.evilgodxu.permission
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.core.net.toUri
 
 // 是否已加入电池优化白名单（电源白名单）。未加入时设备熄屏静止约半小时后进入 Doze，
 // Doze 会屏蔽应用唤醒锁并把网络限制在维护窗口，后台播放因此被系统中断
@@ -19,7 +19,7 @@ fun isBatteryOptimizationIgnored(context: Context): Boolean {
 fun requestIgnoreBatteryOptimizations(context: Context) {
     val grantedIntent = Intent(
         Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-        Uri.parse("package:${context.packageName}"),
+        "package:${context.packageName}".toUri(),
     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     val settingsIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

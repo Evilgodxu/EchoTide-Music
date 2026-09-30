@@ -1,7 +1,6 @@
 package com.yichao.evilgodxu.screens.settings
 
 import android.content.Intent
-import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -11,6 +10,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -66,7 +66,7 @@ fun SettingsScreen(
         if (uiState.overlayPermissionPending) {
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:${context.packageName}"),
+                "package:${context.packageName}".toUri(),
             )
             runCatching { overlayPermissionLauncher.launch(intent) }
                 .onFailure { viewModel.onOverlaySettingsReturned() }

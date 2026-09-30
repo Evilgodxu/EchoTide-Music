@@ -1,7 +1,7 @@
 package com.yichao.evilgodxu.data.music.metadata
 
 import android.content.Context
-import android.net.Uri
+import androidx.core.net.toUri
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -15,7 +15,7 @@ internal object LocalAudioSource {
     fun open(context: Context, path: String, audioUri: String): InputStream? = when {
         path.isNotBlank() -> runCatching { FileInputStream(path) }.getOrNull()
         audioUri.startsWith("content:") || audioUri.startsWith("file:") ->
-            runCatching { context.contentResolver.openInputStream(Uri.parse(audioUri)) }.getOrNull()
+            runCatching { context.contentResolver.openInputStream(audioUri.toUri()) }.getOrNull()
         else -> null
     }
 
@@ -25,7 +25,7 @@ internal object LocalAudioSource {
             runCatching { File(path).length() }.getOrNull()
         } else if (audioUri.startsWith("content:") || audioUri.startsWith("file:")) {
             runCatching {
-                context.contentResolver.openFileDescriptor(Uri.parse(audioUri), "r")
+                context.contentResolver.openFileDescriptor(audioUri.toUri(), "r")
                     ?.use { descriptor -> descriptor.statSize }
             }.getOrNull()
         } else {

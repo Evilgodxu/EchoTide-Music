@@ -2,6 +2,7 @@ package com.yichao.evilgodxu.data.music.proxy
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import org.json.JSONArray
 
@@ -29,10 +30,10 @@ internal object ProxySourceStore {
         enabled.add(spec.name)
         // 音源列表与启用状态同属一份 XML，合并为一次落盘：拆成两次会多一倍 I/O，
         // 且中途进程被杀会留下「音源已导入但未启用」的不一致状态
-        prefs(context).edit()
-            .putString(KEY_SOURCES, encodeStringList(list))
-            .putString(KEY_ENABLED, encodeStringList(enabled))
-            .commit()
+        prefs(context).edit(commit = true) {
+            putString(KEY_SOURCES, encodeStringList(list))
+            putString(KEY_ENABLED, encodeStringList(enabled))
+        }
         return parsed
     }
 
@@ -45,10 +46,10 @@ internal object ProxySourceStore {
         }
         val enabled = enabledNames(context).toMutableSet()
         enabled.remove(name)
-        prefs(context).edit()
-            .putString(KEY_SOURCES, encodeStringList(list))
-            .putString(KEY_ENABLED, encodeStringList(enabled))
-            .commit()
+        prefs(context).edit(commit = true) {
+            putString(KEY_SOURCES, encodeStringList(list))
+            putString(KEY_ENABLED, encodeStringList(enabled))
+        }
     }
 
     // 切换音源启用状态，停用的音源即时停止参与解析
@@ -56,9 +57,9 @@ internal object ProxySourceStore {
     fun setEnabled(context: Context, name: String, enabled: Boolean) {
         val names = enabledNames(context).toMutableSet()
         if (enabled) names.add(name) else names.remove(name)
-        prefs(context).edit()
-            .putString(KEY_ENABLED, encodeStringList(names))
-            .commit()
+        prefs(context).edit(commit = true) {
+            putString(KEY_ENABLED, encodeStringList(names))
+        }
     }
 
     // 全部已导入音源，按导入顺序返回（附带启用状态）；与写互斥保证列表与启用状态读取一致

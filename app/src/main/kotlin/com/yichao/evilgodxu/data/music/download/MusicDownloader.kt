@@ -7,6 +7,7 @@ import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.core.net.toUri
 import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.api.LOSSLESS_TIERS
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
@@ -137,7 +138,7 @@ private suspend fun registerCachedFileAsLocal(
     audioUri: String,
     playlistRefresher: PlaylistRefresher,
 ) {
-    val path = queryMediaPath(context, Uri.parse(audioUri)) ?: return
+    val path = queryMediaPath(context, audioUri.toUri()) ?: return
     scanAndAwait(context, path)
     playlistRefresher.refresh(context, playbackState, restoreCurrent = true)
     withContext(Dispatchers.Main) {
@@ -422,7 +423,7 @@ internal suspend fun upgradeTrackToLossless(
     // 避免 audioUri 切换后封面闪占位符、背景回落默认色（新文件系统略缩图需等媒体扫描就绪）
     SystemThumbnailCache.remap(track.audioUri, newUri)
     playbackState.remapGradientUri(track.audioUri, newUri)
-    val newPath = queryMediaPath(context, Uri.parse(newUri)).orEmpty()
+    val newPath = queryMediaPath(context, newUri.toUri()).orEmpty()
     // 升级前的播放进度：新文件起播时还原到同一位置
     val resumePosition = withContext(Dispatchers.Main) {
         playbackState.mediaController?.currentPosition?.coerceAtLeast(0L) ?: 0L
@@ -493,7 +494,7 @@ private suspend fun extractEmbeddedCover(context: Context, track: MusicTrack): B
         if (track.path.isNotBlank()) {
             retriever.setDataSource(track.path)
         } else {
-            val uri = Uri.parse(track.audioUri)
+            val uri = track.audioUri.toUri()
             if (uri.scheme != "content" && uri.scheme != "file") return@withContext null
             retriever.setDataSource(context, uri)
         }
@@ -558,11 +559,11 @@ private suspend fun downloadLosslessToDownloads(
 // 起播后再删：播放源已切到新文件，旧文件即使仍被播放器持有句柄也不影响新文件播放
 private suspend fun deleteOldAudioFile(context: Context, track: MusicTrack, newUri: String) {
     if (track.audioUri == newUri) return
-    val scheme = runCatching { Uri.parse(track.audioUri).scheme }.getOrNull()
+    val scheme = runCatching { track.audioUri.toUri().scheme }.getOrNull()
     if (scheme != "content" && scheme != "file") return
     withContext(Dispatchers.IO) {
         runCatching {
-            Uri.parse(track.audioUri).let { context.contentResolver.delete(it, null, null) }
+            track.audioUri.toUri().let { context.contentResolver.delete(it, null, null) }
         }
         track.path.takeIf { it.isNotBlank() }?.let { path ->
             runCatching { File(path).delete() }

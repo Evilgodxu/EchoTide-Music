@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.edit
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -155,9 +156,7 @@ class PlaylistStore {
                 }
                 // 同步写盘：自定义歌单为用户关键数据，apply 异步落盘存在进程被杀丢失窗口
                 appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    .edit()
-                    .putString(KEY, array.toString())
-                    .commit()
+                    .edit(commit = true) { putString(KEY, array.toString()) }
             }
         }
     }

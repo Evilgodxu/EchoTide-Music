@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaScannerConnection
 import android.net.Uri
+import androidx.core.net.toUri
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.ByteArrayOutputStream
@@ -173,7 +174,7 @@ internal object MusicMetadataWriter {
             CrashLogManager.logException("MusicMetadataWriter", "经 content URI 写入元数据跳过: URI 为空")
             return false
         }
-        val uri = Uri.parse(uriString)
+        val uri = uriString.toUri()
         if (uri.scheme != "content") {
             CrashLogManager.logException(
                 "MusicMetadataWriter",

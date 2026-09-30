@@ -3,7 +3,6 @@ package com.yichao.evilgodxu.screens.home.component.permission
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -34,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -55,9 +55,9 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 fun PermissionDialog(
     uiState: HomeUiState,
     onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
     onStartPermissionMonitor: (PermissionType, Activity) -> Unit = { _, _ -> },
     onStopPermissionMonitor: () -> Unit = {},
-    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -175,7 +175,7 @@ fun PermissionDialog(
                             }
                             val intent = Intent(
                                 Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                                Uri.parse("package:${context.packageName}"),
+                                "package:${context.packageName}".toUri(),
                             )
                             if (activity != null) {
                                 activity.startActivity(intent)
@@ -273,7 +273,7 @@ private fun launchNotificationSettings(context: Context, activity: Activity?) {
         .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
     val detailsIntent = Intent(
         Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-        Uri.parse("package:${context.packageName}"),
+        "package:${context.packageName}".toUri(),
     )
     val flags = if (activity == null) Intent.FLAG_ACTIVITY_NEW_TASK else 0
     val target = activity ?: context

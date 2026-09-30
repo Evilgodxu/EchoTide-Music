@@ -3,7 +3,6 @@ package com.yichao.evilgodxu.data.music.playback
 import android.content.ContentResolver
 import android.content.Context
 import android.media.MediaScannerConnection
-import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -12,6 +11,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -444,7 +445,7 @@ class MusicPlaybackState(
         private set
 
     private fun hasUriAccess(context: Context, audioUri: String): Boolean {
-        val uri = Uri.parse(audioUri)
+        val uri = audioUri.toUri()
         if (context.contentResolver.persistedUriPermissions.none {
                 it.uri == uri && it.isReadPermission
             }) return false
@@ -464,10 +465,10 @@ class MusicPlaybackState(
                     track.path.isBlank() &&
                         track.audioUri.isNotBlank() &&
                         runCatching {
-                            val scheme = Uri.parse(track.audioUri).scheme
+                            val scheme = track.audioUri.toUri().scheme
                             scheme != null && scheme !in listOf("http", "https")
                         }.getOrElse { false } &&
-                        runCatching { Uri.parse(track.audioUri).scheme == ContentResolver.SCHEME_CONTENT }.getOrElse { false } &&
+                        runCatching { track.audioUri.toUri().scheme == ContentResolver.SCHEME_CONTENT }.getOrElse { false } &&
                         !hasUriAccess(context, track.audioUri)
                 }
                 .map { it.id }
@@ -524,7 +525,7 @@ class MusicPlaybackState(
     // 判定是否为在线流媒体曲目：无本地路径且音频地址为 http(s)
     private fun isOnlineStreaming(track: MusicTrack): Boolean {
         if (track.path.isNotBlank()) return false
-        val scheme = runCatching { Uri.parse(track.audioUri).scheme }.getOrNull()
+        val scheme = runCatching { track.audioUri.toUri().scheme }.getOrNull()
         return scheme == "http" || scheme == "https"
     }
 
@@ -610,7 +611,7 @@ class MusicPlaybackState(
     // 按 URI 与本地路径删除音频源文件：先经 MediaStore 删除（同时清理媒体条目），
     // 失败则直接删本地路径并通知媒体库同步
     private fun deleteAudioSourceByRef(context: Context, audioUri: String, path: String?) {
-        val uri = audioUri.takeIf { it.isNotBlank() }?.let(Uri::parse)
+        val uri = audioUri.takeIf { it.isNotBlank() }?.toUri()
         // 纯在线流曲目无本地文件，无需文件级删除
         if (uri?.scheme == "http" || uri?.scheme == "https") return
         val deletedViaResolver = uri != null &&
@@ -724,11 +725,12 @@ class MusicPlaybackState(
         val context = appContext ?: return
         playbackScope.launch(Dispatchers.IO) {
             context.getSharedPreferences(recentPlayedPreferences, Context.MODE_PRIVATE)
-                .edit()
-                .putString(
-                    recentPlayedKey,
-                    recentPlayEvents.joinToString(",") { "${it.trackId}:${it.timestamp}" },
-                ).commit()
+                .edit(commit = true) {
+                    putString(
+                        recentPlayedKey,
+                        recentPlayEvents.joinToString(",") { "${it.trackId}:${it.timestamp}" },
+                    )
+                }
         }
     }
 
@@ -988,22 +990,21 @@ class MusicPlaybackState(
                 val backup = defaultPlaylistBackup
                 val followsQueue = viewedFollowsQueue
                 val viewed = viewedSource
-                val editor = context.getSharedPreferences(playlistCachePreferences, Context.MODE_PRIVATE).edit()
-                editor.putString(playlistCacheKey, encodePlaylist(playlist))
-                editor.putString(playlistSourceKeyPref, source?.key)
-                editor.putString(playlistSourceNamePref, source?.name)
-                editor.putBoolean(viewedFollowsQueuePref, followsQueue)
-                editor.putString(viewedSourceKeyPref, viewed?.key)
-                editor.putString(viewedSourceNamePref, viewed?.name)
-                editor.putString(playlistSortFieldPref, playlistSortField.name)
-                editor.putBoolean(playlistSortDescPref, playlistSortDescending)
-                if (backup != null) {
-                    editor.putString(defaultPlaylistCacheKeyPref, encodePlaylist(backup))
-                } else {
-                    editor.remove(defaultPlaylistCacheKeyPref)
+                context.getSharedPreferences(playlistCachePreferences, Context.MODE_PRIVATE).edit(commit = true) {
+                    putString(playlistCacheKey, encodePlaylist(playlist))
+                    putString(playlistSourceKeyPref, source?.key)
+                    putString(playlistSourceNamePref, source?.name)
+                    putBoolean(viewedFollowsQueuePref, followsQueue)
+                    putString(viewedSourceKeyPref, viewed?.key)
+                    putString(viewedSourceNamePref, viewed?.name)
+                    putString(playlistSortFieldPref, playlistSortField.name)
+                    putBoolean(playlistSortDescPref, playlistSortDescending)
+                    if (backup != null) {
+                        putString(defaultPlaylistCacheKeyPref, encodePlaylist(backup))
+                    } else {
+                        remove(defaultPlaylistCacheKeyPref)
+                    }
                 }
-                // 同步写盘：播放列表缓存为用户关键数据，apply 异步落盘存在进程被杀丢失窗口
-                editor.commit()
             }
         }
     }
@@ -1030,9 +1031,9 @@ class MusicPlaybackState(
         val context = appContext ?: return
         playbackScope.launch(Dispatchers.IO) {
             context.getSharedPreferences(searchHistoryPreferences, Context.MODE_PRIVATE)
-                .edit()
-                .putString(searchHistoryKey, searchHistory.joinToString("\n"))
-                .commit()
+                .edit(commit = true) {
+                    putString(searchHistoryKey, searchHistory.joinToString("\n"))
+                }
         }
     }
 
@@ -1298,9 +1299,9 @@ class MusicPlaybackState(
                     .put("coverGradientEdge", gradient?.first?.toArgb() ?: 0)
                     .put("coverGradientDeep", gradient?.second?.toArgb() ?: 0)
                 context.getSharedPreferences(bootMirrorPreferences, Context.MODE_PRIVATE)
-                    .edit()
-                    .putString(bootMirrorKey, snapshot.toString())
-                    .commit()
+                    .edit(commit = true) {
+                        putString(bootMirrorKey, snapshot.toString())
+                    }
             }.onFailure {
                 CrashLogManager.logException("MusicPlaybackState", "写入播放启动镜像失败", it)
             }

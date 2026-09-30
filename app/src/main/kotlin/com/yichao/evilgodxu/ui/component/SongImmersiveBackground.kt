@@ -30,6 +30,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
+import androidx.core.graphics.createBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yichao.evilgodxu.data.music.metadata.extractCoverGradient
 import com.yichao.evilgodxu.data.music.model.MusicTrack
@@ -228,7 +229,7 @@ internal fun renderCoverBackgroundFrame(
 ): Bitmap {
     val width = (viewportWidth / COVER_BACKGROUND_DOWNSAMPLE).coerceAtLeast(1)
     val height = (viewportHeight / COVER_BACKGROUND_DOWNSAMPLE).coerceAtLeast(1)
-    val frame = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val frame = createBitmap(width, height)
     val canvas = Canvas(frame)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         isFilterBitmap = true
@@ -317,7 +318,7 @@ private fun blurCoverBackgroundFrame(source: Bitmap, radius: Int): Bitmap {
         }
     }
 
-    val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val result = createBitmap(width, height)
     result.setPixels(pixels, 0, width, 0, 0, width, height)
     // 待模糊的中间帧只在本函数内使用：流动期间每帧都会新建，及时回收避免遗留图片垃圾
     source.recycle()

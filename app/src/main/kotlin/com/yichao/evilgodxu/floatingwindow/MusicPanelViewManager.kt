@@ -14,6 +14,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.compose.ui.platform.ComposeView
+import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -301,7 +302,7 @@ class MusicPanelViewManager(
                 initialization?.await()
                 if (pendingExternalUri != uri) return@withLock
                 val track = MusicScanner.fromUri(context, uri) ?: return@withLock
-                val targetUri = Uri.parse(track.audioUri).normalizeScheme()
+                val targetUri = track.audioUri.toUri().normalizeScheme()
                 val targetPath = resolveAudioPath(targetUri)
                 val targetIndex = withContext(Dispatchers.Main) {
                     val existingIndex = playbackState.playlist.indexOfFirst {

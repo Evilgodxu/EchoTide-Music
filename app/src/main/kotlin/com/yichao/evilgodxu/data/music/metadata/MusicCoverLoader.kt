@@ -2,7 +2,7 @@ package com.yichao.evilgodxu.data.music.metadata
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.net.Uri
+import androidx.core.net.toUri
 import android.util.Size
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import kotlinx.coroutines.Dispatchers
@@ -21,7 +21,7 @@ internal object MusicCoverLoader {
         if (track.isMediaStoreIndexed) {
             // 索引曲目取系统媒体库维护的略缩图（扫描时生成、音频内嵌封面被重写后随媒体扫描重建）
             val thumbnail = SystemThumbnailCache.get(track.audioUri, sizePx) ?: runCatching {
-                context.contentResolver.loadThumbnail(Uri.parse(track.audioUri), Size(sizePx, sizePx), null)
+                context.contentResolver.loadThumbnail(track.audioUri.toUri(), Size(sizePx, sizePx), null)
             }.getOrNull()?.also { SystemThumbnailCache.put(track.audioUri, sizePx, it) }
             if (thumbnail != null) return@withContext thumbnail
             // 略缩图缺席的索引曲目：平台提取器读不到内嵌封面的容器（WAV/AIFF/DSF/DFF/APE）仍有

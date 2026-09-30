@@ -7,6 +7,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import androidx.core.net.toUri
 import com.yichao.evilgodxu.data.music.api.stableIdFromString
 import com.yichao.evilgodxu.data.music.metadata.MusicEmbeddedTagReader
 import com.yichao.evilgodxu.data.music.model.MusicTrack
@@ -179,7 +180,7 @@ private fun isNonMusicPath(path: String): Boolean =
 // 同一文件可能以 MediaStore 行、SAF 文档 URI、直路文件路径等多种形态出现
 internal fun resolveLocalPath(context: Context, audioUri: String): String? {
     if (audioUri.isBlank()) return null
-    val uri = Uri.parse(audioUri)
+    val uri = audioUri.toUri()
     if (uri.scheme == ContentResolver.SCHEME_FILE) return uri.path
     if (uri.scheme != ContentResolver.SCHEME_CONTENT) return null
     if (uri.authority == "com.android.externalstorage.documents") {
@@ -211,7 +212,7 @@ internal fun resolveLocalPath(context: Context, audioUri: String): String? {
 
 // 归一化音频 URI：统一 scheme 大小写并去除查询参数/片段，作为兜底去重键
 internal fun normalizedAudioUri(audioUri: String): String =
-    Uri.parse(audioUri)
+    audioUri.toUri()
         .normalizeScheme()
         .buildUpon()
         .clearQuery()
