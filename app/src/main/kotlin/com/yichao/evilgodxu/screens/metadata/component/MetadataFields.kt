@@ -1,7 +1,6 @@
 package com.yichao.evilgodxu.screens.metadata.component
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -9,7 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -19,7 +17,6 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.screens.metadata.MetadataEditTarget
-import java.util.Locale
 
 // 原文与翻译的字号层级：翻译行更小，从视觉上从属于原文行
 private val LYRIC_ORIGINAL_FONT_SIZE = 15.sp
@@ -29,7 +26,10 @@ private val LYRIC_TRANSLATION_FONT_SIZE = 13.sp
 private const val LYRIC_RAW_MAX_LINES = 4
 
 // 无翻译时的空白行仍保留可点击高度，点击即进入「添加翻译」
-private val LYRIC_TRANSLATION_MIN_HEIGHT = 22.dp
+private val LYRIC_TRANSLATION_MIN_HEIGHT = 30.dp
+
+// 同一行歌词的原文行与翻译行紧邻，行与行之间留出更大间隔以形成分组
+private val LYRIC_GROUP_GAP = 6.dp
 
 /**
  * 歌词分组：每行歌词由「原文行 + 翻译行」两条独立条目组成，各自进入编辑态。
@@ -64,87 +64,74 @@ internal fun LyricsSection(
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 },
-                modifier = Modifier.padding(horizontal = ENTRY_HORIZONTAL_PADDING, vertical = 14.dp),
+                modifier = Modifier.padding(start = ROW_HORIZONTAL_PADDING, top = 4.dp, bottom = 4.dp),
             )
             return@MetadataSection
         }
         LyricLineCount(lines.size)
         lines.forEachIndexed { index, line ->
-            LyricLineEntry(
-                line = line,
-                editingRaw = editing == MetadataEditTarget.LyricLineAt(index),
-                rawDraft = lyricLineDraft.orEmpty(),
-                editingTranslation = editing == MetadataEditTarget.LyricTranslationAt(index),
-                enabled = enabled,
-                onRawChange = onRawChange,
-                onTranslationChange = { onTranslationChange(index, it) },
-                onStartRawEdit = { onStartEdit(MetadataEditTarget.LyricLineAt(index)) },
-                onStartTranslationEdit = { onStartEdit(MetadataEditTarget.LyricTranslationAt(index)) },
-                onEditDone = onEditDone,
-                showDivider = index != lines.lastIndex,
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = if (index == 0) 0.dp else LYRIC_GROUP_GAP),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (editing == MetadataEditTarget.LyricLineAt(index)) {
+                    EntryTextField(
+                        value = lyricLineDraft.orEmpty(),
+                        enabled = enabled,
+                        singleLine = false,
+                        placeholder = "",
+                        onValueChange = onRawChange,
+                        onEditDone = onEditDone,
+                        fontSize = LYRIC_ORIGINAL_FONT_SIZE,
+                        maxLines = LYRIC_RAW_MAX_LINES,
+                    )
+                } else {
+                    LyricOriginalRow(
+                        text = line.text,
+                        enabled = enabled,
+                        onClick = { onStartEdit(MetadataEditTarget.LyricLineAt(index)) },
+                    )
+                }
+                if (editing == MetadataEditTarget.LyricTranslationAt(index)) {
+                    EntryTextField(
+                        value = line.translation.orEmpty(),
+                        enabled = enabled,
+                        singleLine = true,
+                        placeholder = stringResource(R.string.metadata_lyrics_translation_hint),
+                        onValueChange = { onTranslationChange(index, it) },
+                        onEditDone = onEditDone,
+                        fontSize = LYRIC_TRANSLATION_FONT_SIZE,
+                    )
+                } else {
+                    LyricTranslationRow(
+                        translation = line.translation,
+                        enabled = enabled,
+                        onClick = { onStartEdit(MetadataEditTarget.LyricTranslationAt(index)) },
+                    )
+                }
+            }
         }
     }
 }
 
-/**
- * 单行歌词条目：上方原文行，下方翻译行。
- *
- * 原文行展示态显示时间戳 + 文本，编辑态换成完整增强 LRC；
- * 翻译行始终占位（无翻译时是空白行），点击进入编辑视为添加，留空提交即清除。
- */
+// 原文行展示：只呈现歌词文本，时间戳只在进入编辑态后的原始文本里出现
 @Composable
-private fun LyricLineEntry(
-    line: LyricLine,
-    editingRaw: Boolean,
-    rawDraft: String,
-    editingTranslation: Boolean,
+private fun LyricOriginalRow(
+    text: String,
     enabled: Boolean,
-    onRawChange: (String) -> Unit,
-    onTranslationChange: (String) -> Unit,
-    onStartRawEdit: () -> Unit,
-    onStartTranslationEdit: () -> Unit,
-    onEditDone: () -> Unit,
-    showDivider: Boolean,
+    onClick: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        if (editingRaw) {
-            EntryTextField(
-                value = rawDraft,
-                enabled = enabled,
-                singleLine = false,
-                placeholder = "",
-                onValueChange = onRawChange,
-                onEditDone = onEditDone,
-                fontSize = LYRIC_ORIGINAL_FONT_SIZE,
-                maxLines = LYRIC_RAW_MAX_LINES,
-            )
-        } else {
-            EntryDisplayRow(
-                label = formatTimestamp(line.timeMs),
-                value = line.text,
-                enabled = enabled,
-                onClick = onStartRawEdit,
-            )
-        }
-        if (editingTranslation) {
-            EntryTextField(
-                value = line.translation.orEmpty(),
-                enabled = enabled,
-                singleLine = true,
-                placeholder = stringResource(R.string.metadata_lyrics_translation_hint),
-                onValueChange = onTranslationChange,
-                onEditDone = onEditDone,
-                fontSize = LYRIC_TRANSLATION_FONT_SIZE,
-            )
-        } else {
-            LyricTranslationRow(
-                translation = line.translation,
-                enabled = enabled,
-                onClick = onStartTranslationEdit,
-            )
-        }
-        if (showDivider) EntryDivider()
+    MetadataRowContainer(enabled = enabled, onClick = onClick) {
+        Text(
+            text = text,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = LYRIC_ORIGINAL_FONT_SIZE,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -155,24 +142,19 @@ private fun LyricTranslationRow(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = ENTRY_HORIZONTAL_PADDING)
-            .padding(bottom = 10.dp)
-            .heightIn(min = LYRIC_TRANSLATION_MIN_HEIGHT),
-        contentAlignment = Alignment.CenterStart,
+    MetadataRowContainer(
+        modifier = Modifier.heightIn(min = LYRIC_TRANSLATION_MIN_HEIGHT),
+        enabled = enabled,
+        onClick = onClick,
     ) {
-        if (!translation.isNullOrBlank()) {
-            Text(
-                text = translation,
-                fontSize = LYRIC_TRANSLATION_FONT_SIZE,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Text(
+            text = translation.orEmpty(),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = LYRIC_TRANSLATION_FONT_SIZE,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -183,18 +165,6 @@ private fun LyricLineCount(count: Int) {
         text = pluralStringResource(R.plurals.metadata_lyrics_line_count, count, count),
         fontSize = 12.sp,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = ENTRY_HORIZONTAL_PADDING, top = 12.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = ROW_HORIZONTAL_PADDING),
     )
-}
-
-// 时间戳展示：[mm:ss.xxx]，与 LRC 文本中的写法一致，便于用户核对行位置。
-// 显式指定 Locale.ROOT：按默认区域格式化会在部分区域产出非 ASCII 数字，与 LRC 时间戳对不上
-private fun formatTimestamp(ms: Long): String {
-    val safe = ms.coerceAtLeast(0)
-    val minutes = safe / 60_000
-    val seconds = safe % 60_000 / 1000
-    val millis = safe % 1000
-    return String.format(Locale.ROOT, "[%02d:%02d.%03d]", minutes, seconds, millis)
 }
