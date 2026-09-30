@@ -53,9 +53,9 @@ private val ENTRY_FIELD_CONTENT_PADDING = 10.dp
 // 值文本默认字号：编辑态与展示态保持一致
 private val ENTRY_VALUE_FONT_SIZE = 15.sp
 
-// 行的弱化圆角底色：与音频信息弹窗一致，用淡色块区分单行而不引入外层大卡片
+// 行/块的圆角底色：用容器的 surfaceVariant 原色区分单行而不引入外层大卡片。
+// 不叠加透明度——叠加后浅色主题下只剩极淡的一层，行与页面背景几乎分辨不出
 private val ROW_SHAPE = RoundedCornerShape(10.dp)
-private const val ROW_BACKGROUND_ALPHA = 0.45f
 
 /**
  * 表单分组：小标题 + 字段行，不套外层卡片。
@@ -97,7 +97,7 @@ internal fun MetadataRowContainer(
 ) {
     val base = modifier
         .fillMaxWidth()
-        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = ROW_BACKGROUND_ALPHA), ROW_SHAPE)
+        .background(MaterialTheme.colorScheme.surfaceVariant, ROW_SHAPE)
     val interactive = if (onClick != null) base.clickable(enabled = enabled, onClick = onClick) else base
     Row(
         modifier = interactive.padding(horizontal = ROW_HORIZONTAL_PADDING, vertical = 8.dp),
@@ -118,7 +118,7 @@ internal fun MetadataBlockContainer(
 ) {
     val base = modifier
         .fillMaxWidth()
-        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = ROW_BACKGROUND_ALPHA), ROW_SHAPE)
+        .background(MaterialTheme.colorScheme.surfaceVariant, ROW_SHAPE)
     val interactive = if (onClick != null) base.clickable(enabled = enabled, onClick = onClick) else base
     Column(
         modifier = interactive.padding(horizontal = ROW_HORIZONTAL_PADDING, vertical = 10.dp),

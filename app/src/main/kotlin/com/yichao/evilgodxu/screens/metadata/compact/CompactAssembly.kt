@@ -14,9 +14,8 @@ import com.yichao.evilgodxu.screens.metadata.MetadataUiState
 import com.yichao.evilgodxu.screens.metadata.component.MetadataForm
 import com.yichao.evilgodxu.ui.component.PageTopBar
 
-// 窄屏下内容左右与底缘留白
+// 窄屏下内容左右留白
 private val COMPACT_HORIZONTAL_PADDING = 16.dp
-private val COMPACT_BOTTOM_PADDING = 8.dp
 
 // 窄屏组装器：常驻标题栏 + 纵向滚动的元数据表单
 @Composable
@@ -57,8 +56,9 @@ internal fun CompactAssembly(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = COMPACT_HORIZONTAL_PADDING, vertical = 0.dp)
-                .padding(bottom = COMPACT_BOTTOM_PADDING),
+                // 只留左右白边，底缘不留固定内边距：它在滚动容器之外，键盘弹出时会变成
+                // 键盘上沿一条不随内容滚动的页面底色空隙
+                .padding(horizontal = COMPACT_HORIZONTAL_PADDING),
         )
     }
 }

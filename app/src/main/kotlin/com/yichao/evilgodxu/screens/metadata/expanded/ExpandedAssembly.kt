@@ -14,7 +14,7 @@ import com.yichao.evilgodxu.screens.metadata.MetadataUiState
 import com.yichao.evilgodxu.screens.metadata.component.MetadataForm
 import com.yichao.evilgodxu.ui.component.PageTopBar
 
-// 宽屏下内容左右与底部留白：可视区充裕，让表单与屏幕边缘分离
+// 宽屏下内容左右留白：可视区充裕，让表单与屏幕边缘分离
 private val EXPANDED_CONTENT_PADDING = 12.dp
 
 // 宽屏组装器：常驻标题栏 + 留白内的纵向表单
@@ -56,11 +56,9 @@ internal fun ExpandedAssembly(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(
-                    start = EXPANDED_CONTENT_PADDING,
-                    end = EXPANDED_CONTENT_PADDING,
-                    bottom = EXPANDED_CONTENT_PADDING,
-                ),
+                // 只留左右白边，底缘不留固定内边距：它在滚动容器之外，键盘弹出时会变成
+                // 键盘上沿一条不随内容滚动的页面底色空隙
+                .padding(horizontal = EXPANDED_CONTENT_PADDING),
         )
     }
 }
