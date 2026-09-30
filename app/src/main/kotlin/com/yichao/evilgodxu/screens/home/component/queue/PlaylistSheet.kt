@@ -13,8 +13,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,7 +48,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -64,11 +61,9 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.yichao.evilgodxu.data.music.clip.RingtoneUsage
 import com.yichao.evilgodxu.data.music.clip.shareTrack
 import com.yichao.evilgodxu.data.music.model.MusicTrack
@@ -85,7 +80,9 @@ import com.yichao.evilgodxu.data.playlist.isViewSourceValid
 import com.yichao.evilgodxu.data.playlist.resolveSourceTracks
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
+import com.yichao.evilgodxu.ui.component.AppDialog
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
+import com.yichao.evilgodxu.ui.component.DialogOption
 import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
 import com.yichao.evilgodxu.ui.component.player.PlaylistRow
 import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
@@ -679,81 +676,39 @@ private fun PlaylistSortDialog(
     onDismiss: () -> Unit,
 ) {
     if (!visible) return
-    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     // 方向本地态：点击标题右侧文案即时切换生效但不关闭对话框，便于连续调整字段与方向
     var reverse by remember(visible) { mutableStateOf(descending) }
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.36f)
-                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(20.dp))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-        ) {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = stringResource(R.string.music_panel_sort_title),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                // 标题右侧小字：文案为可切换到的目标方向（当前正序显示「逆序」）
-                Text(
-                    text = stringResource(
-                        if (reverse) R.string.music_panel_sort_ascending
-                        else R.string.music_panel_sort_descending
-                    ),
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 13.sp,
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable {
-                            reverse = !reverse
-                            onApply(currentField, reverse)
-                        }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Column(
+    AppDialog(
+        onDismiss = onDismiss,
+        title = stringResource(R.string.music_panel_sort_title),
+        // 标题右侧小字：文案为可切换到的目标方向（当前正序显示「逆序」）
+        trailing = {
+            Text(
+                text = stringResource(
+                    if (reverse) R.string.music_panel_sort_ascending
+                    else R.string.music_panel_sort_descending
+                ),
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 13.sp,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                PlaylistSortField.entries.forEach { field ->
-                    val isSelected = currentField == field
-                    Text(
-                        text = stringResource(sortFieldLabelRes(field)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 4.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                when {
-                                    isSelected && isDarkTheme -> MaterialTheme.colorScheme.primaryContainer
-                                    isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                    else -> MaterialTheme.colorScheme.surface
-                                }
-                            )
-                            .clickable {
-                                onApply(field, reverse)
-                                onDismiss()
-                            }
-                            .padding(vertical = 14.dp),
-                        textAlign = TextAlign.Center,
-                        color = when {
-                            isSelected && isDarkTheme -> MaterialTheme.colorScheme.onPrimaryContainer
-                            isSelected -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.onSurface
-                        },
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                    )
-                }
-            }
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable {
+                        reverse = !reverse
+                        onApply(currentField, reverse)
+                    }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        },
+    ) {
+        PlaylistSortField.entries.forEach { field ->
+            DialogOption(
+                label = stringResource(sortFieldLabelRes(field)),
+                selected = currentField == field,
+                onClick = {
+                    onApply(field, reverse)
+                    onDismiss()
+                },
+            )
         }
     }
 }

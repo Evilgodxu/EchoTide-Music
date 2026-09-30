@@ -5,10 +5,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,7 +35,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.playlist.PlaylistGroup
@@ -49,6 +47,8 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PlaylistSource
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
+import com.yichao.evilgodxu.ui.component.AppDialog
+import com.yichao.evilgodxu.ui.component.DIALOG_CONTENT_MAX_HEIGHT
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 
@@ -66,69 +66,37 @@ internal fun PlaylistSwitcher(
     val playlistStore = LocalPlaylistStore.current
     var showGroups by remember { mutableStateOf<SmartPlaylistType?>(null) }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.36f)
-                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(20.dp))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (showGroups != null) {
-                    IconButton(onClick = { showGroups = null }) {
-                        Icon(
-                            imageVector = AppIcons.ArrowBack,
-                            contentDescription = stringResource(R.string.back),
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                }
-                Text(
-                    text = if (showGroups == null) stringResource(R.string.playlist_switch_title)
-                    else smartTypeLabel(showGroups!!),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = AppIcons.Close,
-                        contentDescription = stringResource(R.string.back),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            val type = showGroups
-            if (type == null) {
-                PlaylistSwitchList(
-                    playlistStore = playlistStore,
-                    playbackState = playbackState,
-                    currentKey = currentKey,
-                    onSwitch = { source ->
-                        onSwitch(source)
-                        onDismiss()
-                    },
-                    onOpenGroups = { showGroups = it },
-                )
-            } else {
-                PlaylistSwitchGroups(
-                    type = type,
-                    playbackState = playbackState,
-                    currentKey = currentKey,
-                    onSwitch = { source ->
-                        onSwitch(source)
-                        onDismiss()
-                    },
-                )
-            }
+    val type = showGroups
+    AppDialog(
+        onDismiss = onDismiss,
+        title = if (type == null) stringResource(R.string.playlist_switch_title)
+        else smartTypeLabel(type),
+        onBack = if (type != null) ({ showGroups = null }) else null,
+        onClose = onDismiss,
+        // 列表自带 LazyColumn 滚动，不能与外壳滚动嵌套
+        scrollable = false,
+    ) {
+        if (type == null) {
+            PlaylistSwitchList(
+                playlistStore = playlistStore,
+                playbackState = playbackState,
+                currentKey = currentKey,
+                onSwitch = { source ->
+                    onSwitch(source)
+                    onDismiss()
+                },
+                onOpenGroups = { showGroups = it },
+            )
+        } else {
+            PlaylistSwitchGroups(
+                type = type,
+                playbackState = playbackState,
+                currentKey = currentKey,
+                onSwitch = { source ->
+                    onSwitch(source)
+                    onDismiss()
+                },
+            )
         }
     }
 }
@@ -148,7 +116,9 @@ private fun PlaylistSwitchList(
     val recentLabel = stringResource(R.string.playlist_smart_recent)
     val favoriteLabel = stringResource(R.string.playlist_smart_favorite)
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = DIALOG_CONTENT_MAX_HEIGHT),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         item {
@@ -259,7 +229,9 @@ private fun PlaylistSwitchGroups(
     val libraryById = remember(library) { library.associateBy { it.id } }
     val icon: ImageVector = if (type == SmartPlaylistType.ALBUM) AppIcons.Album else AppIcons.Person
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = DIALOG_CONTENT_MAX_HEIGHT),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         items(groups, key = { it.key }) { group ->

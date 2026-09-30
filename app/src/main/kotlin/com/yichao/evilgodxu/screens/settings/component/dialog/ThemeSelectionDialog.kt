@@ -1,25 +1,11 @@
 package com.yichao.evilgodxu.screens.settings.component.dialog
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import com.yichao.evilgodxu.data.settings.ThemeMode
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.data.settings.ThemeMode
+import com.yichao.evilgodxu.ui.component.AppDialog
+import com.yichao.evilgodxu.ui.component.DialogOption
 
 @Composable
 fun ThemeSelectionDialog(
@@ -27,54 +13,23 @@ fun ThemeSelectionDialog(
     onDismiss: () -> Unit,
     onThemeSelected: (ThemeMode) -> Unit,
 ) {
-    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                stringResource(R.string.settings_theme_dialog_title),
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
+    AppDialog(
+        onDismiss = onDismiss,
+        title = stringResource(R.string.settings_theme_dialog_title),
+    ) {
+        ThemeMode.entries.forEach { themeMode ->
+            DialogOption(
+                label = stringResource(themeLabelRes(themeMode)),
+                selected = currentTheme == themeMode,
+                onClick = { onThemeSelected(themeMode) },
             )
-        },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                ThemeMode.entries.forEach { themeMode ->
-                    val isSelected = currentTheme == themeMode
-                    Text(
-                        text = when (themeMode) {
-                            ThemeMode.SYSTEM -> stringResource(R.string.theme_system)
-                            ThemeMode.DARK -> stringResource(R.string.theme_dark)
-                            ThemeMode.LIGHT -> stringResource(R.string.theme_light)
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 4.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                when {
-                                    isSelected && isDarkTheme -> MaterialTheme.colorScheme.primaryContainer
-                                    isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                    else -> MaterialTheme.colorScheme.surface
-                                }
-                            )
-                            .clickable { onThemeSelected(themeMode) }
-                            .padding(vertical = 14.dp),
-                        textAlign = TextAlign.Center,
-                        color = when {
-                            isSelected && isDarkTheme -> MaterialTheme.colorScheme.onPrimaryContainer
-                            isSelected -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.onSurface
-                        },
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                    )
-                }
-            }
-        },
-        confirmButton = {}
-    )
+        }
+    }
+}
+
+// 主题模式对应的展示文案
+private fun themeLabelRes(themeMode: ThemeMode): Int = when (themeMode) {
+    ThemeMode.SYSTEM -> R.string.theme_system
+    ThemeMode.DARK -> R.string.theme_dark
+    ThemeMode.LIGHT -> R.string.theme_light
 }

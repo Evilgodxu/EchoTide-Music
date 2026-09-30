@@ -28,7 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -71,7 +70,9 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaylistRefresher
 import com.yichao.evilgodxu.ui.icons.AppIcons
-import com.yichao.evilgodxu.ui.component.QualityOptionCard
+import com.yichao.evilgodxu.ui.component.AppDialog
+import com.yichao.evilgodxu.ui.component.DialogOption
+import com.yichao.evilgodxu.ui.component.qualityLabelRes
 import com.yichao.evilgodxu.ui.component.rememberOnlinePlatformOptions
 import com.yichao.evilgodxu.ui.component.dialog.SearchResultsLazyList
 import kotlinx.coroutines.CoroutineScope
@@ -511,92 +512,74 @@ private fun SearchQualityDialog(
     val track = playbackState.qualityPickTrack ?: return
     val metadataEnricher = LocalMetadataEnricher.current
     val playlistRefresher = LocalPlaylistRefresher.current
-    AlertDialog(
-        onDismissRequest = {
-            if (!playbackState.qualityBusy) {
-                playbackState.qualityPickTrack = null
-                playbackState.qualityError = null
-            }
-        },
-        title = {
-            Text(
-                text = stringResource(R.string.music_panel_quality_title),
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center,
+    // 尝试进行中不响应收起，避免归还对话框后解析回调丢失宿主
+    val dismiss = {
+        if (!playbackState.qualityBusy) {
+            playbackState.qualityPickTrack = null
+            playbackState.qualityError = null
+        }
+    }
+    AppDialog(
+        onDismiss = dismiss,
+        title = stringResource(R.string.music_panel_quality_title),
+    ) {
+        // 待播歌曲信息
+        Text(
+            text = listOf(track.title, track.artist)
+                .filter { it.isNotBlank() }
+                .joinToString(" - "),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        // 音质档位卡片：尝试中整体禁用，防止并发重复尝试；仅列用户可选档位
+        MusicQuality.entries.filter { it.userSelectable }.forEach { quality ->
+            DialogOption(
+                label = stringResource(qualityLabelRes(quality)),
+                enabled = !playbackState.qualityBusy,
+                onClick = {
+                    scope.launch {
+                        playbackState.qualityBusy = true
+                        playbackState.qualityError = null
+                        val started = playSearchResultWithQuality(
+                            track, quality, playbackState, context,
+                            metadataEnricher, playlistRefresher,
+                        )
+                        // URL 解析失败直接提示；解析成功后保持忙碌态等待播放器就绪/失败回调结算
+                        if (!started) {
+                            playbackState.qualityBusy = false
+                            playbackState.qualityError = context.getString(R.string.music_panel_quality_failed)
+                        }
+                    }
+                },
             )
-        },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                // 待播歌曲信息
-                Text(
-                    text = listOf(track.title, track.artist)
-                        .filter { it.isNotBlank() }
-                        .joinToString(" - "),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-                // 音质档位卡片：尝试中整体禁用，防止并发重复尝试；仅列用户可选档位
-                MusicQuality.entries.filter { it.userSelectable }.forEach { quality ->
-                    QualityOptionCard(
-                        label = stringResource(
-                            when (quality) {
-                                MusicQuality.HI_RES,
-                                MusicQuality.LOSSLESS -> R.string.music_quality_lossless
-                                MusicQuality.HIGH -> R.string.music_quality_high
-                                MusicQuality.STANDARD -> R.string.music_quality_standard
-                            }
-                        ),
-                        enabled = !playbackState.qualityBusy,
-                        onClick = {
-                            scope.launch {
-                                playbackState.qualityBusy = true
-                                playbackState.qualityError = null
-                                val started = playSearchResultWithQuality(
-                                    track, quality, playbackState, context,
-                                    metadataEnricher, playlistRefresher,
-                                )
-                                // URL 解析失败直接提示；解析成功后保持忙碌态等待播放器就绪/失败回调结算
-                                if (!started) {
-                                    playbackState.qualityBusy = false
-                                    playbackState.qualityError = context.getString(R.string.music_panel_quality_failed)
-                                }
-                            }
-                        },
-                    )
-                }
-                // 尝试中加载指示
-                if (playbackState.qualityBusy) {
-                    CircularProgressIndicator(
-                        modifier = Modifier
-                            .padding(top = 8.dp)
-                            .size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                // 最近一次音质尝试失败提示
-                if (playbackState.qualityError != null) {
-                    Text(
-                        text = playbackState.qualityError.orEmpty(),
-                        color = MaterialTheme.colorScheme.error,
-                        fontSize = 12.sp,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                    )
-                }
-            }
-        },
-        confirmButton = {},
-    )
+        }
+        // 尝试中加载指示
+        if (playbackState.qualityBusy) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .size(20.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        // 最近一次音质尝试失败提示
+        if (playbackState.qualityError != null) {
+            Text(
+                text = playbackState.qualityError.orEmpty(),
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+            )
+        }
+    }
 }
 
 
