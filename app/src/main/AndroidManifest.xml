@@ -10,8 +10,11 @@
         tools:ignore="ScopedStorage" />
     <!-- 音乐访问：读取本地音乐文件 -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-    <!-- 读取本地封面候选图片 -->
+    <!-- 读取本地封面候选图片：仅从最近图片里挑一张作为封面。
+         Android 14 起用户可只授权部分图片，须一并声明该细分权限，
+         否则用户选择「仅选中的照片」后应用读不到任何候选图 -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <!-- 蓝牙音频设备：读取已连接设备的远端名称（Android 12+ 为运行时权限） -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 

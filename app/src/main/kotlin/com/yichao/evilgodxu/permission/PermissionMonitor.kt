@@ -48,7 +48,11 @@ class PermissionMonitor(private val context: Context) {
         context.checkSelfPermission(mediaAudioPermission()) == PackageManager.PERMISSION_GRANTED
 
     fun isMediaImageGranted(): Boolean =
-        context.checkSelfPermission(mediaImagePermission()) == PackageManager.PERMISSION_GRANTED
+        context.checkSelfPermission(mediaImagePermission()) == PackageManager.PERMISSION_GRANTED ||
+            // Android 14 起用户可只授权「选中的照片」：此时完整权限为拒绝态，
+            // 但查询仍能返回用户选中的图片，足以挑选封面，故同样视为已授权
+            context.checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) ==
+            PackageManager.PERMISSION_GRANTED
 
     fun isBluetoothConnectGranted(): Boolean =
         context.checkSelfPermission(bluetoothConnectPermission()) == PackageManager.PERMISSION_GRANTED
