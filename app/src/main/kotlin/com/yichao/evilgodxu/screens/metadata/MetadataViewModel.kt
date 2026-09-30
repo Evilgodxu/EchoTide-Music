@@ -35,22 +35,40 @@ class MetadataViewModel(
     private var coverChanged = false
 
     init {
+        // 首次读取兜底：页面进入时还会再调一次 reload，正常情况下此处的结果随即被覆盖；
+        // 保留它是为了让 ViewModel 单独构造（预览、测试）时也有完整状态
+        reload()
+    }
+
+    /**
+     * 重新读取表单内容，每次进入页面都调用一次。
+     *
+     * ViewModel 按曲目缓存复用于同一次导航会话，只靠 init 会在二次进入时展示上次的旧快照 ——
+     * 用户在别处（在线刷新歌词、改名等）改动过曲目后回到本页，看到的必须是磁盘上的当前值。
+     * 读取期间置 loading，避免旧内容与新内容在界面上交叠。
+     *
+     * 幂等：清空编辑中间态后重新读盘，连续调用只会以最后一次的结果落地
+     */
+    fun reload() {
         val target = findTrack()
         if (target == null || !target.isLocalAudioSource) {
             // 无本地音频文件的曲目（纯在线流）没有可写的标签目标，表单不可编辑
             _uiState.update { it.copy(loading = false, editable = false) }
-        } else {
-            _uiState.update {
-                it.copy(fileName = trackFileName(target), durationMs = target.duration)
-            }
-            loadTags(target)
+            return
         }
+        // 曲目引用可能已被上一轮保存整体替换，快照与待写入状态一并按当前曲目重置
+        resetEditingState()
+        // 歌词折叠回默认态：上次离开时展开与否不应影响本次进入的首屏布局
+        _uiState.update { it.copy(loading = true, editable = true, message = null, lyricsExpanded = false) }
+        loadTags(target)
     }
 
-    // 文件名：本地路径取末段，content URI 曲目取 URI 末段；两者都是曲目在设备上的实际标识
-    private fun trackFileName(target: MusicTrack): String =
-        target.path.takeIf { it.isNotBlank() }?.substringAfterLast('/')
-            ?: target.audioUri.substringAfterLast('/')
+    // 把编辑中间态清回初始值：重新读取后此前未提交的改动与提示都不再适用
+    private fun resetEditingState() {
+        pendingCover = null
+        coverChanged = false
+        snapshot = MetadataFormSnapshot("", "", "", "")
+    }
 
     // 曲目可能经播放队列或曲库浏览列表进入，两处都查一遍
     private fun findTrack(): MusicTrack? {
@@ -63,12 +81,11 @@ class MetadataViewModel(
         viewModelScope.launch {
             val context = getApplication<Application>()
             val tags = TrackMetadataEditor.read(context, target)
-            // 文件读不出标签时回填曲目内存态：曲目字段来自扫描结果，比空表单更接近真实值
+            // 文本字段：文件读不出标签时回落到曲目内存态（扫描结果比空表单更接近真实值）
             val title = tags?.title ?: target.title
             val artist = tags?.artist ?: target.artist
             val album = tags?.album ?: target.albumName
-            // 内嵌歌词优先；文件未内嵌时回落到曲目已缓存的歌词文本，避免表单空白
-            val lyrics = tags?.lyrics ?: withContext(Dispatchers.IO) { readCachedLyrics(target) }
+            val lyrics = resolveLyrics(target, tags?.lyrics, tags?.lyricsModifiedMs ?: 0L)
             val cover = TrackMetadataEditor.readCover(context, target)
             snapshot = MetadataFormSnapshot(title, artist, album, lyrics)
             _uiState.update {
@@ -85,10 +102,26 @@ class MetadataViewModel(
         }
     }
 
-    // 已缓存的歌词文本：缓存文件按「标题 - 艺术家」命名，内容为增强 LRC
-    private fun readCachedLyrics(target: MusicTrack): String {
-        val path = target.lyricCachePath.takeIf { MusicMetadataCache.isValid(it) } ?: return ""
-        return runCatching { File(path).readText() }.getOrDefault("")
+    /**
+     * 歌词择优：内嵌歌词与缓存文件是同一份歌词的两个副本，并不总在同一次事务里落盘
+     * ——在线刷新先写缓存再内嵌，内嵌失败时缓存是新的、内嵌是旧的。
+     * 因此取二者中修改时间较新的一个；时间不可比（任一侧取不到）时优先内嵌歌词。
+     */
+    private suspend fun resolveLyrics(target: MusicTrack, embedded: String?, embeddedMs: Long): String {
+        val cachePath = target.lyricCachePath.takeIf { MusicMetadataCache.isValid(it) }
+            ?: MusicMetadataCache.findLyrics(getApplication(), target.title, target.artist)
+        val cached = cachePath?.let { path ->
+            withContext(Dispatchers.IO) {
+                runCatching { File(path).readText() }.getOrNull()
+            }?.takeIf { it.isNotBlank() }?.let { it to MusicMetadataCache.lyricsModifiedMs(path) }
+        }
+        return when {
+            embedded.isNullOrBlank() -> cached?.first.orEmpty()
+            cached == null -> embedded
+            // 缓存更新即采用缓存；时间不可比时保持内嵌优先
+            cached.second > embeddedMs && embeddedMs > 0L -> cached.first
+            else -> embedded
+        }
     }
 
     fun onTitleChange(value: String) = _uiState.update { it.copy(title = value, message = null) }
@@ -98,6 +131,9 @@ class MetadataViewModel(
     fun onAlbumChange(value: String) = _uiState.update { it.copy(album = value, message = null) }
 
     fun onLyricsChange(value: String) = _uiState.update { it.copy(lyrics = value, message = null) }
+
+    // 歌词折叠开关：展开状态不参与保存，纯展示态
+    fun onLyricsExpandedChange(expanded: Boolean) = _uiState.update { it.copy(lyricsExpanded = expanded) }
 
     fun onCoverSelected(bytes: ByteArray) {
         pendingCover = bytes

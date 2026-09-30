@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.screens.metadata
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -40,6 +41,10 @@ fun MetadataScreen(
     // 状态栏图标跟随主题：浅色主题深色图标，深色主题白色图标
     StatusBarStyleEffect()
 
+    // 每次进入页面都重读一次标签：ViewModel 会被导航栈缓存复用，只靠 init 会把上次的快照当作当前值。
+    // 以组合是否处于前台为触发条件，从本页离开再回来、或从别处改过曲目后回来都能拿到磁盘上的最新内容
+    LaunchedEffect(Unit) { viewModel.reload() }
+
     // 形态分派：旋转状态与窗口宽度尺寸类共同决定显示内容
     if (rememberExpandedForm()) {
         ExpandedAssembly(
@@ -49,6 +54,7 @@ fun MetadataScreen(
             onArtistChange = viewModel::onArtistChange,
             onAlbumChange = viewModel::onAlbumChange,
             onLyricsChange = viewModel::onLyricsChange,
+            onLyricsExpandedChange = viewModel::onLyricsExpandedChange,
             onCoverSelected = viewModel::onCoverSelected,
             onCoverRemoved = viewModel::onCoverRemoved,
             onSave = viewModel::save,
@@ -62,6 +68,7 @@ fun MetadataScreen(
             onArtistChange = viewModel::onArtistChange,
             onAlbumChange = viewModel::onAlbumChange,
             onLyricsChange = viewModel::onLyricsChange,
+            onLyricsExpandedChange = viewModel::onLyricsExpandedChange,
             onCoverSelected = viewModel::onCoverSelected,
             onCoverRemoved = viewModel::onCoverRemoved,
             onSave = viewModel::save,

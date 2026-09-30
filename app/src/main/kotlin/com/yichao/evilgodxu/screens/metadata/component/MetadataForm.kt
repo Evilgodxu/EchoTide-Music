@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -26,13 +25,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.screens.metadata.MetadataUiState
-import com.yichao.evilgodxu.utils.formatTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-// 歌词输入框最少展示行数：给整篇 LRC 一个可读的初始高度
-private const val LYRICS_MIN_LINES = 6
 
 /**
  * 元数据编辑表单：内嵌封面 + 基本信息 + 歌词 + 保存栏。
@@ -47,6 +42,7 @@ internal fun MetadataForm(
     onArtistChange: (String) -> Unit,
     onAlbumChange: (String) -> Unit,
     onLyricsChange: (String) -> Unit,
+    onLyricsExpandedChange: (Boolean) -> Unit,
     onCoverSelected: (ByteArray) -> Unit,
     onCoverRemoved: () -> Unit,
     onSave: () -> Unit,
@@ -96,13 +92,6 @@ internal fun MetadataForm(
             )
             return@Column
         }
-        // 编辑对象摘要：表单字段取自文件标签，文件名是「正在改哪个文件」的锚点
-        if (uiState.fileName.isNotBlank()) {
-            MetadataTrackSummary(
-                fileName = uiState.fileName,
-                durationText = if (uiState.durationMs > 0) formatTime(uiState.durationMs) else "",
-            )
-        }
         MetadataSection(title = stringResource(R.string.metadata_section_cover)) {
             MetadataCoverEditor(
                 coverBytes = uiState.coverBytes,
@@ -133,17 +122,14 @@ internal fun MetadataForm(
             )
             MetadataFieldHint(stringResource(R.string.metadata_field_hint))
         }
-        MetadataSection(title = stringResource(R.string.metadata_section_lyrics)) {
-            MetadataTextField(
-                label = stringResource(R.string.metadata_field_lyrics),
-                value = uiState.lyrics,
-                onValueChange = onLyricsChange,
-                enabled = !uiState.saving,
-                singleLine = false,
-                minLines = LYRICS_MIN_LINES,
-            )
-            MetadataFieldHint(stringResource(R.string.metadata_field_lyrics_hint))
-        }
+        // 歌词默认折叠：整篇 LRC 可达数百行，展开会把保存入口推到很远处
+        LyricsSection(
+            lyrics = uiState.lyrics,
+            expanded = uiState.lyricsExpanded,
+            enabled = !uiState.saving,
+            onExpandedChange = onLyricsExpandedChange,
+            onLyricsChange = onLyricsChange,
+        )
         Spacer(Modifier.height(16.dp))
         MetadataSaveBar(
             saving = uiState.saving,

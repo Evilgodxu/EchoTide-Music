@@ -1,8 +1,11 @@
 package com.yichao.evilgodxu.data.music.metadata
 
 import android.content.Context
+import android.provider.MediaStore
+import androidx.core.net.toUri
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.log.CrashLogManager
+import java.io.File
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -41,6 +44,14 @@ internal object MusicMetadataEditor {
         val artist: String?,
         val album: String?,
         val lyrics: String?,
+        /**
+         * 内嵌歌词的写入时刻（毫秒），取音频文件的最后修改时间。
+         *
+         * 歌词有「缓存文件」与「文件内嵌」两份副本，两者并非总在同一次事务里落盘
+         * （内嵌写入可能失败），故调用方需要这个时刻与缓存文件的修改时间择优，
+         * 否则会拿旧的内嵌歌词盖掉刚刷新的缓存歌词。无内嵌歌词时为 0
+         */
+        val lyricsModifiedMs: Long = 0L,
     )
 
     /**
@@ -52,8 +63,36 @@ internal object MusicMetadataEditor {
             ?: return null
         val text = readTextTags(context, track, prefix)
         val lyrics = readLyrics(context, track, prefix)
-        return EditableTags(text?.title, text?.artist, text?.album, lyrics)
+        return EditableTags(
+            title = text?.title,
+            artist = text?.artist,
+            album = text?.album,
+            lyrics = lyrics,
+            // 标签写在文件内，内嵌歌词的落盘时刻即文件的修改时间
+            lyricsModifiedMs = if (lyrics != null) modifiedTimeMs(context, track) else 0L,
+        )
     }
+
+    // 音频文件的最后修改时间：本地路径取文件属性，content URI 经解析器查询。
+    // 取不到时返回 0，由调用方按「无法比较」处理
+    private fun modifiedTimeMs(context: Context, track: MusicTrack): Long = runCatching {
+        if (track.path.isNotBlank()) {
+            File(track.path).lastModified()
+        } else {
+            queryLastModified(context, track)
+        }
+    }.getOrDefault(0L)
+
+    // content URI 曲目经 MediaStore 查询修改时间；非媒体库条目查询不到时返回 0
+    private fun queryLastModified(context: Context, track: MusicTrack): Long = runCatching {
+        context.contentResolver.query(
+            track.audioUri.toUri(),
+            arrayOf(MediaStore.MediaColumns.DATE_MODIFIED),
+            null,
+            null,
+            null,
+        )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) * 1000L else 0L } ?: 0L
+    }.getOrDefault(0L)
 
     /**
      * 读取内嵌封面原图字节；无内嵌封面时返回 null。

@@ -303,10 +303,10 @@
     <!-- Metadata editing -->
     <string name="metadata_screen_title">Edit metadata</string>
     <string name="metadata_unavailable">This track has no local audio file, so its metadata cannot be edited</string>
-    <string name="metadata_track_duration">Duration %1$s</string>
     <string name="metadata_section_cover">Cover</string>
     <string name="metadata_cover_title">Embedded cover</string>
     <string name="metadata_cover_empty">No cover</string>
+    <string name="metadata_cover_hint">Tap the image to replace or remove it</string>
     <string name="metadata_cover_pick">Choose image</string>
     <string name="metadata_cover_remove">Remove cover</string>
     <string name="metadata_section_basic">Basic info</string>
@@ -315,6 +315,10 @@
     <string name="metadata_field_album">Album</string>
     <string name="metadata_field_hint">Written to the audio file tags; untouched fields keep their values</string>
     <string name="metadata_section_lyrics">Lyrics</string>
+    <string name="metadata_lyrics_line_count">%1$d lines</string>
+    <string name="metadata_lyrics_empty">No lyrics</string>
+    <string name="metadata_lyrics_expand">Expand lyrics</string>
+    <string name="metadata_lyrics_collapse">Collapse lyrics</string>
     <string name="metadata_field_lyrics">Lyric text</string>
     <string name="metadata_field_lyrics_hint">Enhanced LRC with [mm:ss.xxx] line stamps and per-word stamps</string>
     <string name="metadata_lyrics_invalid">Lyrics cannot be parsed; check the timestamp format</string>

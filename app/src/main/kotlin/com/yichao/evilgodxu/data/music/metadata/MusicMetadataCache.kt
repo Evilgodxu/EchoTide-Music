@@ -186,6 +186,10 @@ internal object MusicMetadataCache {
         return file.absolutePath.takeIf { isValid(it) }
     }
 
+    // 歌词缓存文件的最后修改时间（毫秒）：与音频内嵌歌词择新时用作比较基准，不可用时返回 0
+    fun lyricsModifiedMs(path: String): Long =
+        path.takeIf { isValid(it) }?.let { runCatching { File(it).lastModified() }.getOrDefault(0L) } ?: 0L
+
     fun loadLyrics(path: String): List<LyricLine> = try {
         parseLyricsText(File(path).readText())
     } catch (e: Exception) {
