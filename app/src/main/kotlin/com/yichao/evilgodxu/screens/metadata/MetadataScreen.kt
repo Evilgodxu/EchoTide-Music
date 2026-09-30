@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.screens.metadata
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -45,33 +46,39 @@ fun MetadataScreen(
     // 以组合是否处于前台为触发条件，从本页离开再回来、或从别处改过曲目后回来都能拿到磁盘上的最新内容
     LaunchedEffect(Unit) { viewModel.reload() }
 
+    // 离开页面时立刻落盘尚未到点的改动：自动保存有停顿等待窗口，
+    // 用户在窗口内退出不应丢掉最后一次输入
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.flushPending() }
+    }
+
     // 形态分派：旋转状态与窗口宽度尺寸类共同决定显示内容
     if (rememberExpandedForm()) {
         ExpandedAssembly(
             uiState = uiState,
             onBack = onBack,
+            onEditStart = viewModel::onEditStart,
+            onEditEnd = viewModel::onEditEnd,
             onTitleChange = viewModel::onTitleChange,
             onArtistChange = viewModel::onArtistChange,
             onAlbumChange = viewModel::onAlbumChange,
-            onLyricsChange = viewModel::onLyricsChange,
-            onLyricsExpandedChange = viewModel::onLyricsExpandedChange,
+            onLyricLineChange = viewModel::onLyricLineChange,
             onCoverSelected = viewModel::onCoverSelected,
             onCoverRemoved = viewModel::onCoverRemoved,
-            onSave = viewModel::save,
             modifier = modifier,
         )
     } else {
         CompactAssembly(
             uiState = uiState,
             onBack = onBack,
+            onEditStart = viewModel::onEditStart,
+            onEditEnd = viewModel::onEditEnd,
             onTitleChange = viewModel::onTitleChange,
             onArtistChange = viewModel::onArtistChange,
             onAlbumChange = viewModel::onAlbumChange,
-            onLyricsChange = viewModel::onLyricsChange,
-            onLyricsExpandedChange = viewModel::onLyricsExpandedChange,
+            onLyricLineChange = viewModel::onLyricLineChange,
             onCoverSelected = viewModel::onCoverSelected,
             onCoverRemoved = viewModel::onCoverRemoved,
-            onSave = viewModel::save,
             modifier = modifier,
         )
     }

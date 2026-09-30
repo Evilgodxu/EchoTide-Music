@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -24,28 +25,30 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.screens.metadata.MetadataEditTarget
+import com.yichao.evilgodxu.screens.metadata.MetadataField
 import com.yichao.evilgodxu.screens.metadata.MetadataUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 元数据编辑表单：内嵌封面 + 基本信息 + 歌词 + 保存栏。
+ * 元数据编辑表单：内嵌封面 + 基本信息 + 歌词。
  *
- * 保存入口置于表单末尾（而非标题栏）：改动可能只发生在歌词这类靠下的字段，
- * 把提交按钮固定在顶部会让用户改完仍需回滚到顶部才能保存。
+ * 页面没有保存入口 —— 条目改动在输入停顿后自动写回音频文件，
+ * 用户无需记住「改完要点保存」，也不会因切走页面而丢掉改动。
  */
 @Composable
 internal fun MetadataForm(
     uiState: MetadataUiState,
+    onEditStart: (MetadataEditTarget) -> Unit,
+    onEditEnd: () -> Unit,
     onTitleChange: (String) -> Unit,
     onArtistChange: (String) -> Unit,
     onAlbumChange: (String) -> Unit,
-    onLyricsChange: (String) -> Unit,
-    onLyricsExpandedChange: (Boolean) -> Unit,
+    onLyricLineChange: (Int, String) -> Unit,
     onCoverSelected: (ByteArray) -> Unit,
     onCoverRemoved: () -> Unit,
-    onSave: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -92,51 +95,87 @@ internal fun MetadataForm(
             )
             return@Column
         }
-        MetadataSection(title = stringResource(R.string.metadata_section_cover)) {
-            MetadataCoverEditor(
-                coverBytes = uiState.coverBytes,
-                coverPresent = uiState.coverPresent,
-                enabled = !uiState.saving,
-                onPickCover = { coverLauncher.launch("image/*") },
-                onRemoveCover = onCoverRemoved,
-            )
-        }
-        MetadataSection(title = stringResource(R.string.metadata_section_basic)) {
-            MetadataTextField(
-                label = stringResource(R.string.metadata_field_title),
-                value = uiState.title,
-                onValueChange = onTitleChange,
-                enabled = !uiState.saving,
-            )
-            MetadataTextField(
-                label = stringResource(R.string.metadata_field_artist),
-                value = uiState.artist,
-                onValueChange = onArtistChange,
-                enabled = !uiState.saving,
-            )
-            MetadataTextField(
-                label = stringResource(R.string.metadata_field_album),
-                value = uiState.album,
-                onValueChange = onAlbumChange,
-                enabled = !uiState.saving,
-            )
-            MetadataFieldHint(stringResource(R.string.metadata_field_hint))
-        }
-        // 歌词默认折叠：整篇 LRC 可达数百行，展开会把保存入口推到很远处
-        LyricsSection(
-            lyrics = uiState.lyrics,
-            expanded = uiState.lyricsExpanded,
+        // 封面不套分区卡片：直接展示，卡片背景只会压缩图片可用面积
+        MetadataCoverEditor(
+            coverBytes = uiState.coverBytes,
+            coverPresent = uiState.coverPresent,
             enabled = !uiState.saving,
-            onExpandedChange = onLyricsExpandedChange,
-            onLyricsChange = onLyricsChange,
+            onPickCover = { coverLauncher.launch("image/*") },
+            onRemoveCover = onCoverRemoved,
         )
-        Spacer(Modifier.height(16.dp))
-        MetadataSaveBar(
-            saving = uiState.saving,
+        MetadataFormHint(stringResource(R.string.metadata_edit_hint))
+        MetadataStatusText(
             message = uiState.message,
             messageIsError = uiState.messageIsError,
-            onSave = onSave,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        MetadataSection(title = stringResource(R.string.metadata_section_basic)) {
+            BasicField(
+                label = stringResource(R.string.metadata_field_title),
+                value = uiState.title,
+                field = MetadataField.TITLE,
+                editing = uiState.editing,
+                enabled = !uiState.saving,
+                onValueChange = onTitleChange,
+                onEditStart = onEditStart,
+                onEditEnd = onEditEnd,
+            )
+            BasicField(
+                label = stringResource(R.string.metadata_field_artist),
+                value = uiState.artist,
+                field = MetadataField.ARTIST,
+                editing = uiState.editing,
+                enabled = !uiState.saving,
+                onValueChange = onArtistChange,
+                onEditStart = onEditStart,
+                onEditEnd = onEditEnd,
+            )
+            BasicField(
+                label = stringResource(R.string.metadata_field_album),
+                value = uiState.album,
+                field = MetadataField.ALBUM,
+                editing = uiState.editing,
+                enabled = !uiState.saving,
+                onValueChange = onAlbumChange,
+                onEditStart = onEditStart,
+                onEditEnd = onEditEnd,
+                showDivider = false,
+            )
+        }
+        LyricsSection(
+            lines = uiState.lyricLines,
+            unparsable = uiState.lyricsUnparsable,
+            editingIndex = (uiState.editing as? MetadataEditTarget.LyricLineAt)?.index,
+            enabled = !uiState.saving,
+            onLineChange = onLyricLineChange,
+            onStartEdit = { onEditStart(MetadataEditTarget.LyricLineAt(it)) },
+            onEditDone = onEditEnd,
         )
         Spacer(Modifier.height(24.dp))
     }
+}
+
+// 基本信息条目：把字段枚举收在一处，避免三处重复判定当前编辑的是哪一行
+@Composable
+private fun BasicField(
+    label: String,
+    value: String,
+    field: MetadataField,
+    editing: MetadataEditTarget?,
+    enabled: Boolean,
+    onValueChange: (String) -> Unit,
+    onEditStart: (MetadataEditTarget) -> Unit,
+    onEditEnd: () -> Unit,
+    showDivider: Boolean = true,
+) {
+    MetadataEntry(
+        label = label,
+        value = value,
+        editing = editing == MetadataEditTarget.Field(field),
+        enabled = enabled,
+        onValueChange = onValueChange,
+        onStartEdit = { onEditStart(MetadataEditTarget.Field(field)) },
+        onEditDone = onEditEnd,
+        showDivider = showDivider,
+    )
 }

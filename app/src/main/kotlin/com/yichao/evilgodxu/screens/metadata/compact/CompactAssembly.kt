@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.screens.metadata.MetadataEditTarget
 import com.yichao.evilgodxu.screens.metadata.MetadataUiState
 import com.yichao.evilgodxu.screens.metadata.component.MetadataForm
 import com.yichao.evilgodxu.ui.component.PageTopBar
@@ -22,14 +23,14 @@ private val COMPACT_BOTTOM_PADDING = 8.dp
 internal fun CompactAssembly(
     uiState: MetadataUiState,
     onBack: () -> Unit,
+    onEditStart: (MetadataEditTarget) -> Unit,
+    onEditEnd: () -> Unit,
     onTitleChange: (String) -> Unit,
     onArtistChange: (String) -> Unit,
     onAlbumChange: (String) -> Unit,
-    onLyricsChange: (String) -> Unit,
-    onLyricsExpandedChange: (Boolean) -> Unit,
+    onLyricLineChange: (Int, String) -> Unit,
     onCoverSelected: (ByteArray) -> Unit,
     onCoverRemoved: () -> Unit,
-    onSave: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -41,14 +42,14 @@ internal fun CompactAssembly(
     ) { innerPadding ->
         MetadataForm(
             uiState = uiState,
+            onEditStart = onEditStart,
+            onEditEnd = onEditEnd,
             onTitleChange = onTitleChange,
             onArtistChange = onArtistChange,
             onAlbumChange = onAlbumChange,
-            onLyricsChange = onLyricsChange,
-            onLyricsExpandedChange = onLyricsExpandedChange,
+            onLyricLineChange = onLyricLineChange,
             onCoverSelected = onCoverSelected,
             onCoverRemoved = onCoverRemoved,
-            onSave = onSave,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)

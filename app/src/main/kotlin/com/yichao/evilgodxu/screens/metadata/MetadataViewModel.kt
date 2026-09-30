@@ -6,18 +6,31 @@ import androidx.lifecycle.viewModelScope
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.metadata.TrackMetadataEditor
+import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-// 元数据编辑页状态持有者：进入页面读取内嵌标签回填表单，保存时整批写回音频文件并同步曲目内存态
+// 条目改动的落盘延迟：每次输入都重写整段音频，逐键写入会把同一份音频反复搬运。
+// 以停顿为界合并连续输入，用户停止输入后统一写一次
+private const val AUTO_SAVE_DEBOUNCE_MS = 600L
+
+/**
+ * 元数据编辑页状态持有者：进入页面读取内嵌标签回填表单，
+ * 条目改动后自动写回音频文件并同步曲目内存态，页面不再有手动保存入口。
+ */
 class MetadataViewModel(
     application: Application,
     private val stateHolder: MusicPanelStateHolder,
@@ -27,12 +40,28 @@ class MetadataViewModel(
     private val _uiState = MutableStateFlow(MetadataUiState())
     val uiState: StateFlow<MetadataUiState> = _uiState.asStateFlow()
 
-    // 文件内嵌标签的原值：作为「哪些字段被改动过」的比较基准，保存成功后随之刷新
-    private var snapshot = MetadataFormSnapshot("", "", "", "")
+    // 文件内嵌标签的原值：作为「哪些字段被改动过」的比较基准，写入成功后随之刷新
+    private var snapshot = MetadataFormSnapshot("", "", "", emptyList())
 
     // 用户选择的本地封面：已选新图时保存写入，已移除时为 null 表示删除内嵌封面
     private var pendingCover: ByteArray? = null
     private var coverChanged = false
+
+    // 待落盘的条目改动：同一字段的连续输入只保留最后一次，避免排队重写多遍文件
+    private var pending: PendingChanges? = null
+    private var saveJob: Job? = null
+    // 写入互斥：同一时刻只允许一遍文件重写，并发重写同一文件会相互覆盖
+    private val writeMutex = Mutex()
+
+    // 一次待写入的改动集合：按条目累积，到点后合并成一次文件重写
+    private data class PendingChanges(
+        var title: String? = null,
+        var artist: String? = null,
+        var album: String? = null,
+        var lyrics: List<LyricLine>? = null,
+    ) {
+        val isEmpty: Boolean get() = title == null && artist == null && album == null && lyrics == null
+    }
 
     init {
         // 首次读取兜底：页面进入时还会再调一次 reload，正常情况下此处的结果随即被覆盖；
@@ -58,16 +87,18 @@ class MetadataViewModel(
         }
         // 曲目引用可能已被上一轮保存整体替换，快照与待写入状态一并按当前曲目重置
         resetEditingState()
-        // 歌词折叠回默认态：上次离开时展开与否不应影响本次进入的首屏布局
-        _uiState.update { it.copy(loading = true, editable = true, message = null, lyricsExpanded = false) }
+        _uiState.update { it.copy(loading = true, editable = true, message = null, editing = null) }
         loadTags(target)
     }
 
     // 把编辑中间态清回初始值：重新读取后此前未提交的改动与提示都不再适用
     private fun resetEditingState() {
+        saveJob?.cancel()
+        saveJob = null
+        pending = null
         pendingCover = null
         coverChanged = false
-        snapshot = MetadataFormSnapshot("", "", "", "")
+        snapshot = MetadataFormSnapshot("", "", "", emptyList())
     }
 
     // 曲目可能经播放队列或曲库浏览列表进入，两处都查一遍
@@ -86,14 +117,19 @@ class MetadataViewModel(
             val artist = tags?.artist ?: target.artist
             val album = tags?.album ?: target.albumName
             val lyrics = resolveLyrics(target, tags?.lyrics, tags?.lyricsModifiedMs ?: 0L)
+            val lines = MusicMetadataCache.parseLyricsText(lyrics)
+            // 有歌词文本却解析不出行，说明格式有问题：这与「本来就没有歌词」是两回事，
+            // 界面须区分二者，否则用户会以为歌词丢了而去找回，实际只是时间戳格式不对
+            val lyricsUnparsable = lyrics.isNotBlank() && lines.isEmpty()
             val cover = TrackMetadataEditor.readCover(context, target)
-            snapshot = MetadataFormSnapshot(title, artist, album, lyrics)
+            snapshot = MetadataFormSnapshot(title, artist, album, lines)
             _uiState.update {
                 it.copy(
                     title = title,
                     artist = artist,
                     album = album,
-                    lyrics = lyrics,
+                    lyricLines = lines,
+                    lyricsUnparsable = lyricsUnparsable,
                     coverBytes = cover,
                     coverPresent = cover != null,
                     loading = false,
@@ -124,93 +160,199 @@ class MetadataViewModel(
         }
     }
 
-    fun onTitleChange(value: String) = _uiState.update { it.copy(title = value, message = null) }
+    // 点击条目进入编辑态：同时只允许一行可编辑，切换目标即放弃当前行的未确认输入
+    fun onEditStart(target: MetadataEditTarget) {
+        if (_uiState.value.saving || _uiState.value.loading) return
+        _uiState.update { it.copy(editing = target, message = null) }
+    }
 
-    fun onArtistChange(value: String) = _uiState.update { it.copy(artist = value, message = null) }
+    // 结束编辑态：改动已在输入过程中提交，这里只收起输入框
+    fun onEditEnd() = _uiState.update { it.copy(editing = null) }
 
-    fun onAlbumChange(value: String) = _uiState.update { it.copy(album = value, message = null) }
+    fun onTitleChange(value: String) = updateField(MetadataField.TITLE, value)
 
-    fun onLyricsChange(value: String) = _uiState.update { it.copy(lyrics = value, message = null) }
+    fun onArtistChange(value: String) = updateField(MetadataField.ARTIST, value)
 
-    // 歌词折叠开关：展开状态不参与保存，纯展示态
-    fun onLyricsExpandedChange(expanded: Boolean) = _uiState.update { it.copy(lyricsExpanded = expanded) }
+    fun onAlbumChange(value: String) = updateField(MetadataField.ALBUM, value)
+
+    private fun updateField(field: MetadataField, value: String) {
+        _uiState.update {
+            when (field) {
+                MetadataField.TITLE -> it.copy(title = value, message = null)
+                MetadataField.ARTIST -> it.copy(artist = value, message = null)
+                MetadataField.ALBUM -> it.copy(album = value, message = null)
+            }
+        }
+        scheduleFieldSave(field, value)
+    }
+
+    // 歌词行改写：按位置替换该行的文本，逐字时间戳与翻译随行保留
+    fun onLyricLineChange(index: Int, text: String) {
+        val lines = _uiState.value.lyricLines
+        if (index !in lines.indices) return
+        val updated = lines.toMutableList().also { it[index] = it[index].copy(text = text) }
+        _uiState.update { it.copy(lyricLines = updated, message = null) }
+        scheduleLyricsSave(updated)
+    }
 
     fun onCoverSelected(bytes: ByteArray) {
         pendingCover = bytes
         coverChanged = true
         _uiState.update { it.copy(coverBytes = bytes, coverPresent = true, message = null) }
+        // 封面是一次性的选择结果，不参与逐键输入，直接落盘
+        scheduleSave()
     }
 
     fun onCoverRemoved() {
         pendingCover = null
         coverChanged = true
         _uiState.update { it.copy(coverBytes = null, coverPresent = false, message = null) }
+        scheduleSave()
+    }
+
+    // 文本字段待写入值：去空白后的内容，与快照比较可判断是否真的变了
+    private fun scheduleFieldSave(field: MetadataField, value: String) {
+        val trimmed = value.trim()
+        if (trimmed == snapshot.value(field)) return
+        val changes = pending ?: PendingChanges().also { pending = it }
+        when (field) {
+            MetadataField.TITLE -> changes.title = trimmed
+            MetadataField.ARTIST -> changes.artist = trimmed
+            MetadataField.ALBUM -> changes.album = trimmed
+        }
+        scheduleSave()
+    }
+
+    private fun scheduleLyricsSave(lines: List<LyricLine>) {
+        if (lines == snapshot.lyricLines) return
+        val changes = pending ?: PendingChanges().also { pending = it }
+        changes.lyrics = lines
+        scheduleSave()
     }
 
     /**
-     * 保存表单：整批字段一次性写回音频文件，成功后同步曲目内存态并重建歌词缓存，
+     * 安排一次自动落盘：延迟到输入停顿后执行，期间的新改动合并进同一批。
+     *
+     * 合并的意义在于文件重写成本 —— 每次落盘都要把整段音频重新搬运一遍，
+     * 逐键写入会让同一份音频被反复复制；以停顿为界则一次输入只写一遍。
+     *
+     * 只取消尚未开始的等待，不打断进行中的写入：写入一旦开始就要写完，
+     * 中途取消会留下半截写入且本批改动已在 pending 中被取出，改动将无从补写
+     */
+    private fun scheduleSave() {
+        if (_uiState.value.loading || !_uiState.value.editable) return
+        saveJob?.cancel()
+        saveJob = viewModelScope.launch {
+            delay(AUTO_SAVE_DEBOUNCE_MS)
+            flush()
+        }
+    }
+
+    /**
+     * 立即落盘尚未到点的改动，供页面离开时调用。
+     *
+     * 写入必须交给页面之外的作用域：本方法由组合的销毁回调触发，viewModelScope 随即
+     * 连同 ViewModel 一起被取消，在其上 launch 的写入会在真正执行前就被取消，
+     * 改动留在 pending 中再也等不到落盘。playbackScope 随播放状态长驻，可作为承接方。
+     *
+     * 不等待写入完成 —— 调用方是组合的销毁回调，阻塞它只会推迟页面切换
+     */
+    fun flushPending() {
+        saveJob?.cancel()
+        saveJob = null
+        if (pending == null && !coverChanged) return
+        stateHolder.state.playbackScope.launch { flush() }
+    }
+
+    /**
+     * 落盘累积的改动：整批字段一次性写回音频文件，成功后同步曲目内存态并重建歌词缓存，
      * 使列表与播放器立即看到新标题/艺术家/专辑。
      *
-     * 仅改动过的字段参与写入 —— 未改动的字段传 null，由写入端保留文件原值。
+     * 仅改动过的条目参与写入 —— 未改动的字段传 null，由写入端保留文件原值。
+     *
+     * 写入串行化：并发重写同一文件会相互覆盖，故由互斥量保证同一时刻只有一遍写入；
+     * 等锁期间产生的新改动留在 pending 中，由持锁者的补写轮次或本次接手，不会被丢弃。
+     *
+     * 整段置于 NonCancellable：文件已按批取出待写，中途取消会让这次写入既没写进文件、
+     * 也没能同步内存态与快照，而待写入集已被清空 —— 这批改动就彻底丢了
      */
-    fun save() {
-        val target = findTrack() ?: return
-        val state = _uiState.value
-        if (state.saving || state.loading) return
-        val lyricsChanged = state.lyrics != snapshot.lyrics
-        // 歌词格式无效时不予写入：写进去的文本读不回来，等于把可显示的歌词换成无法解析的数据
-        if (lyricsChanged && state.lyrics.isNotBlank() &&
-            MusicMetadataCache.parseLyricsText(state.lyrics).isEmpty()
-        ) {
-            _uiState.update { it.copy(messageIsError = true, message = message(R.string.metadata_lyrics_invalid)) }
-            return
-        }
-        _uiState.update { it.copy(saving = true, message = null, messageIsError = false) }
-        viewModelScope.launch {
+    private suspend fun flush() = withContext(NonCancellable) { writeMutex.withLock { drain() } }
+
+    // 逐轮写入直到待写入集为空：写入期间新到达的改动由下一轮接手
+    private suspend fun drain() {
+        while (true) {
+            val changes = pending
+            val coverChangedNow = coverChanged
+            if ((changes == null || changes.isEmpty) && !coverChangedNow) return
+            pending = null
+            val lyricsText = changes?.lyrics?.let { MusicMetadataCache.encodeLyrics(it) }
+            val target = findTrack() ?: return
+            _uiState.update { it.copy(saving = true, message = null, messageIsError = false) }
             val context = getApplication<Application>()
-            // 文本字段按去空白后的值写入：快照同步存去空白值，否则仅改空白会被判为「未改动」而反复提交
-            val title = state.title.trim()
-            val artist = state.artist.trim()
-            val album = state.album.trim()
             val success = TrackMetadataEditor.save(
                 context = context,
                 track = target,
-                title = title.takeIf { it != snapshot.title },
-                artist = artist.takeIf { it != snapshot.artist },
-                album = album.takeIf { it != snapshot.album },
-                cover = pendingCover.takeIf { coverChanged },
-                lyrics = state.lyrics.takeIf { lyricsChanged },
+                title = changes?.title,
+                artist = changes?.artist,
+                album = changes?.album,
+                cover = pendingCover.takeIf { coverChangedNow },
+                lyrics = lyricsText,
             )
             if (!success) {
+                // 失败时把改动退回待写入集：用户仍停留在编辑态，下一次输入或离开页面时再试
+                requeue(changes, coverChangedNow)
                 _uiState.update {
                     it.copy(saving = false, messageIsError = true, message = message(R.string.metadata_save_failed))
                 }
-                return@launch
+                return
             }
             applyToMemory(
                 target = target,
-                title = title.takeIf { it != snapshot.title },
-                artist = artist.takeIf { it != snapshot.artist },
-                album = album.takeIf { it != snapshot.album },
-                lyrics = state.lyrics.takeIf { lyricsChanged },
-                coverChangedNow = coverChanged,
+                title = changes?.title,
+                artist = changes?.artist,
+                album = changes?.album,
+                lyrics = changes?.lyrics,
+                coverChangedNow = coverChangedNow,
             )
-            // 保存成功后以当前表单为新基准：此后不再有未保存改动
-            snapshot = MetadataFormSnapshot(title, artist, album, state.lyrics)
-            pendingCover = null
-            coverChanged = false
+            // 写入成功后以本批内容为新基准：此后不再有未落盘改动。
+            // 快照按批推进而非取当前界面值 —— 界面可能已被用户继续改过，那是下一轮要写的
+            snapshot = MetadataFormSnapshot(
+                title = changes?.title ?: snapshot.title,
+                artist = changes?.artist ?: snapshot.artist,
+                album = changes?.album ?: snapshot.album,
+                lyricLines = changes?.lyrics ?: snapshot.lyricLines,
+            )
+            if (coverChangedNow) {
+                pendingCover = null
+                coverChanged = false
+            }
             _uiState.update {
                 it.copy(
                     saving = false,
                     messageIsError = false,
                     message = message(R.string.metadata_save_done),
-                    // 去空白后的值回填界面，使界面与文件内容一致
-                    title = title,
-                    artist = artist,
-                    album = album,
+                    // 去空白后的值回填界面，使界面与文件内容一致。
+                    // 只回填本批写过的字段：写入期间用户可能已在改别的字段，
+                    // 用快照整体覆盖会把那些正在输入的文本抹掉
+                    title = if (changes?.title != null) snapshot.title else it.title,
+                    artist = if (changes?.artist != null) snapshot.artist else it.artist,
+                    album = if (changes?.album != null) snapshot.album else it.album,
                 )
             }
         }
+    }
+
+    // 写入失败后把本批改动放回待写入集：与写入期间产生的新改动合并，不覆盖新值
+    private fun requeue(changes: PendingChanges?, coverChangedNow: Boolean) {
+        if (changes != null) {
+            val current = pending ?: PendingChanges().also { pending = it }
+            changes.title?.let { if (current.title == null) current.title = it }
+            changes.artist?.let { if (current.artist == null) current.artist = it }
+            changes.album?.let { if (current.album == null) current.album = it }
+            changes.lyrics?.let { if (current.lyrics == null) current.lyrics = it }
+        }
+        // 封面写入失败时保留待写入标记，用户下次改动会连同封面一起重试
+        if (coverChangedNow && !coverChanged) coverChanged = true
     }
 
     /**
@@ -224,7 +366,7 @@ class MetadataViewModel(
         title: String?,
         artist: String?,
         album: String?,
-        lyrics: String?,
+        lyrics: List<LyricLine>?,
         coverChangedNow: Boolean,
     ) {
         val state = stateHolder.state
@@ -233,15 +375,14 @@ class MetadataViewModel(
         if (artist != null) updated = updated.copy(artist = artist)
         if (album != null) updated = updated.copy(albumName = album)
         if (lyrics != null) {
-            val lines = MusicMetadataCache.parseLyricsText(lyrics)
             // 歌词缓存写入是文件 IO，切到 IO 调度，避免在主线程上落盘
             val path = withContext(Dispatchers.IO) {
-                MusicMetadataCache.saveLyrics(getApplication(), updated.title, updated.artist, lines)
+                MusicMetadataCache.saveLyrics(getApplication(), updated.title, updated.artist, lyrics)
             }
             updated = updated.copy(
-                lyricLines = lines,
+                lyricLines = lyrics,
                 lyricCachePath = path ?: updated.lyricCachePath,
-                lyricFailed = lines.isEmpty(),
+                lyricFailed = lyrics.isEmpty(),
             )
         }
         state.updateTrack(updated)

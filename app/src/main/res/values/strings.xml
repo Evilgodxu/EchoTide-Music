@@ -313,28 +313,22 @@
     <!-- 元数据编辑 -->
     <string name="metadata_screen_title">元数据编辑</string>
     <string name="metadata_unavailable">该曲目没有本地音频文件，无法编辑元数据</string>
-    <string name="metadata_section_cover">封面</string>
     <string name="metadata_cover_title">内嵌封面</string>
     <string name="metadata_cover_empty">无封面</string>
-    <string name="metadata_cover_hint">点击图片可更换或移除</string>
     <string name="metadata_cover_pick">选择图片</string>
     <string name="metadata_cover_remove">移除封面</string>
     <string name="metadata_section_basic">基本信息</string>
     <string name="metadata_field_title">标题</string>
     <string name="metadata_field_artist">艺术家</string>
     <string name="metadata_field_album">专辑</string>
-    <string name="metadata_field_hint">写入音频文件的内嵌标签，未改动的字段保持原值</string>
+    <string name="metadata_field_empty">未填写</string>
+    <string name="metadata_edit_hint">点击任意条目编辑，修改后自动保存</string>
     <string name="metadata_section_lyrics">歌词</string>
     <plurals name="metadata_lyrics_line_count">
         <item quantity="other">共 %1$d 行</item>
     </plurals>
     <string name="metadata_lyrics_empty">暂无歌词</string>
-    <string name="metadata_lyrics_expand">展开歌词</string>
-    <string name="metadata_lyrics_collapse">收起歌词</string>
-    <string name="metadata_field_lyrics">歌词文本</string>
-    <string name="metadata_field_lyrics_hint">增强 LRC 格式，支持 [mm:ss.xxx] 行时间戳与行内逐字时间戳</string>
     <string name="metadata_lyrics_invalid">歌词格式无法解析，请检查时间戳格式</string>
-    <string name="metadata_save">保存</string>
     <string name="metadata_save_done">元数据已写入音频文件</string>
     <string name="metadata_save_failed">写入失败：文件格式不支持或无法写入</string>
 
