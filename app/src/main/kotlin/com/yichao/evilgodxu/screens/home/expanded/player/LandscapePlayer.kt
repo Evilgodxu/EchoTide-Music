@@ -285,4 +285,4 @@ private fun LyricsPerspectiveZone(
 }
 
 // 横屏封面边长占比：占左栏可用较短边（宽高中较小者）的比例，居中留出四边羽化渐隐的过渡带
-private const val LANDSCAPE_COVER_FRACTION = 0.72f
+private const val LANDSCAPE_COVER_FRACTION = 0.6f
