@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,7 +51,6 @@ import com.yichao.evilgodxu.screens.home.component.player.PlayerControls
 import com.yichao.evilgodxu.screens.home.component.queue.PlaylistSheet
 import com.yichao.evilgodxu.ui.component.player.currentTrackNeedsLosslessUpgrade
 import com.yichao.evilgodxu.ui.component.player.TrackFormatInfoSection
-import com.yichao.evilgodxu.ui.component.player.VerticalProgressBar
 import com.yichao.evilgodxu.ui.component.player.CoverCarouselOverlay
 import com.yichao.evilgodxu.ui.component.player.LyricsPanel
 import kotlinx.coroutines.launch
@@ -143,22 +141,6 @@ fun LandscapePlayer(
                     }
                 },
         )
-
-        // 封面与歌词之间的竖向进度条（白色样式，不带时间文本，拖动可跳转）
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxHeight(0.5f)
-                .width(80.dp),
-        ) {
-            VerticalProgressBar(
-                playbackState = playbackState,
-                contentColor = Color.White,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxHeight(),
-            )
-        }
 
         // 底部控制栏
         AnimatedVisibility(

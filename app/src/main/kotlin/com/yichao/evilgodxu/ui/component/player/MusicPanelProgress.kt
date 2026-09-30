@@ -8,7 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -147,72 +146,6 @@ internal fun ProgressSection(
                 textAlign = TextAlign.End
             )
         }
-    }
-}
-
-// 竖向进度条：复用横向进度条样式（圆角轨道 + 主色填充），不带时间文本
-@Composable
-internal fun VerticalProgressBar(
-    playbackState: MusicPlaybackState,
-    modifier: Modifier = Modifier,
-    contentColor: Color? = null,
-) {
-    val activeColor = contentColor ?: MaterialTheme.colorScheme.primary
-    val progress by remember {
-        derivedStateOf {
-            if (playbackState.duration > 0) {
-                (playbackState.currentPosition.toFloat() / playbackState.duration).coerceIn(0f, 1f)
-            } else 0f
-        }
-    }
-    var seekFraction by remember { mutableFloatStateOf(progress) }
-    var isSeeking by remember { mutableStateOf(false) }
-    // 以当前曲目为动画作用域：切歌时上一曲显示基准随 trackKey 一并重建，直接贴合新曲起点
-    val displayProgress = rememberAnimatedProgress(
-        trackKey = playbackState.currentTrack?.id,
-        targetFraction = progress,
-        seekFraction = seekFraction,
-        isSeeking = isSeeking,
-    )
-
-    Box(
-        modifier = modifier
-            .width(20.dp)
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        // 消耗进度条上的指针事件，与全局左右滑动互斥，拖动进度条时不触发左右切换面板
-                        event.changes.forEach { if (!it.isConsumed) it.consume() }
-                        val pos = event.changes.first().position.y / size.height
-                        seekFraction = (1f - pos).coerceIn(0f, 1f)
-                        isSeeking = true
-                        if (event.changes.first().pressed) {
-                            seekTo(playbackState, (seekFraction * playbackState.duration).toLong())
-                            playbackState.setCurrentPosition(
-                                (seekFraction * playbackState.duration).toLong().coerceIn(0L, playbackState.duration)
-                            )
-                        }
-                        if (event.changes.all { !it.pressed }) {
-                            isSeeking = false
-                        }
-                    }
-                }
-            },
-        contentAlignment = Alignment.BottomCenter,
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .width(3.dp)
-                .background(activeColor.copy(alpha = 0.08f), RoundedCornerShape(2.dp))
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxHeight(displayProgress)
-                .width(3.dp)
-                .background(activeColor, RoundedCornerShape(2.dp))
-        )
     }
 }
 

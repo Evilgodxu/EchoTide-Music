@@ -27,7 +27,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -65,9 +66,12 @@ internal fun AppDialog(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val scrollState = rememberScrollState()
-    val fixedContentHeight = contentHeightFraction?.let {
-        LocalConfiguration.current.screenHeightDp.dp * it
+    // 窗口高度取实际容器尺寸而非 Configuration 的屏幕高：多窗口/自由窗口下容器小于屏幕，
+    // 按屏幕高比例定高会超出可用空间
+    val windowHeight = with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.height.toDp()
     }
+    val fixedContentHeight = contentHeightFraction?.let { windowHeight * it }
     DialogCard(onDismiss = onDismiss) {
         Column(
             modifier = Modifier
