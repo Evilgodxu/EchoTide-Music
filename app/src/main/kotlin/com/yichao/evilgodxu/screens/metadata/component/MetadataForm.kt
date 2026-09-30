@@ -39,9 +39,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// 键盘上方为聚焦输入框预留的余量：与其底边贴着键盘，留一段空隙更易看清输入内容
-private val IME_CLEARANCE = 24.dp
-
 /**
  * 元数据编辑表单：内嵌封面 + 基本信息 + 歌词。
  *
@@ -106,11 +103,9 @@ internal fun MetadataForm(
             // 点击输入框以外的空白区域即结束当前编辑并收起键盘：编辑被点击的可交互控件消费，
             // 只有空白区命中根节点。编辑态收起由用户的明确意图驱动，不依赖异步焦点事件
             .pointerInput(Unit) { detectTapGestures(onTap = { onEditEnd() }) }
-            // 键盘避让：键盘弹出时底部收紧，配合文本框聚焦时的 bringIntoView 使输入框滚动到键盘上方
+            // 键盘避让：键盘弹出时底部收紧，配合输入框自身的 bringIntoView 使输入框整体滚到键盘上方。
+            // 只做这一处收缩，不再额外叠加固定底部内边距 —— 固定内边距会紧贴键盘上沿形成一条不随内容滚动的色带
             .imePadding()
-            // 键盘上方再留一段余量：bringIntoView 只把输入框滚到「刚好可见」，底边会贴着键盘，
-            // 补一段内边距让输入框整体抬高，下缘与光标不被键盘压住
-            .padding(bottom = if (imeVisible) IME_CLEARANCE else 0.dp)
             .verticalScroll(rememberScrollState()),
     ) {
         // 标签读取期间不展示表单：空字段与「文件里就是空的」在界面上无法区分，易被误保存

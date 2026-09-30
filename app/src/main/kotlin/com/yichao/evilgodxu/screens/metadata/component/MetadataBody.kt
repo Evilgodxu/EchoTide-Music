@@ -10,8 +10,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -26,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -228,7 +233,17 @@ internal fun EntryTextField(
     maxLines: Int = 1,
 ) {
     val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    LaunchedEffect(Unit) {
+        runCatching { focusRequester.requestFocus() }
+        runCatching { bringIntoViewRequester.bringIntoView() }
+    }
+    // 键盘弹出会压缩可用高度，取焦那一刻的高度还不是最终高度，故在键盘可见后再请求一次，
+    // 使输入框整体滚到键盘之上而不是被下缘截断
+    LaunchedEffect(imeVisible) {
+        if (imeVisible) runCatching { bringIntoViewRequester.bringIntoView() }
+    }
     val textColor = if (enabled) {
         MaterialTheme.colorScheme.onSurface
     } else {
@@ -247,6 +262,7 @@ internal fun EntryTextField(
         modifier = modifier
             .fillMaxWidth()
             .focusRequester(focusRequester)
+            .bringIntoViewRequester(bringIntoViewRequester)
             .border(
                 border = BorderStroke(ENTRY_FIELD_BORDER_WIDTH, MaterialTheme.colorScheme.outline),
                 shape = ENTRY_FIELD_SHAPE,

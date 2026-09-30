@@ -96,9 +96,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(
             // 系统栏图标外观由 Compose 按主题与页面控制，这里仅跟随系统作为初始兜底值
             statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
-            // 导航栏同样保持透明：默认的对比度蒙版会在键盘弹出时压出一条半透明色带，
-            // 叠在底部编辑内容之上，看着像一层多余的背景遮罩
-            navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
         )
         setupSystemBars()
         // 绑定当前 Activity，使对话框等独立窗口在切语言时同步更新资源
