@@ -102,6 +102,27 @@ internal fun MetadataRowContainer(
 }
 
 /**
+ * 成块内容的容器：与字段行同一套弱化底色，供整篇歌词卡片等纵向成块内容复用。
+ */
+@Composable
+internal fun MetadataBlockContainer(
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onClick: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val base = modifier
+        .fillMaxWidth()
+        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = ROW_BACKGROUND_ALPHA), ROW_SHAPE)
+    val interactive = if (onClick != null) base.clickable(enabled = enabled, onClick = onClick) else base
+    Column(
+        modifier = interactive.padding(horizontal = ROW_HORIZONTAL_PADDING, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        content = content,
+    )
+}
+
+/**
  * 可编辑条目：展示态为「标签 + 值」一行（左标签右取值），点击后换成输入框。
  *
  * 空值用弱化文案标注，避免与「标签本身」混淆。

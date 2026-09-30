@@ -50,6 +50,9 @@ data class MetadataUiState(
     // 文本需原样保留用户输入（含尚未成形的标签），不能由解析结果反推，故单独存放；
     // 放在状态里而非组件内，使「点击外部退出」也能提交草稿
     val lyricLineDraft: String? = null,
+    // 歌词是否处于全文编辑模式。模式与编辑态分开：模式决定展示形态（整篇卡片），编辑态
+    // 只在用户点击卡片后建立 —— 键盘收起只结束编辑态，不会退回逐行
+    val lyricsWholeMode: Boolean = false,
     // 自动保存结果提示：成功或失败原因，显示后可被下次保存覆盖
     val message: String? = null,
     val messageIsError: Boolean = false,

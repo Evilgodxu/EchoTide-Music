@@ -29,6 +29,7 @@ internal fun ExpandedAssembly(
     onAlbumChange: (String) -> Unit,
     onLyricRawChange: (String) -> Unit,
     onLyricTranslationChange: (Int, String) -> Unit,
+    onLyricsWholeModeToggle: () -> Unit,
     onCoverSelected: (ByteArray) -> Unit,
     onCoverRemoved: () -> Unit,
     modifier: Modifier = Modifier,
@@ -49,6 +50,7 @@ internal fun ExpandedAssembly(
             onAlbumChange = onAlbumChange,
             onLyricRawChange = onLyricRawChange,
             onLyricTranslationChange = onLyricTranslationChange,
+            onLyricsWholeModeToggle = onLyricsWholeModeToggle,
             onCoverSelected = onCoverSelected,
             onCoverRemoved = onCoverRemoved,
             modifier = Modifier

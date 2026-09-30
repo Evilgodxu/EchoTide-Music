@@ -58,6 +58,7 @@ internal fun MetadataForm(
     onAlbumChange: (String) -> Unit,
     onLyricRawChange: (String) -> Unit,
     onLyricTranslationChange: (Int, String) -> Unit,
+    onLyricsWholeModeToggle: () -> Unit,
     onCoverSelected: (ByteArray) -> Unit,
     onCoverRemoved: () -> Unit,
     modifier: Modifier = Modifier,
@@ -77,7 +78,8 @@ internal fun MetadataForm(
         }
     }
     // 系统返回键收起键盘不经过点击路径：监听输入法可见性，一旦不可见即结束编辑态，
-    // 使输入框回到展示态并释放焦点，而不是停在「无键盘的编辑态」
+    // 使输入框回到展示态并释放焦点，而不是停在「无键盘的编辑态」。
+    // 全文模式本身是展示形态，不随编辑态结束而退出
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     LaunchedEffect(imeVisible) {
         if (!imeVisible) onEditEnd()
@@ -171,9 +173,11 @@ internal fun MetadataForm(
             unparsable = uiState.lyricsUnparsable,
             editing = uiState.editing,
             lyricLineDraft = uiState.lyricLineDraft,
+            wholeMode = uiState.lyricsWholeMode,
             enabled = !uiState.saving,
             onRawChange = onLyricRawChange,
             onTranslationChange = onLyricTranslationChange,
+            onWholeModeToggle = onLyricsWholeModeToggle,
             onStartEdit = onEditStart,
             onEditDone = onEditEnd,
         )

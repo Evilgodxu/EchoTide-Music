@@ -46,8 +46,9 @@ private val LYRIC_GROUP_GAP = 6.dp
  * 把「改哪一行」交给点击位置表达。原文行内联编辑完整增强 LRC（行时间戳 + 逐字标签 + 文本），
  * 能力对齐首页歌词编辑模块；翻译行独立编辑，留空即清除，二者互不干扰。
  *
- * 全文编辑：整篇以增强 LRC 文本一次性编辑，适合批量改写或整体替换。两种模式共用同一编辑位，
- * 由 [MetadataEditTarget.LyricsWhole] 标识，互斥且不会同时生效。
+ * 全文编辑：整篇以增强 LRC 文本一次性编辑，适合批量改写或整体替换。进入全文模式只切换展示形态，
+ * 默认呈现整篇歌词卡片；点击卡片才建立编辑态并弹出键盘，键盘收起或点击别处即回到卡片展示，
+ * 不会退回逐行 —— 模式只由切换按钮结束。
  */
 @Composable
 internal fun LyricsSection(
@@ -55,9 +56,11 @@ internal fun LyricsSection(
     unparsable: Boolean,
     editing: MetadataEditTarget?,
     lyricLineDraft: String?,
+    wholeMode: Boolean,
     enabled: Boolean,
     onRawChange: (String) -> Unit,
     onTranslationChange: (Int, String) -> Unit,
+    onWholeModeToggle: () -> Unit,
     onStartEdit: (MetadataEditTarget) -> Unit,
     onEditDone: () -> Unit,
 ) {
@@ -77,27 +80,31 @@ internal fun LyricsSection(
             )
             return@MetadataSection
         }
-        val wholeEditing = editing == MetadataEditTarget.LyricsWhole
         LyricsHeader(
             lineCount = lines.size,
-            wholeEditing = wholeEditing,
+            wholeMode = wholeMode,
             enabled = enabled,
-            // 切换按钮同时承担进入与退出：全文与逐行共用同一编辑位，再点一次即回到逐行
-            onToggle = {
-                if (wholeEditing) onEditDone() else onStartEdit(MetadataEditTarget.LyricsWhole)
-            },
+            onToggle = onWholeModeToggle,
         )
-        if (wholeEditing) {
-            EntryTextField(
-                value = lyricLineDraft.orEmpty(),
-                enabled = enabled,
-                singleLine = false,
-                placeholder = "",
-                onValueChange = onRawChange,
-                onEditDone = onEditDone,
-                fontSize = LYRIC_WHOLE_FONT_SIZE,
-                maxLines = Int.MAX_VALUE,
-            )
+        if (wholeMode) {
+            if (editing == MetadataEditTarget.LyricsWhole) {
+                EntryTextField(
+                    value = lyricLineDraft.orEmpty(),
+                    enabled = enabled,
+                    singleLine = false,
+                    placeholder = "",
+                    onValueChange = onRawChange,
+                    onEditDone = onEditDone,
+                    fontSize = LYRIC_WHOLE_FONT_SIZE,
+                    maxLines = Int.MAX_VALUE,
+                )
+            } else {
+                LyricsWholeCard(
+                    lines = lines,
+                    enabled = enabled,
+                    onClick = { onStartEdit(MetadataEditTarget.LyricsWhole) },
+                )
+            }
             return@MetadataSection
         }
         lines.forEachIndexed { index, line ->
@@ -151,7 +158,7 @@ internal fun LyricsSection(
 @Composable
 private fun LyricsHeader(
     lineCount: Int,
-    wholeEditing: Boolean,
+    wholeMode: Boolean,
     enabled: Boolean,
     onToggle: () -> Unit,
 ) {
@@ -167,7 +174,7 @@ private fun LyricsHeader(
         )
         Text(
             text = stringResource(
-                if (wholeEditing) R.string.metadata_lyrics_line_edit else R.string.metadata_lyrics_whole_edit
+                if (wholeMode) R.string.metadata_lyrics_line_edit else R.string.metadata_lyrics_whole_edit
             ),
             color = MaterialTheme.colorScheme.primary,
             fontSize = 12.sp,
@@ -176,6 +183,27 @@ private fun LyricsHeader(
                 .clickable(enabled = enabled, onClick = onToggle)
                 .padding(horizontal = 6.dp, vertical = 2.dp),
         )
+    }
+}
+
+// 全文卡片：整篇歌词装在同一张卡里逐行呈现，点击后进入整篇文本编辑。
+// 默认只做展示，避免整篇区一直停留在编辑态的观感
+@Composable
+private fun LyricsWholeCard(
+    lines: List<LyricLine>,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    MetadataBlockContainer(enabled = enabled, onClick = onClick) {
+        lines.forEach { line ->
+            Text(
+                text = line.text,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = LYRIC_WHOLE_FONT_SIZE,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

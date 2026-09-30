@@ -88,7 +88,14 @@ class MetadataViewModel(
         // 曲目引用可能已被上一轮保存整体替换，快照与待写入状态一并按当前曲目重置
         resetEditingState()
         _uiState.update {
-            it.copy(loading = true, editable = true, message = null, editing = null, lyricLineDraft = null)
+            it.copy(
+                loading = true,
+                editable = true,
+                message = null,
+                editing = null,
+                lyricLineDraft = null,
+                lyricsWholeMode = false,
+            )
         }
         loadTags(target)
     }
@@ -201,6 +208,17 @@ class MetadataViewModel(
             }
         }
         scheduleFieldSave(field, value)
+    }
+
+    // 切换歌词全文编辑模式：只切换展示形态，不建立编辑态，
+    // 故进入全文时不会自动弹出键盘；退出前提交可能存在的草稿
+    fun onLyricsWholeModeToggle() {
+        if (_uiState.value.saving || _uiState.value.loading) return
+        commitLyricDraft()
+        val wholeMode = !_uiState.value.lyricsWholeMode
+        _uiState.update {
+            it.copy(lyricsWholeMode = wholeMode, editing = null, lyricLineDraft = null, message = null)
+        }
     }
 
     // 原文行内联草稿：仅暂存用户输入，不解析也不落盘。
@@ -322,6 +340,9 @@ class MetadataViewModel(
      * 不等待写入完成 —— 调用方是组合的销毁回调，阻塞它只会推迟页面切换
      */
     fun flushPending() {
+        // 先把未结束的歌词草稿落入待写入集：草稿只在提交时才成为待写入内容，
+        // 否则用户在全文编辑或原文行编辑中直接离开，最后一次改动会随组合销毁一起丢掉
+        commitLyricDraft()
         saveJob?.cancel()
         saveJob = null
         if (pending == null && !coverChanged) return
