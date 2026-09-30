@@ -35,12 +35,12 @@ internal fun HomeTopBar(
     onToggleFavorite: () -> Unit,
     onToggleLandscape: () -> Unit,
     onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier,
     // 居中标题内容：对话框收起后展示后台曲库分析进度
     centerTitle: String? = null,
     // 收起动画期间置为 false：控件不可见时不响应点击，避免误触
     interactive: Boolean = true,
     windowInsets: WindowInsets = TopAppBarDefaults.windowInsets,
-    modifier: Modifier = Modifier,
 ) {
     CenterAlignedTopAppBar(
         modifier = modifier,

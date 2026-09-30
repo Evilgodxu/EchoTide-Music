@@ -36,11 +36,11 @@ internal fun PlaylistTrackRow(
     isActive: Boolean,
     isPlaying: Boolean,
     isLiked: Boolean,
-    isDragging: Boolean = false,
-    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onFavoriteClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    isDragging: Boolean = false,
     dragHandleModifier: Modifier = Modifier,
 ) {
     // 拖拽时背景变白，前景文字同步切换为深色保证可读性

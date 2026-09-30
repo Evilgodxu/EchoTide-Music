@@ -77,10 +77,10 @@ internal fun HeaderRow(
 @Composable
 internal fun HeaderIconButton(
     icon: ImageVector,
-    contentDescription: String? = null,
     onClick: () -> Unit,
-    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     modifier: Modifier = Modifier,
+    contentDescription: String? = null,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     enabled: Boolean = true,
 ) {
     IconButton(

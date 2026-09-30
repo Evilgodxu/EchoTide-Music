@@ -56,10 +56,10 @@ internal fun CurrentCover(
     track: MusicTrack?,
     isPlaying: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     onOnlineCover: () -> Unit = {},
     onLocalCover: () -> Unit = {},
     onSaveCover: () -> Unit = {},
-    modifier: Modifier = Modifier,
 ) {
     var showMenu by remember { mutableStateOf(false) }
     Box(

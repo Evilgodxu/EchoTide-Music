@@ -79,6 +79,7 @@ fun LandscapePlayer(
     // 3D 封面轮播显隐：由首页层持有，进入沉浸覆盖层时同步隐藏标题栏与控制栏
     coverCarouselVisible: Boolean,
     onCoverCarouselVisibilityChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
     // 点击歌手信息：跳转到该歌手的歌单页
     onOpenArtistPlaylist: (String) -> Unit = {},
     // 播放列表高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
@@ -87,7 +88,6 @@ fun LandscapePlayer(
     onOpenMetadata: (Long) -> Unit = {},
     // 歌词区快速纵向滑动的切歌出口（true 为下一曲）：与整页上下滑动切歌同一套判定
     onVerticalFling: ((next: Boolean) -> Unit)? = null,
-    modifier: Modifier = Modifier,
 ) {
     // 无损升级确认对话框显隐
     var showLosslessUpgrade by remember { mutableStateOf(false) }
