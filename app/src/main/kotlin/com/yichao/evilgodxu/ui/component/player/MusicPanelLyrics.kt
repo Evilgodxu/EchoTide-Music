@@ -105,17 +105,19 @@ internal fun LyricsPanel(
     // 逐字渲染开关：关闭后整行高亮，不再逐字跳动
     val context = LocalContext.current
     val wordByWordEnabled by context.wordByWordRenderingFlow().collectAsState(initial = true)
-    // 跟随当前曲目：切换歌曲时重置到曲目起点，避免沿用上一首的播放位置定位错行
-    var lyricPosition by remember(playbackState.currentTrack?.id) { mutableLongStateOf(0L) }
+    // 跟随当前曲目：切换歌曲时重置到曲目起点，避免沿用上一首的播放位置定位错行。
+    // 初值取即时播放位置而非 0：屏幕旋转会让竖屏/横屏各自的组装树重建歌词面板，
+    // 进度基准若从 0 起步，首帧会把已唱部分画成未唱，随后由补间从 0 扫回当前位置
+    var lyricPosition by remember(playbackState.currentTrack?.id) {
+        mutableLongStateOf(playbackState.livePositionMs)
+    }
     // 歌词拖拽跳转后的短时保护窗：窗内本地进度自走、忽略控制器的旧位置，
     // 避免 seek 回报前把刚拖到的行又拉回拖拽前位置
     var seekGuardUntilMs by remember(playbackState.currentTrack?.id) { mutableLongStateOf(0L) }
     LaunchedEffect(playbackState.isPlaying, playbackState.currentTrack?.id) {
         var lastSyncMs = 0L
         while (isActive) {
-            val candidate = playbackState.mediaController?.currentPosition
-                ?.takeIf { it >= 0L }
-                ?: playbackState.currentPosition
+            val candidate = playbackState.livePositionMs
             val guarding = System.currentTimeMillis() < seekGuardUntilMs
             if (playbackState.isPlaying) {
                 val now = System.currentTimeMillis()

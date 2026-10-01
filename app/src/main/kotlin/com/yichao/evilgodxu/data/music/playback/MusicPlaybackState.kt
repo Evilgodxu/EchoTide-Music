@@ -338,6 +338,13 @@ class MusicPlaybackState(
         } ?: false
     var duration by mutableLongStateOf(0L)
     var currentPosition by mutableLongStateOf(0L)
+
+    // 即时播放位置：控制器在位时读其当前值，比按固定周期刷新的 currentPosition 更贴近此刻进度；
+    // 控制器未连接/已释放或回报非法值时回退到状态值。供需要「此刻真实进度」的渲染取用
+    // （歌词的渲染基准以及跟随判据），不参与进度单调与持久化
+    val livePositionMs: Long
+        get() = mediaController?.currentPosition?.takeIf { it >= 0L } ?: currentPosition
+
     private val _playlist = mutableStateOf<List<MusicTrack>>(emptyList())
     var playlist: List<MusicTrack>
         get() = _playlist.value

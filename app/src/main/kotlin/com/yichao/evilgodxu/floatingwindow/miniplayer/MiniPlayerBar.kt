@@ -104,14 +104,18 @@ internal fun MiniPlayerBar(
         delay(3000)
         controlsVisible = false
     }
-    // 隐藏控件期间跟随播放进度刷新当前歌词；跟随当前曲目，切换歌曲时重置到曲目起点
-    var lyricPosition by remember(playbackState.currentTrack?.id) { mutableLongStateOf(0L) }
-    LaunchedEffect(controlsVisible, playbackState.currentTrack?.id) {
-        if (controlsVisible) return@LaunchedEffect
+    // 隐藏控件期间跟随播放进度刷新当前歌词；跟随当前曲目，切换歌曲时重置到曲目起点。
+    // 初值取即时播放位置而非 0：迷你播放器窗口在退后台播放时才创建，
+    // 进度基准若从 0 起步，歌词首次显示的首帧会把已唱部分画成未唱，随后由补间从 0 扫回当前位置
+    var lyricPosition by remember(playbackState.currentTrack?.id) {
+        mutableLongStateOf(playbackState.livePositionMs)
+    }
+    // 位置跟踪随曲目常驻，不随控件显隐起停：歌词在控件隐藏后才显示，跟踪若只在显示期间进行，
+    // 控件隐藏那一刻的进度基准仍是隐藏前的旧位置，首帧点亮随即从旧位置补间追赶
+    LaunchedEffect(playbackState.currentTrack?.id) {
         var lastSyncMs = 0L
         while (isActive) {
-            val candidate = playbackState.mediaController?.currentPosition
-                ?.takeIf { it >= 0L } ?: playbackState.currentPosition
+            val candidate = playbackState.livePositionMs
             if (playbackState.isPlaying) {
                 val now = System.currentTimeMillis()
                 val elapsed = if (lastSyncMs == 0L) 0L else (now - lastSyncMs).coerceAtLeast(0L)
