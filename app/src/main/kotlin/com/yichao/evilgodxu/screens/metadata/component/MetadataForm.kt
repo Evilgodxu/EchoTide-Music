@@ -7,11 +7,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -20,13 +18,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -74,13 +70,6 @@ internal fun MetadataForm(
             if (bytes != null && bytes.isNotEmpty()) onCoverSelected(bytes)
         }
     }
-    // 系统返回键收起键盘不经过点击路径：监听输入法可见性，一旦不可见即结束编辑态，
-    // 使输入框回到展示态并释放焦点，而不是停在「无键盘的编辑态」。
-    // 全文模式本身是展示形态，不随编辑态结束而退出
-    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    LaunchedEffect(imeVisible) {
-        if (!imeVisible) onEditEnd()
-    }
     // 无可写目标的曲目（纯在线流）不展示表单：编辑一份不会落盘的字段只会误导用户
     if (!uiState.editable) {
         Column(
@@ -101,7 +90,9 @@ internal fun MetadataForm(
         modifier = modifier
             .fillMaxSize()
             // 点击输入框以外的空白区域即结束当前编辑并收起键盘：编辑被点击的可交互控件消费，
-            // 只有空白区命中根节点。编辑态收起由用户的明确意图驱动，不依赖异步焦点事件
+            // 只有空白区命中根节点。编辑态收起由用户的明确意图驱动，不依赖异步焦点事件，
+            // 也不跟随键盘显隐 —— 系统返回键收起键盘后输入框保持编辑态与焦点，
+            // 用户得以继续查看刚输入的内容是否无误，确认无误再点空白处收起
             .pointerInput(Unit) { detectTapGestures(onTap = { onEditEnd() }) }
             // 键盘避让：键盘弹出时底部收紧，配合输入框自身的 bringIntoView 使输入框整体滚到键盘上方。
             // 只做这一处收缩，不再额外叠加固定底部内边距 —— 固定内边距会紧贴键盘上沿形成一条不随内容滚动的色带
