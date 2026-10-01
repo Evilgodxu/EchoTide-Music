@@ -12,7 +12,6 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.FilterQuality
@@ -24,6 +23,8 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.theme.md_theme_dark_background
 import com.yichao.evilgodxu.ui.component.COVER_FADE_RATIO
 import com.yichao.evilgodxu.ui.component.coverFadeBrush
+import com.yichao.evilgodxu.ui.component.coverLeftRightFadeBrush
+import com.yichao.evilgodxu.ui.component.coverTopBottomFadeBrush
 import com.yichao.evilgodxu.ui.component.rememberSystemThumbnail
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
@@ -72,7 +73,8 @@ internal fun HomeImmersiveCover(
     )
 }
 
-// 横屏沉浸封面：四边羽化渐隐，与同源封面衍生的背景无缝衔接，不再呈现为一张有硬边的卡片
+// 横屏沉浸封面：四边按竖屏封面下缘的同一处理渐隐，与同源封面衍生的背景无缝衔接，
+// 不再呈现为一张有硬边的卡片
 @Composable
 internal fun HomeBlendedCover(
     track: MusicTrack?,
@@ -84,22 +86,14 @@ internal fun HomeBlendedCover(
     )
 }
 
-// 四边羽化蒙层：先按水平方向在左右边缘淡出，再按垂直方向在上下边缘淡出；
+// 四边羽化蒙层：先按水平方向在左右边缘渐隐，再按垂直方向在上下边缘渐隐；
 // 两次 DstIn 的透明度相乘，得到四边同时渐隐、四角衰减更强的矩形羽化。
+// 两条轴与竖屏封面下缘共用同一条采样曲线、同一带宽（见 ui/component 的 CoverFade），
+// 故四条边的过渡轮廓与竖屏下缘完全一致，不随方向变化。
 // 与背景衔接处不再有可辨认的硬边（DstIn 只取蒙层透明度，实色段用黑色即可）
-private fun Modifier.edgeFeatherMask(fadeRatio: Float = 0.22f): Modifier = drawWithCache {
-    val horizontal = Brush.horizontalGradient(
-        0f to Color.Transparent,
-        fadeRatio to Color.Black,
-        1f - fadeRatio to Color.Black,
-        1f to Color.Transparent,
-    )
-    val vertical = Brush.verticalGradient(
-        0f to Color.Transparent,
-        fadeRatio to Color.Black,
-        1f - fadeRatio to Color.Black,
-        1f to Color.Transparent,
-    )
+private fun Modifier.edgeFeatherMask(): Modifier = drawWithCache {
+    val horizontal = coverLeftRightFadeBrush(Color.Black)
+    val vertical = coverTopBottomFadeBrush(Color.Black)
     onDrawWithContent {
         drawIntoCanvas { canvas -> canvas.saveLayer(Rect(Offset.Zero, size), Paint()) }
         drawContent()
