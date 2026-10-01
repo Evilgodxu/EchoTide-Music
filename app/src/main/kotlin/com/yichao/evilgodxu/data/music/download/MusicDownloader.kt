@@ -422,7 +422,7 @@ internal suspend fun upgradeTrackToLossless(
     // 无损升级只换音频文件、封面不变：先承接旧文件的系统略缩图与背景取色结果到新 URI，
     // 避免 audioUri 切换后封面闪占位符、背景回落默认色（新文件系统略缩图需等媒体扫描就绪）
     SystemThumbnailCache.remap(track.audioUri, newUri)
-    playbackState.remapGradientUri(track.audioUri, newUri)
+    playbackState.remapBackgroundColorUri(track.audioUri, newUri)
     val newPath = queryMediaPath(context, newUri.toUri()).orEmpty()
     // 升级前的播放进度：新文件起播时还原到同一位置
     val resumePosition = withContext(Dispatchers.Main) {

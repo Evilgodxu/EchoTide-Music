@@ -27,7 +27,7 @@ import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.metadata.MusicCoverLoader
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.metadata.SystemThumbnailCache
-import com.yichao.evilgodxu.data.music.metadata.extractCoverGradient
+import com.yichao.evilgodxu.data.music.metadata.extractCoverBackgroundColor
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
@@ -99,11 +99,11 @@ class MusicPlaybackState(
     private val savedPositionKey = longPreferencesKey("music_saved_position")
     private val savedModeKey = intPreferencesKey("music_saved_mode")
     private val savedSpeedKey = floatPreferencesKey("music_saved_speed")
-    // 首页背景渐变取色结果持久化键：与播放快照同库写入，冷启动恢复后首帧即可渲染。
-    // 两端分别为封面主色调（背景主色）与压暗后的背景底部深色端
-    private val savedGradientUriKey = stringPreferencesKey("music_saved_gradient_uri")
-    private val savedGradientEdgeKey = intPreferencesKey("music_saved_gradient_edge")
-    private val savedGradientDeepKey = intPreferencesKey("music_saved_gradient_deep")
+    // 首页背景取色结果持久化键：与播放快照同库写入，冷启动恢复后首帧即可渲染。
+    // 键名沿用历史取值：早期版本按渐变的两个色标落盘，主色存在 edge 键下，
+    // 改键名会让已装机用户的取色结果读不到而多闪一次默认背景
+    private val savedBackgroundColorUriKey = stringPreferencesKey("music_saved_gradient_uri")
+    private val savedBackgroundColorKey = intPreferencesKey("music_saved_gradient_edge")
     private val playlistCacheKey = "music_playlist_cache"
     private val playlistCachePreferences = "music_playlist_cache_preferences"
     // 当前歌单来源与默认库备份持久化键，重启后恢复选中状态
@@ -232,7 +232,7 @@ class MusicPlaybackState(
                 // 切换曲目即持久化最新 URI，确保后台自动下一首也能被冷启动恢复
                 persistState()
                 // 切歌即落盘该曲目封面与背景取色，冷启动首帧可直接出图出背景，不依赖退出时机
-                cacheCurrentCoverAndGradient(playlist[index])
+                cacheCurrentCoverAndColor(playlist[index])
                 // 切歌后主动预读新曲源格式，避免信息条等待解码回填而长时间空白
                 appContext?.let { refreshIdleTrackFormatInfo(it) }
             }
@@ -882,9 +882,8 @@ class MusicPlaybackState(
         val savedPosition = preferences[savedPositionKey] ?: 0L
         val savedMode = preferences[savedModeKey] ?: PlayMode.RepeatAll.ordinal
         val savedSpeed = preferences[savedSpeedKey] ?: PLAYBACK_SPEED_DEFAULT
-        val restoredGradientUri = preferences[savedGradientUriKey]
-        val restoredGradientMain = preferences[savedGradientEdgeKey]
-        val restoredGradientDeep = preferences[savedGradientDeepKey]
+        val restoredColorUri = preferences[savedBackgroundColorUriKey]
+        val restoredColor = preferences[savedBackgroundColorKey]
         withContext(Dispatchers.Main) {
             // 无保存来源时处于全量播放列表
             playlistSource = savedSource
@@ -910,11 +909,9 @@ class MusicPlaybackState(
             pendingResumePosition = savedPosition
             // 启动镜像已为同一曲目预置取色时不覆盖：两者写入点相同，镜像可能领先一次
             // （取色落盘与状态落盘之间存在进程被杀窗口），覆盖会让首帧背景色回退
-            if (restoredGradientUri != savedGradientUri) {
-                savedGradient = if (restoredGradientMain != null && restoredGradientDeep != null) {
-                    Color(restoredGradientMain) to Color(restoredGradientDeep)
-                } else null
-                savedGradientUri = restoredGradientUri
+            if (restoredColorUri != savedBackgroundColorUri) {
+                savedBackgroundColor = restoredColor?.let { Color(it) }
+                savedBackgroundColorUri = restoredColorUri
             }
             if (currentTrack == null) {
                 currentPosition = savedPosition
@@ -1115,54 +1112,51 @@ class MusicPlaybackState(
 
     var pendingSavedUri: String? = null
     var pendingResumePosition: Long = 0L
-    // 已持久化的首页背景取色结果及其所属曲目 URI：冷启动首帧、略缩图就绪前供背景直接使用。
-    // 两端语义见 extractCoverGradient：first 为封面主色调，second 为压暗后的背景底部深色端
-    var savedGradient: Pair<Color, Color>? by mutableStateOf(null)
+    // 已持久化的首页背景取色结果及其所属曲目 URI：冷启动首帧、略缩图就绪前供背景直接使用
+    var savedBackgroundColor: Color? by mutableStateOf(null)
         private set
-    var savedGradientUri: String? by mutableStateOf(null)
+    var savedBackgroundColorUri: String? by mutableStateOf(null)
         private set
 
     // 仅当曲目与取色结果同源时返回，避免运行时切歌后旧曲目的恢复色闪帧
-    fun restoredGradientFor(track: MusicTrack?): Pair<Color, Color>? =
-        if (track != null && track.audioUri == savedGradientUri) savedGradient else null
+    fun restoredBackgroundColorFor(track: MusicTrack?): Color? =
+        if (track != null && track.audioUri == savedBackgroundColorUri) savedBackgroundColor else null
 
     // 无损升级替换音频文件时 URI 变化但封面/背景不变：把已持久化的取色结果改指到新 URI，
     // 避免升级后背景回落默认色（新文件系统略缩图未就绪前也保持既有背景）
-    fun remapGradientUri(fromUri: String, toUri: String) {
-        if (savedGradientUri != fromUri) return
-        savedGradientUri = toUri
-        val gradient = savedGradient ?: return
+    fun remapBackgroundColorUri(fromUri: String, toUri: String) {
+        if (savedBackgroundColorUri != fromUri) return
+        savedBackgroundColorUri = toUri
+        val color = savedBackgroundColor ?: return
         val context = appContext ?: return
         playbackScope.launch {
             withContext(Dispatchers.IO) {
                 context.settingsDataStore.edit { preferences ->
-                    preferences[savedGradientUriKey] = toUri
-                    preferences[savedGradientEdgeKey] = gradient.first.toArgb()
-                    preferences[savedGradientDeepKey] = gradient.second.toArgb()
+                    preferences[savedBackgroundColorUriKey] = toUri
+                    preferences[savedBackgroundColorKey] = color.toArgb()
                 }
             }
         }
     }
 
     // 首页背景真实取色成功后持久化，供下次冷启动恢复
-    fun saveBackgroundGradient(main: Color, deep: Color) {
+    fun saveBackgroundColor(color: Color) {
         val uri = currentTrack?.audioUri ?: return
-        saveBackgroundGradientFor(uri, main, deep)
+        saveBackgroundColorFor(uri, color)
     }
 
     // 取色结果按所属曲目落盘：显示端取色与切歌后台取色共用，避免退出时才保存而丢失
-    private fun saveBackgroundGradientFor(uri: String, main: Color, deep: Color) {
-        savedGradient = main to deep
-        savedGradientUri = uri
+    private fun saveBackgroundColorFor(uri: String, color: Color) {
+        savedBackgroundColor = color
+        savedBackgroundColorUri = uri
         // 启动镜像同步更新取色结果：冷启动首帧的背景色同样只能来自镜像
         if (currentTrack?.audioUri == uri) persistBootMirror()
         val context = appContext ?: return
         playbackScope.launch {
             withContext(Dispatchers.IO) {
                 context.settingsDataStore.edit { preferences ->
-                    preferences[savedGradientUriKey] = uri
-                    preferences[savedGradientEdgeKey] = main.toArgb()
-                    preferences[savedGradientDeepKey] = deep.toArgb()
+                    preferences[savedBackgroundColorUriKey] = uri
+                    preferences[savedBackgroundColorKey] = color.toArgb()
                 }
             }
         }
@@ -1170,7 +1164,7 @@ class MusicPlaybackState(
 
     // 切歌即落盘该曲目封面缩略图并持久化背景取色：冷启动首帧可直读落盘封面出图，
     // 不必再查系统略缩图或解码音频内嵌封面；后台切歌（首页未展示、无人取色）同样生效
-    private fun cacheCurrentCoverAndGradient(track: MusicTrack) {
+    private fun cacheCurrentCoverAndColor(track: MusicTrack) {
         val context = appContext ?: return
         playbackScope.launch {
             val bitmap = CurrentCoverCache.ensure(context, track.audioUri) {
@@ -1178,8 +1172,8 @@ class MusicPlaybackState(
             } ?: return@launch
             // 异步取图期间可能已切走：非当前曲目的取色结果落盘会顶掉当前曲目的恢复色
             if (currentTrack?.audioUri != track.audioUri) return@launch
-            val (main, deep) = extractCoverGradient(bitmap) ?: return@launch
-            saveBackgroundGradientFor(track.audioUri, main, deep)
+            val color = extractCoverBackgroundColor(bitmap) ?: return@launch
+            saveBackgroundColorFor(track.audioUri, color)
         }
     }
 
@@ -1259,12 +1253,11 @@ class MusicPlaybackState(
         currentPosition = snapshot.optLong("position", 0L)
         duration = track.duration
         playMode = PlayMode.entries.getOrElse(snapshot.optInt("mode", -1)) { PlayMode.RepeatAll }
-        // 背景取色两端：下边缘色（背景顶部锚色）与下半区平均色（背景底部深色端）
-        val gradientUri = snapshot.optString("coverGradientUri", "")
-        if (gradientUri.isNotBlank()) {
-            savedGradientUri = gradientUri
-            savedGradient = Color(snapshot.optInt("coverGradientEdge")) to
-                Color(snapshot.optInt("coverGradientDeep"))
+        // 背景取色：封面主色，镜像未记录时缺省 0
+        val colorUri = snapshot.optString("coverGradientUri", "")
+        if (colorUri.isNotBlank()) {
+            savedBackgroundColorUri = colorUri
+            savedBackgroundColor = Color(snapshot.optInt("coverGradientEdge"))
         }
         pendingSavedUri = track.audioUri
         pendingResumePosition = currentPosition
@@ -1294,17 +1287,16 @@ class MusicPlaybackState(
         val track = currentTrack ?: return
         val position = currentPosition
         val mode = playMode.ordinal
-        val gradientUri = savedGradientUri.orEmpty()
-        val gradient = savedGradient
+        val colorUri = savedBackgroundColorUri.orEmpty()
+        val color = savedBackgroundColor
         bootMirrorJob = playbackScope.launch(Dispatchers.IO) {
             runCatching {
                 val snapshot = JSONObject()
                     .put("track", encodePlaylist(listOf(track)))
                     .put("position", position)
                     .put("mode", mode)
-                    .put("coverGradientUri", gradientUri)
-                    .put("coverGradientEdge", gradient?.first?.toArgb() ?: 0)
-                    .put("coverGradientDeep", gradient?.second?.toArgb() ?: 0)
+                    .put("coverGradientUri", colorUri)
+                    .put("coverGradientEdge", color?.toArgb() ?: 0)
                 context.getSharedPreferences(bootMirrorPreferences, Context.MODE_PRIVATE)
                     .edit(commit = true) {
                         putString(bootMirrorKey, snapshot.toString())

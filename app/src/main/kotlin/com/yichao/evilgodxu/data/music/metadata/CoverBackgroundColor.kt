@@ -2,7 +2,6 @@ package com.yichao.evilgodxu.data.music.metadata
 
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -20,20 +19,16 @@ private const val DIRTY_CHROMA_MIN = 0.12f
 // 参与取色的最低不透明度：透明区域（抠图留白、圆形封面外）不代表封面主色调
 private const val OPAQUE_ALPHA_MIN = 128
 
-// 背景底部深色端相对主色调的压暗比例：保证底部前景文字可读
-private const val COVER_DEEP_DARKEN = 0.45f
-
-// 封面取色：对全图做一次量化直方图，取覆盖面积占比最大且不脏的颜色作主色调（first），
-// 再由主色调压暗出背景底部深色端（second）。
+// 封面取色：对全图做一次量化直方图，取覆盖面积占比最大且不脏的颜色作背景主色。
 // 占比小的碎色（如画面角落的物体色）与灰调混色不会胜出，背景整体因此贴合封面主色调而不被局部脏色带偏。
+// 取色结果即背景主色，不再做任何压暗：显示端只在其上叠加均匀的轻微压暗（见 SongImmersiveBackground）。
 // 显示端（SongImmersiveBackground）与切歌时的后台持久化共用本入口，使冷启动恢复色与实时取色同源。
-internal suspend fun extractCoverGradient(source: Bitmap): Pair<Color, Color>? = withContext(Dispatchers.IO) {
+internal suspend fun extractCoverBackgroundColor(source: Bitmap): Color? = withContext(Dispatchers.IO) {
     // 硬件位图不可直接 getPixels，复制为软件位图后再取色
     val bitmap = if (source.config == Bitmap.Config.HARDWARE) {
         source.copy(Bitmap.Config.ARGB_8888, false) ?: return@withContext null
     } else source
-    val main = bitmap.dominantColor() ?: return@withContext null
-    main to lerp(main, Color.Black, COVER_DEEP_DARKEN)
+    bitmap.dominantColor()
 }
 
 // 占比最大且不脏的颜色：逐桶累计像素数后，在非脏桶中取像素最多者；
@@ -89,7 +84,7 @@ private fun Bitmap.dominantColor(): Color? {
         red = (sumR[chosen] / count).toFloat() / 255f,
         green = (sumG[chosen] / count).toFloat() / 255f,
         blue = (sumB[chosen] / count).toFloat() / 255f,
-    ).darkenIfNearWhite()
+    )
 }
 
 // 脏色：明度落在纯白/纯黑两端，或彩度过低呈灰调
@@ -97,10 +92,4 @@ private fun isDirtyColor(r: Int, g: Int, b: Int): Boolean {
     val luma = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
     if (luma > DIRTY_LUMA_MAX || luma < DIRTY_LUMA_MIN) return true
     return (maxOf(r, g, b) - minOf(r, g, b)) / 255f < DIRTY_CHROMA_MIN
-}
-
-// 与白色前景（按钮标题/歌词）亮度相近时轻微压暗，保证文字可读
-private fun Color.darkenIfNearWhite(): Color {
-    val luminance = 0.299f * red + 0.587f * green + 0.114f * blue
-    return if (luminance > 0.8f) lerp(this, Color.Black, 0.2f) else this
 }

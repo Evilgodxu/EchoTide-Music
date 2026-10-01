@@ -27,9 +27,9 @@ internal fun HomeShell(
         SongImmersiveBackground(
             track = playbackState.currentTrack,
             // 冷启动略缩图就绪前先用上次持久化的取色结果，避免首帧闪默认色
-            restoredColors = playbackState.restoredGradientFor(playbackState.currentTrack),
+            restoredColor = playbackState.restoredBackgroundColorFor(playbackState.currentTrack),
             onBackgroundColor = { panelState.backgroundColor = it },
-            onExtractedColors = { main, deep -> playbackState.saveBackgroundGradient(main, deep) },
+            onExtractedColor = { color -> playbackState.saveBackgroundColor(color) },
         )
         Scaffold(
             modifier = Modifier.fillMaxSize(),
