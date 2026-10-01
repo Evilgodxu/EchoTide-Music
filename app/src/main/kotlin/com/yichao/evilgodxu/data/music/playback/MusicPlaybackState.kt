@@ -27,7 +27,7 @@ import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.metadata.MusicCoverLoader
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.metadata.SystemThumbnailCache
-import com.yichao.evilgodxu.data.music.metadata.extractCoverBackgroundColor
+import com.yichao.evilgodxu.data.music.metadata.extractCoverBackgroundColors
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
@@ -1172,8 +1172,9 @@ class MusicPlaybackState(
             } ?: return@launch
             // 异步取图期间可能已切走：非当前曲目的取色结果落盘会顶掉当前曲目的恢复色
             if (currentTrack?.audioUri != track.audioUri) return@launch
-            val color = extractCoverBackgroundColor(bitmap) ?: return@launch
-            saveBackgroundColorFor(track.audioUri, color)
+            // 与显示端同一条封面边缘取色入口，落盘其代表色，冷启动首帧色与实时背景同源
+            val colors = extractCoverBackgroundColors(bitmap) ?: return@launch
+            saveBackgroundColorFor(track.audioUri, colors.representative)
         }
     }
 
@@ -1253,7 +1254,7 @@ class MusicPlaybackState(
         currentPosition = snapshot.optLong("position", 0L)
         duration = track.duration
         playMode = PlayMode.entries.getOrElse(snapshot.optInt("mode", -1)) { PlayMode.RepeatAll }
-        // 背景取色：封面主色，镜像未记录时缺省 0
+        // 背景取色：封面边缘取色的代表色，镜像未记录时缺省 0
         val colorUri = snapshot.optString("coverGradientUri", "")
         if (colorUri.isNotBlank()) {
             savedBackgroundColorUri = colorUri

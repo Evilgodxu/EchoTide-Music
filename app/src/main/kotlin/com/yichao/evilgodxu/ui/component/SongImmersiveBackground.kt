@@ -2,8 +2,6 @@ package com.yichao.evilgodxu.ui.component
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
 import android.graphics.Paint
 import androidx.compose.foundation.Image
@@ -25,13 +23,16 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.core.graphics.createBitmap
+import androidx.core.graphics.withMatrix
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.yichao.evilgodxu.data.music.metadata.extractCoverBackgroundColor
+import com.yichao.evilgodxu.data.music.metadata.CoverBackgroundColors
+import com.yichao.evilgodxu.data.music.metadata.extractCoverBackgroundColors
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.settings.backgroundFlowEnabledFlow
 import com.yichao.evilgodxu.theme.md_theme_dark_surface
@@ -40,25 +41,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 
-// 封面取样尺寸：取色只需封面主色，背景渲染也在小画布上完成，64px 已足够且解码代价最低
+// 封面取样尺寸：取色只需封面边缘环的平均色，64px 已足够且解码代价最低
 private const val COVER_BACKGROUND_SAMPLE_SIZE = 64
 
-// 背景帧降采样倍数：帧位图边长为视口的 1/16（像素量约 1/256），叠加、模糊与放大都以小图为准
+// 背景帧降采样倍数：帧位图边长为视口的 1/16（像素量约 1/256），叠画、模糊与放大都以小图为准
 private const val COVER_BACKGROUND_DOWNSAMPLE = 16
 
-// 封面放大系数：放大到画布较长边的 1.3 倍后居中，错位叠画仍能盖满画布不露空边
+// 色块边长系数：色块取画布较长边的 1.3 倍，错位叠画与旋转后仍能盖满画布不露空边
 private const val COVER_BACKGROUND_OVERSCAN = 1.3f
 
-// 叠画饱和度：封面本身偏灰时也能得到有色彩的背景
-private const val COVER_BACKGROUND_SATURATION = 2.5f
-
-// 模糊半径：按 1/16 小图尺度取固定值，叠加后的封面柔化为连贯色块
+// 模糊半径：按 1/16 小图尺度取固定值，错位叠画的色块柔化为连贯色域，色块边界不显形
 private const val COVER_BACKGROUND_BLUR_RADIUS = 15
 
 // 流动帧间隔：与显示帧率对齐约 30fps，低于此间隔的重绘并入下一帧
 private const val COVER_BACKGROUND_FLOW_FRAME_INTERVAL_MS = 32L
 
-// 背景整体压暗强度：封面衍生背景与铺底色统一轻微压暗，给前景文字留出对比。
+// 背景整体压暗强度：静态渐变与流动帧统一轻微压暗，给前景文字留出对比。
 // 单值均匀压暗，不随位置变化
 private const val COVER_BACKGROUND_DIM_ALPHA = 0.15f
 
@@ -79,12 +77,11 @@ private data class CoverBackgroundLayer(
     val rotateAboutCenter: Boolean,
 )
 
-// 歌曲沉浸式背景：由封面缩略图渲染柔和的叠画背景（见 renderCoverBackgroundFrame），
-// 封面未就绪时以封面主色铺底，冷启动可先用 [restoredColor]（上次持久化的取色结果）渲染，避免首帧闪默认色。
-// 背景整屏统一渲染，不随顶置封面位置做局部处理：封面下缘以渐隐蒙层直接融入背景，
-// 左右切页时背景始终连续，封面移出后不会露出与下段割裂的整片实色。
-// 背景按封面取色呈现：自下而上为铺底色、背景帧、均匀压暗层三层，不做任何渐变式压暗。
-// 默认只渲染一帧静态背景；设置页开启「背景流动」后按固定默认值缓慢推进时间轴。
+// 歌曲沉浸式背景：整屏统一渲染，不随顶置封面位置做局部处理，左右切页时背景始终连续。
+// 底色取自封面边缘的三段相近色（见 extractCoverBackgroundColors）：关闭「背景流动」时只铺一条
+// 由三段色构成的自上而下渐变，开启后在其上叠一层缓慢漂移的色块帧（见 renderFlowBackgroundFrame）；
+// 关掉流动即撤下色块帧回到渐变，静止背景与流动背景始终是同一份色调。
+// 三段取色未就绪时先回落 [restoredColor]（上次持久化的取色结果）整幅铺色，避免冷启动首帧闪默认色。
 // 首页与 3D 封面轮播共用，随传入曲目实时变化；背景代表色经回调暴露供浮层容器复用。
 @Composable
 internal fun SongImmersiveBackground(
@@ -95,19 +92,19 @@ internal fun SongImmersiveBackground(
     onExtractedColor: ((Color) -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    // 与封面显示同一份系统略缩图：封面重写后系统图随媒体扫描重建，版本号变化即重新取色与重绘
+    // 与封面显示同一份系统略缩图：封面重写后系统图随媒体扫描重建，版本号变化即重新取色
     val thumbnail = rememberSystemThumbnail(track, COVER_BACKGROUND_SAMPLE_SIZE)
-    var extracted by remember { mutableStateOf<Color?>(null) }
+    var extracted by remember { mutableStateOf<CoverBackgroundColors?>(null) }
     LaunchedEffect(thumbnail) {
-        val color = thumbnail?.asAndroidBitmap()?.let { extractCoverBackgroundColor(it) }
-        extracted = color
-        if (color != null) onExtractedColor?.invoke(color)
+        val colors = thumbnail?.asAndroidBitmap()?.let { extractCoverBackgroundColors(it) }
+        extracted = colors
+        if (colors != null) onExtractedColor?.invoke(colors.representative)
     }
-    val effective = extracted ?: restoredColor
-    val background = effective ?: md_theme_dark_surface
+    val colors = extracted
+    val background = colors?.representative ?: restoredColor ?: md_theme_dark_surface
     LaunchedEffect(background) { onBackgroundColor?.invoke(background) }
 
-    // 流动时间轴：仅在开关打开时推进，关闭时归零即回到静态首帧
+    // 流动时间轴：仅在开关打开时推进，关闭后停在原地不再推进
     val flowEnabled by context.backgroundFlowEnabledFlow().collectAsStateWithLifecycle(initialValue = false)
     var flowTimeMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(flowEnabled, thumbnail) {
@@ -127,17 +124,17 @@ internal fun SongImmersiveBackground(
         }
     }
 
-    // 背景帧：只在封面、视口尺寸或流动时间推进时重算
+    // 流动帧：只在开启流动且三段取色就绪时渲染，随流动时间推进重算；
+    // 关闭流动即置空，背景不再有任何流动帧参与渲染，只剩下方静态渐变
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(thumbnail, viewportSize, flowTimeMs) {
-        val cover = thumbnail?.asAndroidBitmap()
-        frame = if (cover == null || viewportSize.width <= 0 || viewportSize.height <= 0) {
+    LaunchedEffect(colors, flowEnabled, viewportSize, flowTimeMs) {
+        frame = if (!flowEnabled || colors == null || viewportSize.width <= 0 || viewportSize.height <= 0) {
             null
         } else {
             withContext(Dispatchers.Default) {
-                renderCoverBackgroundFrame(
-                    cover = cover,
+                renderFlowBackgroundFrame(
+                    colors = colors,
                     viewportWidth = viewportSize.width,
                     viewportHeight = viewportSize.height,
                     timeMs = flowTimeMs,
@@ -149,9 +146,17 @@ internal fun SongImmersiveBackground(
         modifier = modifier
             .fillMaxSize()
             .onSizeChanged { viewportSize = it }
-            // 取色未就绪时回落主题默认渐变；取到封面主色后整幅铺该色，覆盖帧未出图的空档
-            .background(effective?.let { SolidColor(it) } ?: defaultBackgroundGradient()),
+            // 静态背景：三段取色构成的自上而下渐变，流动帧叠在其上，关掉流动即露出这一层。
+            // 仅持上次持久化的代表色时先整幅铺该色，取色未就绪时才用主题默认渐变
+            .background(
+                when {
+                    colors != null -> Brush.verticalGradient(colors.stops)
+                    restoredColor != null -> SolidColor(restoredColor)
+                    else -> defaultBackgroundGradient()
+                }
+            ),
     ) {
+        // 流动帧整幅铺满并盖住静态渐变；帧内已做整体模糊，色块边界不显形
         frame?.let { bitmap ->
             Image(
                 bitmap = bitmap,
@@ -160,7 +165,7 @@ internal fun SongImmersiveBackground(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        // 轻微压暗层：铺底色与背景帧一并压暗，给前景文字留出对比。
+        // 轻微压暗层：静态渐变与流动帧一并压暗，给前景文字留出对比。
         // 强度沿全幅一致，不随位置变化，因而不产生亮度层次分界
         Box(
             modifier = Modifier
@@ -180,12 +185,16 @@ private fun defaultBackgroundGradient(): Brush =
     )
 
 /**
- * 渲染一帧封面衍生背景：在 1/16 视口尺寸的小画布上错位叠画三份高饱和封面后整体模糊，
- * 由显示端放大铺满。像素量约为整屏的 1/256，叠加与模糊的代价随之降到可忽略。
- * [timeMs] 为 0 时即静态首帧；流动开启后由调用方按帧推进，三份封面随各自周期缓慢旋转。
+ * 渲染一帧流动背景：在 1/16 视口尺寸的小画布上错位叠画三份纯色块后整体模糊，由显示端放大铺满。
+ * 每层取 [CoverBackgroundColors] 的一段色纯色填充（图层与色段同为三段，层序即自上而下的段序），
+ * 三层色调已收敛为相近色，模糊后的相接处因此是连续过渡，不会两色硬接。
+ *
+ * 画色块而非叠画封面：封面各区域的色调可能相差很大，直接叠画会让三个色块各走一色；
+ * 色块色只来自封面边缘取色，色调可控且与静态渐变同源。
+ * 像素量约为整屏的 1/256，叠画与模糊的代价随之降到可忽略；[timeMs] 推进三层的旋转角度。
  */
-internal fun renderCoverBackgroundFrame(
-    cover: Bitmap,
+internal fun renderFlowBackgroundFrame(
+    colors: CoverBackgroundColors,
     viewportWidth: Int,
     viewportHeight: Int,
     timeMs: Long,
@@ -194,31 +203,29 @@ internal fun renderCoverBackgroundFrame(
     val height = (viewportHeight / COVER_BACKGROUND_DOWNSAMPLE).coerceAtLeast(1)
     val frame = createBitmap(width, height)
     val canvas = Canvas(frame)
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        isFilterBitmap = true
-        colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(COVER_BACKGROUND_SATURATION) })
-    }
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     val side = max(width, height) * COVER_BACKGROUND_OVERSCAN
-    val scale = side / max(cover.width, cover.height)
     val matrix = Matrix()
-    for (layer in COVER_BACKGROUND_LAYERS) {
+    COVER_BACKGROUND_LAYERS.forEachIndexed { index, layer ->
         val rotation = (timeMs % layer.periodMs).toFloat() / layer.periodMs * 360f *
             if (layer.clockwise) 1f else -1f
+        paint.color = colors.stops[index].toArgb()
         matrix.reset()
-        matrix.setScale(scale, scale)
         matrix.postRotate(rotation, side / 2f, side / 2f)
         matrix.postTranslate(
             -(side - width) / 2f + width * layer.offsetX,
             -(side - height) / 2f + height * layer.offsetY,
         )
         if (layer.rotateAboutCenter) matrix.postRotate(rotation, width / 2f, height / 2f)
-        canvas.drawBitmap(cover, matrix, paint)
+        canvas.withMatrix(matrix) {
+            drawRect(0f, 0f, side, side, paint)
+        }
     }
-    return blurCoverBackgroundFrame(frame, COVER_BACKGROUND_BLUR_RADIUS)
+    return blurBackgroundFrame(frame, COVER_BACKGROUND_BLUR_RADIUS)
 }
 
 // 两趟盒式模糊：输入是 1/16 视口的小图，纯 CPU 逐像素处理即可，无需引入渲染管线
-private fun blurCoverBackgroundFrame(source: Bitmap, radius: Int): Bitmap {
+private fun blurBackgroundFrame(source: Bitmap, radius: Int): Bitmap {
     val width = source.width
     val height = source.height
     if (width <= 1 || height <= 1) return source
