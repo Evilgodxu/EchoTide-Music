@@ -58,11 +58,22 @@ private suspend fun searchSingleSourceCandidates(
 ): List<NeteaseSongSearchResult> {
     val combined = listOf(title, artist).filter { it.isNotBlank() }.joinToString(" ")
     val occupied = if (combined.isBlank()) emptyList() else searchSourceCandidates(context, source, combined)
-    val occupiedIds = occupied.map { it.id }.toSet()
-    val titleOnly = if (title.isBlank()) emptyList() else
-        searchSourceCandidates(context, source, title).filter { it.id !in occupiedIds }
-    return occupied + titleOnly
+    val titleOnly = if (title.isBlank()) emptyList() else searchSourceCandidates(context, source, title)
+    return mergeCandidates(occupied, titleOnly)
 }
+
+/**
+ * 合并两次查询的候选，按「来源 + id」保留首次出现顺序去重。
+ *
+ * 同一平台会把同一首歌拆成多条记录返回 —— 酷狗对同一文件 hash 按不同演绎者各列一条，
+ * 而条目身份就是 hash 派生的 id，于是候选列表里出现两条 id 相同的条目。候选列表以 id 作
+ * LazyRow 的 key，重复 key 会直接抛 IllegalArgumentException 崩溃，故聚合时必须按身份去重。
+ */
+internal fun mergeCandidates(
+    primary: List<NeteaseSongSearchResult>,
+    secondary: List<NeteaseSongSearchResult>,
+): List<NeteaseSongSearchResult> =
+    (primary + secondary).distinctBy { it.source to it.id }
 
 // 过滤候选：以是否匹配当前歌曲标题为唯一判定依据，normalize 后相等或互相包含
 private fun matchesTrackTitle(title: String, result: NeteaseSongSearchResult): Boolean {
