@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.ui.component.player
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.AnimationSpec
@@ -229,9 +230,17 @@ internal fun LyricsPanel(
     // 判定与释放时的吸附条件共用同一个函数，避免标识已确认却回弹
     val scrubAligned = scrubbing && alignedScrubRow(scrollPosition, lines.lastIndex) != null
 
+    // 切歌淡入：换曲时歌词窗口整体淡入，替代新旧歌词的瞬时替换。
+    // 用整体淡入而不做新旧交叠：面板持有拖拽与跟随两套常驻状态，同时驻留两份实例会互相争抢同一个手势
+    val switchFade = remember(playbackState.currentTrack?.id) { Animatable(0f) }
+    LaunchedEffect(playbackState.currentTrack?.id) {
+        switchFade.animateTo(1f, tween(LYRIC_SWITCH_FADE_MS))
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .graphicsLayer { alpha = switchFade.value }
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
@@ -739,6 +748,9 @@ private const val LYRIC_SEEK_TOLERANCE_MS = 1500L
 
 // 歌词面板默认可见行数：保持奇数使当前行垂直居中（上下各 (n-1)/2 行）
 private const val DEFAULT_VISIBLE_LINES = 5
+
+// 切歌时歌词窗口的淡入时长：短于封面与背景的过渡，歌词作为主体先立住
+private const val LYRIC_SWITCH_FADE_MS = 260
 
 // 歌词行间距：相邻歌词行之间的纵向间距，独立于行内上下内边距（4.dp）单独可调，
 // 避免行间距偏大导致歌词过于松散；用于视口高度、兜底行距与纵向布局三处一致换算

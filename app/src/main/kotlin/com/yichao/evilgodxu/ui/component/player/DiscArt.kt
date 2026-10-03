@@ -34,16 +34,19 @@ internal fun DiscArt(
     discSize: Dp,
     modifier: Modifier = Modifier,
     coverArt: @Composable (MusicTrack?) -> Unit = { target ->
-        // 光碟尺寸即控件实际渲染尺寸：封面请求档位据此换算，不沿用面板/轮播的大图档位
+        // 光碟尺寸即控件实际渲染尺寸：封面请求档位据此换算，不沿用面板/轮播的大图档位。
+        // 换曲与缩略图升清都经同一层淡入淡出，封面不出现先占位后突现的闪跳
         AlbumArt(
             track = target,
             modifier = Modifier.fillMaxSize(),
             thumbnailSize = coverThumbnailSize(LocalDensity.current, discSize * DISC_COVER_INSET),
+            crossfade = true,
         )
     },
 ) {
-    // 以曲目 id 为 key：切歌时旋转角归零并从新曲目重新旋转
-    val rotation = remember(track?.id) { Animatable(0f) }
+    // 旋转角不随曲目重建：切歌时归零会让光碟在换曲瞬间突跳一个角度，与切歌过渡的平滑目标相悖，
+    // 故角度继续累积，切歌只换封面；暂停后重新播放也自当前角度续转，不回卷
+    val rotation = remember { Animatable(0f) }
     LaunchedEffect(isPlaying, track?.id) {
         if (isPlaying) {
             while (isActive) {

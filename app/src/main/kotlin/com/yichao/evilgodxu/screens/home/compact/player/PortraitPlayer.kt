@@ -108,6 +108,8 @@ import com.yichao.evilgodxu.ui.component.player.LyricsTranslateDialog
 import com.yichao.evilgodxu.ui.component.player.LyricsPanel
 import com.yichao.evilgodxu.ui.component.player.LyricsRefreshDialog
 import com.yichao.evilgodxu.ui.component.menuEdgePositionProvider
+import com.yichao.evilgodxu.ui.component.rememberTrackSwitchAnchor
+import com.yichao.evilgodxu.ui.component.TrackSwitchTransition
 import com.yichao.evilgodxu.ui.copyToClipboard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -146,6 +148,9 @@ internal fun PortraitPlayer(
     onOpenMetadata: (Long) -> Unit = {},
 ) {
     val playbackState = LocalMusicPanelStateHolder.current.state
+
+    // 切歌过渡锚点：标题与艺术家的过渡键，含曲目身份、播放列表下标（推导切歌方向）与当帧显示文本
+    val trackAnchor = rememberTrackSwitchAnchor(playbackState.currentTrack, playbackState.currentIndex)
 
     // 播放列表与音频信息弹层展开时，系统返回键收起弹层（曲库分析关闭不中断后台任务）
     BackHandler(enabled = playlistVisible || audioInfoVisible || libraryAnalysis.visible) {
@@ -538,59 +543,71 @@ internal fun PortraitPlayer(
                 }
                 // 歌词与标题间距
                 Spacer(Modifier.height(8.dp))
-                // 标题与艺术家：过长时跑马灯滚动并带边缘渐隐，与横屏一致
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    MarqueeInfoLine(
-                        text = playbackState.currentTrack?.title.orEmpty(),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White,
-                        modifier = Modifier
-                            .padding(horizontal = 32.dp)
-                            .fillMaxWidth()
-                            .combinedClickable(
-                                onClick = {},
-                                onLongClick = {
-                                    val track = playbackState.currentTrack
-                                    if (track != null) {
-                                        menuText = track.title
-                                        menuIsTitle = true
-                                        showMetaMenu = true
-                                    }
-                                },
-                            ),
-                    )
-                    if (playbackState.currentTrack != null) {
-                        Spacer(Modifier.height(4.dp))
-                        MarqueeInfoLine(
-                            text = playbackState.currentTrack?.artist.orEmpty(),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Normal,
-                            color = Color.White,
-                            modifier = Modifier
-                                .padding(horizontal = 32.dp)
-                                .fillMaxWidth()
-                                .combinedClickable(
-                                    // 多位歌手先弹选择对话框，单一时直接进入该歌手的歌单页
-                                    onClick = {
-                                        val artists = parseTrackArtists(playbackState.currentTrack?.artist.orEmpty())
-                                            .filter { it.isNotBlank() }
-                                        if (artists.size > 1) {
-                                            artistPicker = artists
-                                        } else {
-                                            artists.firstOrNull()?.let(onOpenArtistPlaylist)
-                                        }
-                                    },
-                                    onLongClick = {
-                                        val artist = playbackState.currentTrack?.artist
-                                        if (!artist.isNullOrBlank()) {
-                                            menuText = artist
-                                            menuIsTitle = false
-                                            showMetaMenu = true
-                                        }
-                                    },
-                                ),
-                        )
+                // 标题与艺术家：切歌时新旧文本交叠淡入淡出，并按切歌方向小幅横移，与封面、背景同一节拍。
+                // 文本取自锚点而非当前曲目：退场的那一层要显示上一首的文本，读实时状态会显示成新曲目
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    TrackSwitchTransition(
+                        anchor = trackAnchor,
+                        slide = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { info ->
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            MarqueeInfoLine(
+                                text = info.title,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White,
+                                modifier = Modifier
+                                    .padding(horizontal = 32.dp)
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = {},
+                                        onLongClick = {
+                                            val track = playbackState.currentTrack
+                                            if (track != null) {
+                                                menuText = track.title
+                                                menuIsTitle = true
+                                                showMetaMenu = true
+                                            }
+                                        },
+                                    ),
+                            )
+                            if (info.id != null) {
+                                Spacer(Modifier.height(4.dp))
+                                MarqueeInfoLine(
+                                    text = info.artist,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Normal,
+                                    color = Color.White,
+                                    modifier = Modifier
+                                        .padding(horizontal = 32.dp)
+                                        .fillMaxWidth()
+                                        .combinedClickable(
+                                            // 多位歌手先弹选择对话框，单一时直接进入该歌手的歌单页
+                                            onClick = {
+                                                val artists = parseTrackArtists(playbackState.currentTrack?.artist.orEmpty())
+                                                    .filter { it.isNotBlank() }
+                                                if (artists.size > 1) {
+                                                    artistPicker = artists
+                                                } else {
+                                                    artists.firstOrNull()?.let(onOpenArtistPlaylist)
+                                                }
+                                            },
+                                            onLongClick = {
+                                                val artist = playbackState.currentTrack?.artist
+                                                if (!artist.isNullOrBlank()) {
+                                                    menuText = artist
+                                                    menuIsTitle = false
+                                                    showMetaMenu = true
+                                                }
+                                            },
+                                        ),
+                                )
+                            }
+                        }
                     }
                     MiniContextMenu(
                         visible = showMetaMenu,

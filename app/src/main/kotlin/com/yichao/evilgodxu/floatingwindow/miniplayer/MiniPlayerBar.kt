@@ -62,6 +62,8 @@ import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.MarqueeText
+import com.yichao.evilgodxu.ui.component.TrackSwitchTransition
+import com.yichao.evilgodxu.ui.component.rememberTrackSwitchAnchor
 import com.yichao.evilgodxu.ui.component.player.DiscArt
 import com.yichao.evilgodxu.ui.component.player.lyricEndLeadMs
 import com.yichao.evilgodxu.ui.component.player.lyricWordEnds
@@ -89,6 +91,8 @@ internal fun MiniPlayerBar(
     val wordByWordEnabled by context.wordByWordRenderingFlow().collectAsState(initial = true)
     val current = playbackState.currentTrack
     val coverDesc = stringResource(R.string.mini_player_cover)
+    // 切歌锚点：隐藏控件期间的歌名与歌词随锚点整体淡入淡出，换曲时文本不硬切
+    val trackAnchor = rememberTrackSwitchAnchor(current, playbackState.currentIndex)
 
     // 控件自动隐藏：3 秒无操作后隐藏控制按钮，改为显示歌曲名与歌词；任意触摸即可还原
     var controlsVisible by remember { mutableStateOf(true) }
@@ -301,63 +305,69 @@ internal fun MiniPlayerBar(
                     .padding(horizontal = 8.dp),
                 verticalArrangement = Arrangement.Center
             ) {
-                MarqueeText(
-                    text = current?.title.orEmpty(),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = TextStyle(
-                        fontSize = 12.sp,
-                        lineHeight = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                    ),
-                )
-                if (lyricLine == null) {
-                    // 无歌词时退化为歌手名静态展示
-                    Text(
-                        text = current?.artist.orEmpty(),
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 10.sp,
-                        lineHeight = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontWeight = FontWeight.Medium,
-                    )
-                } else {
-                    val lineEndMs = lyricLines
-                        .getOrNull(lyricIndex + 1)
-                        ?.timeMs ?: (lyricLine.timeMs + 3000L)
-                    val lineDuration = (lineEndMs - lyricLine.timeMs).coerceAtLeast(1L)
-                    // 行尾提前量：整行与逐字两种渲染共用同一口径，使末词与整行都在切到下一行前
-                    // 完成点亮，而不是卡在切行那一刻才刚好点亮
-                    val endLeadMs = lyricEndLeadMs(lineDuration)
-                    // 点亮比例：逐字歌词按每个词自身的起止时间推进，与完整播放器同一套时序，
-                    // 词间空隙不点亮，末词终点另按行尾提前量收窄；普通歌词没有词时序，退化为按行时长
-                    // 均分，填充时长同样略短于行时长，留出余量让行尾文字在切到下一行前完整揭示。
-                    // 关闭逐字渲染时整行高亮，平移动画仍按行时长连续推进，
-                    // 避免逐字时序的空隙让滚动一顿一顿
-                    val progress = if (wordByWordEnabled && lyricLine.words.isNotEmpty()) {
-                        val wordEnds = remember(lyricLine.words, lineEndMs, endLeadMs) {
-                            lyricWordEnds(lyricLine.words, lineEndMs, tailLeadMs = endLeadMs)
+                // 歌名与歌词整体随锚点淡入淡出：换曲时这一块不硬切。
+                // 歌名与无歌词时的歌手名取自锚点，退场的一层才显示上一首的文本
+                TrackSwitchTransition(anchor = trackAnchor, modifier = Modifier.fillMaxWidth()) { info ->
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        MarqueeText(
+                            text = info.title,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = TextStyle(
+                                fontSize = 12.sp,
+                                lineHeight = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                            ),
+                        )
+                        if (lyricLine == null) {
+                            // 无歌词时退化为歌手名静态展示
+                            Text(
+                                text = info.artist,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 10.sp,
+                                lineHeight = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        } else {
+                            val lineEndMs = lyricLines
+                                .getOrNull(lyricIndex + 1)
+                                ?.timeMs ?: (lyricLine.timeMs + 3000L)
+                            val lineDuration = (lineEndMs - lyricLine.timeMs).coerceAtLeast(1L)
+                            // 行尾提前量：整行与逐字两种渲染共用同一口径，使末词与整行都在切到下一行前
+                            // 完成点亮，而不是卡在切行那一刻才刚好点亮
+                            val endLeadMs = lyricEndLeadMs(lineDuration)
+                            // 点亮比例：逐字歌词按每个词自身的起止时间推进，与完整播放器同一套时序，
+                            // 词间空隙不点亮，末词终点另按行尾提前量收窄；普通歌词没有词时序，退化为按行时长
+                            // 均分，填充时长同样略短于行时长，留出余量让行尾文字在切到下一行前完整揭示。
+                            // 关闭逐字渲染时整行高亮，平移动画仍按行时长连续推进，
+                            // 避免逐字时序的空隙让滚动一顿一顿
+                            val progress = if (wordByWordEnabled && lyricLine.words.isNotEmpty()) {
+                                val wordEnds = remember(lyricLine.words, lineEndMs, endLeadMs) {
+                                    lyricWordEnds(lyricLine.words, lineEndMs, tailLeadMs = endLeadMs)
+                                }
+                                lyricWordFillFraction(lyricLine.words, wordEnds, lyricPosition)
+                            } else {
+                                ((lyricPosition - lyricLine.timeMs).toFloat() /
+                                    (lineDuration - endLeadMs).toFloat())
+                                    .coerceIn(0f, 1f)
+                            }
+                            MiniPlayerLyricText(
+                                text = lyricLine.text,
+                                progress = progress,
+                                wordByWordEnabled = wordByWordEnabled,
+                                activeColor = MaterialTheme.colorScheme.primary,
+                                pendingColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                                style = TextStyle(
+                                    fontSize = 10.sp,
+                                    lineHeight = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                ),
+                                lineKey = info.id to lyricIndex,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
-                        lyricWordFillFraction(lyricLine.words, wordEnds, lyricPosition)
-                    } else {
-                        ((lyricPosition - lyricLine.timeMs).toFloat() /
-                            (lineDuration - endLeadMs).toFloat())
-                            .coerceIn(0f, 1f)
                     }
-                    MiniPlayerLyricText(
-                        text = lyricLine.text,
-                        progress = progress,
-                        wordByWordEnabled = wordByWordEnabled,
-                        activeColor = MaterialTheme.colorScheme.primary,
-                        pendingColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                        style = TextStyle(
-                            fontSize = 10.sp,
-                            lineHeight = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                        ),
-                        lineKey = current?.id to lyricIndex,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
                 }
             }
         }

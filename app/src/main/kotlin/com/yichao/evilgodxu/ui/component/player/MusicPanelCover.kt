@@ -1,5 +1,7 @@
 package com.yichao.evilgodxu.ui.component.player
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -7,6 +9,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -28,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -46,6 +50,8 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.menuEdgePositionProvider
 import com.yichao.evilgodxu.ui.component.rememberSystemThumbnail
+import com.yichao.evilgodxu.ui.component.rememberTrackSwitchAnchor
+import com.yichao.evilgodxu.ui.component.TrackSwitchTransition
 import com.yichao.evilgodxu.ui.component.player.DiscArt
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.copyToClipboard
@@ -53,6 +59,9 @@ import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 
 // 音乐面板光碟的显示直径：封面请求档位按此换算（见 coverThumbnailSize）
 private val MUSIC_PANEL_DISC_DP = 64.dp
+
+// 换图淡入淡出时长：与首页大封面同一节拍，占位符→略缩图→高清图各档之间都走这一层过渡
+private const val COVER_ART_CROSSFADE_MS = 300
 
 @Composable
 internal fun CurrentCover(
@@ -106,12 +115,14 @@ internal fun CurrentCover(
 // 在线曲目落盘入库后由系统的媒体扫描生成略缩图，此前的最终刷新会驱动本组件重新取图。
 // [thumbnailSize] 由调用方按所处场景给定（见 ui/component 的封面请求尺寸策略）：
 // 光碟、刷新预览按控件实际渲染尺寸换算，3D 轮播固定 512
+// [crossfade] 为真时换图（换曲、缩略图升清、占位符出图）经淡入淡出交叠，不出现突变
 @Composable
 private fun SystemCoverArt(
     track: MusicTrack?,
     modifier: Modifier,
     thumbnailSize: Int,
     placeholderIconSize: Dp,
+    crossfade: Boolean,
 ) {
     val stateHolder = LocalMusicPanelStateHolder.current
     val thumb = rememberSystemThumbnail(track, thumbnailSize)
@@ -119,28 +130,43 @@ private fun SystemCoverArt(
     LaunchedEffect(track?.id) {
         track?.let { stateHolder.state.requestMetadata(it) }
     }
-    if (thumb != null) {
-        Image(
-            bitmap = thumb,
-            contentDescription = track?.title,
-            contentScale = ContentScale.Crop,
-            // 高清渲染：mipmap 三线性过滤，缩放/旋转均无锯齿与模糊
-            filterQuality = FilterQuality.High,
-            modifier = modifier.background(Color.Black),
-        )
-    } else {
-        Box(
-            modifier = modifier
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = AppIcons.MusicNote,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(placeholderIconSize)
+    // 取图结果落到内容槽，容器尺寸统一由 [modifier] 给出，两条出路（过渡/直出）的布局口径一致
+    val art: @Composable (ImageBitmap?) -> Unit = { bitmap ->
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = track?.title,
+                contentScale = ContentScale.Crop,
+                // 高清渲染：mipmap 三线性过滤，缩放/旋转均无锯齿与模糊
+                filterQuality = FilterQuality.High,
+                modifier = Modifier.fillMaxSize().background(Color.Black),
             )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = AppIcons.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(placeholderIconSize)
+                )
+            }
         }
+    }
+    if (crossfade) {
+        // 过渡期间两层同时驻留，两侧位图都已在内存，不会露出容器底色
+        Crossfade(
+            targetState = thumb,
+            animationSpec = tween(durationMillis = COVER_ART_CROSSFADE_MS),
+            label = "coverArt",
+            modifier = modifier,
+        ) { bitmap -> art(bitmap) }
+    } else {
+        Box(modifier = modifier) { art(thumb) }
     }
 }
 
@@ -151,8 +177,15 @@ internal fun AlbumArt(
     track: MusicTrack?,
     modifier: Modifier = Modifier,
     thumbnailSize: Int,
+    crossfade: Boolean = false,
 ) {
-    SystemCoverArt(track, modifier, thumbnailSize = thumbnailSize, placeholderIconSize = 24.dp)
+    SystemCoverArt(
+        track,
+        modifier,
+        thumbnailSize = thumbnailSize,
+        placeholderIconSize = 24.dp,
+        crossfade = crossfade,
+    )
 }
 
 @Composable
@@ -349,6 +382,13 @@ internal fun TrackInfo(
         }
     }
 
+    // 切歌锚点：标题与艺术家随锚点整体淡入淡出，换曲时文本不硬切
+    val anchor = rememberTrackSwitchAnchor(playbackState.currentTrack, playbackState.currentIndex)
+    val emptyTitle = when {
+        playbackState.isScanning -> stringResource(R.string.music_panel_scanning)
+        else -> stringResource(R.string.music_panel_empty)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -359,38 +399,41 @@ internal fun TrackInfo(
             .padding(top = 4.dp, bottom = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        val title = when {
-            playbackState.currentTrack != null -> playbackState.currentTrack!!.title
-            playbackState.isScanning -> stringResource(R.string.music_panel_scanning)
-            else -> stringResource(R.string.music_panel_empty)
-        }
-        Box {
-            Text(
-                text = title,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                modifier = Modifier
-                    .basicMarquee(iterations = Int.MAX_VALUE)
-                    .combinedClickable(
-                        onClick = { if (!showMenu) onClick() },
-                        onLongClick = onLongClickTitle
+        TrackSwitchTransition(anchor = anchor, modifier = Modifier.fillMaxWidth()) { info ->
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box {
+                    Text(
+                        // 无曲目时才呈现扫库/空态文案，有曲目时即使标题为空也照实显示
+                        text = if (info.id != null) info.title else emptyTitle,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .basicMarquee(iterations = Int.MAX_VALUE)
+                            .combinedClickable(
+                                onClick = { if (!showMenu) onClick() },
+                                onLongClick = onLongClickTitle
+                            )
                     )
-            )
-        }
-        Box {
-            Text(
-                text = playbackState.currentTrack?.artist ?: "",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.combinedClickable(
-                    onClick = { if (!showMenu) onClick() },
-                    onLongClick = onLongClickArtist
-                )
-            )
+                }
+                Box {
+                    Text(
+                        text = info.artist,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.combinedClickable(
+                            onClick = { if (!showMenu) onClick() },
+                            onLongClick = onLongClickArtist
+                        )
+                    )
+                }
+            }
         }
         // 长按菜单锚定本列：显示在父布局顶部
         MiniContextMenu(

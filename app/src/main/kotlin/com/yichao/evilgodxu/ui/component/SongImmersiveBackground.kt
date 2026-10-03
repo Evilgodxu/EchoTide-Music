@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -23,6 +25,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -62,6 +65,9 @@ private const val COVER_BACKGROUND_FLOW_FRAME_INTERVAL_MS = 32L
 // 单值均匀压暗，不随位置变化
 private const val COVER_BACKGROUND_DIM_ALPHA = 0.15f
 
+// 切歌背景过渡时长：上一首的底色整屏铺于上层淡出，使换曲后的整屏换色表现为一次渐变
+private const val COVER_BACKGROUND_SWITCH_FADE_MS = 480
+
 // 背景流动的三层固定默认值：旋转周期与方向、错位量（占画布宽高的比例）。
 // 三层周期互质且方向相反，叠画后的色块缓慢漂移而不出现明显循环
 private val COVER_BACKGROUND_LAYERS = listOf(
@@ -79,11 +85,22 @@ private data class CoverBackgroundLayer(
     val rotateAboutCenter: Boolean,
 )
 
+// 整屏底色的一种渲染口径：三段取色就绪时为自上而下三段渐变，未就绪时退化为单色铺底
+private data class BackgroundBase(
+    val colors: CoverBackgroundColors?,
+    val solid: Color?,
+) {
+    fun brush(): Brush = colors?.let { Brush.verticalGradient(it.stops) }
+        ?: solid?.let { SolidColor(it) }
+        ?: defaultBackgroundGradient()
+}
+
 // 歌曲沉浸式背景：整屏统一渲染，不随顶置封面位置做局部处理，左右切页时背景始终连续。
 // 底色取自封面边缘的三段相近色（见 extractCoverBackgroundColors）：关闭「背景流动」时只铺一条
 // 由三段色构成的自上而下渐变，开启后在其上叠一层缓慢漂移的色块帧（见 renderFlowBackgroundFrame）；
 // 关掉流动即撤下色块帧回到渐变，静止背景与流动背景始终是同一份色调。
 // 三段取色未就绪时先回落 [restoredColor]（上次持久化的取色结果）整幅铺色，避免冷启动首帧闪默认色。
+// 底色有变时把上一份底色整屏铺于上层淡出，切歌的整屏换色因此是渐变而非瞬间跳变。
 // 首页与 3D 封面轮播共用，随传入曲目实时变化；背景代表色经回调暴露供浮层容器复用。
 @Composable
 internal fun SongImmersiveBackground(
@@ -111,6 +128,25 @@ internal fun SongImmersiveBackground(
     val colors = extracted
     val background = colors?.representative ?: restoredColor ?: md_theme_dark_surface
     LaunchedEffect(background) { onBackgroundColor?.invoke(background) }
+
+    // 切歌过渡：把上一首的底色整屏铺在当前背景之上淡出，换色不再表现为瞬间跳变。
+    // 只留底色、不留上一帧的流动帧：流动帧由当前取色现算，留存的旧帧与旧底色不同源，
+    // 过渡中反而会闪出第三种色调；旧底色本身已按下述压暗层压暗，过渡期间的亮度与静止画面一致
+    val base = remember(colors, restoredColor) {
+        BackgroundBase(colors = colors, solid = if (colors == null) restoredColor else null)
+    }
+    var lastBase by remember { mutableStateOf<BackgroundBase?>(null) }
+    var fadingBase by remember { mutableStateOf<BackgroundBase?>(null) }
+    val switchFade = remember { Animatable(0f) }
+    LaunchedEffect(base) {
+        val previous = lastBase
+        lastBase = base
+        if (previous == null || previous == base) return@LaunchedEffect
+        fadingBase = previous
+        switchFade.snapTo(1f)
+        switchFade.animateTo(0f, tween(COVER_BACKGROUND_SWITCH_FADE_MS))
+        fadingBase = null
+    }
 
     // 流动时间轴：仅在开关打开时推进，关闭后停在原地不再推进
     val flowEnabled by context.backgroundFlowEnabledFlow().collectAsStateWithLifecycle(initialValue = false)
@@ -156,13 +192,7 @@ internal fun SongImmersiveBackground(
             .onSizeChanged { viewportSize = it }
             // 静态背景：三段取色构成的自上而下渐变，流动帧叠在其上，关掉流动即露出这一层。
             // 仅持上次持久化的代表色时先整幅铺该色，取色未就绪时才用主题默认渐变
-            .background(
-                when {
-                    colors != null -> Brush.verticalGradient(colors.stops)
-                    restoredColor != null -> SolidColor(restoredColor)
-                    else -> defaultBackgroundGradient()
-                }
-            ),
+            .background(base.brush()),
     ) {
         // 流动帧整幅铺满并盖住静态渐变；帧内已做整体模糊，色块边界不显形
         frame?.let { bitmap ->
@@ -180,6 +210,22 @@ internal fun SongImmersiveBackground(
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = COVER_BACKGROUND_DIM_ALPHA)),
         )
+        // 切歌过渡层：置于最上层，流动帧不透明时同样可见；压暗层在层内一并复刻，
+        // 淡出过程中旧底色的亮度与静止画面一致，不会亮一下再暗回去
+        fadingBase?.let { fading ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = switchFade.value },
+            ) {
+                Box(modifier = Modifier.fillMaxSize().background(fading.brush()))
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = COVER_BACKGROUND_DIM_ALPHA)),
+                )
+            }
+        }
     }
 }
 
