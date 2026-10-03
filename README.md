@@ -12,7 +12,7 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-4.4.3-informational)
+![Version](https://img.shields.io/badge/version-4.5.0-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.20-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.0-blue)

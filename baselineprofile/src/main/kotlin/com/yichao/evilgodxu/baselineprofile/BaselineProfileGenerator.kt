@@ -32,6 +32,11 @@ private const val SETTLE_MS = 700L
 // 翻页滑动距离占屏宽比例：过短不足以触发 Pager 吸附
 private const val SWIPE_SPAN = 0.7f
 
+// 竖屏播放列表面板占屏底一半，纵向滚动手势的起止位置须落在该面板内，
+// 否则手势起点会落在面板外的遮罩上而被当作点击，直接收起面板
+private const val PANEL_SCROLL_TOP = 0.55f
+private const val PANEL_SCROLL_BOTTOM = 0.9f
+
 // 竖屏播放器底部固定内容块（标题/艺术家/控制栏）只占屏底一部分：
 // 艺术家信息行即位于该块内控制栏上方，纵向位置占屏高比例，按坐标点击进入其歌单
 private const val ARTIST_INFO_Y = 0.82f
@@ -133,13 +138,18 @@ class BaselineProfileGenerator {
         prepare()
         launch()
         tap("music_panel_playlist")
-        // 播放列表滚动查看
-        scrollVertically(times = 2)
-        scrollVertically(times = 2, reversed = true)
+        // 播放列表滚动查看：手势收在面板内，避免起点落到遮罩上收起面板
+        scrollVertically(times = 2, topFraction = PANEL_SCROLL_TOP, bottomFraction = PANEL_SCROLL_BOTTOM)
+        scrollVertically(
+            times = 2,
+            reversed = true,
+            topFraction = PANEL_SCROLL_TOP,
+            bottomFraction = PANEL_SCROLL_BOTTOM,
+        )
         // 切换排序（按标题）后再滚动，覆盖排序重组路径
         tap("music_panel_sort")
         tap("music_panel_sort_by_title")
-        scrollVertically(times = 2)
+        scrollVertically(times = 2, topFraction = PANEL_SCROLL_TOP, bottomFraction = PANEL_SCROLL_BOTTOM)
         // 恢复默认排序，避免改变队列顺序影响后续历程
         tap("music_panel_sort")
         tap("music_panel_sort_default")
@@ -148,16 +158,25 @@ class BaselineProfileGenerator {
     }
 }
 
-/** 授予应用所需的全部权限并清除后台，保证每个历程从已授权的冷启动状态开始。 */
+/**
+ * 授予应用所需的全部权限并清除后台，保证每个历程从已授权的冷启动状态开始。
+ *
+ * 应用在任一权限缺失时会随冷启动弹出权限对话框，它是独立窗口：弹出期间首页控件
+ * 既不在无障碍树中也不接收点击，历程会整轮落空。因此这里须把会触发该对话框的权限
+ * 一次性给全，而不只是俗称的「媒体与通知」几项。
+ */
 private fun MacrobenchmarkScope.prepare() {
     // 运行时权限直接授予；全部文件与悬浮窗走 appops，避免历程中途弹出系统授权页
     listOf(
         "android.permission.READ_MEDIA_AUDIO",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.POST_NOTIFICATIONS",
+        "android.permission.BLUETOOTH_CONNECT",
     ).forEach { device.executeShellCommand("pm grant $TARGET_PACKAGE $it") }
     device.executeShellCommand("appops set $TARGET_PACKAGE MANAGE_EXTERNAL_STORAGE allow")
     device.executeShellCommand("appops set $TARGET_PACKAGE SYSTEM_ALERT_WINDOW allow")
+    // 电池优化白名单无 appops/pm 入口，只能加入 deviceidle 名单
+    device.executeShellCommand("cmd deviceidle whitelist +$TARGET_PACKAGE")
     device.executeShellCommand("am force-stop $TARGET_PACKAGE")
 }
 
@@ -268,11 +287,22 @@ private fun MacrobenchmarkScope.tapCoverForCarousel() {
     settle()
 }
 
-/** 纵向滚动，用于触发惰性列表的组合与回收路径。 */
-private fun MacrobenchmarkScope.scrollVertically(times: Int = 1, reversed: Boolean = false) {
+/**
+ * 纵向滚动，用于触发惰性列表的组合与回收路径。
+ *
+ * [topFraction]、[bottomFraction] 是手势起止位置占屏高比例，正向为「从下往上」。
+ * 滚动底部面板内的列表时须传入落在面板内的范围：起点越过面板顶缘会落到面板外的
+ * 遮罩上，而遮罩以点击收起面板，滑动抬手会被当成点击，面板随之关闭。
+ */
+private fun MacrobenchmarkScope.scrollVertically(
+    times: Int = 1,
+    reversed: Boolean = false,
+    topFraction: Float = 0.3f,
+    bottomFraction: Float = 0.7f,
+) {
     val width = device.displayWidth
     val height = device.displayHeight
-    val (fromY, toY) = if (reversed) 0.3f to 0.7f else 0.7f to 0.3f
+    val (fromY, toY) = if (reversed) topFraction to bottomFraction else bottomFraction to topFraction
     repeat(times) {
         device.swipe(width / 2, (height * fromY).toInt(), width / 2, (height * toY).toInt(), SWIPE_STEPS)
         settle()
