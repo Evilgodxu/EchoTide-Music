@@ -22,6 +22,7 @@ import com.yichao.evilgodxu.data.music.model.playlistTrackId
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceEngine
 import com.yichao.evilgodxu.data.music.download.cacheToDownloads
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.R
@@ -491,6 +492,10 @@ internal suspend fun downloadAndPlay(
             playbackState.playlist = playbackState.playlist + track
             playbackState.playlist.size - 1
         }
+        // 曲目由本处先行写入，类型必须与它同帧记下：随后的 playTrackAt 因目标已是当前曲目
+        // 而不再补记，本处漏记就会沿用上一次的类型，方向随之失真、揭示也不会触发。
+        // 搜索结果起播没有前后关系可读，类型为无方向的选曲播放
+        playbackState.beginTrackSwitch(TrackSwitchKind.Select, reveal = true)
         playbackState.currentIndex = targetIndex
         playbackState.currentTrack = playbackState.playlist[targetIndex]
         playbackState.persistPlaylist()
@@ -608,6 +613,8 @@ internal suspend fun tryPlayLocalMatch(
         }
     }
     playbackState.errorMsg = null
+    // 类型须先于曲目状态记下，且与搜索结果起播同属无方向的选曲播放（见 playOnlineResult）
+    playbackState.beginTrackSwitch(TrackSwitchKind.Select, reveal = true)
     playbackState.currentIndex = idx
     playbackState.currentTrack = playbackState.playlist[idx]
     playbackState.isSearchMode = false

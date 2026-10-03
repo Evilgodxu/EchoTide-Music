@@ -39,6 +39,7 @@ import com.yichao.evilgodxu.data.music.metadata.CoverBackgroundColors
 import com.yichao.evilgodxu.data.music.metadata.CoverColorCache
 import com.yichao.evilgodxu.data.music.metadata.extractCoverBackgroundColors
 import com.yichao.evilgodxu.data.music.model.MusicTrack
+import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.settings.backgroundFlowEnabledFlow
 import com.yichao.evilgodxu.theme.md_theme_dark_surface
 import com.yichao.evilgodxu.theme.md_theme_dark_surfaceVariant
@@ -65,8 +66,11 @@ private const val COVER_BACKGROUND_FLOW_FRAME_INTERVAL_MS = 32L
 // 单值均匀压暗，不随位置变化
 private const val COVER_BACKGROUND_DIM_ALPHA = 0.15f
 
-// 切歌背景过渡时长：上一首的底色整屏铺于上层淡出，使换曲后的整屏换色表现为一次渐变
-private const val COVER_BACKGROUND_SWITCH_FADE_MS = 480
+// 切歌横移时长：与封面同一节拍，整屏换色与换图同时推进、同时落位
+private const val COVER_BACKGROUND_SLIDE_MS = 320
+
+// 同曲取色落地的过渡时长：底色由占位色换成真实取色，无方向可言，只做交叠淡出
+private const val COVER_BACKGROUND_FADE_MS = 480
 
 // 背景流动的三层固定默认值：旋转周期与方向、错位量（占画布宽高的比例）。
 // 三层周期互质且方向相反，叠画后的色块缓慢漂移而不出现明显循环
@@ -85,6 +89,23 @@ private data class CoverBackgroundLayer(
     val rotateAboutCenter: Boolean,
 )
 
+// 整屏换色的过渡方式
+private enum class BackgroundSwitch {
+    // 上一份底色原地淡出：用于同曲取色落地——新色只是替换占位色，没有方向可言
+    Fade,
+
+    // 切歌横移：上一份底色与当前底色各持一份整幅色面，同幅同速平移，全程拼满整屏。
+    // 底色是竖向渐变，自身横移看不出变化，横移的是整层色面，读起来就是新色从一侧漫过来
+    SlideFromLeft,
+    SlideFromRight,
+}
+
+// 正在进行的整屏换色：移出的一份底色与过渡方式
+private data class BackgroundSwitchState(
+    val base: BackgroundBase,
+    val switch: BackgroundSwitch,
+)
+
 // 整屏底色的一种渲染口径：三段取色就绪时为自上而下三段渐变，未就绪时退化为单色铺底
 private data class BackgroundBase(
     val colors: CoverBackgroundColors?,
@@ -100,12 +121,16 @@ private data class BackgroundBase(
 // 由三段色构成的自上而下渐变，开启后在其上叠一层缓慢漂移的色块帧（见 renderFlowBackgroundFrame）；
 // 关掉流动即撤下色块帧回到渐变，静止背景与流动背景始终是同一份色调。
 // 三段取色未就绪时先回落 [restoredColor]（上次持久化的取色结果）整幅铺色，避免冷启动首帧闪默认色。
-// 底色有变时把上一份底色整屏铺于上层淡出，切歌的整屏换色因此是渐变而非瞬间跳变。
+// 底色有变时上一份底色与当前底色交叠一处：切歌按方向整屏横移，同曲取色落地则原地淡出，
+// 两种情形都不会瞬间跳变。
 // 首页与 3D 封面轮播共用，随传入曲目实时变化；背景代表色经回调暴露供浮层容器复用。
 @Composable
 internal fun SongImmersiveBackground(
     track: MusicTrack?,
     modifier: Modifier = Modifier,
+    // 触发本次换色的曲目变更类型：带方向的类型按该方向整屏横移，其余交叠淡出或直接替换。
+    // 为空表示调用方无从提供类型（浏览场景，如 3D 封面轮播），同样只做交叠淡出
+    switchKind: TrackSwitchKind? = null,
     restoredColor: Color? = null,
     onBackgroundColor: ((Color) -> Unit)? = null,
     onExtractedColor: ((Color) -> Unit)? = null,
@@ -129,23 +154,48 @@ internal fun SongImmersiveBackground(
     val background = colors?.representative ?: restoredColor ?: md_theme_dark_surface
     LaunchedEffect(background) { onBackgroundColor?.invoke(background) }
 
-    // 切歌过渡：把上一首的底色整屏铺在当前背景之上淡出，换色不再表现为瞬间跳变。
+    // 整屏换色：上一份底色整屏铺在上层，按下述方式与当前底色交叠。
     // 只留底色、不留上一帧的流动帧：流动帧由当前取色现算，留存的旧帧与旧底色不同源，
     // 过渡中反而会闪出第三种色调；旧底色本身已按下述压暗层压暗，过渡期间的亮度与静止画面一致
     val base = remember(colors, restoredColor) {
         BackgroundBase(colors = colors, solid = if (colors == null) restoredColor else null)
     }
     var lastBase by remember { mutableStateOf<BackgroundBase?>(null) }
-    var fadingBase by remember { mutableStateOf<BackgroundBase?>(null) }
-    val switchFade = remember { Animatable(0f) }
-    LaunchedEffect(base) {
+    var lastTrackId by remember { mutableStateOf<Long?>(null) }
+    var switching by remember { mutableStateOf<BackgroundSwitchState?>(null) }
+    // 过渡进度：1 为过渡起点（当前底色尚未入场），0 为过渡结束（当前底色完全落位）
+    val switchProgress = remember { Animatable(0f) }
+    LaunchedEffect(base, track?.id) {
+        val trackId = track?.id
         val previous = lastBase
+        val previousTrackId = lastTrackId
         lastBase = base
+        lastTrackId = trackId
         if (previous == null || previous == base) return@LaunchedEffect
-        fadingBase = previous
-        switchFade.snapTo(1f)
-        switchFade.animateTo(0f, tween(COVER_BACKGROUND_SWITCH_FADE_MS))
-        fadingBase = null
+        // 曲目未变说明只是取色落了地，同一曲目内的换色没有方向可言，只做淡出；
+        // 曲目已变则方向由变更类型给出：选曲播放与内容同源的变更都没有方向，
+        // 换色分别交给首页的整屏揭示、或本就同色而无需过渡
+        val kind = switchKind
+        val sweep = when {
+            previousTrackId == trackId -> BackgroundSwitch.Fade
+            kind == null -> BackgroundSwitch.Fade
+            kind == TrackSwitchKind.Previous -> BackgroundSwitch.SlideFromLeft
+            kind == TrackSwitchKind.Next -> BackgroundSwitch.SlideFromRight
+            else -> null
+        }
+        if (sweep == null) {
+            switching = null
+            return@LaunchedEffect
+        }
+        switching = BackgroundSwitchState(base = previous, switch = sweep)
+        switchProgress.snapTo(1f)
+        switchProgress.animateTo(
+            targetValue = 0f,
+            animationSpec = tween(
+                if (sweep == BackgroundSwitch.Fade) COVER_BACKGROUND_FADE_MS else COVER_BACKGROUND_SLIDE_MS
+            ),
+        )
+        switching = null
     }
 
     // 流动时间轴：仅在开关打开时推进，关闭后停在原地不再推进
@@ -186,39 +236,62 @@ internal fun SongImmersiveBackground(
             }
         }
     }
+    val transition = switching
     Box(
         modifier = modifier
             .fillMaxSize()
-            .onSizeChanged { viewportSize = it }
-            // 静态背景：三段取色构成的自上而下渐变，流动帧叠在其上，关掉流动即露出这一层。
-            // 仅持上次持久化的代表色时先整幅铺该色，取色未就绪时才用主题默认渐变
-            .background(base.brush()),
+            .onSizeChanged { viewportSize = it },
     ) {
-        // 流动帧整幅铺满并盖住静态渐变；帧内已做整体模糊，色块边界不显形
-        frame?.let { bitmap ->
-            Image(
-                bitmap = bitmap,
-                contentDescription = null,
-                contentScale = ContentScale.FillBounds,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-        // 轻微压暗层：静态渐变与流动帧一并压暗，给前景文字留出对比。
-        // 强度沿全幅一致，不随位置变化，因而不产生亮度层次分界
+        // 当前底色层：三段取色构成的自上而下渐变，流动帧叠在其上，关掉流动即露出渐变；
+        // 仅持上次持久化的代表色时先整幅铺该色，取色未就绪时才用主题默认渐变。
+        // 切歌横移时整层自进入侧入场，落位后偏移归零——底色自身的竖向渐变横移看不出变化，
+        // 读到的位移来自本层与原底色层色面的相对运动
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = COVER_BACKGROUND_DIM_ALPHA)),
-        )
-        // 切歌过渡层：置于最上层，流动帧不透明时同样可见；压暗层在层内一并复刻，
-        // 淡出过程中旧底色的亮度与静止画面一致，不会亮一下再暗回去
-        fadingBase?.let { fading ->
+                .graphicsLayer {
+                    translationX = when (transition?.switch) {
+                        BackgroundSwitch.SlideFromLeft -> -size.width * (1f - switchProgress.value)
+                        BackgroundSwitch.SlideFromRight -> size.width * (1f - switchProgress.value)
+                        else -> 0f
+                    }
+                },
+        ) {
+            Box(modifier = Modifier.fillMaxSize().background(base.brush()))
+            // 流动帧整幅铺满并盖住静态渐变；帧内已做整体模糊，色块边界不显形
+            frame?.let { bitmap ->
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = null,
+                    contentScale = ContentScale.FillBounds,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            // 轻微压暗层：静态渐变与流动帧一并压暗，给前景文字留出对比。
+            // 强度沿全幅一致，不随位置变化，因而不产生亮度层次分界
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = switchFade.value },
+                    .background(Color.Black.copy(alpha = COVER_BACKGROUND_DIM_ALPHA)),
+            )
+        }
+        // 上一份底色层：置于最上层，流动帧不透明时同样可见；压暗层在层内一并复刻，
+        // 交叠过程中旧底色的亮度与静止画面一致，不会亮一下再暗回去。
+        // 横移时向离开侧等速移出，与当前底色层同速，两层全程拼满整屏
+        transition?.let { previous ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = if (previous.switch == BackgroundSwitch.Fade) switchProgress.value else 1f
+                        translationX = when (previous.switch) {
+                            BackgroundSwitch.SlideFromLeft -> size.width * switchProgress.value
+                            BackgroundSwitch.SlideFromRight -> -size.width * switchProgress.value
+                            BackgroundSwitch.Fade -> 0f
+                        }
+                    },
             ) {
-                Box(modifier = Modifier.fillMaxSize().background(fading.brush()))
+                Box(modifier = Modifier.fillMaxSize().background(previous.base.brush()))
                 Box(
                     modifier = Modifier
                         .fillMaxSize()

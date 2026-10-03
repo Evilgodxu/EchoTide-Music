@@ -180,7 +180,13 @@ class MusicPlaybackState(
                     val queuedIndex = playlist.indexOfFirst { it.id == queued.id }
                     if (queuedIndex >= 0) {
                         playbackScope.launch {
-                            playTrackAt(appContext ?: return@launch, this@MusicPlaybackState, queuedIndex, clearQueue = false)
+                            playTrackAt(
+                                appContext ?: return@launch,
+                                this@MusicPlaybackState,
+                                queuedIndex,
+                                clearQueue = false,
+                                switchKind = TrackSwitchKind.Next,
+                            )
                         }
                         return
                     }
@@ -191,7 +197,13 @@ class MusicPlaybackState(
                     val next = calculateIndex(direction = 1, repeatOne = true, from = resumeIndex)
                     if (next in playlist.indices && next != currentIndex) {
                         playbackScope.launch {
-                            playTrackAt(appContext ?: return@launch, this@MusicPlaybackState, next, clearQueue = false)
+                            playTrackAt(
+                                appContext ?: return@launch,
+                                this@MusicPlaybackState,
+                                next,
+                                clearQueue = false,
+                                switchKind = TrackSwitchKind.Next,
+                            )
                         }
                         return
                     }
@@ -210,6 +222,7 @@ class MusicPlaybackState(
                         this@MusicPlaybackState,
                         pendingStart.coerceIn(0, playlist.size - 1),
                         clearQueue = false,
+                        switchKind = TrackSwitchKind.Next,
                     )
                 }
                 return
@@ -229,6 +242,9 @@ class MusicPlaybackState(
                 } else {
                     -1L
                 }
+                // 播放器自行接续（自动下一首）不经切歌入口，此处补记类型：漏记则会沿用上一次的
+                // 类型，本次接续的横移方向随之失真。单曲循环重播同一曲目标识未变，不重记
+                if (currentTrack?.id != id) beginTrackSwitch(TrackSwitchKind.Next)
                 currentIndex = index
                 currentTrack = playlist[index]
                 isPrepared = false
@@ -306,7 +322,13 @@ class MusicPlaybackState(
                     val next = autoNextIndex()
                     if (next >= 0) {
                         playbackScope.launch {
-                            playTrackAt(appContext ?: return@launch, this@MusicPlaybackState, next, clearQueue = false)
+                            playTrackAt(
+                                appContext ?: return@launch,
+                                this@MusicPlaybackState,
+                                next,
+                                clearQueue = false,
+                                switchKind = TrackSwitchKind.Next,
+                            )
                         }
                     }
                 }
@@ -363,6 +385,11 @@ class MusicPlaybackState(
     var cachedMediaItems by mutableStateOf<List<androidx.media3.common.MediaItem>?>(null)
     var currentIndex by mutableIntStateOf(-1)
     var currentTrack by mutableStateOf<MusicTrack?>(null)
+
+    // 最近一次曲目变更的类型：封面、整屏底色与歌曲信息的过渡据此判定。
+    // 随曲目一并被界面读取，故写入必须与曲目状态同帧，见 beginTrackSwitch
+    var lastSwitchKind by mutableStateOf(TrackSwitchKind.Select)
+        private set
     var playMode by mutableStateOf(PlayMode.RepeatAll)
     // 播放速度：默认 1.0，调节范围 0.5~2.0
     var playbackSpeed by mutableFloatStateOf(PLAYBACK_SPEED_DEFAULT)
@@ -562,6 +589,9 @@ class MusicPlaybackState(
             if (advanceToNext && nextIndex >= 0) {
                 // 先停止旧播放，避免继续播已被删除的音频源
                 mediaController?.stop()
+                // 曲目由本处先行写入，类型必须与它同帧记下：随后的 playTrackAt 因目标已是当前曲目
+                // 而不再补记，本处漏记就会沿用上一次的类型
+                beginTrackSwitch(TrackSwitchKind.Next)
                 currentIndex = nextIndex
                 currentTrack = playlist[nextIndex]
                 isPlaying = false
@@ -571,7 +601,14 @@ class MusicPlaybackState(
                 errorMsg = null
                 appContext?.let { context ->
                     playbackScope.launch {
-                        playTrackAt(context, this@MusicPlaybackState, nextIndex, autoPlay = wasPlaying, clearQueue = false)
+                        playTrackAt(
+                            context,
+                            this@MusicPlaybackState,
+                            nextIndex,
+                            autoPlay = wasPlaying,
+                            clearQueue = false,
+                            switchKind = TrackSwitchKind.Next,
+                        )
                     }
                 }
             } else {
@@ -779,11 +816,28 @@ class MusicPlaybackState(
         queueResumeTrackId = null
     }
 
+    /**
+     * 记下本次曲目变更的类型；[reveal] 为真时另请求一次整屏揭示。
+     *
+     * 必须在曲目状态变更前调用：揭示的快照要落在仍是旧画面的那一刻，变更后取到的已是新画面。
+     * 所有会让当前曲目换人的路径都要经过这里——漏掉一处，该次变更就会沿用上一次的类型，
+     * 横移方向随之失真。
+     */
+    internal fun beginTrackSwitch(kind: TrackSwitchKind, reveal: Boolean = false) {
+        lastSwitchKind = kind
+        if (reveal) onSelectReveal?.invoke()
+    }
+
     // 定时关闭相关状态（后台计时）
     var timerMinutes by mutableIntStateOf(10)
     var timerRemaining by mutableIntStateOf(0)
     // 定时关闭收尾完成后的退出请求：结束应用属应用外壳职责，此处只发起请求，由外壳接管退出编排
     var onSleepTimerFinished: (() -> Unit)? = null
+
+    // 选曲播放的整屏揭示请求：由正在展示的界面注册，在曲目状态变更前同步回调。
+    // 快照必须在变更前取——变更后取到的已是新画面，揭示失去可对照的旧画面。
+    // 界面不可见时自行注销：此时取到的快照不会被看到，揭示动画也会因帧时钟暂停滞留在半途
+    var onSelectReveal: (() -> Unit)? = null
     private val timerJob = SupervisorJob()
     private val timerScope = CoroutineScope(timerJob + Dispatchers.Main)
     private var countdownJob: Job? = null

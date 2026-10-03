@@ -106,6 +106,7 @@ fun LandscapePlayer(
                 if (track != null) {
                     HomeBlendedCover(
                         track = track,
+                        kind = playbackState.lastSwitchKind,
                         modifier = Modifier
                             .size(minOf(maxWidth, maxHeight) * LANDSCAPE_COVER_FRACTION)
                             .onGloballyPositioned { coords -> coverBounds = coords.boundsInWindow() },

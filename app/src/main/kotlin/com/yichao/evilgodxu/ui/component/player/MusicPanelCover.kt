@@ -51,6 +51,7 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.menuEdgePositionProvider
 import com.yichao.evilgodxu.ui.component.rememberSystemThumbnail
 import com.yichao.evilgodxu.ui.component.rememberTrackSwitchAnchor
+import com.yichao.evilgodxu.ui.component.TrackSwitchStyle
 import com.yichao.evilgodxu.ui.component.TrackSwitchTransition
 import com.yichao.evilgodxu.ui.component.player.DiscArt
 import com.yichao.evilgodxu.ui.component.PlaylistArt
@@ -383,7 +384,7 @@ internal fun TrackInfo(
     }
 
     // 切歌锚点：标题与艺术家随锚点整体淡入淡出，换曲时文本不硬切
-    val anchor = rememberTrackSwitchAnchor(playbackState.currentTrack, playbackState.currentIndex)
+    val anchor = rememberTrackSwitchAnchor(playbackState.currentTrack, playbackState.lastSwitchKind)
     val emptyTitle = when {
         playbackState.isScanning -> stringResource(R.string.music_panel_scanning)
         else -> stringResource(R.string.music_panel_empty)
@@ -399,7 +400,12 @@ internal fun TrackInfo(
             .padding(top = 4.dp, bottom = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        TrackSwitchTransition(anchor = anchor, modifier = Modifier.fillMaxWidth()) { info ->
+        // 音乐面板是独立小窗，取不到整屏揭示，格位也容不下整幅横移，恒用交叠淡出
+        TrackSwitchTransition(
+            anchor = anchor,
+            modifier = Modifier.fillMaxWidth(),
+            style = TrackSwitchStyle.Crossfade,
+        ) { info ->
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally

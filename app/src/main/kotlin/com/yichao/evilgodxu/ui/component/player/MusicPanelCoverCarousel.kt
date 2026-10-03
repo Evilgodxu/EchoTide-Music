@@ -83,7 +83,8 @@ internal fun CoverCarouselOverlay(
         // 受动画驱动的连续中心位：拖动增量实时叠加，动画期间由 centerIndex 平滑推进
         val rendered = centerIndex.value + dragShift
 
-        // 背景：沿用首页的封面衍生沉浸背景，实时渲染为当前居中的歌曲
+        // 背景：沿用首页的封面衍生沉浸背景，实时渲染为当前居中的歌曲。
+        // 不传变更类型：轮播的换色没有方向可言，按默认交叠淡出
         SongImmersiveBackground(
             track = playlist[rendered.roundToInt().coerceIn(0, lastIndex)],
         )

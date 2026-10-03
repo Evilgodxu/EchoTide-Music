@@ -7,9 +7,12 @@ import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -23,6 +26,8 @@ import com.yichao.evilgodxu.screens.home.component.panel.HomePage
 import com.yichao.evilgodxu.screens.home.component.panel.rememberHomePanelState
 import com.yichao.evilgodxu.screens.home.expanded.ExpandedAssembly
 import com.yichao.evilgodxu.theme.SystemBarAppearance
+import com.yichao.evilgodxu.ui.component.ScreenRevealController
+import com.yichao.evilgodxu.ui.component.ScreenRevealHost
 import com.yichao.evilgodxu.windowsize.rememberExpandedForm
 import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 
@@ -133,32 +138,41 @@ fun HomeScreen(
         }
     }
 
+    // 选曲播放的整屏揭示：与切换主题模式同一套动效，圆心固定在左上角（封面与标题栏都在这一角）。
+    // 揭示请求只在界面可见时注册：快照取的正是此刻可见的画面，界面不可见时取到的没有展示价值，
+    // 揭示动画也会因帧时钟停下而滞留在半途、等回到前台才继续
+    val revealController = remember { ScreenRevealController() }
+    LifecycleResumeEffect(playbackState) {
+        playbackState.onSelectReveal = { revealController.revealAt(Offset.Zero) }
+        onPauseOrDispose { playbackState.onSelectReveal = null }
+    }
+
     // 形态分派：旋转状态与窗口宽度尺寸类共同决定显示内容
-    if (rememberExpandedForm()) {
-        ExpandedAssembly(
-            uiState = uiState,
-            panelState = panelState,
-            onOpenSettings = onOpenSettings,
-            onOpenSpectrum = onOpenSpectrum,
-            onOpenMetadata = onOpenMetadata,
-            onToggleLandscape = onToggleLandscape,
-            onRefreshPermissions = viewModel::refreshPermissions,
-            onStartPermissionMonitor = viewModel::startPermissionMonitor,
-            onStopPermissionMonitor = viewModel::stopPermissionMonitor,
-            modifier = modifier,
-        )
-    } else {
-        CompactAssembly(
-            uiState = uiState,
-            panelState = panelState,
-            onOpenSettings = onOpenSettings,
-            onOpenSpectrum = onOpenSpectrum,
-            onOpenMetadata = onOpenMetadata,
-            onToggleLandscape = onToggleLandscape,
-            onRefreshPermissions = viewModel::refreshPermissions,
-            onStartPermissionMonitor = viewModel::startPermissionMonitor,
-            onStopPermissionMonitor = viewModel::stopPermissionMonitor,
-            modifier = modifier,
-        )
+    ScreenRevealHost(controller = revealController, modifier = modifier) {
+        if (rememberExpandedForm()) {
+            ExpandedAssembly(
+                uiState = uiState,
+                panelState = panelState,
+                onOpenSettings = onOpenSettings,
+                onOpenSpectrum = onOpenSpectrum,
+                onOpenMetadata = onOpenMetadata,
+                onToggleLandscape = onToggleLandscape,
+                onRefreshPermissions = viewModel::refreshPermissions,
+                onStartPermissionMonitor = viewModel::startPermissionMonitor,
+                onStopPermissionMonitor = viewModel::stopPermissionMonitor,
+            )
+        } else {
+            CompactAssembly(
+                uiState = uiState,
+                panelState = panelState,
+                onOpenSettings = onOpenSettings,
+                onOpenSpectrum = onOpenSpectrum,
+                onOpenMetadata = onOpenMetadata,
+                onToggleLandscape = onToggleLandscape,
+                onRefreshPermissions = viewModel::refreshPermissions,
+                onStartPermissionMonitor = viewModel::startPermissionMonitor,
+                onStopPermissionMonitor = viewModel::stopPermissionMonitor,
+            )
+        }
     }
 }

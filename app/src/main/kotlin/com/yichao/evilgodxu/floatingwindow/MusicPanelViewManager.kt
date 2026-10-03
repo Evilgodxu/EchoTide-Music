@@ -36,6 +36,7 @@ import com.yichao.evilgodxu.data.music.resolveLocalPath
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.ui.component.player.MusicPanelOverlay
@@ -320,6 +321,9 @@ class MusicPanelViewManager(
                 if (targetIndex < 0) return@withLock
                 playbackState.persistPlaylist()
                 withContext(Dispatchers.Main) {
+                    // 外部音频起播没有先后关系可读，类型按选曲播放记录并请求揭示：曲目状态由本处
+                    // 先行写入，类型必须与它同帧，之后的 playTrackAt 因目标已是当前曲目而不再补记
+                    playbackState.beginTrackSwitch(TrackSwitchKind.Select, reveal = true)
                     playbackState.currentIndex = targetIndex
                     playbackState.currentTrack = playbackState.playlist[targetIndex]
                 }

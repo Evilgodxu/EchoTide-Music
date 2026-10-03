@@ -57,11 +57,13 @@ import com.yichao.evilgodxu.data.music.model.PlayMode
 import com.yichao.evilgodxu.data.settings.wordByWordRenderingFlow
 import com.yichao.evilgodxu.data.music.playback.applyPlaybackMode
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.MarqueeText
+import com.yichao.evilgodxu.ui.component.TrackSwitchStyle
 import com.yichao.evilgodxu.ui.component.TrackSwitchTransition
 import com.yichao.evilgodxu.ui.component.rememberTrackSwitchAnchor
 import com.yichao.evilgodxu.ui.component.player.DiscArt
@@ -92,7 +94,7 @@ internal fun MiniPlayerBar(
     val current = playbackState.currentTrack
     val coverDesc = stringResource(R.string.mini_player_cover)
     // 切歌锚点：隐藏控件期间的歌名与歌词随锚点整体淡入淡出，换曲时文本不硬切
-    val trackAnchor = rememberTrackSwitchAnchor(current, playbackState.currentIndex)
+    val trackAnchor = rememberTrackSwitchAnchor(current, playbackState.lastSwitchKind)
 
     // 控件自动隐藏：3 秒无操作后隐藏控制按钮，改为显示歌曲名与歌词；任意触摸即可还原
     var controlsVisible by remember { mutableStateOf(true) }
@@ -265,7 +267,11 @@ internal fun MiniPlayerBar(
                 enabled = playbackState.playlist.isNotEmpty(),
                 onClick = {
                     val prev = playbackState.previousIndex()
-                    if (prev >= 0) scope.launch { playTrackAt(context, playbackState, prev) }
+                    if (prev >= 0) {
+                        scope.launch {
+                            playTrackAt(context, playbackState, prev, switchKind = TrackSwitchKind.Previous)
+                        }
+                    }
                 }
             )
             // 暂停 / 播放
@@ -283,7 +289,11 @@ internal fun MiniPlayerBar(
                 enabled = playbackState.playlist.isNotEmpty(),
                 onClick = {
                     val next = playbackState.nextIndex()
-                    if (next >= 0) scope.launch { playTrackAt(context, playbackState, next) }
+                    if (next >= 0) {
+                        scope.launch {
+                            playTrackAt(context, playbackState, next, switchKind = TrackSwitchKind.Next)
+                        }
+                    }
                 }
             )
             // 播放列表
@@ -306,8 +316,13 @@ internal fun MiniPlayerBar(
                 verticalArrangement = Arrangement.Center
             ) {
                 // 歌名与歌词整体随锚点淡入淡出：换曲时这一块不硬切。
-                // 歌名与无歌词时的歌手名取自锚点，退场的一层才显示上一首的文本
-                TrackSwitchTransition(anchor = trackAnchor, modifier = Modifier.fillMaxWidth()) { info ->
+                // 歌名与无歌词时的歌手名取自锚点，退场的一层才显示上一首的文本。
+                // 迷你播放器是独立小窗，取不到整屏揭示，格位也容不下整幅横移，恒用交叠淡出
+                TrackSwitchTransition(
+                    anchor = trackAnchor,
+                    modifier = Modifier.fillMaxWidth(),
+                    style = TrackSwitchStyle.Crossfade,
+                ) { info ->
                     Column(modifier = Modifier.fillMaxWidth()) {
                         MarqueeText(
                             text = info.title,

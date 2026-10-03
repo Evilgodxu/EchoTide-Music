@@ -149,8 +149,8 @@ internal fun PortraitPlayer(
 ) {
     val playbackState = LocalMusicPanelStateHolder.current.state
 
-    // 切歌过渡锚点：标题与艺术家的过渡键，含曲目身份、播放列表下标（推导切歌方向）与当帧显示文本
-    val trackAnchor = rememberTrackSwitchAnchor(playbackState.currentTrack, playbackState.currentIndex)
+    // 切歌过渡锚点：标题与艺术家随锚点整体横移，方向来自本次变更的类型
+    val trackAnchor = rememberTrackSwitchAnchor(playbackState.currentTrack, playbackState.lastSwitchKind)
 
     // 播放列表与音频信息弹层展开时，系统返回键收起弹层（曲库分析关闭不中断后台任务）
     BackHandler(enabled = playlistVisible || audioInfoVisible || libraryAnalysis.visible) {
@@ -295,6 +295,7 @@ internal fun PortraitPlayer(
         ) {
             HomeImmersiveCover(
                 track = playbackState.currentTrack,
+                kind = playbackState.lastSwitchKind,
                 modifier = Modifier.fillMaxSize(),
             )
             // 长按菜单锚定封面，显示在封面底部
@@ -543,12 +544,11 @@ internal fun PortraitPlayer(
                 }
                 // 歌词与标题间距
                 Spacer(Modifier.height(8.dp))
-                // 标题与艺术家：切歌时新旧文本交叠淡入淡出，并按切歌方向小幅横移，与封面、背景同一节拍。
+                // 标题与艺术家：切歌时随封面与背景同一节拍整幅横移，方向一致。
                 // 文本取自锚点而非当前曲目：退场的那一层要显示上一首的文本，读实时状态会显示成新曲目
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     TrackSwitchTransition(
                         anchor = trackAnchor,
-                        slide = true,
                         modifier = Modifier.fillMaxWidth(),
                     ) { info ->
                         Column(

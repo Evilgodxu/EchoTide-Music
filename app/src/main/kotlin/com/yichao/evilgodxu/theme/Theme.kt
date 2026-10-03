@@ -1,44 +1,23 @@
 package com.yichao.evilgodxu.theme
 
-import android.graphics.Bitmap
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.ClipOp
-import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalView
-import androidx.core.view.drawToBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yichao.evilgodxu.LocalMainViewModel
 import com.yichao.evilgodxu.data.settings.ThemeMode
+import com.yichao.evilgodxu.ui.component.ScreenRevealController
+import com.yichao.evilgodxu.ui.component.ScreenRevealHost
 
-class ThemeTransitionController {
-    var request: ((Offset) -> Unit)? = null
-
-    fun revealAt(origin: Offset) {
-        request?.invoke(origin)
-    }
-}
-
-val LocalThemeTransitionController = androidx.compose.runtime.staticCompositionLocalOf<ThemeTransitionController> {
+// 主题模式切换的整屏揭示入口：揭示实现与选曲播放共用（见 ScreenRevealHost），
+// 此处只保留主题侧的取用点——切换入口交出的圆心是触发切换的那次点击位置
+val LocalThemeTransitionController = androidx.compose.runtime.staticCompositionLocalOf<ScreenRevealController> {
     error("ThemeTransitionController is not provided")
 }
 
@@ -183,29 +162,12 @@ fun MyApplicationTheme(
         else -> darkTheme
     }
 
-    val transitionController = remember { ThemeTransitionController() }
-    var previousBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var revealOrigin by remember { mutableStateOf(Offset.Zero) }
-    val revealProgress = remember { Animatable(1f) }
-    val view = LocalView.current
-
-    transitionController.request = { origin ->
-        if (view.width > 0 && view.height > 0) {
-            previousBitmap = view.drawToBitmap()
-            revealOrigin = origin
-        }
-    }
-
-    LaunchedEffect(isDarkTheme, previousBitmap) {
-        if (previousBitmap != null) {
-            revealProgress.snapTo(0f)
-            revealProgress.animateTo(1f, tween(800))
-            previousBitmap = null
-        }
-    }
+    // 主题切换的整屏揭示：切换入口在点击瞬间交出新旧主题的对照点（点击位置），
+    // 揭示本身与选曲播放共用同一套实现（见 ScreenRevealHost）
+    val revealController = remember { ScreenRevealController() }
 
     CompositionLocalProvider(
-        LocalThemeTransitionController provides transitionController,
+        LocalThemeTransitionController provides revealController,
         LocalSuccessColor provides if (isDarkTheme) md_theme_dark_success else md_theme_light_success,
         LocalIsDarkTheme provides isDarkTheme,
         // 状态栏默认跟随主题：浅色主题用深色图标，深色主题用白色图标
@@ -215,47 +177,9 @@ fun MyApplicationTheme(
             colorScheme = if (isDarkTheme) DarkColorScheme else LightColorScheme,
             typography = Typography,
         ) {
-            androidx.compose.foundation.layout.Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .drawWithContent {
-                        drawContent()
-                        val bitmap = previousBitmap ?: return@drawWithContent
-                        drawOldThemeOutsideReveal(bitmap, revealOrigin, revealProgress.value)
-                    },
-            ) {
+            ScreenRevealHost(controller = revealController) {
                 content()
             }
         }
     }
-}
-
-private fun DrawScope.drawOldThemeOutsideReveal(
-    bitmap: Bitmap,
-    origin: Offset,
-    progress: Float,
-) {
-    val radius = maxRevealRadius(origin, size.width, size.height) * progress
-    val path = Path().apply {
-        addOval(
-            androidx.compose.ui.geometry.Rect(
-                left = origin.x - radius,
-                top = origin.y - radius,
-                right = origin.x + radius,
-                bottom = origin.y + radius,
-            ),
-        )
-    }
-    clipPath(path, ClipOp.Difference) {
-        drawImage(bitmap.asImageBitmap())
-    }
-}
-
-private fun maxRevealRadius(origin: Offset, width: Float, height: Float): Float {
-    return maxOf(
-        origin.getDistance(),
-        Offset(width, 0f).minus(origin).getDistance(),
-        Offset(0f, height).minus(origin).getDistance(),
-        Offset(width, height).minus(origin).getDistance(),
-    )
 }

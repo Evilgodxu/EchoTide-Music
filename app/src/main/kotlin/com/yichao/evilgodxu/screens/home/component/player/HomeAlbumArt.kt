@@ -1,5 +1,6 @@
 package com.yichao.evilgodxu.screens.home.component.player
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -23,12 +24,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.data.music.model.MusicTrack
+import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.theme.md_theme_dark_background
 import com.yichao.evilgodxu.ui.component.COVER_FADE_RATIO
 import com.yichao.evilgodxu.ui.component.coverFadeBrush
 import com.yichao.evilgodxu.ui.component.coverLeftRightFadeBrush
 import com.yichao.evilgodxu.ui.component.coverTopBottomFadeBrush
+import com.yichao.evilgodxu.ui.component.noElementTransition
 import com.yichao.evilgodxu.ui.component.rememberLargeCover
+import com.yichao.evilgodxu.ui.component.trackSlideTransform
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
 // 大封面换图（缩略图升清、切歌换封面）的淡入淡出时长
@@ -42,16 +46,48 @@ private const val COVER_CROSSFADE_MS = 300
 // 缩放由 ImageDecoder 按精确目标尺寸重采样完成（线性过滤 + 多级 mipmap），
 // 大比例缩小时边缘与细线不会出现毛刺与锯齿；结果以 WebP 落盘并驻留当前/下一/上一三张，
 // 冷启动与往返切歌直接命中，取不到封面即显示占位符，不回退在线封面地址
+//
+// 换曲目则走整幅横移（见 trackSlideTransform）：方向取自本次变更的类型，与歌曲信息同一套判定。
+// 上下两首都已预热在内存，入场的一层从进场那一刻就是成图，不必用淡入淡出遮盖取图空窗；
+// 交叠淡出期间两层各半透明，会透出底色形成一次亮度塌陷，横移没有这个问题
 @Composable
-internal fun HomeAlbumArt(track: MusicTrack?, modifier: Modifier = Modifier) {
+internal fun HomeAlbumArt(
+    track: MusicTrack?,
+    kind: TrackSwitchKind,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedContent(
+        targetState = track,
+        // 以曲目标识为过渡键：曲目实例会随歌词补全等元数据更新被替换，用实例作键会误触发过渡
+        contentKey = { it?.id },
+        transitionSpec = {
+            when (kind) {
+                TrackSwitchKind.Previous -> trackSlideTransform(enterFromLeft = true)
+                TrackSwitchKind.Next -> trackSlideTransform(enterFromLeft = false)
+                // 选曲播放没有可读的方向，换图交给首页的整屏揭示；
+                // 内容同源的变更（在线曲迁到本地）直接替换，横移会让同源封面错位成接缝
+                TrackSwitchKind.Select, TrackSwitchKind.SameContent -> noElementTransition
+            }
+        },
+        // 渐隐羽化蒙层加在过渡层之外：四条边只对合成后的结果羽化一次。
+        // 加在每一层上则位移期间各层的羽化边会移进视口，与本层封面错位成一道可辨的接缝
+        modifier = modifier,
+        label = "homeCover",
+    ) { layer ->
+        CoverBitmap(track = layer)
+    }
+}
+
+// 单张大封面：换图（占位符 → 略缩图 → 高清原图）仍交叠淡入，
+// 两级取图的清晰度差与新封面入场都经这一层过渡，直接替换会闪一下再跳一下；
+// 过渡期间两层同时驻留（位图都已在内存），不会露出背景
+@Composable
+private fun CoverBitmap(track: MusicTrack?) {
     val cover = rememberLargeCover(track)
-    // 换图与缓动都交给 Crossfade：过渡期间两层同时驻留（位图都已在内存），不会露出背景
     Crossfade(
         targetState = cover,
         animationSpec = tween(durationMillis = COVER_CROSSFADE_MS),
-        label = "homeCover",
-        // 渐隐羽化蒙层加在过渡层之外：四条边只对合成后的结果羽化一次，过渡期间边缘不会显形
-        modifier = modifier,
+        label = "coverBitmap",
     ) { bitmap ->
         if (bitmap != null) {
             Image(
@@ -87,10 +123,12 @@ internal fun HomeAlbumArt(track: MusicTrack?, modifier: Modifier = Modifier) {
 @Composable
 internal fun HomeImmersiveCover(
     track: MusicTrack?,
+    kind: TrackSwitchKind,
     modifier: Modifier = Modifier,
 ) {
     HomeAlbumArt(
         track = track,
+        kind = kind,
         modifier = modifier.bottomFadeMask(),
     )
 }
@@ -100,10 +138,12 @@ internal fun HomeImmersiveCover(
 @Composable
 internal fun HomeBlendedCover(
     track: MusicTrack?,
+    kind: TrackSwitchKind,
     modifier: Modifier = Modifier,
 ) {
     HomeAlbumArt(
         track = track,
+        kind = kind,
         modifier = modifier.edgeFeatherMask(),
     )
 }
@@ -112,7 +152,8 @@ internal fun HomeBlendedCover(
 // 两次 DstIn 的透明度相乘，得到四边同时渐隐、四角衰减更强的矩形羽化。
 // 两条轴与竖屏封面下缘共用同一条采样曲线、同一带宽（见 ui/component 的 CoverFade），
 // 故四条边的过渡轮廓与竖屏下缘完全一致，不随方向变化。
-// 与背景衔接处不再有可辨认的硬边（DstIn 只取蒙层透明度，实色段用黑色即可）
+// 与背景衔接处不再有可辨认的硬边（DstIn 只取蒙层透明度，实色段用黑色即可）。
+// 蒙层由 saveLayer 限定在本节点边界内，横移期间越出容器的部分被一并裁掉
 private fun Modifier.edgeFeatherMask(): Modifier = drawWithCache {
     val horizontal = coverLeftRightFadeBrush(Color.Black)
     val vertical = coverTopBottomFadeBrush(Color.Black)

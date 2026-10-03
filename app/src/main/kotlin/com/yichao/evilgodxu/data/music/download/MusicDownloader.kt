@@ -23,6 +23,7 @@ import com.yichao.evilgodxu.data.music.analysis.isLosslessFormatName
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.panel.resolvePlayUrlByQuality
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.swapCurrentSourceToUri
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
@@ -146,6 +147,9 @@ private suspend fun registerCachedFileAsLocal(
         if (current.id != trackId) return@withContext
         val migratedIndex = playbackState.playlist.indexOfFirst { it.path == path }
         if (migratedIndex >= 0 && playbackState.playlist[migratedIndex].id != trackId) {
+            // 迁移到本地曲目后标识变了，但画面同源：类型按内容同源记下，直接替换封面与文案，
+            // 不做横移——两张同源的封面错位反而会显出一道接缝
+            playbackState.beginTrackSwitch(TrackSwitchKind.SameContent)
             playbackState.currentIndex = migratedIndex
             playbackState.currentTrack = playbackState.playlist[migratedIndex]
         }

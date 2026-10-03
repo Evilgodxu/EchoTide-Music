@@ -21,6 +21,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.settings.swipeToChangeTrackFlow
 import com.yichao.evilgodxu.R
@@ -127,7 +128,16 @@ internal class HomeTrackSwipeGesture(
     fun switchTrack(next: Boolean) {
         if (!swipeToChangeTrack.value || sheetVisible.value) return
         val index = if (next) playbackState.nextIndex() else playbackState.previousIndex()
-        if (index >= 0) scope.launch { playTrackAt(context, playbackState, index) }
+        if (index >= 0) {
+            scope.launch {
+                playTrackAt(
+                    context,
+                    playbackState,
+                    index,
+                    switchKind = if (next) TrackSwitchKind.Next else TrackSwitchKind.Previous,
+                )
+            }
+        }
     }
 
     // 纵向切歌预览文本：未滑出过取消区时按方向预览（极小位移不显示）；
