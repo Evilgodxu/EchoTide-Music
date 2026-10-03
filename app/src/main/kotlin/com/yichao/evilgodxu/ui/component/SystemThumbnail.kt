@@ -2,8 +2,8 @@ package com.yichao.evilgodxu.ui.component
 
 import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -33,28 +33,29 @@ import kotlinx.coroutines.withContext
  *
  * 重载时机由 [coverRevision] 驱动：封面重写后音频文件的 URI 不变而略缩图已变，
  * 仅靠 URI 作键会让已解码的旧图一直命中。
+ *
+ * 取图状态按「影响取图的全部输入」作键重建：初值只在状态创建时生效，
+ * 不随键重建的话换曲后状态仍持有上一曲的位图，新图到位前显示端一直停在上一曲。
  */
 @Composable
 internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitmap? {
     val context = LocalContext.current
     val audioUri = track?.audioUri
     val coverRevision = LocalMusicPanelStateHolder.current.state.coverRevision
-    // 内存缓存命中时同步取回作为初始值，避免进出页面重建后先闪占位符再出图；
+    // 初值同步取回，避免进出页面重建后先闪占位符再出图；
     // 当前曲目另有已落盘的封面（冷启动预读已驻留内存），一并同步取用，使冷启动首帧直接出图。
-    // 键带 coverRevision：封面重写已作废缓存与落盘封面，避免把旧图作为初始值顶出。
-    val cachedThumbnail = remember(audioUri, track?.id, sizePx, coverRevision) {
-        val target = track ?: return@remember null
-        runCatching {
-            memoryCover(target, sizePx) ?: CurrentCoverCache.peek(target.audioUri)
-        }.getOrNull()?.asImageBitmap()
-    }
-    val thumbnail by produceState<ImageBitmap?>(
-        initialValue = cachedThumbnail,
-        audioUri,
-        coverRevision,
-    ) {
+    // 键带 coverRevision：封面重写已作废缓存与落盘封面，避免把旧图作为初值顶出。
+    val thumbnail = remember(audioUri, track?.id, sizePx, coverRevision) {
         val target = track
-        value = if (target == null) {
+        mutableStateOf(
+            runCatching {
+                target?.let { memoryCover(it, sizePx) ?: CurrentCoverCache.peek(it.audioUri) }
+            }.getOrNull()?.asImageBitmap()
+        )
+    }
+    LaunchedEffect(audioUri, track?.id, sizePx, coverRevision) {
+        val target = track
+        thumbnail.value = if (target == null) {
             null
         } else {
             withContext(Dispatchers.IO) {
@@ -67,7 +68,7 @@ internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitm
             }
         }
     }
-    return thumbnail
+    return thumbnail.value
 }
 
 /**
@@ -81,42 +82,44 @@ internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitm
  *
  * 预取已备好的相邻曲目在第 1 步就直接命中高清档，不会出现先降后升。
  * 不复用 [rememberSystemThumbnail]：它的系统略缩图上限 512，铺满首屏只能放大渲染而发虚。
- * 初始值取内存驻留档或落盘缩略图，使冷启动首帧就有图。
+ * 初值取内存驻留档或落盘缩略图，使冷启动首帧就有图。
+ *
+ * 取图状态按曲目作键重建，换曲即同步落到新曲目的初值：上一曲的图不会被沿用，
+ * 第 1 步的占位档也就一定会为「初值为空」的新曲目执行 —— 否则换曲后画面停在上一曲，
+ * 直到第 2 步的高清档到位才跳变，期间系统略缩图这一档被整段跳过。
  */
 @Composable
 internal fun rememberLargeCover(track: MusicTrack?): ImageBitmap? {
     val context = LocalContext.current
     val audioUri = track?.audioUri
     val coverRevision = LocalMusicPanelStateHolder.current.state.coverRevision
-    val cachedCover = remember(audioUri, track?.id, coverRevision) {
-        val target = track ?: return@remember null
-        runCatching {
-            LargeCoverStore.peek(target.audioUri) ?: CurrentCoverCache.peek(target.audioUri)
-        }.getOrNull()?.asImageBitmap()
+    val cover = remember(audioUri, track?.id, coverRevision) {
+        val target = track
+        mutableStateOf(
+            runCatching {
+                target?.let { LargeCoverStore.peek(it.audioUri) ?: CurrentCoverCache.peek(it.audioUri) }
+            }.getOrNull()?.asImageBitmap()
+        )
     }
-    val cover by produceState<ImageBitmap?>(
-        initialValue = cachedCover,
-        audioUri,
-        coverRevision,
-    ) {
+    LaunchedEffect(audioUri, track?.id, coverRevision) {
         val target = track
         if (target == null) {
-            value = null
-            return@produceState
+            cover.value = null
+            return@LaunchedEffect
         }
-        // 一级：先出图。已有初始值（内存高清档或落盘缩略图）时跳过，
+        // 一级：先出图。已有初值（内存高清档或落盘缩略图）时跳过，
         // 否则会把已经就位的高清档降级成略缩图再升回去
-        if (value == null) {
+        if (cover.value == null) {
             withContext(Dispatchers.IO) {
                 runCatching { LargeCoverStore.quick(context, target) }.getOrNull()
-            }?.let { value = it.asImageBitmap() }
+            }?.let { cover.value = it.asImageBitmap() }
         }
         // 二级：解码高清原图后无缝替换。无可用封面时保持一级结果或占位图，不把已出的图撤下
         withContext(Dispatchers.IO) {
             runCatching { LargeCoverStore.get(context, target) }.getOrNull()
-        }?.let { value = it.asImageBitmap() }
+        }?.let { cover.value = it.asImageBitmap() }
     }
-    return cover
+    return cover.value
 }
 
 // 内存缓存中的封面：索引曲目取系统略缩图，非索引曲目取内嵌封面；未命中返回 null
