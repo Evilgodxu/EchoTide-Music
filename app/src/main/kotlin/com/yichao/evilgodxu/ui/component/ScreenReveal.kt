@@ -25,8 +25,9 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.drawToBitmap
 import com.yichao.evilgodxu.log.CrashLogManager
 
-// 揭示时长：圆从圆心铺满整幅画布的用时，短于此则推进过快、读不出「从某点展开」的先后
-private const val SCREEN_REVEAL_MS = 800
+// 揭示时长：圆从圆心铺满整幅画布的用时。铺满全幅的位移量远大于元素级过渡，
+// 按常规时长（200–300ms）推进会读不出「从某点展开」的先后，故取 1500ms
+private const val SCREEN_REVEAL_MS = 1500
 
 private const val TAG = "ScreenReveal"
 

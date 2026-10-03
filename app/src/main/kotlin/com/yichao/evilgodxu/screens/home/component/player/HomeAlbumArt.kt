@@ -11,6 +11,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -19,6 +24,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
@@ -31,7 +37,7 @@ import com.yichao.evilgodxu.ui.component.coverFadeBrush
 import com.yichao.evilgodxu.ui.component.coverLeftRightFadeBrush
 import com.yichao.evilgodxu.ui.component.coverTopBottomFadeBrush
 import com.yichao.evilgodxu.ui.component.noElementTransition
-import com.yichao.evilgodxu.ui.component.rememberLargeCover
+import com.yichao.evilgodxu.ui.component.rememberLargeCoverState
 import com.yichao.evilgodxu.ui.component.trackSlideTransform
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
@@ -45,7 +51,9 @@ private const val COVER_CROSSFADE_MS = 300
 // 第 3 步不能直接换画面：两级取图的清晰度差与新封面入场都经这一层过渡，直接替换会闪一下再跳一下。
 // 缩放由 ImageDecoder 按精确目标尺寸重采样完成（线性过滤 + 多级 mipmap），
 // 大比例缩小时边缘与细线不会出现毛刺与锯齿；结果以 WebP 落盘并驻留当前/下一/上一三张，
-// 冷启动与往返切歌直接命中，取不到封面即显示占位符，不回退在线封面地址
+// 冷启动与往返切歌直接命中，取不到封面即显示占位符，不回退在线封面地址。
+// 三级之间不留黑窗：新曲目的封面仍在取图时先沿用上一张已就位的封面，只有确认这首确实没有封面
+// 才回到占位符——占位符是与页面底色同为近黑的色块，换曲时直接露出来就是一次黑闪
 //
 // 换曲目则走整幅横移（见 trackSlideTransform）：方向取自本次变更的类型，与歌曲信息同一套判定。
 // 上下两首都已预热在内存，入场的一层从进场那一刻就是成图，不必用淡入淡出遮盖取图空窗；
@@ -56,6 +64,9 @@ internal fun HomeAlbumArt(
     kind: TrackSwitchKind,
     modifier: Modifier = Modifier,
 ) {
+    // 上一张已就位的封面：新曲目的封面还在取图时先沿用它，而不退回占位符。
+    // 占位符是与页面底色同为近黑的色块，选曲播放的揭示圆心正落在封面区，黑块会随圆一起展开
+    var lastShown by remember { mutableStateOf<ImageBitmap?>(null) }
     AnimatedContent(
         targetState = track,
         // 以曲目标识为过渡键：曲目实例会随歌词补全等元数据更新被替换，用实例作键会误触发过渡
@@ -74,16 +85,20 @@ internal fun HomeAlbumArt(
         modifier = modifier,
         label = "homeCover",
     ) { layer ->
-        CoverBitmap(track = layer)
+        val state = rememberLargeCoverState(layer)
+        // 取图中且暂无图可显示时沿用上一张；已确认这首没有封面则退回占位符（此时 lastShown 不参与）
+        val shown = state.cover ?: lastShown.takeIf { state.pending }
+        // 只在真正取到图时更新：占位与「暂无」都不该顶掉已就位的一张
+        LaunchedEffect(state.cover) { state.cover?.let { lastShown = it } }
+        CoverBitmap(track = layer, cover = shown)
     }
 }
 
-// 单张大封面：换图（占位符 → 略缩图 → 高清原图）仍交叠淡入，
+// 单张大封面：换图（沿用上一张 → 略缩图 → 高清原图）仍交叠淡入，
 // 两级取图的清晰度差与新封面入场都经这一层过渡，直接替换会闪一下再跳一下；
 // 过渡期间两层同时驻留（位图都已在内存），不会露出背景
 @Composable
-private fun CoverBitmap(track: MusicTrack?) {
-    val cover = rememberLargeCover(track)
+private fun CoverBitmap(track: MusicTrack?, cover: ImageBitmap?) {
     Crossfade(
         targetState = cover,
         animationSpec = tween(durationMillis = COVER_CROSSFADE_MS),

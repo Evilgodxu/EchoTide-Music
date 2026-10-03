@@ -6,7 +6,7 @@ import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.data.music.metadata.MusicCoverLoader
 import kotlin.math.ceil
 
-// 封面请求尺寸策略：按展示场景分级，统一由 rememberSystemThumbnail / rememberLargeCover 落实。
+// 封面请求尺寸策略：按展示场景分级，统一由 rememberSystemThumbnail / rememberLargeCoverState 落实。
 //
 // 系统媒体略缩图按请求尺寸解码，而请求尺寸同时是内存缓存的键：它既决定单张图占多少内存，
 // 也决定同一首歌会被解码几次。此前列表行与面板光碟一律请求 256/512px —— 一张 28dp 的封面

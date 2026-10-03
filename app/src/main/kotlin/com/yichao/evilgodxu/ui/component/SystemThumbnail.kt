@@ -2,6 +2,7 @@ package com.yichao.evilgodxu.ui.component
 
 import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,7 +25,7 @@ import kotlinx.coroutines.withContext
  *
  * 请求尺寸按展示场景分级（见 ui/component 的封面请求尺寸策略）：
  * 列表行、光碟、刷新预览按控件实际渲染尺寸换算；3D 轮播固定 [CAROUSEL_COVER_THUMBNAIL_SIZE]；
- * 首页大封面另走 [rememberLargeCover]（系统略缩图先出图，内嵌原图长边至 [LargeCoverStore.MAX_EDGE_PX] 后替换）；
+ * 首页大封面另走 [rememberLargeCoverState]（系统略缩图先出图，内嵌原图长边至 [LargeCoverStore.MAX_EDGE_PX] 后替换）；
  * 沉浸背景取色只要 64px 一档。
  *
  * 取图顺序：内存缓存 → 当前曲目的落盘封面（[CurrentCoverCache]，冷启动时跳过系统略缩图查询与内嵌封面解码）
@@ -87,9 +88,12 @@ internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitm
  * 取图状态按曲目作键重建，换曲即同步落到新曲目的初值：上一曲的图不会被沿用，
  * 第 1 步的占位档也就一定会为「初值为空」的新曲目执行 —— 否则换曲后画面停在上一曲，
  * 直到第 2 步的高清档到位才跳变，期间系统略缩图这一档被整段跳过。
+ *
+ * 返回值把「还没取到」与「确认取不到」分开（见 [LargeCoverState]）：显示端据此决定是沿用上一张封面
+ * 还是退回占位符——后者是与页面底色同为近黑的色块，选曲播放的整屏揭示圆心正落在封面区，会随圆一起展开。
  */
 @Composable
-internal fun rememberLargeCover(track: MusicTrack?): ImageBitmap? {
+internal fun rememberLargeCoverState(track: MusicTrack?): LargeCoverState {
     val context = LocalContext.current
     val audioUri = track?.audioUri
     val coverRevision = LocalMusicPanelStateHolder.current.state.coverRevision
@@ -101,10 +105,13 @@ internal fun rememberLargeCover(track: MusicTrack?): ImageBitmap? {
             }.getOrNull()?.asImageBitmap()
         )
     }
+    // 两级取图都跑完才算「已定论」：在此之前为空只说明还没取到，而不是这首没有封面
+    val settled = remember(audioUri, track?.id, coverRevision) { mutableStateOf(cover.value != null) }
     LaunchedEffect(audioUri, track?.id, coverRevision) {
         val target = track
         if (target == null) {
             cover.value = null
+            settled.value = true
             return@LaunchedEffect
         }
         // 一级：先出图。已有初值（内存高清档或落盘缩略图）时跳过，
@@ -118,9 +125,23 @@ internal fun rememberLargeCover(track: MusicTrack?): ImageBitmap? {
         withContext(Dispatchers.IO) {
             runCatching { LargeCoverStore.get(context, target) }.getOrNull()
         }?.let { cover.value = it.asImageBitmap() }
+        settled.value = true
     }
-    return cover.value
+    return LargeCoverState(cover = cover.value, pending = !settled.value)
 }
+
+/**
+ * 大封面的取图状态。
+ *
+ * [cover] 为当前可显示的封面；[pending] 表示这张曲目的封面仍在取图中且眼下无图可显示。
+ * 两者分开是为了让显示端在 [pending] 时先沿用上一张已就位的封面：占位符是与页面底色同为近黑的色块，
+ * 换曲时直接露出来就是一次黑闪。确认取不到封面（[pending] 为假且 [cover] 为空）时才轮到占位符。
+ */
+@Immutable
+internal data class LargeCoverState(
+    val cover: ImageBitmap?,
+    val pending: Boolean,
+)
 
 // 内存缓存中的封面：索引曲目取系统略缩图，非索引曲目取内嵌封面；未命中返回 null
 private fun memoryCover(track: MusicTrack, sizePx: Int): Bitmap? =

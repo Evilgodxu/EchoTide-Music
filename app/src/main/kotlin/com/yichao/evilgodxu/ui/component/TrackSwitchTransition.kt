@@ -14,12 +14,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntOffset
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 
 // 横移时长：入场与退场必须同长同速，两层才能始终首尾相接拼满容器。
-// 时长不等会让先到的一层提前离场，容器上留下透出底色的空档
-private const val TRACK_SLIDE_MS = 320
+// 时长不等会让先到的一层提前离场，容器上留下透出底色的空档。
+//
+// 取 600ms 而非常规元素过渡的 200–300ms：这里的位移是整幅一屏宽，按元素级时长走会显得「一闪而过」，
+// 与切歌应有的从容感不符。整屏底色的横移复用同一常量（见 SongImmersiveBackground），
+// 封面、歌曲信息与底色因此同节拍推进、同时落位
+internal const val TRACK_SLIDE_MS = 600
 
 // 交叠淡入淡出时长：入场略长于退场，新内容先立住，旧内容在其后收干净
 private const val TRACK_FADE_ENTER_MS = 320
@@ -114,6 +119,8 @@ internal val noElementTransition: ContentTransform =
 internal fun trackSlideTransform(enterFromLeft: Boolean): ContentTransform {
     val enter: (Int) -> Int = if (enterFromLeft) { width -> -width } else { width -> width }
     val exit: (Int) -> Int = if (enterFromLeft) { width -> width } else { width -> -width }
-    return slideInHorizontally(tween(TRACK_SLIDE_MS), enter)
-        .togetherWith(slideOutHorizontally(tween(TRACK_SLIDE_MS), exit))
+    // 缓动取默认的减速曲线：起手跟得住手势，末段自行收慢，落位不显生硬
+    val spec = tween<IntOffset>(TRACK_SLIDE_MS)
+    return slideInHorizontally(spec, enter)
+        .togetherWith(slideOutHorizontally(spec, exit))
 }

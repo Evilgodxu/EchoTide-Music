@@ -66,8 +66,8 @@ private const val COVER_BACKGROUND_FLOW_FRAME_INTERVAL_MS = 32L
 // 单值均匀压暗，不随位置变化
 private const val COVER_BACKGROUND_DIM_ALPHA = 0.15f
 
-// 切歌横移时长：与封面同一节拍，整屏换色与换图同时推进、同时落位
-private const val COVER_BACKGROUND_SLIDE_MS = 320
+// 切歌横移沿用封面那一条时长（见 TRACK_SLIDE_MS）：整屏换色必须与换图同时推进、同时落位，
+// 各写一份时长迟早会漂移出前后脚
 
 // 同曲取色落地的过渡时长：底色由占位色换成真实取色，无方向可言，只做交叠淡出
 private const val COVER_BACKGROUND_FADE_MS = 480
@@ -144,11 +144,15 @@ internal fun SongImmersiveBackground(
     // 与封面显示同一份系统略缩图：封面重写后系统图随媒体扫描重建，版本号变化即重新取色
     val thumbnail = rememberSystemThumbnail(track, COVER_BACKGROUND_SAMPLE_SIZE)
     var extracted by remember(audioUri, coverRevision) { mutableStateOf(cachedColors) }
+    // 取色是否已有定论：未定论时先沿用当前底色，不回落默认渐变——
+    // 那是与页面底色同为近黑的一条，换曲时整屏瞬间发黑（选曲播放的揭示正会把它露出来）
+    var resolved by remember(audioUri, coverRevision) { mutableStateOf(cachedColors != null) }
     LaunchedEffect(audioUri, coverRevision, thumbnail) {
         // 取色优先用预取结果：它与高清封面同源，且不依赖略缩图是否已解码
         val colors = CoverColorCache.get(audioUri.orEmpty())
             ?: thumbnail?.asAndroidBitmap()?.let { extractCoverBackgroundColors(it) }
         extracted = colors
+        resolved = true
         if (colors != null) onExtractedColor?.invoke(colors.representative)
     }
     val colors = extracted
@@ -158,27 +162,37 @@ internal fun SongImmersiveBackground(
     // 整屏换色：上一份底色整屏铺在上层，按下述方式与当前底色交叠。
     // 只留底色、不留上一帧的流动帧：流动帧由当前取色现算，留存的旧帧与旧底色不同源，
     // 过渡中反而会闪出第三种色调；旧底色本身已按下述压暗层压暗，过渡期间的亮度与静止画面一致
-    val base = remember(colors, restoredColor) {
-        BackgroundBase(colors = colors, solid = if (colors == null) restoredColor else null)
+    //
+    // 目标底色为 null 表示取色还没定论：此时不发新底色，画面沿用当前这份，
+    // 等取色落地再换——回落默认渐变会让整屏先黑一下再变彩，比晚一步换色难看得多
+    val targetBase = remember(colors, restoredColor, resolved) {
+        if (!resolved) {
+            null
+        } else {
+            BackgroundBase(colors = colors, solid = if (colors == null) restoredColor else null)
+        }
     }
     var lastBase by remember { mutableStateOf<BackgroundBase?>(null) }
-    var lastTrackId by remember { mutableStateOf<Long?>(null) }
+    // 实际铺开的底色：取色未定论时仍是当前这份；连一份都还没有（冷启动首帧）才回落历史取色与默认渐变
+    val base = targetBase ?: lastBase ?: BackgroundBase(colors = null, solid = restoredColor)
+    // 当前铺开的底色是否沿用自上一曲：取色未定论期间为真，落地后归假。
+    // 它与「上一份有没有取色」合起来判定本次是不是取色落地——落在两处之一都不该按键类型横移
+    var baseInherited by remember { mutableStateOf(false) }
     var switching by remember { mutableStateOf<BackgroundSwitchState?>(null) }
     // 过渡进度：1 为过渡起点（当前底色尚未入场），0 为过渡结束（当前底色完全落位）
     val switchProgress = remember { Animatable(0f) }
-    LaunchedEffect(base, track?.id) {
-        val trackId = track?.id
+    LaunchedEffect(targetBase, base) {
         val previous = lastBase
-        val previousTrackId = lastTrackId
+        val previousInherited = baseInherited
         lastBase = base
-        lastTrackId = trackId
+        baseInherited = targetBase == null && previous != null
         if (previous == null || previous == base) return@LaunchedEffect
-        // 曲目未变说明只是取色落了地，同一曲目内的换色没有方向可言，只做淡出；
-        // 曲目已变则方向由变更类型给出：选曲播放与内容同源的变更都没有方向，
+        // 上一份是回落色（无取色）或沿用自上一曲，说明本次是取色落地：先后关系不可读，只做淡出；
+        // 两份都持真实取色时才谈方向，方向由变更类型给出——选曲播放与内容同源的变更都没有方向，
         // 换色分别交给首页的整屏揭示、或本就同色而无需过渡
         val kind = switchKind
         val sweep = when {
-            previousTrackId == trackId -> BackgroundSwitch.Fade
+            previousInherited || previous.colors == null -> BackgroundSwitch.Fade
             kind == null -> BackgroundSwitch.Fade
             kind == TrackSwitchKind.Previous -> BackgroundSwitch.SlideFromLeft
             kind == TrackSwitchKind.Next -> BackgroundSwitch.SlideFromRight
@@ -193,7 +207,7 @@ internal fun SongImmersiveBackground(
         switchProgress.animateTo(
             targetValue = 0f,
             animationSpec = tween(
-                if (sweep == BackgroundSwitch.Fade) COVER_BACKGROUND_FADE_MS else COVER_BACKGROUND_SLIDE_MS
+                if (sweep == BackgroundSwitch.Fade) COVER_BACKGROUND_FADE_MS else TRACK_SLIDE_MS
             ),
         )
         switching = null
