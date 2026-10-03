@@ -134,10 +134,13 @@ private enum class BackgroundSwitch {
     SlideFromRight,
 }
 
-// 正在进行的整屏换色：移出的一份底色与过渡方式
+// 正在进行的整屏换色：移出的一份底色、过渡方式，以及切歌瞬间冻结的流动帧
 private data class BackgroundSwitchState(
     val base: BackgroundBase,
     val switch: BackgroundSwitch,
+    // 切歌那一刻画面上的流动帧：退场层用它复现旧曲目的完整背景。
+    // 为空表示切歌时本就只有静态底色（未开流动，或帧尚未就绪）
+    val frame: ImageBitmap?,
 )
 
 // 整屏底色的一种渲染口径：三段取色就绪时为自上而下三段渐变，未就绪时退化为单色铺底
@@ -192,9 +195,16 @@ internal fun SongImmersiveBackground(
     val background = colors?.representative ?: restoredColor ?: md_theme_dark_surface
     LaunchedEffect(background) { onBackgroundColor?.invoke(background) }
 
-    // 整屏换色：上一份底色整屏铺在上层，按下述方式与当前底色交叠。
-    // 只留底色、不留上一帧的流动帧：流动帧由当前封面现算，留存的旧帧与旧底色不同源，
-    // 过渡中反而会闪出第三种色调；旧底色本身已按下述压暗层压暗，过渡期间的亮度与静止画面一致
+    // 流动帧：只在开启流动且封面略缩图就绪时渲染，随流动时间推进重算；
+    // 关闭流动即置空，背景不再有任何流动帧参与渲染，只剩下方静态渐变。
+    // 提前于换色逻辑声明：换色过渡要把切歌瞬间的这一帧冻结进退场层
+    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
+    var frame by remember { mutableStateOf<ImageBitmap?>(null) }
+
+    // 整屏换色：上一份底色连同切歌瞬间冻结的流动帧整屏铺在上层，按下述方式与当前底色交叠。
+    // 流动帧必须一并冻结带走：帧由封面现算，切歌那刻会立刻换成新曲目的帧，而底色交叠要持续一整段时长；
+    // 只管底色、任由帧瞬间换掉，整屏就会在切歌伊始跳一次色。
+    // 旧底色与旧帧自带相同的压暗层，过渡期间的亮度与静止画面一致
     //
     // 目标底色为 null 表示取色还没定论：此时不发新底色，画面沿用当前这份，
     // 等取色落地再换——回落默认渐变会让整屏先黑一下再变彩，比晚一步换色难看得多
@@ -235,7 +245,8 @@ internal fun SongImmersiveBackground(
             switching = null
             return@LaunchedEffect
         }
-        switching = BackgroundSwitchState(base = previous, switch = sweep)
+        // 此刻 frame 仍是旧曲目的帧：新曲目的帧要等略缩图解码后才现算，本效果先于那次现算读到它
+        switching = BackgroundSwitchState(base = previous, switch = sweep, frame = frame)
         switchProgress.snapTo(1f)
         switchProgress.animateTo(
             targetValue = 0f,
@@ -266,10 +277,6 @@ internal fun SongImmersiveBackground(
         }
     }
 
-    // 流动帧：只在开启流动且封面略缩图就绪时渲染，随流动时间推进重算；
-    // 关闭流动即置空，背景不再有任何流动帧参与渲染，只剩下方静态渐变
-    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
-    var frame by remember { mutableStateOf<ImageBitmap?>(null) }
     // 流动帧蒙层：先以封面主色压暗后整幅叠一层，把画面中占比小的杂色一并拉向主色，
     // 背景观感因此始终贴合封面主色；第二层中性黑只负责压暗，不改变色相
     val washPrimary = remember(background) { lerp(background, Color.Black, 0.28f).copy(alpha = 0.34f) }
@@ -339,8 +346,8 @@ internal fun SongImmersiveBackground(
                 )
             }
         }
-        // 上一份底色层：置于最上层，流动帧不透明时同样可见；压暗层在层内一并复刻，
-        // 交叠过程中旧底色的亮度与静止画面一致，不会亮一下再暗回去。
+        // 上一份底色层：置于最上层，复现旧曲目切歌那一刻的完整背景——底色、压暗层，
+        // 以及当时冻结的流动帧（帧在时盖住底色，观感与切歌前静止画面一致）。
         // 横移时向离开侧等速移出，与当前底色层同速：两层的偏移量之和恒为一屏宽，
         // 全程首尾相接拼满整屏，谁也不会先离开而露出空档
         transition?.let { previous ->
@@ -362,6 +369,21 @@ internal fun SongImmersiveBackground(
                         .fillMaxSize()
                         .background(Color.Black.copy(alpha = COVER_BACKGROUND_DIM_ALPHA)),
                 )
+                // 冻结的流动帧连同其压暗层一并在层内复刻，退场侧与切歌前的静止画面完全同源，
+                // 不会在切歌伊始由流动帧骤然塌回静态渐变
+                previous.frame?.let { bitmap ->
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = null,
+                        contentScale = ContentScale.FillBounds,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Brush.verticalGradient(colorStops = COVER_SCRIM_COLOR_STOPS)),
+                    )
+                }
             }
         }
     }
