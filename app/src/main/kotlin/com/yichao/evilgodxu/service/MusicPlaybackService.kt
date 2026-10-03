@@ -23,6 +23,7 @@ import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.playback.AudioSignalPathFormat
 import com.yichao.evilgodxu.data.music.playback.PerDeviceAudioSink
+import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.UsbExclusiveOutput
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.settings.usbExclusiveModeFlow
@@ -298,7 +299,14 @@ class MusicPlaybackService : MediaSessionService() {
             val prev = state.previousIndex()
             if (prev >= 0) {
                 state.playbackScope.launch {
-                    playTrackAt(this@MusicPlaybackService, state, prev)
+                    // 媒体键的上一曲与界面按钮同为有方向的切歌：漏传类型会落到默认的选曲播放，
+                    // 界面据此走整屏揭示而不是自然移入移走
+                    playTrackAt(
+                        this@MusicPlaybackService,
+                        state,
+                        prev,
+                        switchKind = TrackSwitchKind.Previous,
+                    )
                 }
             }
         }
@@ -310,7 +318,13 @@ class MusicPlaybackService : MediaSessionService() {
             val next = state.nextIndex()
             if (next >= 0) {
                 state.playbackScope.launch {
-                    playTrackAt(this@MusicPlaybackService, state, next)
+                    // 同上一曲：媒体键的下一曲也按有方向的切歌处理
+                    playTrackAt(
+                        this@MusicPlaybackService,
+                        state,
+                        next,
+                        switchKind = TrackSwitchKind.Next,
+                    )
                 }
             }
         }

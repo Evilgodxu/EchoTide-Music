@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.data.music.model.PlayMode
 import com.yichao.evilgodxu.data.music.playback.applyPlaybackMode
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
@@ -74,7 +75,11 @@ internal fun ControlBar(
             contentDescription = stringResource(R.string.music_panel_previous_track),
             onClick = {
                 val prev = playbackState.previousIndex()
-                if (prev >= 0) scope.launch { playTrackAt(context, playbackState, prev) }
+                if (prev >= 0) {
+                    scope.launch {
+                        playTrackAt(context, playbackState, prev, switchKind = TrackSwitchKind.Previous)
+                    }
+                }
             },
             enabled = playbackState.playlist.isNotEmpty(),
             size = 32.dp,
@@ -107,7 +112,11 @@ internal fun ControlBar(
             contentDescription = stringResource(R.string.music_panel_next_track),
             onClick = {
                 val next = playbackState.nextIndex()
-                if (next >= 0) scope.launch { playTrackAt(context, playbackState, next) }
+                if (next >= 0) {
+                    scope.launch {
+                        playTrackAt(context, playbackState, next, switchKind = TrackSwitchKind.Next)
+                    }
+                }
             },
             enabled = playbackState.playlist.isNotEmpty(),
             size = 32.dp,
