@@ -63,6 +63,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.MarqueeText
 import com.yichao.evilgodxu.ui.component.player.DiscArt
+import com.yichao.evilgodxu.ui.component.player.lyricEndLeadMs
 import com.yichao.evilgodxu.ui.component.player.lyricWordEnds
 import com.yichao.evilgodxu.ui.component.player.lyricWordFillFraction
 import kotlin.math.min
@@ -323,20 +324,23 @@ internal fun MiniPlayerBar(
                     val lineEndMs = lyricLines
                         .getOrNull(lyricIndex + 1)
                         ?.timeMs ?: (lyricLine.timeMs + 3000L)
+                    val lineDuration = (lineEndMs - lyricLine.timeMs).coerceAtLeast(1L)
+                    // 行尾提前量：整行与逐字两种渲染共用同一口径，使末词与整行都在切到下一行前
+                    // 完成点亮，而不是卡在切行那一刻才刚好点亮
+                    val endLeadMs = lyricEndLeadMs(lineDuration)
                     // 点亮比例：逐字歌词按每个词自身的起止时间推进，与完整播放器同一套时序，
-                    // 词间空隙不点亮；普通歌词没有词时序，退化为按行时长均分，填充时长略短于行时长，
-                    // 留出余量让行尾文字在切到下一行前完整揭示。关闭逐字渲染时整行高亮，
-                    // 平移动画仍按行时长连续推进，避免逐字时序的空隙让滚动一顿一顿
+                    // 词间空隙不点亮，末词终点另按行尾提前量收窄；普通歌词没有词时序，退化为按行时长
+                    // 均分，填充时长同样略短于行时长，留出余量让行尾文字在切到下一行前完整揭示。
+                    // 关闭逐字渲染时整行高亮，平移动画仍按行时长连续推进，
+                    // 避免逐字时序的空隙让滚动一顿一顿
                     val progress = if (wordByWordEnabled && lyricLine.words.isNotEmpty()) {
-                        val wordEnds = remember(lyricLine.words, lineEndMs) {
-                            lyricWordEnds(lyricLine.words, lineEndMs)
+                        val wordEnds = remember(lyricLine.words, lineEndMs, endLeadMs) {
+                            lyricWordEnds(lyricLine.words, lineEndMs, tailLeadMs = endLeadMs)
                         }
                         lyricWordFillFraction(lyricLine.words, wordEnds, lyricPosition)
                     } else {
-                        val lineDuration = (lineEndMs - lyricLine.timeMs).coerceAtLeast(1L)
-                        val fillDuration = lineDuration - min(400L, lineDuration / 5)
                         ((lyricPosition - lyricLine.timeMs).toFloat() /
-                            fillDuration.toFloat())
+                            (lineDuration - endLeadMs).toFloat())
                             .coerceIn(0f, 1f)
                     }
                     MiniPlayerLyricText(
