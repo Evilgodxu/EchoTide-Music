@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -301,19 +302,28 @@ internal fun MetadataFormHint(text: String) {
     )
 }
 
-// 保存结果提示：自动保存后短暂展示，成功与失败用不同颜色区分
+// 保存结果提示：自动保存后短暂展示，成功与失败用不同颜色区分。
+//
+// 无提示时渲染空文案占住这一行：提示在「输入清空提示、落盘重新提示」之间反复出现与消失，
+// 若它的高度跟着变化，下方整片表单（含用户正在输入的输入框）会随每次落盘上下跳动。
+// 限制为单行同样是为了固定高度 —— 失败文案较长，换行会让提示区从一行变两行
 @Composable
 internal fun MetadataStatusText(
     message: String?,
     messageIsError: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    if (message == null) return
     Text(
-        text = message,
+        text = message.orEmpty(),
         fontSize = 12.sp,
-        color = if (messageIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-        fontWeight = if (messageIsError) FontWeight.Normal else FontWeight.Medium,
+        color = when {
+            message == null -> Color.Transparent
+            messageIsError -> MaterialTheme.colorScheme.error
+            else -> MaterialTheme.colorScheme.primary
+        },
+        fontWeight = if (message != null && !messageIsError) FontWeight.Medium else FontWeight.Normal,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
         modifier = modifier.padding(top = 12.dp),
     )
 }

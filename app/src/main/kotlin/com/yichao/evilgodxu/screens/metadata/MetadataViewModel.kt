@@ -226,13 +226,14 @@ class MetadataViewModel(
     fun onLyricRawChange(raw: String) =
         _uiState.update { it.copy(lyricLineDraft = raw, message = null) }
 
-    // 翻译行改写：与原文行互不干扰，留空即清除该行翻译
+    // 翻译行改写：与原文行互不干扰，留空即清除该行翻译。
+    // 输入过程中原样保留用户文本（含首尾空白）：若按去空白后的值回写状态，
+    // 「敲入的空格」会与当前值相等而被判定成无改动，空格键等于失效；去空白只在落盘边界做
     fun onLyricTranslationChange(index: Int, text: String) {
         val lines = _uiState.value.lyricLines
         if (index !in lines.indices) return
-        val translation = text.trim().takeIf { it.isNotEmpty() }
-        if (lines[index].translation == translation) return
-        val updated = lines.toMutableList().also { it[index] = it[index].copy(translation = translation) }
+        if (lines[index].translation == text) return
+        val updated = lines.toMutableList().also { it[index] = it[index].copy(translation = text) }
         _uiState.update { it.copy(lyricLines = updated, message = null) }
         scheduleLyricsSave(updated)
     }
@@ -303,9 +304,15 @@ class MetadataViewModel(
         scheduleSave()
     }
 
-    // 歌词待写入值：与文本字段同理，改回原歌词时清掉待写入值，避免按旧值重写文件
+    /**
+     * 歌词待写入值：与文本字段同理，改回原歌词时清掉待写入值，避免按旧值重写文件。
+     *
+     * 落盘前统一去空白（含翻译行，空串即清除）：界面为了能用空格键而原样保留输入，
+     * 写入与「是否改动」的比较都按去空白后的内容进行 —— 否则只多敲一个空格也会重写整段音频
+     */
     private fun scheduleLyricsSave(lines: List<LyricLine>) {
-        val newValue = lines.takeIf { it != snapshot.lyricLines }
+        val normalized = lines.map { it.copy(translation = it.translation?.trim()?.takeIf(String::isNotEmpty)) }
+        val newValue = normalized.takeIf { it != snapshot.lyricLines }
         val changes = pending ?: if (newValue != null) PendingChanges().also { pending = it } else return
         changes.lyrics = newValue
         if (changes.isEmpty && !coverChanged) return
