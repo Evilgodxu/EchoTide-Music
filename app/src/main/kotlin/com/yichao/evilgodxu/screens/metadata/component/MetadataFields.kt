@@ -90,7 +90,6 @@ internal fun LyricsSection(
             if (editing == MetadataEditTarget.LyricsWhole) {
                 EntryTextField(
                     value = lyricLineDraft.orEmpty(),
-                    enabled = enabled,
                     singleLine = false,
                     placeholder = "",
                     onValueChange = onRawChange,
@@ -117,7 +116,6 @@ internal fun LyricsSection(
                 if (editing == MetadataEditTarget.LyricLineAt(index)) {
                     EntryTextField(
                         value = lyricLineDraft.orEmpty(),
-                        enabled = enabled,
                         singleLine = false,
                         placeholder = "",
                         onValueChange = onRawChange,
@@ -135,7 +133,6 @@ internal fun LyricsSection(
                 if (editing == MetadataEditTarget.LyricTranslationAt(index)) {
                     EntryTextField(
                         value = line.translation.orEmpty(),
-                        enabled = enabled,
                         singleLine = true,
                         placeholder = stringResource(R.string.metadata_lyrics_translation_hint),
                         onValueChange = { onTranslationChange(index, it) },

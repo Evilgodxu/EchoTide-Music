@@ -133,6 +133,7 @@ internal fun MetadataBlockContainer(
  * 空值用弱化文案标注，避免与「标签本身」混淆。
  *
  * @param editing 该条目是否处于编辑态，由调用方保证同一时刻只有一条为真
+ * @param enabled 仅约束展示态的点击入口；编辑态输入框不受此开关影响（见 [EntryTextField]）
  * @param onStartEdit 点击展示态时进入编辑态的请求
  * @param onEditDone 输入框按「完成」键后结束编辑态
  */
@@ -152,7 +153,6 @@ internal fun MetadataEntry(
     if (editing) {
         EntryTextField(
             value = value,
-            enabled = enabled,
             singleLine = singleLine,
             placeholder = placeholder,
             onValueChange = onValueChange,
@@ -217,6 +217,11 @@ internal fun EntryDisplayRow(
  * 键盘收起不结束编辑态：系统返回键收起键盘后输入框保持编辑态与焦点，用户得以继续核对
  * 刚输入的内容，确认无误再退出编辑。把「收起键盘」当作编辑完成，会让用户来不及复核。
  *
+ * 输入框不提供禁用开关，任何时刻都可编辑：禁用取焦中的输入框会使该节点变为不可聚焦，
+ * 系统随即清掉焦点并结束输入会话（Compose 以 Modifier.focusable(enabled) 承载输入框的焦点），
+ * 键盘随之收起且不会自行恢复 —— 而自动落盘恰好发生在输入停顿之后，正是「清空字段准备
+ * 重新输入」的间隙。落盘期间的新输入由状态持有者合并进下一批写入，无需在界面层拦截。
+ *
  * 边框用 BasicTextField 自绘 1dp 描边：OutlinedTextField 的聚焦描边固定为 2dp，
  * 无法通过参数调细，与「细边框」的诉求不符。
  *
@@ -226,7 +231,6 @@ internal fun EntryDisplayRow(
 @Composable
 internal fun EntryTextField(
     value: String,
-    enabled: Boolean,
     singleLine: Boolean,
     placeholder: String,
     onValueChange: (String) -> Unit,
@@ -247,18 +251,12 @@ internal fun EntryTextField(
     LaunchedEffect(imeVisible) {
         if (imeVisible) runCatching { bringIntoViewRequester.bringIntoView() }
     }
-    val textColor = if (enabled) {
-        MaterialTheme.colorScheme.onSurface
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        enabled = enabled,
         singleLine = singleLine,
         maxLines = if (singleLine) 1 else maxLines,
-        textStyle = TextStyle(fontSize = fontSize, color = textColor),
+        textStyle = TextStyle(fontSize = fontSize, color = MaterialTheme.colorScheme.onSurface),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         keyboardOptions = KeyboardOptions(imeAction = if (singleLine) ImeAction.Done else ImeAction.Default),
         keyboardActions = KeyboardActions(onDone = { onEditDone() }),

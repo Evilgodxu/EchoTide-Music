@@ -40,7 +40,9 @@ data class MetadataUiState(
     val coverPresent: Boolean = false,
     // 载入中：读取标签期间不展示表单，避免旧内容与新内容在界面上交叠
     val loading: Boolean = true,
-    // 正在写回音频文件：期间禁用编辑入口，避免写入过程中的改动与已有写入交错
+    // 正在写回音频文件：期间不接受新的编辑入口，避免写入过程中的改动与已有写入交错。
+    // 已在编辑的输入框不受影响 —— 禁用取焦中的输入框会连带清掉焦点与键盘，
+    // 其在写入期间的新输入由状态持有者合并进下一批
     val saving: Boolean = false,
     // 目标曲目不可编辑（在线流无本地可写文件）
     val editable: Boolean = true,

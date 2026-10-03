@@ -411,17 +411,21 @@ class MetadataViewModel(
                 pendingCover = null
                 coverChanged = false
             }
+            // 待回填的字段值：去空白后的本批写入值，供下方按「界面值是否已被继续改动」判定
+            val batchTitle = changes?.title
+            val batchArtist = changes?.artist
+            val batchAlbum = changes?.album
             _uiState.update {
                 it.copy(
                     saving = false,
                     messageIsError = false,
                     message = message(R.string.metadata_save_done),
                     // 去空白后的值回填界面，使界面与文件内容一致。
-                    // 只回填本批写过的字段：写入期间用户可能已在改别的字段，
-                    // 用快照整体覆盖会把那些正在输入的文本抹掉
-                    title = if (changes?.title != null) snapshot.title else it.title,
-                    artist = if (changes?.artist != null) snapshot.artist else it.artist,
-                    album = if (changes?.album != null) snapshot.album else it.album,
+                    // 只回填「本批写过且界面值仍是本批值」的字段：写入期间用户可能已在改别的字段、
+                    // 或继续在同一字段上输入，用快照覆盖会把那些更新的文本抹掉
+                    title = if (batchTitle != null && it.title == batchTitle) snapshot.title else it.title,
+                    artist = if (batchArtist != null && it.artist == batchArtist) snapshot.artist else it.artist,
+                    album = if (batchAlbum != null && it.album == batchAlbum) snapshot.album else it.album,
                 )
             }
         }
