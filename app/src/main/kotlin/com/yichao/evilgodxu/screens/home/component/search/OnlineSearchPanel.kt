@@ -484,9 +484,8 @@ private fun SearchResultList(
                         context = context,
                         onResultClick = { result ->
                             // 本地曲库命中同曲直接播放；否则弹出音质选择对话框由用户选音质。
-                            // 首页选曲请求揭示：画面就在揭示宿主的窗口内
                             scope.launch {
-                                if (!tryPlayLocalMatch(result, playbackState, context, scope, reveal = true)) {
+                                if (!tryPlayLocalMatch(result, playbackState, context, scope)) {
                                     playbackState.qualityPickTrack = result
                                     playbackState.qualityBusy = false
                                     playbackState.qualityError = null

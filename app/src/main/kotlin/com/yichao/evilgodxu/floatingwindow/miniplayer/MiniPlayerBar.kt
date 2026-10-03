@@ -202,8 +202,7 @@ internal fun MiniPlayerBar(
                                 } else {
                                     playbackState.nextIndex()
                                 }
-                                // 悬浮窗无整屏揭示：揭示画的是主界面窗口，与本窗无关
-                                if (index >= 0) scope.launch { playTrackAt(context, playbackState, index, reveal = false) }
+                                if (index >= 0) scope.launch { playTrackAt(context, playbackState, index) }
                             }
                             // 垂直：下滑隐藏播放器
                             2 -> if (totalDy > verticalSwipeThresholdPx) onSwipeDown()
@@ -318,7 +317,7 @@ internal fun MiniPlayerBar(
             ) {
                 // 歌名与歌词整体随锚点淡入淡出：换曲时这一块不硬切。
                 // 歌名与无歌词时的歌手名取自锚点，退场的一层才显示上一首的文本。
-                // 迷你播放器是独立小窗，取不到整屏揭示，格位也容不下整幅横移，恒用交叠淡出
+                // 迷你播放器是独立小窗，元素嵌在固定的小格子里，整幅横移会越出格位，恒用交叠淡出
                 TrackSwitchTransition(
                     anchor = trackAnchor,
                     modifier = Modifier.fillMaxWidth(),

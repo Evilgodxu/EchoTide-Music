@@ -181,7 +181,7 @@ internal fun SongImmersiveBackground(
     val thumbnail = rememberSystemThumbnail(track, COVER_BACKGROUND_SAMPLE_SIZE)
     var extracted by remember(audioUri, coverRevision) { mutableStateOf(cachedColors) }
     // 取色是否已有定论：未定论时先沿用当前底色，不回落默认渐变——
-    // 那是与页面底色同为近黑的一条，换曲时整屏瞬间发黑（选曲播放的揭示正会把它露出来）
+    // 那是与页面底色同为近黑的一条，换曲时整屏瞬间发黑
     var resolved by remember(audioUri, coverRevision) { mutableStateOf(cachedColors != null) }
     LaunchedEffect(audioUri, coverRevision, thumbnail) {
         // 取色优先用预取结果：它与高清封面同源，且不依赖略缩图是否已解码
@@ -232,7 +232,7 @@ internal fun SongImmersiveBackground(
         if (previous == null || previous == base) return@LaunchedEffect
         // 上一份是回落色（无取色）或沿用自上一曲，说明本次是取色落地：先后关系不可读，只做淡出；
         // 两份都持真实取色时才谈方向，方向由变更类型给出——选曲播放与内容同源的变更都没有方向，
-        // 换色分别交给首页的整屏揭示、或本就同色而无需过渡
+        // 不做过渡，底色原地换掉
         val kind = switchKind
         val sweep = when {
             previousInherited || previous.colors == null -> BackgroundSwitch.Fade

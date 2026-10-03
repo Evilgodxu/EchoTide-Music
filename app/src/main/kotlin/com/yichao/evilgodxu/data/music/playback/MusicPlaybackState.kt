@@ -817,18 +817,13 @@ class MusicPlaybackState(
     }
 
     /**
-     * 记下本次曲目变更的类型；[reveal] 为真时另请求一次整屏揭示。
+     * 记下本次曲目变更的类型。
      *
-     * 必须在曲目状态变更前调用：揭示的快照要落在仍是旧画面的那一刻，变更后取到的已是新画面。
      * 所有会让当前曲目换人的路径都要经过这里——漏掉一处，该次变更就会沿用上一次的类型，
-     * 横移方向随之失真。
-     *
-     * [reveal] 只对承载界面的窗口有意义：揭示画的就是那一窗口的画面，悬浮窗（迷你播放器、
-     * 音乐面板）的选曲与后台上起播的路径一律传 false。
+     * 横移方向随之失真。类型须与曲目状态同帧写入，界面才能读到与之配套的方向。
      */
-    internal fun beginTrackSwitch(kind: TrackSwitchKind, reveal: Boolean = false) {
+    internal fun beginTrackSwitch(kind: TrackSwitchKind) {
         lastSwitchKind = kind
-        if (reveal) onSelectReveal?.invoke()
     }
 
     // 定时关闭相关状态（后台计时）
@@ -837,10 +832,6 @@ class MusicPlaybackState(
     // 定时关闭收尾完成后的退出请求：结束应用属应用外壳职责，此处只发起请求，由外壳接管退出编排
     var onSleepTimerFinished: (() -> Unit)? = null
 
-    // 选曲播放的整屏揭示请求：由正在展示的界面注册，在曲目状态变更前同步回调。
-    // 快照必须在变更前取——变更后取到的已是新画面，揭示失去可对照的旧画面。
-    // 界面不可见时自行注销：此时取到的快照不会被看到，揭示动画也会因帧时钟暂停滞留在半途
-    var onSelectReveal: (() -> Unit)? = null
     private val timerJob = SupervisorJob()
     private val timerScope = CoroutineScope(timerJob + Dispatchers.Main)
     private var countdownJob: Job? = null

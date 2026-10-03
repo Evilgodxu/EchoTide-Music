@@ -65,7 +65,7 @@ internal fun HomeAlbumArt(
     modifier: Modifier = Modifier,
 ) {
     // 上一张已就位的封面：新曲目的封面还在取图时先沿用它，而不退回占位符。
-    // 占位符是与页面底色同为近黑的色块，选曲播放的揭示圆心正落在封面区，黑块会随圆一起展开
+    // 占位符是与页面底色同为近黑的色块，换曲取图期间直接露出来就是一次黑闪
     var lastShown by remember { mutableStateOf<ImageBitmap?>(null) }
     AnimatedContent(
         targetState = track,
@@ -75,7 +75,7 @@ internal fun HomeAlbumArt(
             when (kind) {
                 TrackSwitchKind.Previous -> trackSlideTransform(enterFromLeft = true)
                 TrackSwitchKind.Next -> trackSlideTransform(enterFromLeft = false)
-                // 选曲播放没有可读的方向，换图交给首页的整屏揭示；
+                // 选曲播放没有可读的方向，移入的一侧无从取；
                 // 内容同源的变更（在线曲迁到本地）直接替换，横移会让同源封面错位成接缝
                 TrackSwitchKind.Select, TrackSwitchKind.SameContent -> noElementTransition
             }

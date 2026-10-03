@@ -138,7 +138,7 @@ internal object MusicCoverLoader {
         else runCatching { scaleDown(software, sizePx) }.getOrDefault(software)
     }
 
-    // 硬件位图不能参与软件绘制：界面侧会为整屏快照（主题切换、选曲播放的揭示）以软件画布重绘一次，
+    // 硬件位图不能参与软件绘制：界面侧会为主题切换的整屏快照以软件画布重绘一次，
     // 层级里混入硬件位图会直接抛 IllegalArgumentException 打断快照。
     // 系统略缩图在 API 29+ 上返回的正是硬件位图，故取图的唯一出口处收口为软件位图；
     // 复制失败（内存不足）时退回原位图，宁可让快照降级也不要丢掉整张封面

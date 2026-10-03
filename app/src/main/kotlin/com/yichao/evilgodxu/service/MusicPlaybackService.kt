@@ -300,7 +300,7 @@ class MusicPlaybackService : MediaSessionService() {
             if (prev >= 0) {
                 state.playbackScope.launch {
                     // 媒体键的上一曲与界面按钮同为有方向的切歌：漏传类型会落到默认的选曲播放，
-                    // 界面据此走整屏揭示而不是自然移入移走
+                    // 界面据此不做自然移入移走，而是直接替换
                     playTrackAt(
                         this@MusicPlaybackService,
                         state,

@@ -15,8 +15,8 @@ import com.yichao.evilgodxu.data.settings.ThemeMode
 import com.yichao.evilgodxu.ui.component.ScreenRevealController
 import com.yichao.evilgodxu.ui.component.ScreenRevealHost
 
-// 主题模式切换的整屏揭示入口：揭示实现与选曲播放共用（见 ScreenRevealHost），
-// 此处只保留主题侧的取用点——切换入口交出的圆心是触发切换的那次点击位置
+// 主题模式切换的整屏揭示入口（见 ScreenRevealHost）：
+// 切换入口交出的圆心是触发切换的那次点击位置
 val LocalThemeTransitionController = androidx.compose.runtime.staticCompositionLocalOf<ScreenRevealController> {
     error("ThemeTransitionController is not provided")
 }
@@ -162,8 +162,7 @@ fun MyApplicationTheme(
         else -> darkTheme
     }
 
-    // 主题切换的整屏揭示：切换入口在点击瞬间交出新旧主题的对照点（点击位置），
-    // 揭示本身与选曲播放共用同一套实现（见 ScreenRevealHost）
+    // 主题切换的整屏揭示：切换入口在点击瞬间交出新旧主题的对照点（点击位置）
     val revealController = remember { ScreenRevealController() }
 
     CompositionLocalProvider(

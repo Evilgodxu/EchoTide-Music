@@ -7,11 +7,8 @@ import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -25,15 +22,12 @@ import com.yichao.evilgodxu.screens.home.component.panel.HomePage
 import com.yichao.evilgodxu.screens.home.component.panel.rememberHomePanelState
 import com.yichao.evilgodxu.screens.home.expanded.ExpandedAssembly
 import com.yichao.evilgodxu.theme.SystemBarAppearance
-import com.yichao.evilgodxu.ui.component.ScreenRevealController
-import com.yichao.evilgodxu.ui.component.ScreenRevealHost
 import com.yichao.evilgodxu.windowsize.rememberExpandedForm
 import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 
 // 页面入口：形态分发 + 跨形态副作用，不承载布局
 @Composable
 fun HomeScreen(
-    modifier: Modifier = Modifier,
     onOpenSettings: () -> Unit,
     // 播放列表高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
     onOpenSpectrum: (Long) -> Unit,
@@ -137,42 +131,30 @@ fun HomeScreen(
         }
     }
 
-    // 选曲播放的整屏揭示：与切换主题模式同一套动效，圆心取按下列表行的位置；
-    // 触发路径没有按下位置时（如外部起播）回退左上角，由揭示宿主裁决。
-    // 揭示请求只在界面可见时注册：快照取的正是此刻可见的画面，界面不可见时取到的没有展示价值，
-    // 揭示动画也会因帧时钟停下而滞留在半途、等回到前台才继续
-    val revealController = remember { ScreenRevealController() }
-    LifecycleResumeEffect(playbackState) {
-        playbackState.onSelectReveal = { revealController.revealFromPress() }
-        onPauseOrDispose { playbackState.onSelectReveal = null }
-    }
-
     // 形态分派：旋转状态与窗口宽度尺寸类共同决定显示内容
-    ScreenRevealHost(controller = revealController, modifier = modifier) {
-        if (rememberExpandedForm()) {
-            ExpandedAssembly(
-                uiState = uiState,
-                panelState = panelState,
-                onOpenSettings = onOpenSettings,
-                onOpenSpectrum = onOpenSpectrum,
-                onOpenMetadata = onOpenMetadata,
-                onToggleLandscape = onToggleLandscape,
-                onRefreshPermissions = viewModel::refreshPermissions,
-                onStartPermissionMonitor = viewModel::startPermissionMonitor,
-                onStopPermissionMonitor = viewModel::stopPermissionMonitor,
-            )
-        } else {
-            CompactAssembly(
-                uiState = uiState,
-                panelState = panelState,
-                onOpenSettings = onOpenSettings,
-                onOpenSpectrum = onOpenSpectrum,
-                onOpenMetadata = onOpenMetadata,
-                onToggleLandscape = onToggleLandscape,
-                onRefreshPermissions = viewModel::refreshPermissions,
-                onStartPermissionMonitor = viewModel::startPermissionMonitor,
-                onStopPermissionMonitor = viewModel::stopPermissionMonitor,
-            )
-        }
+    if (rememberExpandedForm()) {
+        ExpandedAssembly(
+            uiState = uiState,
+            panelState = panelState,
+            onOpenSettings = onOpenSettings,
+            onOpenSpectrum = onOpenSpectrum,
+            onOpenMetadata = onOpenMetadata,
+            onToggleLandscape = onToggleLandscape,
+            onRefreshPermissions = viewModel::refreshPermissions,
+            onStartPermissionMonitor = viewModel::startPermissionMonitor,
+            onStopPermissionMonitor = viewModel::stopPermissionMonitor,
+        )
+    } else {
+        CompactAssembly(
+            uiState = uiState,
+            panelState = panelState,
+            onOpenSettings = onOpenSettings,
+            onOpenSpectrum = onOpenSpectrum,
+            onOpenMetadata = onOpenMetadata,
+            onToggleLandscape = onToggleLandscape,
+            onRefreshPermissions = viewModel::refreshPermissions,
+            onStartPermissionMonitor = viewModel::startPermissionMonitor,
+            onStopPermissionMonitor = viewModel::stopPermissionMonitor,
+        )
     }
 }

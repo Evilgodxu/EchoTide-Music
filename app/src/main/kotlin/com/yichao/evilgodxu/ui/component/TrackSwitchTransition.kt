@@ -36,8 +36,8 @@ internal enum class TrackSwitchStyle {
     // 交叠淡出期间两层各半透明，会透出容器底色形成一次亮度塌陷，铺满容器者一律走横移
     Slide,
 
-    // 交叠淡入淡出：用于迷你播放器、音乐面板这类独立窗口——它们无从取得整屏揭示，
-    // 元素又都嵌在固定的小格子里，整幅横移会越出格位
+    // 交叠淡入淡出：用于迷你播放器、音乐面板这类独立窗口——元素都嵌在固定的小格子里，
+    // 整幅横移会越出格位
     Crossfade,
 }
 
@@ -71,7 +71,7 @@ internal fun rememberTrackSwitchAnchor(track: MusicTrack?, kind: TrackSwitchKind
  * 横移方向取自锚点里的类型：上一曲自左侧移入（向右侧移出）、下一曲自右侧移入（向左侧移出）。
  * 方向不取播放列表下标差——随机播放下标差读不出前后，而类型本身始终可读。
  * 无方向可读的类型（选曲播放、内容同源的变更）不做元素级过渡，直接替换：
- * 前者换画面交给整屏揭示，元素再自行位移反而与揭示的前沿错位；后者内容一致，位移只会添乱。
+ * 前者移入的一侧取不出来，后者内容一致、位移只会添乱。
  */
 @Composable
 internal fun TrackSwitchTransition(
@@ -95,7 +95,7 @@ internal fun TrackSwitchTransition(
                 TrackSwitchStyle.Slide -> when (kind) {
                     TrackSwitchKind.Previous -> trackSlideTransform(enterFromLeft = true)
                     TrackSwitchKind.Next -> trackSlideTransform(enterFromLeft = false)
-                    // 选曲播放的换画面交给整屏揭示；内容同源的变更本就看不出变化，
+                    // 选曲播放没有可读的方向，移入的一侧无从取；内容同源的变更本就看不出变化，
                     // 两者都不做元素级过渡，直接替换
                     TrackSwitchKind.Select, TrackSwitchKind.SameContent -> noElementTransition
                 }
@@ -106,7 +106,7 @@ internal fun TrackSwitchTransition(
     )
 }
 
-/** 不做元素级过渡：新旧内容直接替换，用于画面变化由外层整屏揭示接手、或新旧内容同源的场景。 */
+/** 不做元素级过渡：新旧内容直接替换，用于无方向可读的变更、或新旧内容同源的场景。 */
 internal val noElementTransition: ContentTransform =
     EnterTransition.None togetherWith ExitTransition.None
 

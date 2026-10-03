@@ -380,9 +380,8 @@ fun MusicPanelOverlay(
                         playbackState = playbackState,
                         onScan = onScan,
                         onTrackSelected = { index ->
-                            // 悬浮窗无整屏揭示：揭示画的是主界面窗口，与本窗无关
                             scope.launch {
-                                playTrackAt(context, playbackState, index, reveal = false)
+                                playTrackAt(context, playbackState, index)
                             }
                             showPlaylist = false
                         },

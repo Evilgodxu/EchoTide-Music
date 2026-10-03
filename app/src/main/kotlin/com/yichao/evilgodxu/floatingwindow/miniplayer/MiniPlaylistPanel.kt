@@ -104,9 +104,8 @@ internal fun MiniPlaylistPanel(
                     isQueued = playbackState.isInPlayNext(track.id),
                     onClick = {
                         // 使用应用级作用域：面板收起离开组合时，播放命令不会被协程取消。
-                        // 悬浮窗无整屏揭示：揭示画的是主界面窗口，与本窗无关
                         playbackState.playbackScope.launch {
-                            playTrackAt(context, playbackState, index, reveal = false)
+                            playTrackAt(context, playbackState, index)
                         }
                         onClose()
                     },

@@ -3,7 +3,6 @@ package com.yichao.evilgodxu.ui.component
 import android.graphics.Bitmap
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -22,8 +21,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.drawToBitmap
 import com.yichao.evilgodxu.log.CrashLogManager
@@ -37,34 +34,22 @@ private const val TAG = "ScreenReveal"
 /**
  * 整屏揭示：以某一圆心展开新画面，圆外仍留旧画面，换画面因此有可辨的先后次序。
  *
- * 由触发方在画面仍是旧内容时发起——已知圆心用 [revealAt]（主题模式切换的点击发生在对话框弹出之前，
- * 位置只能由入口带过来），圆心即按下位置时用 [revealFromPress]（选曲播放点在列表行上，位置由宿主统一观察）。
- * 宿主随后取一份整屏快照，按圆形差集铺在内容之上。
+ * 用于主题模式切换——点击入口在对话框弹出前就知道切换会波及哪些区域，
+ * 由圆心的位置把这层范围关系读出来。宿主随后取一份整屏快照，按圆形差集铺在内容之上。
  * 快照必须在内容变更前取：变更后再取到的已是新画面，就没有可对照的旧画面。
  */
 @Stable
 class ScreenRevealController {
-    internal var request: ((Offset?) -> Unit)? = null
+    internal var request: ((Offset) -> Unit)? = null
 
     fun revealAt(origin: Offset) {
         request?.invoke(origin)
-    }
-
-    /**
-     * 以宿主记录的最近一次按下位置为圆心。
-     *
-     * 位置由宿主统一观察，各列表行不必各自换算到宿主坐标系。宿主未记录到按下位置时
-     * （如外部起播这类没有按键的触发路径）回退左上角。
-     */
-    fun revealFromPress() {
-        request?.invoke(null)
     }
 }
 
 /**
  * 整屏揭示宿主：内容之上按圆形差集绘制旧画面快照——圆内露出新内容，圆外仍是旧画面。
- * 圆心与半径都在本宿主的坐标系内，[ScreenRevealController.revealAt] 传入的圆心须与之一致；
- * 按下位置由本宿主就地观察，与绘制同处一个坐标系，故 [ScreenRevealController.revealFromPress] 无需换算。
+ * 圆心与半径都在本宿主的坐标系内，[ScreenRevealController.revealAt] 传入的圆心须与之一致。
  */
 @Composable
 fun ScreenRevealHost(
@@ -74,7 +59,6 @@ fun ScreenRevealHost(
 ) {
     var snapshot by remember { mutableStateOf<Bitmap?>(null) }
     var origin by remember { mutableStateOf(Offset.Zero) }
-    var pressOrigin by remember { mutableStateOf<Offset?>(null) }
     val progress = remember { Animatable(1f) }
     val view = LocalView.current
 
@@ -88,9 +72,7 @@ fun ScreenRevealHost(
                 .getOrNull()
             if (drawn != null) {
                 snapshot = drawn
-                origin = requested ?: pressOrigin ?: Offset.Zero
-                // 按下位置取用后即清：无按下的后续请求不该沿用上一次交互的陈旧位置
-                if (requested == null) pressOrigin = null
+                origin = requested
             }
         }
     }
@@ -103,17 +85,6 @@ fun ScreenRevealHost(
     Box(
         modifier = modifier
             .fillMaxSize()
-            // 只在 Initial 阶段观察、不消费事件：按下位置仅用于揭示圆心，子级手势不受影响
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        pressOrigin = awaitFirstDown(
-                            requireUnconsumed = false,
-                            pass = PointerEventPass.Initial,
-                        ).position
-                    }
-                }
-            }
             .drawWithContent {
                 drawContent()
                 val bitmap = snapshot ?: return@drawWithContent

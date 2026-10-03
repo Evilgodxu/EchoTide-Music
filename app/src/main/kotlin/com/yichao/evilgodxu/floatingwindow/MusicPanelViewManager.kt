@@ -322,14 +322,13 @@ class MusicPanelViewManager(
                 playbackState.persistPlaylist()
                 withContext(Dispatchers.Main) {
                     // 外部音频起播没有先后关系可读，类型按选曲播放记录：曲目状态由本处
-                    // 先行写入，类型必须与它同帧，之后的 playTrackAt 因目标已是当前曲目而不再补记。
-                    // 起播落在悬浮窗上，其画面不在揭示宿主的窗口内，故不请求整屏揭示
-                    playbackState.beginTrackSwitch(TrackSwitchKind.Select, reveal = false)
+                    // 先行写入，类型必须与它同帧，之后的 playTrackAt 因目标已是当前曲目而不再补记
+                    playbackState.beginTrackSwitch(TrackSwitchKind.Select)
                     playbackState.currentIndex = targetIndex
                     playbackState.currentTrack = playbackState.playlist[targetIndex]
                 }
                 withContext(Dispatchers.Main) {
-                    playTrackAt(context, playbackState, targetIndex, reveal = false)
+                    playTrackAt(context, playbackState, targetIndex)
                 }
                 pendingExternalUri = null
             }

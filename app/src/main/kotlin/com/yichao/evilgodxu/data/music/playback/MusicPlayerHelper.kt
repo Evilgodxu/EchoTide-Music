@@ -52,17 +52,14 @@ suspend fun playTrackAt(
     clearQueue: Boolean = true,
     // 触发本次变更的类型：界面据此决定过渡；默认按无方向的选曲播放处理
     switchKind: TrackSwitchKind = TrackSwitchKind.Select,
-    // 是否请求整屏揭示：揭示画的是承载界面的那一画面，悬浮窗（迷你播放器、音乐面板）
-    // 与承载界面不在同一窗口，请求了也看不见，故由这些调用点显式关闭
-    reveal: Boolean = switchKind == TrackSwitchKind.Select,
 ) {
     state.playTrackMutex.withLock {
         // 手动切歌默认清空插队队列；仅自然接续（队列消费/自动下一首）时由调用方显式关闭
         if (clearQueue) state.clearPlayNextQueue()
         val track = state.playlist.getOrNull(index) ?: return
-        // 目标曲目就是当前曲目（续播、重播当前曲）时画面不变，不记类型也不请求揭示
+        // 目标曲目就是当前曲目（续播、重播当前曲）时画面不变，不记类型
         if (track.id != state.currentTrack?.id) {
-            state.beginTrackSwitch(switchKind, reveal = reveal)
+            state.beginTrackSwitch(switchKind)
         }
         val controller = getController(context, state)
         val items = state.cachedMediaItems ?: withContext(Dispatchers.IO) {

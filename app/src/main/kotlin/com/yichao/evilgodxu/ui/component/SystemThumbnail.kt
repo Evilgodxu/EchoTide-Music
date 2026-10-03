@@ -90,7 +90,7 @@ internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitm
  * 直到第 2 步的高清档到位才跳变，期间系统略缩图这一档被整段跳过。
  *
  * 返回值把「还没取到」与「确认取不到」分开（见 [LargeCoverState]）：显示端据此决定是沿用上一张封面
- * 还是退回占位符——后者是与页面底色同为近黑的色块，选曲播放的整屏揭示圆心正落在封面区，会随圆一起展开。
+ * 还是退回占位符——后者是与页面底色同为近黑的色块，换曲取图期间露出来就是一次黑闪。
  */
 @Composable
 internal fun rememberLargeCoverState(track: MusicTrack?): LargeCoverState {

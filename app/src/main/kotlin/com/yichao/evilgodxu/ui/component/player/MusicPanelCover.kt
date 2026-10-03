@@ -400,7 +400,7 @@ internal fun TrackInfo(
             .padding(top = 4.dp, bottom = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 音乐面板是独立小窗，取不到整屏揭示，格位也容不下整幅横移，恒用交叠淡出
+        // 音乐面板是独立小窗，元素嵌在固定的小格子里，整幅横移会越出格位，恒用交叠淡出
         TrackSwitchTransition(
             anchor = anchor,
             modifier = Modifier.fillMaxWidth(),
