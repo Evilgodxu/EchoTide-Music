@@ -10,6 +10,7 @@ import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 // 内嵌封面读取：从音频文件自身取出内嵌图片，本地文件路径优先、其次 content/file URI；
@@ -55,10 +56,16 @@ internal object EmbeddedCoverReader {
      * 与 [read] 的整数级降采样不同：这里把精确目标尺寸交给 ImageDecoder 重采样，
      * 大比例缩小时由线性过滤与多级 mipmap 完成抗锯齿，边缘与细线不会出现毛刺与锯齿。
      * 无内嵌封面、图片损坏或文件读不出时返回 null。
+     *
+     * 读取与解码分两次挂起，中间留一个取消检查点：平台的文件读取与图像解码都不接受取消信号，
+     * 调用方（如切歌预取）中途被取消时，已读出的字节不该再喂给最重的那次缩放解码 ——
+     * 在这里止步，CPU 与内存直接让给接替的新解码。
      */
     suspend fun readFitted(context: Context, audioUri: String, path: String, maxEdgePx: Int): Bitmap? =
         withContext(Dispatchers.IO) {
-            (readPicture(context, audioUri, path) as? Picture.Found)?.let { decodeFitted(it.bytes, maxEdgePx) }
+            val picture = readPicture(context, audioUri, path) as? Picture.Found ?: return@withContext null
+            ensureActive()
+            decodeFitted(picture.bytes, maxEdgePx)
         }
 
     // 未解码的原始内嵌图片，三态语义与 Result 一一对应

@@ -1,8 +1,11 @@
 package com.yichao.evilgodxu.screens.home.component.player
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -28,35 +31,54 @@ import com.yichao.evilgodxu.ui.component.coverTopBottomFadeBrush
 import com.yichao.evilgodxu.ui.component.rememberLargeCover
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 首页大封面：竖屏沉浸封面与横屏融合封面铺满首屏，直接解码内嵌原图（长边至 LargeCoverStore.MAX_EDGE_PX），
-// 不走上限 512 的系统略缩图 —— 那个档位铺满首屏只能放大渲染而发虚。
+// 大封面换图（缩略图升清、切歌换封面）的淡入淡出时长
+private const val COVER_CROSSFADE_MS = 300
+
+// 首页大封面：竖屏沉浸封面与横屏融合封面铺满首屏，取图分三步 ——
+// 1. 先以系统最大档略缩图占位出图（列表点选任意曲目时内嵌原图的读取与解码可能要 1–3 秒，封面不能空等）；
+// 2. 异步解码内嵌原图（长边至 LargeCoverStore.MAX_EDGE_PX），相邻曲目另按 当前 → 下一 → 上一 预热；
+// 3. 高清就位后淡入替换占位图。
+// 第 3 步不能直接换画面：两级取图的清晰度差与新封面入场都经这一层过渡，直接替换会闪一下再跳一下。
 // 缩放由 ImageDecoder 按精确目标尺寸重采样完成（线性过滤 + 多级 mipmap），
-// 大比例缩小时边缘与细线不会出现毛刺与锯齿；结果以 WebP 落盘并驻留上一/当前/下一三张，
+// 大比例缩小时边缘与细线不会出现毛刺与锯齿；结果以 WebP 落盘并驻留当前/下一/上一三张，
 // 冷启动与往返切歌直接命中，取不到封面即显示占位符，不回退在线封面地址
 @Composable
 internal fun HomeAlbumArt(track: MusicTrack?, modifier: Modifier = Modifier) {
-    val thumbnail = rememberLargeCover(track)
-    if (thumbnail != null) {
-        Image(
-            bitmap = thumbnail,
-            contentDescription = track?.title,
-            contentScale = ContentScale.Crop,
-            // 高清渲染：mipmap 三线性过滤，缩放/旋转均无锯齿与模糊
-            filterQuality = FilterQuality.High,
-            modifier = modifier.background(Color.Black),
-        )
-    } else {
-        Box(
-            // 首页背景恒为深色，占位背景固定用深色主题背景色，避免浅色主题下首帧浅色闪烁
-            modifier = modifier.background(md_theme_dark_background),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = AppIcons.MusicNote,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp),
+    val cover = rememberLargeCover(track)
+    // 换图与缓动都交给 Crossfade：过渡期间两层同时驻留（位图都已在内存），不会露出背景
+    Crossfade(
+        targetState = cover,
+        animationSpec = tween(durationMillis = COVER_CROSSFADE_MS),
+        label = "homeCover",
+        // 渐隐羽化蒙层加在过渡层之外：四条边只对合成后的结果羽化一次，过渡期间边缘不会显形
+        modifier = modifier,
+    ) { bitmap ->
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = track?.title,
+                contentScale = ContentScale.Crop,
+                // 高清渲染：mipmap 三线性过滤，缩放/旋转均无锯齿与模糊
+                filterQuality = FilterQuality.High,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
             )
+        } else {
+            Box(
+                // 首页背景恒为深色，占位背景固定用深色主题背景色，避免浅色主题下首帧浅色闪烁
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(md_theme_dark_background),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = AppIcons.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
         }
     }
 }

@@ -21,6 +21,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import com.yichao.evilgodxu.data.music.blacklist.BlacklistStore
+import com.yichao.evilgodxu.data.music.metadata.CoverColorCache
 import com.yichao.evilgodxu.data.music.metadata.CoverSkipRegistry
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
 import com.yichao.evilgodxu.data.music.metadata.EmbeddedCoverCache
@@ -92,6 +93,10 @@ class MusicPlaybackState(
         private const val MONO_REBASELINE_JUMP_MS = 3000L
         // 跳过判定：已播放进度达到该百分比即视为正常欣赏，不计入逆向反馈
         private const val SKIP_POSITION_PERCENT = 50L
+        // 切歌预取内嵌封面前的稳定期：快速连点、在列表里来回挑歌时相邻两次切歌往往不足 2 秒，
+        // 预取刚起步就被下一次切歌作废，白烧一次内嵌图读取与高清解码；等曲目稳定下来再取，
+        // 快速切歌期间等于完全不预取。窗口取宽一些更稳健 —— 代价只是正常听歌时预热晚 2 秒开始
+        private const val COVER_PREFETCH_SETTLE_MS = 2_000L
     }
 
     // 上次持久化播放状态的时刻，用于播放期间节流写入
@@ -1166,8 +1171,9 @@ class MusicPlaybackState(
 
     // 切歌即落盘该曲目封面缩略图并持久化背景取色：冷启动首帧可直读落盘封面出图，
     // 不必再查系统略缩图或解码音频内嵌封面；后台切歌（首页未展示、无人取色）同样生效。
-    // 同时预取首页大图的高清档「上一曲、当前曲、下一曲」：首页大图铺满首屏，
-    // 现场解析内嵌原图期间只能先显示模糊的落盘缩略图，预取后往返切歌直接命中高清档
+    // 同时预取首页大图的高清档（当前曲 → 下一曲 → 上一曲）并顺带算出各自的背景取色
+    // （见 LargeCoverStore.prefetch）：首页大图铺满首屏、沉浸背景铺满整屏，
+    // 现场取图与取色期间只能先显示模糊缩略图与上一首色调，预取后往返切歌直接命中高清档与对应色调
     private fun cacheCurrentCoverAndColor(track: MusicTrack) {
         val context = appContext ?: return
         playbackScope.launch {
@@ -1176,23 +1182,45 @@ class MusicPlaybackState(
             } ?: return@launch
             // 异步取图期间可能已切走：非当前曲目的取色结果落盘会顶掉当前曲目的恢复色
             if (currentTrack?.audioUri != track.audioUri) return@launch
-            // 与显示端同一条封面边缘取色入口，落盘其代表色，冷启动首帧色与实时背景同源
-            val colors = extractCoverBackgroundColors(bitmap) ?: return@launch
+            // 取色优先用预取结果：它与首页大图同源，落盘的代表色因此与显示端实时背景完全一致；
+            // 预取未就绪（首曲、快速连切）时再由这张落盘缩略图现算，两条路径共用同一取色入口
+            val colors = CoverColorCache.get(track.audioUri)
+                ?: extractCoverBackgroundColors(bitmap)
+                ?: return@launch
             saveBackgroundColorFor(track.audioUri, colors.representative)
         }
-        playbackScope.launch {
+        // 预取高清封面：先取消上一轮，再等曲目稳定后开始。
+        // 取消的是等待中的那次解码（见 LargeCoverStore.get 的等待方语义），
+        // 因此快速切歌时既不会启动新预取，也不会把上一轮的相邻曲目继续解下去
+        coverPrefetchJob?.cancel()
+        coverPrefetchJob = playbackScope.launch {
+            delay(COVER_PREFETCH_SETTLE_MS)
             LargeCoverStore.prefetch(context, neighboringTracks(track))
         }
     }
 
-    // 队列中的当前曲、上一曲、下一曲：按播放队列顺序取相邻项，当前曲放在最前，
-    // 预取是串行的，首页大图要用的那张必须先解出来。
+    // 切歌预取的高清封面任务：每次切歌先取消上一轮，再等稳定期后开始。
+    //
+    // 由此得到的并发上界：
+    // - 快速切歌（间隔短于稳定期）时，上一轮被取消、下一轮还没启动 —— 等于完全不预取；
+    // - 其余任何时候都只有一个预取协程在跑，且它逐首串行解码，不会堆积；
+    // - 与显示端叠加也只有「当前曲的一张 + 预取的一张」：显示端按曲目去重拿解码，
+    //   不排在预取后面（见 LargeCoverStore.get）。
+    // 取消会中断到哪一步：已经开始的平台调用无法打断（MediaMetadataRetriever 与 ImageDecoder
+    // 都不接受取消信号），但重活被卡在可中断的接缝上 —— 读取期间被取消就跳过最重的缩放解码
+    // （见 EmbeddedCoverReader.readFitted），解码期间被取消就跳过落盘编码（见 LargeCoverStore.loadHighRes），
+    // 尚未开始的相邻曲目直接不再启动。数量有上界、不随切歌次数累积
+    private var coverPrefetchJob: Job? = null
+
+    // 队列中的当前曲、下一曲、上一曲：按播放队列顺序取相邻项。
+    // 预取是串行的（解码很重），顺序即优先级：当前曲先保证高清呈现，其次下一曲提前预热，
+    // 最后才是上一曲 —— 顺序播放的用户绝大多数时候只往一个方向走。
     // 不走 nextIndex/previousIndex —— 随机播放下它们是随机抽取，预取目标与真实下一首对不上
     private fun neighboringTracks(track: MusicTrack): List<MusicTrack> {
         val queue = playlist
         val index = queue.indexOfFirst { it.id == track.id }
         if (index < 0) return listOf(track)
-        return listOfNotNull(queue.getOrNull(index), queue.getOrNull(index - 1), queue.getOrNull(index + 1))
+        return listOfNotNull(queue.getOrNull(index), queue.getOrNull(index + 1), queue.getOrNull(index - 1))
     }
 
     // 续播锚点：playTrackAt 以保存位置起播时记录该目标，供异步派发的 onMediaItemTransition 保留已还原进度。
@@ -1525,13 +1553,14 @@ class MusicPlaybackState(
     }
 
     // 封面写入成功后自增，通知封面组件强制重载最新封面；
-    // 同时作废索引曲目的系统略缩图缓存、非索引曲目的内嵌封面缓存、首页大封面缓存与当前曲目的落盘封面，
-    // 并解除「无封面可取」的跳过标记：旧图与旧结论均已失效，下次取图重新走一遍完整流程
+    // 同时作废索引曲目的系统略缩图缓存、非索引曲目的内嵌封面缓存、首页大封面缓存、背景取色缓存
+    // 与当前曲目的落盘封面，并解除「无封面可取」的跳过标记：旧图、旧色调与旧结论均已失效
     fun bumpCoverRevision() {
         coverRevision++
         SystemThumbnailCache.clear()
         EmbeddedCoverCache.clear()
         CoverSkipRegistry.clear()
+        CoverColorCache.clear()
         // 落盘封面同样是旧图：一并作废，避免冷启动拿旧封面顶出（新封面由下次切歌重新落盘）
         appContext?.let { context ->
             playbackScope.launch {

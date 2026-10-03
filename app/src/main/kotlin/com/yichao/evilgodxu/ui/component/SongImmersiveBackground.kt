@@ -31,7 +31,9 @@ import androidx.compose.ui.unit.IntSize
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.withMatrix
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.metadata.CoverBackgroundColors
+import com.yichao.evilgodxu.data.music.metadata.CoverColorCache
 import com.yichao.evilgodxu.data.music.metadata.extractCoverBackgroundColors
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.settings.backgroundFlowEnabledFlow
@@ -92,11 +94,17 @@ internal fun SongImmersiveBackground(
     onExtractedColor: ((Color) -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val audioUri = track?.audioUri
+    val coverRevision = LocalMusicPanelStateHolder.current.state.coverRevision
+    // 预取已算好的取色：切歌首帧就能取到新曲目的色调，不必等下面那张 64px 略缩图解码
+    val cachedColors = remember(audioUri, coverRevision) { audioUri?.let { CoverColorCache.get(it) } }
     // 与封面显示同一份系统略缩图：封面重写后系统图随媒体扫描重建，版本号变化即重新取色
     val thumbnail = rememberSystemThumbnail(track, COVER_BACKGROUND_SAMPLE_SIZE)
-    var extracted by remember { mutableStateOf<CoverBackgroundColors?>(null) }
-    LaunchedEffect(thumbnail) {
-        val colors = thumbnail?.asAndroidBitmap()?.let { extractCoverBackgroundColors(it) }
+    var extracted by remember(audioUri, coverRevision) { mutableStateOf(cachedColors) }
+    LaunchedEffect(audioUri, coverRevision, thumbnail) {
+        // 取色优先用预取结果：它与高清封面同源，且不依赖略缩图是否已解码
+        val colors = CoverColorCache.get(audioUri.orEmpty())
+            ?: thumbnail?.asAndroidBitmap()?.let { extractCoverBackgroundColors(it) }
         extracted = colors
         if (colors != null) onExtractedColor?.invoke(colors.representative)
     }

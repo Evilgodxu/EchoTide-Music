@@ -17,7 +17,7 @@ import kotlin.math.ceil
 // - 列表行：按行内实际显示尺寸换算（[listCoverThumbnailSize]）
 // - 迷你播放器、音乐面板光碟、刷新预览：按控件实际渲染尺寸换算（[coverThumbnailSize]）
 // - 3D 轮播：统一取 [CAROUSEL_COVER_THUMBNAIL_SIZE]，不随密度换算
-// - 首页大封面：不走系统略缩图，直接解码音频内嵌原图并按长边收口（见 LargeCoverStore.MAX_EDGE_PX）
+// - 首页大封面：分两级 —— 先系统最大档略缩图出图，再解码内嵌原图高清档替换（见 LargeCoverStore）
 
 // 列表行封面的显示边长上限（各行按 22–28dp 呈现）。所有列表行共用这一个上限而非各自的行内尺寸：
 // 同一首歌不会因所在行的封面差几个像素被重复解码、重复驻留

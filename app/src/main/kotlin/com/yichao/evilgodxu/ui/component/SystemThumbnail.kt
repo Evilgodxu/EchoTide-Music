@@ -24,7 +24,7 @@ import kotlinx.coroutines.withContext
  *
  * 请求尺寸按展示场景分级（见 ui/component 的封面请求尺寸策略）：
  * 列表行、光碟、刷新预览按控件实际渲染尺寸换算；3D 轮播固定 [CAROUSEL_COVER_THUMBNAIL_SIZE]；
- * 首页大封面另走 [rememberLargeCover]（内嵌原图，长边至 [LargeCoverStore.MAX_EDGE_PX]）；
+ * 首页大封面另走 [rememberLargeCover]（系统略缩图先出图，内嵌原图长边至 [LargeCoverStore.MAX_EDGE_PX] 后替换）；
  * 沉浸背景取色只要 64px 一档。
  *
  * 取图顺序：内存缓存 → 当前曲目的落盘封面（[CurrentCoverCache]，冷启动时跳过系统略缩图查询与内嵌封面解码）
@@ -71,13 +71,17 @@ internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitm
 }
 
 /**
- * 首页大封面（竖屏沉浸封面、横屏融合封面）专用取图：直接解码音频内嵌原图并按长边收口。
+ * 首页大封面（竖屏沉浸封面、横屏融合封面）专用取图，分三步：
  *
- * 不复用 [rememberSystemThumbnail]：系统略缩图上限 512，铺满首屏只能放大渲染而发虚。
- * 无内嵌封面或解码失败时由 [MusicCoverLoader.loadLarge] 回退系统略缩图，与其余封面口径一致。
+ * 1. **快速占位**：先取随时能拿到的档位（内存驻留 → 落盘高清档 → 系统最大档略缩图，见 [LargeCoverStore.quick]）；
+ * 2. **异步解码高清原图**：内嵌原图长边至 [LargeCoverStore.MAX_EDGE_PX]（见 [LargeCoverStore.get]），
+ *    从列表直接点选任意曲目时这一步要读一次内嵌图并解码，可能要 1–3 秒，故不能让它挡住首帧；
+ *    相邻曲目的预热顺序是 当前曲 → 下一曲 → 上一曲，见播放状态的邻近曲目预取；
+ * 3. **平滑过渡**：两步之间的换图由调用方（HomeAlbumArt）做淡入淡出，不在这里直接替换画面。
  *
- * 初始值依次取：大封面内存驻留档 → 落盘缩略图，使冷启动首帧就有图，
- * 大封面异步就位后无缝替换，期间不出现占位符。
+ * 预取已备好的相邻曲目在第 1 步就直接命中高清档，不会出现先降后升。
+ * 不复用 [rememberSystemThumbnail]：它的系统略缩图上限 512，铺满首屏只能放大渲染而发虚。
+ * 初始值取内存驻留档或落盘缩略图，使冷启动首帧就有图。
  */
 @Composable
 internal fun rememberLargeCover(track: MusicTrack?): ImageBitmap? {
@@ -96,15 +100,21 @@ internal fun rememberLargeCover(track: MusicTrack?): ImageBitmap? {
         coverRevision,
     ) {
         val target = track
-        value = if (target == null) {
-            null
-        } else {
-            withContext(Dispatchers.IO) {
-                runCatching {
-                    LargeCoverStore.get(context, target)
-                }.getOrNull()?.asImageBitmap()
-            }
+        if (target == null) {
+            value = null
+            return@produceState
         }
+        // 一级：先出图。已有初始值（内存高清档或落盘缩略图）时跳过，
+        // 否则会把已经就位的高清档降级成略缩图再升回去
+        if (value == null) {
+            withContext(Dispatchers.IO) {
+                runCatching { LargeCoverStore.quick(context, target) }.getOrNull()
+            }?.let { value = it.asImageBitmap() }
+        }
+        // 二级：解码高清原图后无缝替换。无可用封面时保持一级结果或占位图，不把已出的图撤下
+        withContext(Dispatchers.IO) {
+            runCatching { LargeCoverStore.get(context, target) }.getOrNull()
+        }?.let { value = it.asImageBitmap() }
     }
     return cover
 }

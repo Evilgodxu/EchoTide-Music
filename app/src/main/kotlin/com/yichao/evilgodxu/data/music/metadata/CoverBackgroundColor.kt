@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.graphics.ColorUtils
+import androidx.core.graphics.scale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -27,6 +28,9 @@ private const val LIGHTNESS_MIN_SPREAD = 0.06f
 
 // 参与取色的最低不透明度：透明区域（抠图留白、圆形封面外）不代表封面边缘色调
 private const val OPAQUE_ALPHA_MIN = 128
+
+// 取色前的降采样边长：边缘平均色在这一档上已稳定，与显示端取色所用的略缩图同档
+private const val COLOR_SAMPLE_EDGE_PX = 64
 
 /**
  * 封面边缘取色结果：封面四周边缘环自上而下的三段色，三段已收敛为相近色。
@@ -54,7 +58,9 @@ internal data class CoverBackgroundColors(
  * 三段色再向整环平均色收敛色相与明度（见 harmonizeEdgeColors），
  * 背景流动的三个色块因此是相近色，叠画后过渡自然。
  *
- * 显示端（SongImmersiveBackground）与切歌时的后台持久化共用本入口，使冷启动恢复色与实时取色同源。
+ * 入参可以是任意尺寸的封面：内部先降到取样档再采边缘环，
+ * 全尺寸封面（首页大图档长边 2048）因此不会按像素数分配出十几 MB 的数组。
+ * 显示端（SongImmersiveBackground）与切歌预取共用本入口，使实时取色与预存取色同源。
  */
 internal suspend fun extractCoverBackgroundColors(source: Bitmap): CoverBackgroundColors? =
     withContext(Dispatchers.IO) {
@@ -62,8 +68,29 @@ internal suspend fun extractCoverBackgroundColors(source: Bitmap): CoverBackgrou
         val bitmap = if (source.config == Bitmap.Config.HARDWARE) {
             source.copy(Bitmap.Config.ARGB_8888, false) ?: return@withContext null
         } else source
-        bitmap.edgeColors()
+        bitmap.scaledToSample().edgeColors()
     }
+
+// 降到取样档：逐级折半再落到目标边长。
+// 单次大比例缩放会漏掉大量参与平均的像素，分级折半才让边缘环的平均色稳定
+private fun Bitmap.scaledToSample(): Bitmap {
+    var current = this
+    while (maxOf(current.width, current.height) > COLOR_SAMPLE_EDGE_PX * 2) {
+        current = current.scale(
+            (current.width / 2).coerceAtLeast(1),
+            (current.height / 2).coerceAtLeast(1),
+            filter = true,
+        )
+    }
+    val longest = maxOf(current.width, current.height)
+    if (longest <= COLOR_SAMPLE_EDGE_PX) return current
+    val ratio = COLOR_SAMPLE_EDGE_PX.toFloat() / longest
+    return current.scale(
+        (current.width * ratio).toInt().coerceAtLeast(1),
+        (current.height * ratio).toInt().coerceAtLeast(1),
+        filter = true,
+    )
+}
 
 // 边缘环三段平均色：逐像素只累计四周一圈，按纵向等分归段；整环平均色作三段的收敛基准
 private fun Bitmap.edgeColors(): CoverBackgroundColors? {
