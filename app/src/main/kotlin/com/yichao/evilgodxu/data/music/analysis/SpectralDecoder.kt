@@ -17,6 +17,7 @@ import kotlinx.coroutines.ensureActive
 // 上产出，两条路径的判据输入口径唯一，解码循环也各只有一处。
 // 并发由调用方决定：批量分析在限并发调度器上推进（并发上限见 LibraryAnalysisRunner），
 // 单曲入口仍逐曲执行；协程取消即时释放解码器。
+// 解码器归平台所有、可能被回收，解码入口据此自带一次重试，并把「中途失败」与「解出但无有效块」分开回报。
 internal object SpectralDecoder {
 
     // 判定网格：4096 点 FFT（44.1k 下约 10.8Hz/桶）。
@@ -28,6 +29,9 @@ internal object SpectralDecoder {
     private const val PROBE_DURATION_US = 4_000_000L
     private val PROBE_POSITIONS = floatArrayOf(0.15f, 0.45f, 0.75f)
     private const val CODEC_TIMEOUT_US = 10_000L
+
+    // 单次解码的尝试次数：首次失败仅当失败原因是解码器状态异常（被平台回收）时才重试
+    private const val MAX_DECODE_ATTEMPTS = 2
 
     // 升频死区探带：44.1k 源奈奎斯特（22050Hz）上方的窄带区间，逐 FFT 块记录带内总功率，
     // 供音质异常判定死区动态——真实母带内容随乐句起伏，重采样死区为常量；
@@ -48,14 +52,42 @@ internal object SpectralDecoder {
         val probe22050: FloatArray = FloatArray(0),
     )
 
-    // 解码候选音频轨并累计平均功率谱与立体声相关性。
+    // 解码候选音频轨并累计平均功率谱与立体声相关性；解码器中途被平台回收则换一个重试一次。
     // expectedMime 非空时仅解码该 mime（音质异常限定 FLAC）；为空时取首个可解码音频轨（AI 识别全格式）。
-    // fallbackSampleRate/FallbackChannels 供提取器未给全参数时回退容器头解析值
+    // fallbackSampleRate/FallbackChannels 供提取器未给全参数时回退容器头解析值。
+    //
+    // [onInterrupted] 在「解码中途失败」时回调一次，与「解出但没有有效块」（返回 null 即定论为不可判定）
+    // 区分开：前者是平台的一次性故障，调用方不得据此写入判定缓存，否则临时故障会变成永久结论
     suspend fun decodeTrack(
         track: MusicTrack,
         expectedMime: String?,
         fallbackSampleRate: Int = 0,
         fallbackChannels: Int = 0,
+        onInterrupted: (Throwable) -> Unit = {},
+    ): DecodeSummary? {
+        // 解码器归平台所有：资源紧张、应用退到后台、或同进程同时持有的解码器过多时都可能被回收，
+        // 此后任何一次调用都抛 IllegalStateException。这是可重试的一次性故障，故换新解码器重来一次
+        repeat(MAX_DECODE_ATTEMPTS) { attempt ->
+            try {
+                return decodeOnce(track, expectedMime, fallbackSampleRate, fallbackChannels)
+            } catch (e: CancellationException) {
+                // 协程取消（如关闭对话框）属正常流程：不记日志，重新抛出
+                throw e
+            } catch (e: IllegalStateException) {
+                if (attempt == MAX_DECODE_ATTEMPTS - 1) return failDecode(e, onInterrupted)
+            } catch (e: Exception) {
+                return failDecode(e, onInterrupted)
+            }
+        }
+        return null
+    }
+
+    // 单次解码：解码器与提取器都在本函数内创建、释放，解码出的 PCM 交给累加器
+    private suspend fun decodeOnce(
+        track: MusicTrack,
+        expectedMime: String?,
+        fallbackSampleRate: Int,
+        fallbackChannels: Int,
     ): DecodeSummary? {
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
@@ -94,17 +126,19 @@ internal object SpectralDecoder {
             }
             // 三窗均未解出有效块时返回 null，由调用方按无法判定处理
             accumulator.summary()
-        } catch (e: CancellationException) {
-            // 协程取消（如关闭对话框）属正常流程：不记日志，重新抛出
-            throw e
-        } catch (e: Exception) {
-            CrashLogManager.logException("SpectralDecoder", "频谱解码失败", e)
-            null
         } finally {
+            // 失败与取消的传播交给调用方：无论走哪条路，本函数创建的解码器与提取器都在这里释放
             runCatching { decoder?.stop() }
             runCatching { decoder?.release() }
             runCatching { extractor.release() }
         }
+    }
+
+    // 解码失败的统一收尾：记日志、回报「不定论」，并给出可返回给调用方的空结果
+    private fun failDecode(error: Throwable, onInterrupted: (Throwable) -> Unit): DecodeSummary? {
+        CrashLogManager.logException("SpectralDecoder", "频谱解码失败", error)
+        onInterrupted(error)
+        return null
     }
 
     // 泵送一个探测窗的解码至本窗目标时长，PCM 全部交给累加器

@@ -23,9 +23,12 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.drawToBitmap
+import com.yichao.evilgodxu.log.CrashLogManager
 
 // 揭示时长：圆从圆心铺满整幅画布的用时，短于此则推进过快、读不出「从某点展开」的先后
 private const val SCREEN_REVEAL_MS = 800
+
+private const val TAG = "ScreenReveal"
 
 /**
  * 整屏揭示：以某一圆心展开新画面，圆外仍留旧画面，换画面因此有可辨的先后次序。
@@ -59,10 +62,17 @@ fun ScreenRevealHost(
     val view = LocalView.current
 
     controller.request = { requested ->
-        // 视图尚未完成首次布局时无从取图，跳过本次：揭示是锦上添花，不因此中断内容变更
+        // 视图尚未完成首次布局时无从取图，跳过本次：揭示是锦上添花，不因此中断内容变更。
+        // 快照以软件画布重绘整棵视图，层级里一旦混入硬件位图就会抛异常（显示端已收口为软件位图，
+        // 见 MusicCoverLoader.toSoftware），此处仍兜住：快照失败只是没有揭示，绝不能连累内容变更
         if (view.width > 0 && view.height > 0) {
-            snapshot = view.drawToBitmap()
-            origin = requested
+            val drawn = runCatching { view.drawToBitmap() }
+                .onFailure { CrashLogManager.logException(TAG, "整屏揭示取快照失败", it) }
+                .getOrNull()
+            if (drawn != null) {
+                snapshot = drawn
+                origin = requested
+            }
         }
     }
     LaunchedEffect(snapshot) {

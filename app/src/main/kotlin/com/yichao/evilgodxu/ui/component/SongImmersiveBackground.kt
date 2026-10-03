@@ -95,7 +95,8 @@ private enum class BackgroundSwitch {
     Fade,
 
     // 切歌横移：上一份底色与当前底色各持一份整幅色面，同幅同速平移，全程拼满整屏。
-    // 底色是竖向渐变，自身横移看不出变化，横移的是整层色面，读起来就是新色从一侧漫过来
+    // 底色是竖向渐变，自身横移看不出变化，横移的是整层色面，读起来就是新色自一侧漫过来。
+    // 名称即新色移入的一侧，与封面、歌曲信息的横移取同一侧
     SlideFromLeft,
     SlideFromRight,
 }
@@ -250,9 +251,11 @@ internal fun SongImmersiveBackground(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
+                    // 过渡进度 1 为起点，偏移按进度本身取：进度越大离落位越远，
+                    // 入场侧即这里的符号方向，须与封面、歌曲信息的横移方向一致
                     translationX = when (transition?.switch) {
-                        BackgroundSwitch.SlideFromLeft -> -size.width * (1f - switchProgress.value)
-                        BackgroundSwitch.SlideFromRight -> size.width * (1f - switchProgress.value)
+                        BackgroundSwitch.SlideFromLeft -> -size.width * switchProgress.value
+                        BackgroundSwitch.SlideFromRight -> size.width * switchProgress.value
                         else -> 0f
                     }
                 },
@@ -277,7 +280,8 @@ internal fun SongImmersiveBackground(
         }
         // 上一份底色层：置于最上层，流动帧不透明时同样可见；压暗层在层内一并复刻，
         // 交叠过程中旧底色的亮度与静止画面一致，不会亮一下再暗回去。
-        // 横移时向离开侧等速移出，与当前底色层同速，两层全程拼满整屏
+        // 横移时向离开侧等速移出，与当前底色层同速：两层的偏移量之和恒为一屏宽，
+        // 全程首尾相接拼满整屏，谁也不会先离开而露出空档
         transition?.let { previous ->
             Box(
                 modifier = Modifier
@@ -285,8 +289,8 @@ internal fun SongImmersiveBackground(
                     .graphicsLayer {
                         alpha = if (previous.switch == BackgroundSwitch.Fade) switchProgress.value else 1f
                         translationX = when (previous.switch) {
-                            BackgroundSwitch.SlideFromLeft -> size.width * switchProgress.value
-                            BackgroundSwitch.SlideFromRight -> -size.width * switchProgress.value
+                            BackgroundSwitch.SlideFromLeft -> size.width * (1f - switchProgress.value)
+                            BackgroundSwitch.SlideFromRight -> -size.width * (1f - switchProgress.value)
                             BackgroundSwitch.Fade -> 0f
                         }
                     },

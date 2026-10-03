@@ -129,27 +129,33 @@ internal object MusicCoverLoader {
     // 提供方会直接把自身缓存的原图交回（最大 512×512）。此处统一收口到请求尺寸——
     // 否则一次 28dp 列表行取图就会驻留近 1MB 的位图，且缓存键声称的尺寸与实际内容不符。
     // 缩放失败（如内存不足）时退回原图，与未收口前的表现一致，不因此丢掉整张封面
-    private fun fitToSize(bitmap: Bitmap, sizePx: Int): Bitmap =
-        if (max(bitmap.width, bitmap.height) <= sizePx) bitmap
-        else runCatching { scaleDown(bitmap, sizePx) }.getOrDefault(bitmap)
+    private fun fitToSize(bitmap: Bitmap, sizePx: Int): Bitmap {
+        val software = toSoftware(bitmap)
+        // 发生了转换说明原位图是硬件位图：本入口是它唯一的持有者，转换出的副本已接替它，
+        // 立即释放以免其显存滞留到 GC（复制失败时软件副本就是它自己，不能释放）
+        if (software !== bitmap) bitmap.recycle()
+        return if (max(software.width, software.height) <= sizePx) software
+        else runCatching { scaleDown(software, sizePx) }.getOrDefault(software)
+    }
+
+    // 硬件位图不能参与软件绘制：界面侧会为整屏快照（主题切换、选曲播放的揭示）以软件画布重绘一次，
+    // 层级里混入硬件位图会直接抛 IllegalArgumentException 打断快照。
+    // 系统略缩图在 API 29+ 上返回的正是硬件位图，故取图的唯一出口处收口为软件位图；
+    // 复制失败（内存不足）时退回原位图，宁可让快照降级也不要丢掉整张封面
+    private fun toSoftware(bitmap: Bitmap): Bitmap =
+        if (bitmap.config != Bitmap.Config.HARDWARE) bitmap
+        else bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: bitmap
 
     private fun scaleDown(bitmap: Bitmap, sizePx: Int): Bitmap {
         val longest = max(bitmap.width, bitmap.height)
-        // 硬件位图不能参与缩放，先取一份软件副本
-        val source = if (bitmap.config == Bitmap.Config.HARDWARE) {
-            bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: return bitmap
-        } else {
-            bitmap
-        }
         val scale = sizePx.toFloat() / longest
-        val scaled = source.scale(
-            (source.width * scale).roundToInt().coerceAtLeast(1),
-            (source.height * scale).roundToInt().coerceAtLeast(1),
+        val scaled = bitmap.scale(
+            (bitmap.width * scale).roundToInt().coerceAtLeast(1),
+            (bitmap.height * scale).roundToInt().coerceAtLeast(1),
             filter = true,
         )
-        // 缩放产生的是新位图，中间位图在本处不再被引用，立即释放以免大图滞留到 GC
-        if (scaled !== source) source.recycle()
-        if (source !== bitmap) bitmap.recycle()
+        // 缩放产生的是新位图，原位图在本入口内不再被引用，立即释放以免大图滞留到 GC
+        if (scaled !== bitmap) bitmap.recycle()
         return scaled
     }
 }

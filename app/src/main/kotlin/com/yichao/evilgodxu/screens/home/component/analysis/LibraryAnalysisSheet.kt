@@ -603,7 +603,8 @@ internal class LibraryAnalysisController(
     }
 
     private fun startAnalysis(tracks: List<MusicTrack>, forceRecompute: Boolean) {
-        analysisJob?.cancel()
+        val previous = analysisJob
+        previous?.cancel()
         analyzedTracks = tracks
         analysisJob = scope.launch {
             val job = coroutineContext[Job]
@@ -611,6 +612,10 @@ internal class LibraryAnalysisController(
             checkingProgress = null
             fakeLosslessCount = null
             aiMusicCount = null
+            // 等上一轮彻底收尾再开解码：取消只发出信号，上一轮的解码器各自到取消点才释放，
+            // 缓存收尾（NonCancellable）也还在跑。不等就会有两代解码器同时持有，
+            // 且上一轮的缓存剪枝会与新轮的写入交叠
+            previous?.join()
             try {
                 // 合并单次遍历：每文件只解码一次，同时产出音质异常与 AI 判定；
                 // 进度以本批需解码文件数为基数连续递增

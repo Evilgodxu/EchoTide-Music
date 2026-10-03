@@ -157,22 +157,32 @@ internal suspend fun analyzeLibraryCombined(
             coroutineScope {
                 pending.map { p ->
                     async(dispatcher) {
+                        // 解码中途失败（平台回收解码器等一次性故障）与「解出但无有效块」须分开：
+                        // 前者是暂时没结论，写进缓存就会把一次故障变成这首曲目的永久判定
+                        var interrupted = false
                         // 单次解码：一律取首个音频轨（FLAC 文件的唯一音频流即 FLAC 轨，等效于
                         // 单曲入口的指定 mime 解码；采样率/声道由提取器提供，无需容器头兜底）
-                        val summary = SpectralDecoder.decodeTrack(p.track, expectedMime = null)
-                        if (p.fakeWanted) {
-                            val key = FakeLosslessAnalyzer.cacheKey(p.track, p.sizeBytes)
-                            // 无法判定的结果也缓存为 false：避免同批文件每次重开对话框都重新分析；
-                            // 识别策略升级后由「刷新」清空缓存强制全量重新校验
-                            val verdict = summary?.let { FakeLosslessAnalyzer.verdictFromSummary(it) } ?: false
-                            fakeCache.map[key] = verdict
-                            if (verdict) freshFakeCount.incrementAndGet()
-                        }
-                        if (p.aiWanted) {
-                            val key = AiMusicAnalyzer.cacheKey(p.track, p.sizeBytes)
-                            val verdict = summary?.let { AiMusicAnalyzer.verdictFromSummary(p.track, it) } ?: false
-                            aiCache.map[key] = verdict
-                            if (verdict) freshAiCount.incrementAndGet()
+                        val summary = SpectralDecoder.decodeTrack(
+                            track = p.track,
+                            expectedMime = null,
+                            onInterrupted = { interrupted = true },
+                        )
+                        // 不定论的结果不落缓存：下次分析会重新尝试这首
+                        if (!interrupted) {
+                            if (p.fakeWanted) {
+                                val key = FakeLosslessAnalyzer.cacheKey(p.track, p.sizeBytes)
+                                // 无法判定的结果也缓存为 false：避免同批文件每次重开对话框都重新分析；
+                                // 识别策略升级后由「刷新」清空缓存强制全量重新校验
+                                val verdict = summary?.let { FakeLosslessAnalyzer.verdictFromSummary(it) } ?: false
+                                fakeCache.map[key] = verdict
+                                if (verdict) freshFakeCount.incrementAndGet()
+                            }
+                            if (p.aiWanted) {
+                                val key = AiMusicAnalyzer.cacheKey(p.track, p.sizeBytes)
+                                val verdict = summary?.let { AiMusicAnalyzer.verdictFromSummary(p.track, it) } ?: false
+                                aiCache.map[key] = verdict
+                                if (verdict) freshAiCount.incrementAndGet()
+                            }
                         }
                         val done = checked.incrementAndGet()
                         onProgress(done, pending.size)

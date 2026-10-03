@@ -10,6 +10,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import coil3.disk.DiskCache
 import coil3.ImageLoader
 import coil3.memory.MemoryCache
+import coil3.request.allowHardware
 import coil3.SingletonImageLoader
 import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
@@ -84,6 +85,10 @@ class App : Application() {
         // 磁盘缓存显式限定上限：默认值按可用空间推算，会让封面占用随设备剩余空间无界增长
         SingletonImageLoader.setSafe { context ->
             ImageLoader.Builder(context)
+                // 关掉硬件位图：界面里的位图会被整屏快照（主题切换、选曲播放的揭示）以软件画布重绘一次，
+                // 硬件位图进不了软件画布，会直接把快照打断。封面同步从系统略缩图侧收口到软件位图
+                // （见 MusicCoverLoader），两处合起来保证显示端不出现硬件位图
+                .allowHardware(false)
                 .memoryCache {
                     MemoryCache.Builder()
                         .maxSizePercent(context, 0.10)
