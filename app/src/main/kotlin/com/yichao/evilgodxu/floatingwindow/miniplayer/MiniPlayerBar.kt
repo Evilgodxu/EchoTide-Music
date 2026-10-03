@@ -202,7 +202,8 @@ internal fun MiniPlayerBar(
                                 } else {
                                     playbackState.nextIndex()
                                 }
-                                if (index >= 0) scope.launch { playTrackAt(context, playbackState, index) }
+                                // 悬浮窗无整屏揭示：揭示画的是主界面窗口，与本窗无关
+                                if (index >= 0) scope.launch { playTrackAt(context, playbackState, index, reveal = false) }
                             }
                             // 垂直：下滑隐藏播放器
                             2 -> if (totalDy > verticalSwipeThresholdPx) onSwipeDown()

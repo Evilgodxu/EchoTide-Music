@@ -468,6 +468,8 @@ internal suspend fun downloadAndPlay(
     url: String,
     metadataEnricher: MetadataEnricher,
     playlistRefresher: PlaylistRefresher,
+    // 是否请求整屏揭示：由发起选曲的窗口决定（悬浮窗的画面不在揭示宿主的窗口内）
+    reveal: Boolean,
 ) {
     val trackId = result.playlistTrackId
     val track = MusicTrack(
@@ -495,7 +497,7 @@ internal suspend fun downloadAndPlay(
         // 曲目由本处先行写入，类型必须与它同帧记下：随后的 playTrackAt 因目标已是当前曲目
         // 而不再补记，本处漏记就会沿用上一次的类型，方向随之失真、揭示也不会触发。
         // 搜索结果起播没有前后关系可读，类型为无方向的选曲播放
-        playbackState.beginTrackSwitch(TrackSwitchKind.Select, reveal = true)
+        playbackState.beginTrackSwitch(TrackSwitchKind.Select, reveal = reveal)
         playbackState.currentIndex = targetIndex
         playbackState.currentTrack = playbackState.playlist[targetIndex]
         playbackState.persistPlaylist()
@@ -597,6 +599,8 @@ internal suspend fun tryPlayLocalMatch(
     playbackState: MusicPlaybackState,
     context: Context,
     scope: kotlinx.coroutines.CoroutineScope,
+    // 是否请求整屏揭示：由发起选曲的窗口决定（悬浮窗的画面不在揭示宿主的窗口内）
+    reveal: Boolean,
 ): Boolean {
     val normalizedTitle = normalizeTitle(target.title)
     val normalizedArtist = normalizeTitle(target.artist)
@@ -613,8 +617,8 @@ internal suspend fun tryPlayLocalMatch(
         }
     }
     playbackState.errorMsg = null
-    // 类型须先于曲目状态记下，且与搜索结果起播同属无方向的选曲播放（见 playOnlineResult）
-    playbackState.beginTrackSwitch(TrackSwitchKind.Select, reveal = true)
+    // 类型须先于曲目状态记下，且与搜索结果起播同属无方向的选曲播放（见 downloadAndPlay）
+    playbackState.beginTrackSwitch(TrackSwitchKind.Select, reveal = reveal)
     playbackState.currentIndex = idx
     playbackState.currentTrack = playbackState.playlist[idx]
     playbackState.isSearchMode = false
@@ -639,6 +643,7 @@ private suspend fun builtInPlayUrl(target: NeteaseSongSearchResult): String? =
         }
     }
 
+// 播放在线搜索结果：悬浮窗音乐面板的入口，画面不在揭示宿主的窗口内，故不请求揭示
 internal suspend fun playSearchResult(
     target: NeteaseSongSearchResult,
     playbackState: MusicPlaybackState,
@@ -647,7 +652,7 @@ internal suspend fun playSearchResult(
     metadataEnricher: MetadataEnricher,
     playlistRefresher: PlaylistRefresher,
 ) {
-    if (tryPlayLocalMatch(target, playbackState, context, scope)) return
+    if (tryPlayLocalMatch(target, playbackState, context, scope, reveal = false)) return
 
     playbackState.pendingSearchResults = emptyList()
 
@@ -673,7 +678,7 @@ internal suspend fun playSearchResult(
     if (url != null) {
         playbackState.errorMsg = null
         playbackState.closeSearchResultsOnReady = true
-        downloadAndPlay(context, playbackState, playTarget, url, metadataEnricher, playlistRefresher)
+        downloadAndPlay(context, playbackState, playTarget, url, metadataEnricher, playlistRefresher, reveal = false)
     } else {
         playbackState.errorMsg = context.getString(R.string.music_panel_play_error)
         playbackState.pendingSearchResults = emptyList()
@@ -709,7 +714,8 @@ private suspend fun resolveAdaptivePlayUrl(
 }
 
 // 按用户选定音质播放在线搜索结果；URL 解析成功即加入播放列表开始播放，
-// 并标记待确认曲目交由播放器回调判定成败（失败时移除曲目、保留音质对话框）
+// 并标记待确认曲目交由播放器回调判定成败（失败时移除曲目、保留音质对话框）。
+// 首页搜索页的入口，画面就在揭示宿主的窗口内，故请求揭示
 internal suspend fun playSearchResultWithQuality(
     target: NeteaseSongSearchResult,
     quality: MusicQuality,
@@ -721,6 +727,6 @@ internal suspend fun playSearchResultWithQuality(
     val url = resolveAdaptivePlayUrl(context, target, quality) ?: return false
     playbackState.pendingQualityPlayTrackId = target.playlistTrackId
     playbackState.closeSearchResultsOnReady = true
-    downloadAndPlay(context, playbackState, target, url, metadataEnricher, playlistRefresher)
+    downloadAndPlay(context, playbackState, target, url, metadataEnricher, playlistRefresher, reveal = true)
     return true
 }

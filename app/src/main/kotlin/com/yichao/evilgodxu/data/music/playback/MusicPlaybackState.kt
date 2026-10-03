@@ -822,6 +822,9 @@ class MusicPlaybackState(
      * 必须在曲目状态变更前调用：揭示的快照要落在仍是旧画面的那一刻，变更后取到的已是新画面。
      * 所有会让当前曲目换人的路径都要经过这里——漏掉一处，该次变更就会沿用上一次的类型，
      * 横移方向随之失真。
+     *
+     * [reveal] 只对承载界面的窗口有意义：揭示画的就是那一窗口的画面，悬浮窗（迷你播放器、
+     * 音乐面板）的选曲与后台上起播的路径一律传 false。
      */
     internal fun beginTrackSwitch(kind: TrackSwitchKind, reveal: Boolean = false) {
         lastSwitchKind = kind

@@ -10,7 +10,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -138,12 +137,13 @@ fun HomeScreen(
         }
     }
 
-    // 选曲播放的整屏揭示：与切换主题模式同一套动效，圆心固定在左上角（封面与标题栏都在这一角）。
+    // 选曲播放的整屏揭示：与切换主题模式同一套动效，圆心取按下列表行的位置；
+    // 触发路径没有按下位置时（如外部起播）回退左上角，由揭示宿主裁决。
     // 揭示请求只在界面可见时注册：快照取的正是此刻可见的画面，界面不可见时取到的没有展示价值，
     // 揭示动画也会因帧时钟停下而滞留在半途、等回到前台才继续
     val revealController = remember { ScreenRevealController() }
     LifecycleResumeEffect(playbackState) {
-        playbackState.onSelectReveal = { revealController.revealAt(Offset.Zero) }
+        playbackState.onSelectReveal = { revealController.revealFromPress() }
         onPauseOrDispose { playbackState.onSelectReveal = null }
     }
 
