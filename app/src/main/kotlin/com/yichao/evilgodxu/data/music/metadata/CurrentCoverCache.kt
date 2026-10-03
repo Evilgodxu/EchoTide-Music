@@ -17,8 +17,13 @@ import kotlinx.coroutines.withContext
  */
 internal object CurrentCoverCache {
 
-    /** 落盘尺寸：与音乐面板、首页大封面请求的档位一致，冷启动可直接命中该尺寸 */
-    const val THUMBNAIL_SIZE = 512
+    /**
+     * 落盘尺寸：取系统略缩图的上限档。
+     *
+     * 该产出只在冷启动首帧兜底：首页大封面随后会被内嵌原图（见 [MusicCoverLoader.loadLarge]）替换，
+     * 其余封面显示处的请求档位都更小，可从同一张落盘封面直接命中
+     */
+    const val THUMBNAIL_SIZE = MusicCoverLoader.SYSTEM_THUMBNAIL_MAX_SIZE_PX
 
     private const val DIR_NAME = "current_cover"
     private const val TEMP_SUFFIX = ".tmp"

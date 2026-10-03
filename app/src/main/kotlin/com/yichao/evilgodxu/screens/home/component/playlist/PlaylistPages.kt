@@ -64,6 +64,7 @@ import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
+import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.DialogCard
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.PlaylistArt
@@ -111,6 +112,10 @@ internal fun PlaylistGroupsPage(
     } else {
         val keyboardController = LocalSoftwareKeyboardController.current
         val listState = rememberLazyListState()
+        // 分组封面取该组首曲：可视区邻域提前取图，滚动进入视口时不再先闪占位符
+        CoverPrefetch(listState) { index ->
+            visibleGroups.getOrNull(index)?.trackIds?.firstOrNull()?.let { libraryById[it] }
+        }
         // 列表滚动中隐藏搜索框，滚动停止自动恢复
         val isScrolling by remember { derivedStateOf { listState.isScrollInProgress } }
         val density = LocalDensity.current
@@ -386,6 +391,8 @@ private fun TracksContent(
     val listState = rememberLazyListState()
     // 可排序的本地列表：拖拽实时重排，随数据源变化重置
     var orderedTracks by remember(tracks) { mutableStateOf(tracks) }
+    // 曲目行封面：可视区邻域提前取图，滚动进入视口时不再先闪占位符
+    CoverPrefetch(listState) { index -> orderedTracks.getOrNull(index) }
     // 自实现 reorderable 状态：拖拽项跟随手指，其余项使用 animateItem 平滑让位
     val reorderableState = rememberReorderableLazyListState(listState) { from, to ->
         val list = orderedTracks.toMutableList()

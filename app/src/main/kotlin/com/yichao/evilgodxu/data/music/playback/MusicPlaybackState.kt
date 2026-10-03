@@ -21,8 +21,10 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import com.yichao.evilgodxu.data.music.blacklist.BlacklistStore
+import com.yichao.evilgodxu.data.music.metadata.CoverSkipRegistry
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
 import com.yichao.evilgodxu.data.music.metadata.EmbeddedCoverCache
+import com.yichao.evilgodxu.data.music.metadata.LargeCoverStore
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.metadata.MusicCoverLoader
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
@@ -1163,7 +1165,9 @@ class MusicPlaybackState(
     }
 
     // 切歌即落盘该曲目封面缩略图并持久化背景取色：冷启动首帧可直读落盘封面出图，
-    // 不必再查系统略缩图或解码音频内嵌封面；后台切歌（首页未展示、无人取色）同样生效
+    // 不必再查系统略缩图或解码音频内嵌封面；后台切歌（首页未展示、无人取色）同样生效。
+    // 同时预取首页大图的高清档「上一曲、当前曲、下一曲」：首页大图铺满首屏，
+    // 现场解析内嵌原图期间只能先显示模糊的落盘缩略图，预取后往返切歌直接命中高清档
     private fun cacheCurrentCoverAndColor(track: MusicTrack) {
         val context = appContext ?: return
         playbackScope.launch {
@@ -1176,6 +1180,19 @@ class MusicPlaybackState(
             val colors = extractCoverBackgroundColors(bitmap) ?: return@launch
             saveBackgroundColorFor(track.audioUri, colors.representative)
         }
+        playbackScope.launch {
+            LargeCoverStore.prefetch(context, neighboringTracks(track))
+        }
+    }
+
+    // 队列中的当前曲、上一曲、下一曲：按播放队列顺序取相邻项，当前曲放在最前，
+    // 预取是串行的，首页大图要用的那张必须先解出来。
+    // 不走 nextIndex/previousIndex —— 随机播放下它们是随机抽取，预取目标与真实下一首对不上
+    private fun neighboringTracks(track: MusicTrack): List<MusicTrack> {
+        val queue = playlist
+        val index = queue.indexOfFirst { it.id == track.id }
+        if (index < 0) return listOf(track)
+        return listOfNotNull(queue.getOrNull(index), queue.getOrNull(index - 1), queue.getOrNull(index + 1))
     }
 
     // 续播锚点：playTrackAt 以保存位置起播时记录该目标，供异步派发的 onMediaItemTransition 保留已还原进度。
@@ -1508,13 +1525,20 @@ class MusicPlaybackState(
     }
 
     // 封面写入成功后自增，通知封面组件强制重载最新封面；
-    // 同时作废索引曲目的系统略缩图缓存、非索引曲目的内嵌封面缓存与当前曲目的落盘封面：旧图与旧结论均已失效
+    // 同时作废索引曲目的系统略缩图缓存、非索引曲目的内嵌封面缓存、首页大封面缓存与当前曲目的落盘封面，
+    // 并解除「无封面可取」的跳过标记：旧图与旧结论均已失效，下次取图重新走一遍完整流程
     fun bumpCoverRevision() {
         coverRevision++
         SystemThumbnailCache.clear()
         EmbeddedCoverCache.clear()
+        CoverSkipRegistry.clear()
         // 落盘封面同样是旧图：一并作废，避免冷启动拿旧封面顶出（新封面由下次切歌重新落盘）
-        appContext?.let { context -> playbackScope.launch { CurrentCoverCache.clear(context) } }
+        appContext?.let { context ->
+            playbackScope.launch {
+                CurrentCoverCache.clear(context)
+                LargeCoverStore.clear(context)
+            }
+        }
     }
 
     // 批量更新曲目元数据（封面等），一次触发重组；

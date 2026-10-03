@@ -25,17 +25,17 @@ import com.yichao.evilgodxu.ui.component.COVER_FADE_RATIO
 import com.yichao.evilgodxu.ui.component.coverFadeBrush
 import com.yichao.evilgodxu.ui.component.coverLeftRightFadeBrush
 import com.yichao.evilgodxu.ui.component.coverTopBottomFadeBrush
-import com.yichao.evilgodxu.ui.component.rememberSystemThumbnail
+import com.yichao.evilgodxu.ui.component.rememberLargeCover
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 首页大封面按面板尺寸取图：512 已是可用封面图的最大档，再大也只是插值放大
-private const val HOME_COVER_THUMBNAIL_SIZE = 512
-
-// 首页大封面：与其余封面显示处同源（见 rememberSystemThumbnail）；
-// 封面图取不到即显示占位符，不回退在线封面地址
+// 首页大封面：竖屏沉浸封面与横屏融合封面铺满首屏，直接解码内嵌原图（长边至 LargeCoverStore.MAX_EDGE_PX），
+// 不走上限 512 的系统略缩图 —— 那个档位铺满首屏只能放大渲染而发虚。
+// 缩放由 ImageDecoder 按精确目标尺寸重采样完成（线性过滤 + 多级 mipmap），
+// 大比例缩小时边缘与细线不会出现毛刺与锯齿；结果以 WebP 落盘并驻留上一/当前/下一三张，
+// 冷启动与往返切歌直接命中，取不到封面即显示占位符，不回退在线封面地址
 @Composable
 internal fun HomeAlbumArt(track: MusicTrack?, modifier: Modifier = Modifier) {
-    val thumbnail = rememberSystemThumbnail(track, HOME_COVER_THUMBNAIL_SIZE)
+    val thumbnail = rememberLargeCover(track)
     if (thumbnail != null) {
         Image(
             bitmap = thumbnail,

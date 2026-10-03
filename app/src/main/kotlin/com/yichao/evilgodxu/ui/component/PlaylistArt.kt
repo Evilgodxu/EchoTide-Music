@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -59,6 +60,12 @@ private fun SystemCoverArt(
 
 @Composable
 internal fun PlaylistArt(track: MusicTrack?, modifier: Modifier = Modifier) {
-    // 列表行略缩图很小，256px 系统略缩图已足够
-    SystemCoverArt(track, modifier, thumbnailSize = 256, placeholderIconSize = 12.dp)
+    // 列表行封面很小，按实际显示尺寸请求（见 listCoverThumbnailSize）：
+    // 固定请求 256px 会让每行多占约 9 倍内存，并使内存缓存容纳不下整屏列表
+    SystemCoverArt(
+        track = track,
+        modifier = modifier,
+        thumbnailSize = listCoverThumbnailSize(LocalDensity.current),
+        placeholderIconSize = 12.dp,
+    )
 }

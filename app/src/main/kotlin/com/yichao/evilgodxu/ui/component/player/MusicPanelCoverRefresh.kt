@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,6 +49,10 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.proxy.OnlinePlatformRegistry
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.DialogCard
+import com.yichao.evilgodxu.ui.component.coverThumbnailSize
+
+// 换封面预览的封面显示边长
+private val COVER_PREVIEW_DP = 96.dp
 
 @Composable
 internal fun CoverRefreshOverlay(
@@ -239,7 +244,12 @@ private fun CoverReplaceContent(
     ) {
         Text(stringResource(R.string.music_panel_cover_replace_title), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(vertical = 18.dp)) {
-            AlbumArt(track = track, modifier = Modifier.size(96.dp).clip(RoundedCornerShape(10.dp)))
+            AlbumArt(
+                track = track,
+                modifier = Modifier.size(COVER_PREVIEW_DP).clip(RoundedCornerShape(10.dp)),
+                // 预览封面不大，按控件实际渲染尺寸换算请求档位，不沿用轮播的 512 大档
+                thumbnailSize = coverThumbnailSize(LocalDensity.current, COVER_PREVIEW_DP),
+            )
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
                     .data(candidate.coverUrl)
@@ -247,7 +257,7 @@ private fun CoverReplaceContent(
                     .build(),
                 contentDescription = candidate.title,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(96.dp).clip(RoundedCornerShape(10.dp))
+                modifier = Modifier.size(COVER_PREVIEW_DP).clip(RoundedCornerShape(10.dp))
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

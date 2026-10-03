@@ -83,6 +83,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.AppDialog
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
+import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.DIALOG_LIST_HEIGHT_FRACTION
 import com.yichao.evilgodxu.ui.component.DialogOption
 import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
@@ -170,8 +171,9 @@ internal fun PlaylistSheet(
     // 设为默认铃声的请求：非空时由安装组件提交并在授权往返后自动续做
     var soundRequest by remember { mutableStateOf<DefaultSoundRequest?>(null) }
     val shareChooserTitle = stringResource(R.string.playlist_advanced_menu_share)
-    // 后台预取整个播放列表缩略图：曲目集合变化即触发，不等面板展开逐行懒加载，
-    // 展开时封面已就绪；幂等，已缓存/补全中/全量补全中的曲目自动跳过
+    // 后台预读整份播放列表的歌词：曲目集合变化即触发，不等面板展开逐行懒加载，
+    // 展开时歌词已就绪；幂等，已缓存/补全中/全量补全中的曲目自动跳过。
+    // 封面不在此列：它按显示尺寸取图，由可视区邻域预取负责（见 CoverPrefetch）
     val playlistTrackIds = remember(tracks) { tracks.map { it.id } }
     LaunchedEffect(playlistTrackIds) {
         val currentId = playbackState.currentTrack?.id
@@ -333,6 +335,11 @@ internal fun PlaylistSheet(
                                     track.artist.contains(searchQuery, ignoreCase = true)
                             }
                         }
+                    }
+                    // 曲目行封面：可视区邻域提前取图，滚动进入视口时不再先闪占位符。
+                    // 列表项是过滤后的下标，须经 filteredIndices 回填到真实曲目
+                    CoverPrefetch(listState) { index ->
+                        filteredIndices.getOrNull(index)?.let { tracks.getOrNull(it) }
                     }
                     // 滚动到顶部后继续下拉：累计下拉距离超过阈值即收起面板
                     val density = LocalDensity.current

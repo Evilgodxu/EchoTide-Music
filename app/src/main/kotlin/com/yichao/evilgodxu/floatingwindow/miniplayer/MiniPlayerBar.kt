@@ -226,6 +226,7 @@ internal fun MiniPlayerBar(
             DiscArt(
                 track = current,
                 isPlaying = playbackState.isPlaying,
+                discSize = MINI_COVER_DP.dp,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

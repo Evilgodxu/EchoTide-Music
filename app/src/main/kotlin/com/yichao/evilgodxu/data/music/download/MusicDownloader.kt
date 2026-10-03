@@ -372,7 +372,8 @@ internal suspend fun updateTrackAudioUri(
 
 // 缓存完成后把在线播放时的标题/艺术家与封面原图写入本地文件。
 // 封面用本次下载到的原图字节：写入后系统媒体扫描会为该文件生成封面略缩图，
-// 显示端（列表/面板/首页）读系统略缩图，系统媒体面板经 artworkUri 取同一份；只有当前曲目的一张缩略图会落盘（见 CurrentCoverCache）
+// 显示端（列表/面板/首页）读系统略缩图，系统媒体面板经 artworkUri 取同一份；缩略图只落盘当前曲目的一张
+// （见 CurrentCoverCache），首页大封面另落盘相邻三张高清档（见 LargeCoverStore）
 // 在线歌词内嵌的等待上界：超过即放弃本次内嵌，避免拖慢音频文件的元数据写入
 private const val LYRIC_EMBED_WAIT_MS = 8_000L
 

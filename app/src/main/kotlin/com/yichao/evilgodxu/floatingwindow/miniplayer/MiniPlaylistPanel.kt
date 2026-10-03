@@ -46,6 +46,7 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
+import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.scrollPlaylistTo
 import kotlinx.coroutines.launch
@@ -59,6 +60,8 @@ internal fun MiniPlaylistPanel(
 ) {
     val visibleCount = playbackState.playlist.size.coerceIn(0, MINI_PLAYLIST_MAX_VISIBLE_ROWS)
     val listState = rememberLazyListState()
+    // 曲目行封面：可视区邻域提前取图，滚动进入视口时不再先闪占位符
+    CoverPrefetch(listState) { index -> playbackState.playlist.getOrNull(index) }
 
     Column(
         modifier = Modifier.fillMaxWidth()

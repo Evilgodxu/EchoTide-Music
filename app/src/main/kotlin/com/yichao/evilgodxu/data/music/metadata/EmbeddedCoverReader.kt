@@ -8,6 +8,7 @@ import android.net.Uri
 import androidx.core.net.toUri
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -47,6 +48,18 @@ internal object EmbeddedCoverReader {
     /** 读取内嵌封面原图字节（不重编码）；无内嵌封面或读取失败时返回 null */
     suspend fun readRawBytes(context: Context, audioUri: String, path: String): ByteArray? =
         withContext(Dispatchers.IO) { (readPicture(context, audioUri, path) as? Picture.Found)?.bytes }
+
+    /**
+     * 读取内嵌原图并按长边不超过 [maxEdgePx] 解码。
+     *
+     * 与 [read] 的整数级降采样不同：这里把精确目标尺寸交给 ImageDecoder 重采样，
+     * 大比例缩小时由线性过滤与多级 mipmap 完成抗锯齿，边缘与细线不会出现毛刺与锯齿。
+     * 无内嵌封面、图片损坏或文件读不出时返回 null。
+     */
+    suspend fun readFitted(context: Context, audioUri: String, path: String, maxEdgePx: Int): Bitmap? =
+        withContext(Dispatchers.IO) {
+            (readPicture(context, audioUri, path) as? Picture.Found)?.let { decodeFitted(it.bytes, maxEdgePx) }
+        }
 
     // 未解码的原始内嵌图片，三态语义与 Result 一一对应
     private sealed interface Picture {
@@ -99,12 +112,6 @@ internal object EmbeddedCoverReader {
         return bytes?.let { Picture.Found(it) }
     }
 
-    /** 是否为只能由自实现解析取到内嵌封面的容器：平台提取器对这类容器读不到内嵌图片 */
-    fun isSelfParsedContainer(context: Context, audioUri: String, path: String): Boolean {
-        val prefix = LocalAudioSource.read(context, path, audioUri, 0L, CONTAINER_PROBE_BYTES) ?: return false
-        return isCoverFallbackContainer(prefix)
-    }
-
     // 是否值得走自实现解析：AIFF/AIFC、DSDIFF、DSF、APE 以及 RIFF/WAVE
     private fun isCoverFallbackContainer(prefix: ByteArray): Boolean =
         LosslessContainerTags.matches(prefix)
@@ -141,6 +148,25 @@ internal object EmbeddedCoverReader {
             decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
             val sample = maxOf(info.size.width / request, info.size.height / request)
             if (sample > 1) decoder.setTargetSampleSize(sample)
+        }
+    }.getOrNull()
+
+    // 大封面解码：原图不超上限就原样解码，不引入无谓的重采样；
+    // 超上限时按精确目标尺寸交给 ImageDecoder 缩放，避免整数降采样后再缩放带来的二次量化
+    private fun decodeFitted(bytes: ByteArray, maxEdgePx: Int): Bitmap? = runCatching {
+        val limit = maxEdgePx.coerceAtLeast(1)
+        ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) { decoder, info, _ ->
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            val width = info.size.width
+            val height = info.size.height
+            val longest = maxOf(width, height)
+            if (longest > limit) {
+                val scale = limit.toFloat() / longest
+                decoder.setTargetSize(
+                    (width * scale).roundToInt().coerceAtLeast(1),
+                    (height * scale).roundToInt().coerceAtLeast(1),
+                )
+            }
         }
     }.getOrNull()
 }

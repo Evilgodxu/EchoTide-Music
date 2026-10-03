@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import com.yichao.evilgodxu.data.music.model.MusicTrack
+import com.yichao.evilgodxu.ui.component.CAROUSEL_COVER_THUMBNAIL_SIZE
 import com.yichao.evilgodxu.ui.component.SongImmersiveBackground
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -159,7 +160,13 @@ internal fun CoverCarouselOverlay(
                                 }
                             )
                     ) {
-                        AlbumArt(playlist[i], Modifier.fillMaxSize())
+                        // 3D 轮播统一取 512 档：居中封面约占面板高度一半且同屏 7 张，
+                        // 尺寸换算带来的省量有限，固定档位可让 7 张封面共用同一份缓存
+                        AlbumArt(
+                            track = playlist[i],
+                            modifier = Modifier.fillMaxSize(),
+                            thumbnailSize = CAROUSEL_COVER_THUMBNAIL_SIZE,
+                        )
                     }
                 }
             }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -65,6 +66,7 @@ import com.yichao.evilgodxu.LocalPlaylistRefresher
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.screens.home.component.dialog.PlaylistImportDialog
 import com.yichao.evilgodxu.ui.icons.AppIcons
+import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 import kotlinx.coroutines.delay
@@ -307,7 +309,16 @@ private fun PlaylistOverview(
     }
     val albumCount = remember(allTracks) { distinctAlbumCount(allTracks) }
     val artistCount = remember(allTracks) { distinctArtistCount(allTracks) }
+    val listState = rememberLazyListState()
+    // 歌单行封面取歌单首曲：可视区邻域提前取图，滚动/曲库回填后不再先闪占位符。
+    // 歌单行由 [OVERVIEW_HEADER_ITEM_COUNT] 之后开始，故列表下标需先扣除头部项
+    CoverPrefetch(listState) { index ->
+        playlistStore.playlists.getOrNull(index - OVERVIEW_HEADER_ITEM_COUNT)
+            ?.trackIds
+            ?.firstNotNullOfOrNull { libraryById[it] }
+    }
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 12.dp),
@@ -613,3 +624,7 @@ private fun syncTitle(syncState: SyncUiState?): String = when (syncState) {
 
 // 同步完成提示的展示时长
 private const val SYNC_DONE_DISMISS_MS = 3_000L
+
+// 总览列表里歌单行之前的头部项数：系统歌单卡片、我的歌单分节标题、导入与新建入口各占一项。
+// 预取按列表下标解析歌单时须按此回退，新增头部项时同步调整
+private const val OVERVIEW_HEADER_ITEM_COUNT = 3

@@ -16,17 +16,31 @@ import androidx.compose.ui.geometry.center
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import com.yichao.evilgodxu.data.music.model.MusicTrack
+import com.yichao.evilgodxu.ui.component.coverThumbnailSize
 import com.yichao.evilgodxu.ui.component.player.AlbumArt
 import kotlinx.coroutines.isActive
+
+// 封面在内圈占光碟直径的比例：外圈边缘留出透明材质
+private const val DISC_COVER_INSET = 0.85f
 
 @Composable
 internal fun DiscArt(
     track: MusicTrack?,
     isPlaying: Boolean,
+    discSize: Dp,
     modifier: Modifier = Modifier,
-    coverArt: @Composable (MusicTrack?) -> Unit = { AlbumArt(it, Modifier.fillMaxSize()) },
+    coverArt: @Composable (MusicTrack?) -> Unit = { target ->
+        // 光碟尺寸即控件实际渲染尺寸：封面请求档位据此换算，不沿用面板/轮播的大图档位
+        AlbumArt(
+            track = target,
+            modifier = Modifier.fillMaxSize(),
+            thumbnailSize = coverThumbnailSize(LocalDensity.current, discSize * DISC_COVER_INSET),
+        )
+    },
 ) {
     // 以曲目 id 为 key：切歌时旋转角归零并从新曲目重新旋转
     val rotation = remember(track?.id) { Animatable(0f) }
@@ -51,7 +65,7 @@ internal fun DiscArt(
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .fillMaxSize(0.85f)
+                    .fillMaxSize(DISC_COVER_INSET)
                     .clip(CircleShape)
             ) {
                 coverArt(track)
