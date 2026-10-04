@@ -112,21 +112,25 @@ internal fun MiniPlayerBar(
         controlsVisible = false
     }
     // 隐藏控件期间跟随播放进度刷新当前歌词；跟随当前曲目，切换歌曲时重置到曲目起点。
-    // 初值取即时播放位置而非 0：迷你播放器窗口在退后台播放时才创建，
-    // 进度基准若从 0 起步，歌词首次显示的首帧会把已唱部分画成未唱，随后由补间从 0 扫回当前位置
+    // 起步位置取状态层持有的歌词时间轴：迷你播放器窗口在退后台播放时才建立，与首页歌词共用
+    // 同一条时间轴，两块界面的进度不会各推各的，也不会在建立时退回控制器回锚后的低位
     var lyricPosition by remember(playbackState.currentTrack?.id) {
-        mutableLongStateOf(playbackState.livePositionMs)
+        mutableLongStateOf(playbackState.seedLyricPosition(playbackState.currentTrack?.id))
     }
     // 位置跟踪随曲目常驻，不随控件显隐起停：歌词在控件隐藏后才显示，跟踪若只在显示期间进行，
     // 控件隐藏那一刻的进度基准仍是隐藏前的旧位置，首帧点亮随即从旧位置补间追赶
     LaunchedEffect(playbackState.currentTrack?.id) {
+        // 本次跟随所属曲目：作为歌词时间轴快照的归属，切曲后不再沿用上一首的进度
+        val trackId = playbackState.currentTrack?.id
         var lastSyncMs = 0L
         while (isActive) {
+            // 与首页歌词同源：锚点取控制器的即时位置（连续外推，不会一顿一顿），
+            // 重建时的相位由状态层时间轴接上，故两块界面既平滑又不会各推各的
             val candidate = playbackState.livePositionMs
+            val now = System.currentTimeMillis()
             if (playbackState.isPlaying) {
-                val now = System.currentTimeMillis()
                 val elapsed = if (lastSyncMs == 0L) 0L else (now - lastSyncMs).coerceAtLeast(0L)
-                // 位置大幅回退视为单曲循环回卷/手动拖动：直接锚定到控制器位置，
+                // 位置大幅回退视为单曲循环回卷/手动拖动：直接锚定到锚点位置，
                 // 避免回卷后按流逝时间继续递增，导致歌词定格在末行不再更新
                 lyricPosition = when {
                     candidate >= lyricPosition -> candidate
@@ -135,8 +139,8 @@ internal fun MiniPlayerBar(
                 }
                 lastSyncMs = now
             } else {
-                // 暂停时保持本地已推进的真实位置，仅跟随控制器前移（正向 seek）或大幅
-                // 回退（手动拖动），避免控制器滞后回报把已唱完的歌词高亮拉回
+                // 暂停时保持本地已推进的真实位置，仅跟随锚点前移（正向 seek）或大幅
+                // 回退（手动拖动），避免锚点滞后回报把已唱完的歌词高亮拉回
                 lyricPosition = when {
                     candidate >= lyricPosition -> candidate
                     lyricPosition - candidate > MINI_LYRIC_SEEK_TOLERANCE_MS -> candidate
@@ -144,6 +148,8 @@ internal fun MiniPlayerBar(
                 }
                 lastSyncMs = 0L
             }
+            // 回写本次推进到的进度：首页/音乐面板重建时以此接着走
+            playbackState.recordLyricPosition(trackId, lyricPosition)
             delay(if (playbackState.isPlaying) 50L else 200L)
         }
     }
@@ -475,5 +481,5 @@ private fun MiniControlButton(
 
 // 歌词揭示平滑时长：行内推进无明显跳变
 private const val MINI_LYRIC_REVEAL_SMOOTH_MS = 60
-// 歌词位置回退容差：超过该值视为单曲循环回卷/手动拖动，直接锚定控制器位置
+// 歌词位置回退容差：超过该值视为单曲循环回卷/手动拖动，直接锚定到即时位置
 private const val MINI_LYRIC_SEEK_TOLERANCE_MS = 1500L

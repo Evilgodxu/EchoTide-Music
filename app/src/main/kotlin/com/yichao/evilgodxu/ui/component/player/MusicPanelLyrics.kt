@@ -107,24 +107,30 @@ internal fun LyricsPanel(
     val context = LocalContext.current
     val wordByWordEnabled by context.wordByWordRenderingFlow().collectAsState(initial = true)
     // 跟随当前曲目：切换歌曲时重置到曲目起点，避免沿用上一首的播放位置定位错行。
-    // 初值取即时播放位置而非 0：屏幕旋转会让竖屏/横屏各自的组装树重建歌词面板，
-    // 进度基准若从 0 起步，首帧会把已唱部分画成未唱，随后由补间从 0 扫回当前位置
+    // 起步位置取状态层持有的歌词时间轴（见 seedLyricPosition）：旋转会让竖屏/横屏各自的组装树
+    // 重建歌词面板，若以重建那一刻的播放位置重新起步，面板本地已按真实流逝时间推进的相位就被抹掉，
+    // 表现为重建一次、歌词落后数百毫秒
     var lyricPosition by remember(playbackState.currentTrack?.id) {
-        mutableLongStateOf(playbackState.livePositionMs)
+        mutableLongStateOf(playbackState.seedLyricPosition(playbackState.currentTrack?.id))
     }
     // 歌词拖拽跳转后的短时保护窗：窗内本地进度自走、忽略控制器的旧位置，
     // 避免 seek 回报前把刚拖到的行又拉回拖拽前位置
     var seekGuardUntilMs by remember(playbackState.currentTrack?.id) { mutableLongStateOf(0L) }
     LaunchedEffect(playbackState.isPlaying, playbackState.currentTrack?.id) {
+        // 本次跟随所属曲目：作为歌词时间轴快照的归属，切曲后不再沿用上一首的进度
+        val trackId = playbackState.currentTrack?.id
         var lastSyncMs = 0L
         while (isActive) {
+            // 锚点取控制器的即时位置：它按时间连续外推，读取时每轮都在前进；状态层的
+            // currentPosition 是回报的峰值包络，只在其超过历史最大值时才前进，跟着它走会一顿一顿。
+            // 锚点的回锚回退由下面的容差分支兜住——不超过容差就不把本地已推进的进度拉回
             val candidate = playbackState.livePositionMs
-            val guarding = System.currentTimeMillis() < seekGuardUntilMs
+            val now = System.currentTimeMillis()
+            val guarding = now < seekGuardUntilMs
             if (playbackState.isPlaying) {
-                val now = System.currentTimeMillis()
                 val elapsed = if (lastSyncMs == 0L) 0L else (now - lastSyncMs).coerceAtLeast(0L)
-                // 播放中以真实流逝时间推进，控制器位置仅作锚点：熄屏唤醒后控制器
-                // 位置可能停滞，本地位置仍持续前进避免冻结；大幅回退视为手动拖动
+                // 播放中以真实流逝时间推进，锚点仅作参照：锚点回锚落后时本地继续前进不被拉回，
+                // 锚点前移或大幅回退（手动拖动/切曲）时才对齐
                 lyricPosition = when {
                     guarding -> lyricPosition + elapsed
                     candidate >= lyricPosition -> candidate
@@ -133,9 +139,9 @@ internal fun LyricsPanel(
                 }
                 lastSyncMs = now
             } else {
-                // 暂停时保持本地已推进的真实位置，仅当控制器位置前移（正向 seek）或
-                // 大幅回退（手动拖动）时跟随；避免把播放期间已领先于控制器滞后回报的
-                // 本地位置拉回，导致已唱完的歌词高亮回退
+                // 暂停时保持本地已推进的真实位置，仅当锚点前移（正向 seek）或大幅回退
+                // （拖动/切曲）时跟随；避免把播放期间已领先于锚点滞后回报的本地位置拉回，
+                // 导致已唱完的歌词高亮回退
                 if (!guarding) {
                     lyricPosition = when {
                         candidate >= lyricPosition -> candidate
@@ -145,6 +151,8 @@ internal fun LyricsPanel(
                 }
                 lastSyncMs = 0L
             }
+            // 回写本次推进到的进度：面板重建时以此接着走，不被播放位置的回锚拉回
+            playbackState.recordLyricPosition(trackId, lyricPosition)
             delay(if (playbackState.isPlaying) 50L else 200L)
         }
     }
@@ -743,7 +751,7 @@ private fun WholeLineLyricText(
     )
 }
 
-// 播放中位置回退容差：小于该值视为控制器位置抖动，大于视为手动拖动进度条
+// 播放中位置回退容差：小于该值视为锚点抖动，大于视为真实跳变（拖动进度条、歌词拖拽跳转、切曲回卷）
 private const val LYRIC_SEEK_TOLERANCE_MS = 1500L
 
 // 歌词面板默认可见行数：保持奇数使当前行垂直居中（上下各 (n-1)/2 行）

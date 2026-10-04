@@ -156,6 +156,8 @@ class MusicPlaybackState(
         }
 
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            // 换曲（含单曲循环重播同一曲目）后上一曲的歌词进度不再适用
+            invalidateLyricTimeline()
             // 逆向反馈：用户主动切走推荐曲目即视为跳过，其特征计入黑名单并落盘。
             // 须在更新 currentTrack 前判定：此处 currentTrack 仍是被切走的那一首
             recordRecommendationSkip(mediaItem?.mediaId?.toLongOrNull(), reason)
@@ -272,6 +274,8 @@ class MusicPlaybackState(
             newPosition: Player.PositionInfo,
             reason: Int,
         ) {
+            // 位置不连续即真实跳变：作废歌词时间轴快照，改由新的播放位置重新起步
+            invalidateLyricTimeline()
             // 手动拖动进度会触发 SEEK 类位置不连续：重置回卷检测基准，
             // 避免把"拖回开头"误判为单曲循环完整播放
             if (reason == Player.DISCONTINUITY_REASON_SEEK) {
@@ -367,11 +371,14 @@ class MusicPlaybackState(
             ctrl.isPlaying || ctrl.playbackState == Player.STATE_BUFFERING
         } ?: false
     var duration by mutableLongStateOf(0L)
+    // 播放位置：由状态层统一维护，按控制器回报单调推进（真实跳变除外，见 syncPlaybackPosition），
+    // 供进度条使用。它是控制器回报的「峰值包络」——只在回报超过历史最大值时才前进，
+    // 故表现为一跳一跳的台阶，不适合直接驱动歌词渲染
     var currentPosition by mutableLongStateOf(0L)
 
-    // 即时播放位置：控制器在位时读其当前值，比按固定周期刷新的 currentPosition 更贴近此刻进度；
-    // 控制器未连接/已释放或回报非法值时回退到状态值。供需要「此刻真实进度」的渲染取用
-    // （歌词的渲染基准以及跟随判据），不参与进度单调与持久化
+    // 即时播放位置：控制器在位时读其当前值，比按固定周期刷新的 currentPosition 更贴近此刻进度，
+    // 且连续推进（控制器按时间外推），不会出现台阶；控制器未连接/已释放或回报非法值时回退到状态值。
+    // 供歌词的跟随锚点取用：锚点用于判断「是否需要向上对齐」，用台阶值会让歌词跟着台阶一跳一跳
     val livePositionMs: Long
         get() = mediaController?.currentPosition?.takeIf { it >= 0L } ?: currentPosition
 
@@ -859,6 +866,45 @@ class MusicPlaybackState(
     fun stopPositionTicker() {
         positionTickerJob?.cancel()
         positionTickerJob = null
+    }
+
+    // ===== 歌词进度时间轴 =====
+    // 歌词面板在旋转、悬浮窗建立、页面回切时会整体重建。面板本地按真实流逝时间推进的相位
+    // 若不能在重建时接上，就会退回重建那一刻的播放位置，表现为「重建一次、歌词落后数百毫秒」；
+    // 故时间轴快照由状态层持有：面板每轮跟随回写，重建时接着走。
+    // 用普通字段而非 Compose 状态：每秒数十次写入，不该牵动其它面板重组
+    private var lyricTimelineTrackId: Long? = null
+    private var lyricTimelinePositionMs = 0L
+
+    /**
+     * 界面重建时的歌词起步位置。
+     *
+     * 取「上一块面板推进到的进度」与「即时播放位置」的较大者：前者保住面板本地已按真实流逝时间
+     * 推进的相位（即时位置随位置回锚回退后可能已低于它），后者保证离开页面较久、快照明显落后时
+     * 仍从当前进度起步。即时位置连续推进，只有控制器不可用时才回退到台阶式的单调位置
+     */
+    fun seedLyricPosition(trackId: Long?): Long {
+        val snapshot = lyricTimelinePositionMs
+            .takeIf { trackId != null && trackId == lyricTimelineTrackId } ?: 0L
+        return maxOf(livePositionMs, snapshot)
+    }
+
+    // 面板每轮跟随回写当前进度，供界面重建时接着推进
+    fun recordLyricPosition(trackId: Long?, positionMs: Long) {
+        if (trackId == null || trackId != lyricTimelineTrackId) {
+            lyricTimelineTrackId = trackId
+            lyricTimelinePositionMs = positionMs
+            return
+        }
+        // 同一曲目内只前进：多个面板可能同时在场，落后的一方回写不应把已推进的进度拉回
+        if (positionMs > lyricTimelinePositionMs) lyricTimelinePositionMs = positionMs
+    }
+
+    // 真实跳变（拖动进度、歌词拖拽跳转、切曲、循环回卷）后作废快照：
+    // 下一块面板改以跳变后的即时播放位置重新起步，避免沿用跳变前的旧进度
+    private fun invalidateLyricTimeline() {
+        lyricTimelineTrackId = null
+        lyricTimelinePositionMs = 0L
     }
 
     // 防止手动切歌与自动切歌并发导致状态错乱
@@ -1446,6 +1492,8 @@ class MusicPlaybackState(
         mediaController = null
         player = null
         currentPosition = 0L
+        // 进度已归零：歌词时间轴一并作废，避免下次重建时按释放前的旧进度起步
+        invalidateLyricTimeline()
         isPlaying = false
         isPrepared = false
         duration = 0L
@@ -1826,6 +1874,8 @@ class MusicPlaybackState(
         // 拖动进度条直接改写位置：复位单调基准，避免被钳回拖动前的位置
         lastMonoMediaId = null
         currentPosition = position
+        // 拖动是真实跳变：作废歌词时间轴快照，歌词不沿用拖动前的进度
+        invalidateLyricTimeline()
     }
 
     // ===== 每日推荐 =====
