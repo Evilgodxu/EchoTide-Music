@@ -34,153 +34,6 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 
 > Real-device captures,Cover art and lyrics belong to their respective owners and are shown for interface demonstration only.
 
-## Highlights
-
-| | |
-| --- | --- |
-| **Floating music panel** | The full player runs as a system overlay — change tracks, read lyrics and search above any app |
-| **Mini player** | A single lyric bar that docks to the top when you leave the app; one tap expands the full panel |
-| **Word-level lyrics** | Line-level lyrics can be aligned into word-level in-app by algorithm |
-| **Lyric auto-translation** | Fill in Chinese translations for a whole song in one action |
-| **Metadata editing** | Embedded cover, title / artist / album and lyrics edited in place, written straight back into the audio file |
-| **Library analysis** | Locate the whole library by format, flagging fake lossless and suspected AI-generated music |
-| **Full-track spectrum** | A 2048-point STFT time-frequency chart with a logarithmic frequency axis and a dB scale; long-press to export a 1920 px verdict image |
-| **USB exclusive output** | Hand playback to a USB DAC and ask the system for a bit-perfect stream — no mixing, no volume scaling, no effects |
-| **Playback chain info** | One panel holding the whole chain: source file and size, decoder, source / output sample rate, resampling, output mode, the PCM encoding actually written and the active output device's real parameters — down to the negotiated Bluetooth codec |
-
----
-
-## Feature Tour
-
-Each feature is written as *what it is → how to use it*. Every path listed matches the current code.
-
-### 1. Playback & UI
-
-- **Playback speed** — 0.5× to 2.0× in real time, ±0.1 steps, handled natively by AudioTrack with no software resampling.
-  - **How to use**: long-press *previous* or *next* on the home screen → the speed dialog opens → tap the value in the middle to reset to 1.0×.
-- **Sleep timer** — stops after the current track finishes, then ends the app process.
-  - **How to use**: the timer button on the left of the portrait title bar → ±5 minutes (1–999) → confirm. While counting down, the remaining minutes sit under the title and tapping them cancels the timer.
-- **Home gestures** — three side-by-side pages: search / player / playlists, opening on the player.
-  - **How to use**: swipe right → search page; swipe left → playlist page; swipe vertically → next / previous track (switchable in settings — a held swipe first shows a track preview and cancels if the movement returns near the start).
-- **Adaptive layout** — WindowSizeClass switches between the single-column portrait assembly and the two-column landscape assembly.
-  - **How to use**: the rotation button on the right of the portrait title bar forces landscape; in landscape, tapping the cover area enters the 3D cover carousel — drag to switch, tap the centred cover to play, tap a side cover to select it, tap the empty space to exit.
-- **Theme & localization** — system / dark / light, and in-app hot switching between 简体中文 / English / follow system.
-  - **How to use**: Settings → Appearance → Theme (the switch plays a circular reveal); Settings → Language → pick a language.
-
-### 2. Lyrics
-
-- **Lyric rendering** — word-level rendering that jumps in sync, or line-level highlighting.
-  - **How to use**: lyrics scroll with playback; Settings → Playback → *Word-by-word rendering* controls whether words light up individually; a single tap on the lyrics shows or hides the fine-tune buttons (left `−` delays, right `+` advances, 100 ms per step).
-- **Drag-to-scrub and fling track switching** — a vertical drag over the lyrics area scrubs playback in real time.
-  - **How to use**: a slow drag is followed by the lyrics, and releasing on a line plays from it while the marker turns into a confirmation colour; an unaligned release springs back to where it was. A quick flick never moves the lyrics and is handled as a vertical swipe to switch tracks.
-- **Word-level alignment** — turns lyrics that only have a line-level timeline into a word-level timeline using the audio itself.
-  - **How to use**: long-press the lyrics → *Word-level alignment* → decoding and alignment run in the background with progress shown in the portrait title area, and continue while you leave the page.
-- **Lyric auto-translation** — fills in Chinese translations for every lyric line that has none.
-  - **How to use**: long-press the lyrics → *Edit lyrics* → *Auto-translate* → the progress dialog offers *Continue in background*; the action can be re-run at any time to fill in whatever is left.
-- **Lyric editing & import** — long-press the lyrics → *Edit lyrics* → *Edit this line*, or *Local lyrics* to import any text format through the system file picker; the same long-press menu can also search the current track.
-- **Lyric typography** — per-scene font size, visible-line count and landscape 3D intensity for the music panel, home portrait and home landscape.
-  - **How to use**: Settings → Typography (font size 12–24 sp; line counts by scene preset — 3/5, 3/5/7/9/11 and 7/9/11 — and landscape 3D intensity 0–2 in 0.25 steps).
-
-### 3. Music Sources
-
-- **Local library** — scans device audio through MediaStore (only tracks with `IS_MUSIC` and a duration of at least 30 seconds, ordered by title), and imports audio through the system share sheet / open-with.
-  - **How to use**: the scan starts automatically after the first permission grant; the *refresh* button in the queue panel header rescans on demand; choosing *open with Echo Tide* in a file manager, or sharing audio to the app, takes over and plays it in the background with the mini player attached.
-- **Proxy sources & custom platforms** — import a third-party source to define search, playback URL, lyric and cover resolution per platform, gaining full capability.
-  - **How to use**: Settings → Proxy Source → *Import source* → one of three routes: a local file, a link, or pasted text; once imported, the switch on the right of the row enables or disables it and the bin icon removes it. A source opened with Echo Tide or shared to the app is imported the same way. The proxy source development spec is documented in the [忆潮代理音源规范](docs/忆潮代理音源规范.md) (v1.2.0).
-- **Daily recommendation** — a lyric-profile recommender: your favourites' lyric profile scores tracks through lexical, conceptual and rhythmic channels, then diversity-reranking (MMR) produces a five-track carousel.
-  - **How to use**: the daily carousel on the online search page advances every 4 seconds; the refresh button at the top right forces a recompute; tapping a card plays it; the broken-heart button on the right of a card blacklists that track so it is no longer recommended.
-- **Blacklist & skip feedback** — blacklisting takes effect immediately and persists, and skips take part in later recommendations.
-  - **How to use**: swipe a queue row left → blacklist; Settings → Blacklist shows the count and can reset the whole list so those tracks take part in recommendations again.
-
-### 4. Playlists & Queue
-
-- **Smart playlists** — Recently Played / Favourites / Albums / Artists, derived live from the library.
-  - **How to use**: swipe left to the playlist page → open any system playlist card; *Play all* at the top of the detail page plays the whole list; tapping the artist line on the home screen jumps straight to that artist's playlist (a picker appears first when a track has several artists).
-- **Custom playlists** — create / rename / delete / batch add / drag to reorder.
-  - **How to use**: the playlist page → *Create playlist*; *Add tracks* on the detail page multi-selects and adds in bulk; long-pressing a row's sort handle and dragging reorders it (dragging syncs to the playback queue in real time); the *more* button on the right of a playlist row renames or deletes it.
-- **Playback queue** — the playback queue.
-  - **How to use**: the *playlist* button at the bottom right of the player page (same place in landscape) opens it, and so does a swipe up on that button (portrait and landscape alike), alongside the floating *scroll to top* and *locate current* buttons; a queue row supports swipe left to blacklist, swipe right for the advanced menu (share / set as ringtone / set as alarm / view spectrum / edit metadata) and long-press to delete.
-- **Playlist sorting** — a sort button in the queue panel header offering default order / favourites / modified time / title / artist / album / duration, with an ascending-descending toggle (favourites groups favourited tracks first, each group then following title order).
-  - **How to use**: the sort button in the queue panel header → pick a rule (offered for the default full queue only, so custom playlists keep their own drag order).
-- **Playlist switching** — the playlist subtitle in the queue panel header.
-  - **How to use**: the playlist subtitle in the queue panel header (same place in landscape) opens it; it shows the current playlist (tap to switch quickly);
-
-### 5. Analysis & Audio Quality
-
-- **Library analysis** — one pass produces two verdicts: fake lossless and suspected AI-generated music; it also locates the whole library by format and jumps straight to it.
-  - **How to use**: in portrait, long-press the *playlist* button on the control bar → the library analysis panel → the analysis starts on its own (closing the panel does not abort it — the portrait title area shows *analysing x/y*); the panel holds a format-share ring and a *locate by format* list whose first two entries are *fake lossless* and *suspected AI*; tapping any row makes that category the playback queue and jumps to the playlist; the refresh button at the top right re-runs the analysis at any time.
-- **Spectrum analysis** — decodes the whole track and renders a time-frequency spectrogram.
-  - **How to use**: swipe a queue row right → advanced menu → *View spectrum* → wait for the decode progress → read the spectrogram, the source file parameters and both verdicts → long-press the chart → *Share image* or *Save image*.
-- **USB exclusive output** — pins playback to the USB DAC and asks the native audio policy for a bit-perfect stream (`setPreferredMixerAttributes` + `setPreferredAudioDevice`) — no mixing, no volume scaling, no effects. Mixer attributes are picked from the decoded format and re-issued whenever it changes, so the *exclusive* label never hides a silent fallback to the mixed path.
-  - **How to use**: Settings → Playback → *USB exclusive* (the same switch also sits in the floating panel's playback settings) → with no DAC attached, or with a DAC that ships no bit-perfect profile, playback stays on the default mixed output; plugging the DAC in or out takes effect immediately, with no restart.
-- **Audio info** — the whole playback chain in one panel, grouped into audio source / audio parameters / playback chain / current output device; fields the platform cannot report are dropped rather than shown blank.
-  - **What it shows**: source file path and size, format, decoder, source / output sample rate, bitrate, channel layout, resampling, quality; output mode (bit-perfect exclusive or system mixer), audio session ID, float output, the PCM encoding the audio track actually writes, average latency, transfer state; and the current output device's type, name, address, supported sample rates, channel count, plus — on Bluetooth — link type, negotiated codec, codec sample rate, bits per sample, channel mode and device category. The panel re-reads the whole chain as playback goes on.
-  - **How to use**: in portrait, swipe up on the play/pause button on the control bar → the panel slides in (the floating panel opens it the same way, by a swipe up anywhere on the panel); drag down, tap the close button or tap outside to dismiss. Reading a Bluetooth device's name and address needs the Bluetooth permission, which the panel asks for in place — a floating panel has no activity to host the system dialog, so the home permission dialog covers it there.
-
-### 6. Floating & System Integration
-
-- **Floating music panel** — the full player rendered as a system overlay (`TYPE_APPLICATION_OVERLAY`), able to cover any app.
-  - **How to use**: Settings → Playback → enable *Floating playback* and grant the overlay permission → the mini player appears at the top while the app keeps playing in the background → **tap the cover** to expand the full panel. Inside the panel: swipe up for the audio info, swipe right for search, swipe left for playback settings, and a downward swipe closes the audio info overlay; a tap outside the card or Back closes one layer at a time, and Back on the base layer retracts the panel.
-- **Mini player** — a mini capsule bar that docks to the top of the screen while playing in the background.
-  - **How to use**: same *Floating playback* switch; it first shows five control buttons (play mode / previous / play-pause / next / playlist), collapses by itself after 3 seconds without touch and then shows the track title and the current lyric line, which lights up word by word as it is sung (whole-line highlighting when *Word-by-word rendering* is off); swipe left or right to change tracks, swipe down to hide (reset when the app returns to the foreground); tapping the cover expands the full panel and the playlist button opens the mini list. Returning to the foreground hides the mini player automatically.
-- **External audio takeover** — audio opened or shared from a file manager or another app is taken over in the background.
-  - **How to use**: choose Echo Tide when opening an audio file in a file manager, or share audio to the app from the system share sheet; no full-screen panel is shown — playback starts in the background with the mini player attached.
-- **Sharing & ringtones** — a local track can be shared through the system share sheet, or set as the default ringtone / alarm sound.
-  - **How to use**: swipe a queue row right → advanced menu → share / set as ringtone / set as alarm (needs the modify-system-settings permission).
-- **In-app update** — automatically checks GitHub Releases once a day when returning to the foreground, or on demand; a download is verified against a SHA-256 digest before installation.
-  - **How to use**: tap the version number at the bottom of Settings → a manual check runs (a new version opens a dialog with the changelog and *Download* / *Later*, while up-to-date and failure both report a message) → the download triggers the system installer on completion. A failed download offers *Open in browser*, and downloads are HTTPS only.
-- **Storage management** — a dedicated page inventories usage per category, grouped by scope.
-  - **How to use**: Settings → Storage management (the page resamples on entry and supports pull-to-refresh) → *Clear cache* to clean the clearable group in one tap.
-- **Crash logging** — uncaught and caught exceptions are written to app-specific external storage, keeping today's log only and cleaning older ones automatically.
-  - **How to use**: tap `[日志]` at the bottom of Settings to share today's log through the system share sheet.
-- **Permission onboarding** — the first launch walks through permissions with a card dialog; the library permissions block, the rest are optional.
-  - **How to use**: the dialog lists all-files access, music access and image access — the three the home screen cannot work without — each with its own *Grant* button; Bluetooth, notifications and the battery-optimization whitelist (*background playback*) are appended only while they are missing and never stop the dialog from closing, and the whole list scrolls so no row is cut off on a small screen. Once the three library permissions are granted the dialog closes itself and the library scan starts automatically; a system settings page hands the app back on its own.
-
-### 7. Metadata Editing
-
-- **Metadata editing** — a page of its own for the embedded cover, the basic tags and the lyrics, each written straight back into the audio file: MP3 (ID3v2), FLAC, M4A/MP4, Ogg/Opus, and the lossless family AIFF/AIFC, DSDIFF, DSF, APE and WAV. Tags are rewritten through ranged streaming I/O, so a several-hundred-megabyte Hi-Res file is never held in memory to change one field.
-  - **How to use**: swipe a queue row right → advanced menu → *Edit metadata*. Tapping the cover opens its own menu (*Choose image* / *Remove cover*, the latter offered only when the file already carries one); title, artist and album are edited in place as single-line rows; the lyrics section lists each line as an original row plus a translation row that are edited on their own — an emptied translation clears it — and the section header switches between per-line and whole-text editing, where the whole-text box holds the enhanced LRC including its timestamps and word tags. There is no save button: an entry is written to the file after a short pause in typing and a pending edit is flushed when the page is left.
-  - **What it does not offer**: a track with no local audio file (a pure online stream, say) has no writable target, so the page shows a notice instead of the form rather than edit fields that could never land; formats outside the list above report a write failure after the fact.
-
----
-
-## Interaction Cheat Sheet
-
-| Where | Action | Result |
-| --- | --- | --- |
-| Home player page | Swipe right / left | Search page / playlist page |
-| Home player page | Swipe up / down | Next / previous track (switchable in settings; a held swipe previews first and cancels when it returns near the start) |
-| Portrait cover | Long-press | Search cover / local cover / save cover |
-| Portrait title & artist | Long-press / tap | Copy / rename / search; tapping the artist jumps to that artist's playlist |
-| Portrait lyrics area | Tap | Show or hide the lyric fine-tune buttons (100 ms per step) |
-| Portrait lyrics area | Long-press | Search / local lyrics / edit lyrics (edit this line, auto-translate) / word-level alignment |
-| Portrait lyrics area | Slow vertical drag | Lyrics follow your finger; releasing on a line plays from it |
-| Portrait lyrics area | Quick vertical flick | Lyrics stay put and the flick switches tracks |
-| Control bar | Long-press previous / next | Open the speed dialog |
-| Control bar | Swipe up on play/pause | Open the audio info panel (portrait only) |
-| Control bar | Long-press the queue button | Open the library analysis (portrait only) |
-| Control bar | Tap the queue button | Open the playback queue panel |
-| Control bar | Swipe up on the queue button | Open the playback queue panel (portrait and landscape) |
-| Format line under the progress bar | Tap | Audio-quality upgrade (when a proxy source is available) |
-| Queue row | Swipe left / right / long-press | Blacklist / advanced menu (share, ringtone, alarm, spectrum, edit metadata) / delete |
-| Custom playlist row | Drag the sort handle | Reorder tracks |
-| Landscape cover area | Tap | Enter the 3D cover carousel |
-| Floating panel | Swipe up / swipe down | Open the audio info / close the audio info |
-| Spectrum chart | Long-press | Share image / save image |
-| Daily recommendation card | Tap / broken-heart button | Play / blacklist it from recommendations |
-| Metadata page | Tap any row | Edit it in place; the change is written into the audio file automatically |
-
-## Screens
-
-| Screen | Contents |
-| --- | --- |
-| Home | Permission onboarding dialog (auto-hides once the three library permissions are granted, with Bluetooth / notifications / battery whitelist listed while missing), immersive player (full-width cover fading out at its lower edge in portrait, two columns with 3D lyric perspective and a four-edge feathered cover in landscape), synced lyrics, a refreshable, searchable and sortable playback queue, the playlist panel, the audio info panel (source / parameters / playback chain / current output device), search (custom platforms + the daily recommendation carousel), the library analysis entry, sleep timer, speed control and audio-quality upgrade |
-| Settings | Appearance (theme), Language, Playback (floating playback / word-by-word rendering / swipe to change track / background flow / USB exclusive) with a Typography entry, Proxy Source (import / enable / remove), Storage management entry, Blacklist (count and reset), About (version doubles as the update check, share today's log, GitHub, QQ group) |
-| Typography | Per-scene lyric font size, visible-line count and landscape 3D intensity for the music panel, home portrait and home landscape |
-| Storage | Cache inventory grouped into temporary files (clearable) / app data / user data, with totals, pull-to-refresh resampling and one-tap clearing |
-| Spectrum | Full-track time-frequency spectrogram (logarithmic frequency axis, dB colour scale, time labels), decoding progress, the source file's format parameters and size, and the same two verdicts the library analysis produces; long-press to share or save a 1920 px PNG |
-| Metadata | Embedded cover, title / artist / album and lyrics edited in place, every entry written back into the audio file automatically; lyrics are edited per line (original + translation) or as one enhanced-LRC text |
-
 ## Tech Stack
 
 | Layer | Technology |
@@ -262,6 +115,8 @@ Each feature is written as *what it is → how to use it*. Every path listed mat
 └── gradle.properties
 ```
 
+The interface spec for custom proxy sources lives in [忆潮代理音源规范](docs/忆潮代理音源规范.md) (Chinese).
+
 ## Architecture
 
 The app follows **MVVM with unidirectional data flow**: state flows down from `ViewModel` → `UiState` → UI, while events flow up from the UI to the `ViewModel`. Shared data logic lives in the `data/` layer behind a repository, and everything is wired together by **manual dependency injection** — every app-level singleton lives on the `Application` and is exposed to the UI through named CompositionLocals.
@@ -318,8 +173,8 @@ Permissions are requested from the onboarding dialog one at a time: the three li
 ### Build
 
 ```bash
-git clone https://github.com/Evilgodxu/YiChao-Music.git
-cd YiChao-Music
+git clone https://github.com/Evilgodxu/EchoTide-Music.git
+cd EchoTide-Music
 
 # Debug APK
 ./gradlew assembleDebug
