@@ -112,12 +112,20 @@ internal fun ProgressSection(
                                 event.changes.forEach { if (!it.isConsumed) it.consume() }
                                 val pos = event.changes.first().position.x / size.width
                                 seekFraction = pos.coerceIn(0f, 1f)
-                                isSeeking = true
-                                if (event.changes.first().pressed) {
-                                    seekTo(playbackState, (seekFraction * playbackState.duration).toLong())
-                                    playbackState.setCurrentPosition((seekFraction * playbackState.duration).toLong().coerceIn(0L, playbackState.duration))
-                                }
-                                if (event.changes.all { !it.pressed }) {
+                                if (event.changes.any { it.pressed }) {
+                                    // 按住期间只让显示跟随手指，播放位置维持按下前的状态：拖动途中连续
+                                    // 下发位置会让进度反复跳变，且每次都作废歌词时间轴快照
+                                    isSeeking = true
+                                } else {
+                                    // 松手才跳转。单击同为「按下即抬起」，与拖动走同一条路径完成定位；
+                                    // 时长未知（曲目未就绪）时不下发无意义的定位
+                                    if (playbackState.duration > 0L) {
+                                        val targetPosition = (seekFraction * playbackState.duration).toLong()
+                                            .coerceIn(0L, playbackState.duration)
+                                        seekTo(playbackState, targetPosition)
+                                        // 立刻回写位置：等控制器回报期间显示值不被钳回拖动前的进度
+                                        playbackState.setCurrentPosition(targetPosition)
+                                    }
                                     isSeeking = false
                                 }
                             }
@@ -200,7 +208,8 @@ private fun formatKhz(rate: Int): String {
 }
 
 // 进度条显示值：正常播放的逐帧小增量直接贴合真实进度，仅当位置大幅跳变时（冷启动还原、
-// 手动拖动定位、切歌重载）以过渡动画平滑到达，避免进度条突兀跳动。拖动中恒跟随手指不插值。
+// 切歌重载）以过渡动画平滑到达，避免进度条突兀跳动。拖动中恒跟随手指不插值；定位在松手时
+// 才下发，故松手当帧目标值与显示值一致，不经跳变动画。
 // 进度以 [trackKey]（当前曲目）为作用域：切歌时旧曲显示基准随之重建，使新曲进度
 // 直接贴合到起点，避免从旧曲中途位置回退到 0 的冗余动画。
 // 回前台不属跳变：后台期间进度照常推进，窗口重新可见时直接显示当前进度，不做补间。
