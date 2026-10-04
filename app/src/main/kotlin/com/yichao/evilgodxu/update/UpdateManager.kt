@@ -56,7 +56,7 @@ object UpdateManager {
 
     // GitHub 仓库配置
     private const val GITHUB_OWNER = "Evilgodxu"
-    private const val GITHUB_REPO = "YiChao-Music"
+    private const val GITHUB_REPO = "EchoTide-Music"
     const val GITHUB_REPOSITORY_URL = "https://github.com/$GITHUB_OWNER/$GITHUB_REPO"
 
     private val json = Json { ignoreUnknownKeys = true }
