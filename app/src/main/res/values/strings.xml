@@ -32,7 +32,6 @@
     <!-- 权限状态 -->
     <string name="home_permission_title">权限状态</string>
     <string name="home_permission_hint">授予全部权限后此页面将自动关闭</string>
-    <string name="permission_granted">已授权</string>
     <string name="permission_request">去授权</string>
     <string name="permission_all_files_title">全部文件</string>
     <string name="permission_music_title">音乐访问</string>

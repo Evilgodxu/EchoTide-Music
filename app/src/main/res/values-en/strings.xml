@@ -32,7 +32,6 @@
     <!-- Permissions -->
     <string name="home_permission_title">Permissions</string>
     <string name="home_permission_hint">This page closes automatically once all permissions are granted</string>
-    <string name="permission_granted">Granted</string>
     <string name="permission_request">Grant</string>
     <string name="permission_all_files_title">All files access</string>
     <string name="permission_music_title">Music access</string>

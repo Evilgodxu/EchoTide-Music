@@ -48,7 +48,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.screens.home.HomeUiState
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 权限状态对话框：任一权限缺失时列出并逐项申请，全部授权后自动隐藏。
+// 权限状态对话框：只列出缺失的权限并逐项申请，某项授予后该行即时消失，全部授权后对话框自动隐藏。
 // 所有权限统一由这里的按钮发起：系统弹窗没有用途说明也不体现先后顺序，
 // 启动时替用户弹出会让其在不了解用途的情况下授权与拒绝
 @Composable
@@ -64,11 +64,12 @@ fun PermissionDialog(
     // LocalContext 为本地化包装 context，宿主 Activity 需从注册表所有者获取
     val activity = LocalActivityResultRegistryOwner.current as? Activity
 
-    // 电池优化白名单：已加入时不重复申请；授权页返回后由权限监控把应用带回前台
+    // 电池优化白名单：已加入时不重复申请；授权页在宿主任务内打开，返回即回到本应用，
+    // 权限监控再兜底把应用带回前台
     val requestBatteryWhitelist: () -> Unit = {
         if (!isBatteryOptimizationIgnored(context)) {
             activity?.let { onStartPermissionMonitor(PermissionType.BATTERY_OPTIMIZATION, it) }
-            requestIgnoreBatteryOptimizations(context)
+            requestIgnoreBatteryOptimizations(context, activity)
         }
     }
 
@@ -158,63 +159,69 @@ fun PermissionDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    PermissionCardRow(
-                        icon = {
-                            Icon(
-                                AppIcons.Folder,
-                                null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        },
-                        title = stringResource(R.string.permission_all_files_title),
-                        granted = uiState.allFilesGranted,
-                        onRequest = {
-                            // 跳转系统设置前启动权限监控，授权后自动返回本应用
-                            activity?.let {
-                                onStartPermissionMonitor(PermissionType.MANAGE_EXTERNAL_STORAGE, it)
-                            }
-                            val intent = Intent(
-                                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                                "package:${context.packageName}".toUri(),
-                            )
-                            if (activity != null) {
-                                activity.startActivity(intent)
-                            } else {
-                                // 无宿主 Activity 时需加 NEW_TASK
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                context.startActivity(intent)
-                            }
-                        },
-                    )
-                    PermissionCardRow(
-                        icon = {
-                            Icon(
-                                AppIcons.MusicNote,
-                                null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        },
-                        title = stringResource(R.string.permission_music_title),
-                        granted = uiState.mediaAudioGranted,
-                        onRequest = {
-                            runtimePermissionLauncher.launch(arrayOf(mediaAudioPermission()))
-                        },
-                    )
-                    PermissionCardRow(
-                        icon = {
-                            Icon(
-                                AppIcons.Image,
-                                null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        },
-                        title = stringResource(R.string.permission_image_title),
-                        granted = uiState.mediaImageGranted,
-                        onRequest = {
-                            runtimePermissionLauncher.launch(arrayOf(mediaImagePermission()))
-                        },
-                    )
-                    // 蓝牙、通知与电池优化白名单仅在缺失时列出：三者都不参与对话框关闭判定，
+                    if (!uiState.allFilesGranted) {
+                        PermissionCardRow(
+                            icon = {
+                                Icon(
+                                    AppIcons.Folder,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            },
+                            title = stringResource(R.string.permission_all_files_title),
+                            onRequest = {
+                                // 跳转系统设置前启动权限监控，授权后自动返回本应用
+                                activity?.let {
+                                    onStartPermissionMonitor(
+                                        PermissionType.MANAGE_EXTERNAL_STORAGE,
+                                        it,
+                                    )
+                                }
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                    "package:${context.packageName}".toUri(),
+                                )
+                                if (activity != null) {
+                                    activity.startActivity(intent)
+                                } else {
+                                    // 无宿主 Activity 时需加 NEW_TASK
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(intent)
+                                }
+                            },
+                        )
+                    }
+                    if (!uiState.mediaAudioGranted) {
+                        PermissionCardRow(
+                            icon = {
+                                Icon(
+                                    AppIcons.MusicNote,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            },
+                            title = stringResource(R.string.permission_music_title),
+                            onRequest = {
+                                runtimePermissionLauncher.launch(arrayOf(mediaAudioPermission()))
+                            },
+                        )
+                    }
+                    if (!uiState.mediaImageGranted) {
+                        PermissionCardRow(
+                            icon = {
+                                Icon(
+                                    AppIcons.Image,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            },
+                            title = stringResource(R.string.permission_image_title),
+                            onRequest = {
+                                runtimePermissionLauncher.launch(arrayOf(mediaImagePermission()))
+                            },
+                        )
+                    }
+                    // 蓝牙、通知与电池优化白名单同样仅在缺失时列出，但三者都不参与对话框关闭判定：
                     // 否则用户拒绝其一就会让首页被权限对话框永久占用
                     if (!uiState.bluetoothConnectGranted) {
                         PermissionCardRow(
@@ -226,7 +233,6 @@ fun PermissionDialog(
                                 )
                             },
                             title = stringResource(R.string.permission_bluetooth_title),
-                            granted = false,
                             onRequest = {
                                 runtimePermissionLauncher.launch(arrayOf(bluetoothConnectPermission()))
                             },
@@ -242,7 +248,6 @@ fun PermissionDialog(
                                 )
                             },
                             title = stringResource(R.string.permission_notification_title),
-                            granted = false,
                             onRequest = requestNotificationPermission,
                         )
                     }
@@ -256,7 +261,6 @@ fun PermissionDialog(
                                 )
                             },
                             title = stringResource(R.string.permission_battery_title),
-                            granted = false,
                             onRequest = requestBatteryWhitelist,
                         )
                     }

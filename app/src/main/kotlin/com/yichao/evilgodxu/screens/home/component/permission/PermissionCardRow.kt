@@ -21,22 +21,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.theme.LocalSuccessColor
 
-// 权限条目行：图标 | 标题 | 状态标签，未授权时点击可申请
+// 权限条目行：图标 | 标题 | 授权入口。
+// 只用于尚未授予的权限（已授予的行由对话框直接移除），故恒可点击
 @Composable
 fun PermissionCardRow(
     title: String,
-    granted: Boolean,
     onRequest: () -> Unit,
     icon: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val successColor = LocalSuccessColor.current
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(enabled = !granted, onClick = onRequest)
+            .clickable(onClick = onRequest)
             .background(
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 shape = RoundedCornerShape(16.dp),
@@ -69,19 +67,14 @@ fun PermissionCardRow(
 
         Spacer(Modifier.width(8.dp))
 
-        val (label, tagColor) = if (granted) {
-            stringResource(R.string.permission_granted) to successColor
-        } else {
-            stringResource(R.string.permission_request) to MaterialTheme.colorScheme.primary
-        }
         Text(
-            text = label,
+            text = stringResource(R.string.permission_request),
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
-            color = tagColor,
+            color = MaterialTheme.colorScheme.primary,
             modifier = Modifier
                 .background(
-                    color = tagColor.copy(alpha = 0.12f),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                     shape = RoundedCornerShape(10.dp),
                 )
                 .padding(horizontal = 10.dp, vertical = 4.dp),
