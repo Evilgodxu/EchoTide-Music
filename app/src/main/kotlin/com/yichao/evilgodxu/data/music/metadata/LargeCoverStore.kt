@@ -75,7 +75,11 @@ internal object LargeCoverStore {
      */
     suspend fun quick(context: Context, track: MusicTrack): Bitmap? {
         resident.get(track.audioUri)?.let { return it }
-        withContext(Dispatchers.IO) { decodeFile(fileFor(context, track.audioUri)) }?.let { cached ->
+        val startGeneration = generation
+        val cached = withContext(Dispatchers.IO) { decodeFile(fileFor(context, track.audioUri)) }
+        // 落盘档须与本次取图同代：作废（封面重写）期间读到或回填的旧档一律丢弃，
+        // 否则它会被重新驻留、并作为「首帧图」交给显示端，封面停在旧图
+        if (cached != null && startGeneration == generation) {
             resident.put(track.audioUri, cached)
             return cached
         }
@@ -139,7 +143,9 @@ internal object LargeCoverStore {
     private suspend fun loadHighRes(context: Context, track: MusicTrack): Bitmap? {
         val startGeneration = generation
         resident.get(track.audioUri)?.let { return it }
-        withContext(Dispatchers.IO) { decodeFile(fileFor(context, track.audioUri)) }?.let { cached ->
+        val cached = withContext(Dispatchers.IO) { decodeFile(fileFor(context, track.audioUri)) }
+        // 与 quick 同一口径：作废后才读到或回填的落盘档不成立，改由下一行解内嵌原图取新档
+        if (cached != null && startGeneration == generation) {
             resident.put(track.audioUri, cached)
             return cached
         }

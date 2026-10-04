@@ -34,6 +34,11 @@ internal object CurrentCoverCache {
     @Volatile
     private var resident: Pair<String, Bitmap>? = null
 
+    // 作废代数：封面重写会清空落盘与内存镜像，此时仍在飞的读盘拿到的是旧图，
+    // 回填会把刚作废的封面重新写回内存镜像，故在回填前用它一票否决
+    @Volatile
+    private var generation = 0
+
     /** 缓存落点：供缓存台账统计与回收引用，路径只在此定义一次 */
     fun location(context: Context): File = File(context.cacheDir, DIR_NAME)
 
@@ -43,8 +48,13 @@ internal object CurrentCoverCache {
     /** 读回该曲目的落盘封面：未落盘或解码失败返回 null，命中后驻留内存镜像 */
     suspend fun load(context: Context, audioUri: String): Bitmap? {
         peek(audioUri)?.let { return it }
+        val startGeneration = generation
         return withContext(Dispatchers.IO) {
-            decode(fileFor(context, audioUri))?.also { resident = audioUri to it }
+            // 落盘档须与本次读取同代：读盘期间被作废的档不再驻留、也不交给调用方，
+            // 由调用方回退到封面取图入口拿到新图
+            decode(fileFor(context, audioUri))
+                ?.takeIf { startGeneration == generation }
+                ?.also { resident = audioUri to it }
         }
     }
 
@@ -72,6 +82,7 @@ internal object CurrentCoverCache {
 
     /** 作废落盘封面与内存镜像：封面被重写后旧图不再成立 */
     suspend fun clear(context: Context) {
+        generation++
         resident = null
         withContext(Dispatchers.IO) { runCatching { location(context).deleteRecursively() } }
     }
