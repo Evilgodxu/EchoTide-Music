@@ -1,5 +1,6 @@
 package com.yichao.evilgodxu.screens.metadata
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -52,11 +53,22 @@ fun MetadataScreen(
         onDispose { viewModel.flushPending() }
     }
 
+    // 返回分两步：编辑态下先退出编辑回到展示态，再返回一次才离开页面。用户按返回多半是
+    // 想收回输入框核对内容，此时把整页带走会把「收起编辑」当成「离开页面」。
+    // 键盘可见时第一下返回由输入法消费（仅收起键盘，编辑态与焦点保留），不经过此处 ——
+    // 用户得以继续核对刚输入的内容，键盘收起后再返回才收起编辑态。
+    // 顶栏返回箭头与系统返回键共用本处理，两种入口的返回语义保持一致
+    val handleBack: () -> Unit = {
+        if (uiState.editing != null) viewModel.onEditEnd() else onBack()
+    }
+    // 仅在编辑态下拦截系统返回键，其余情况交给导航栈自行回退
+    BackHandler(enabled = uiState.editing != null, onBack = handleBack)
+
     // 形态分派：旋转状态与窗口宽度尺寸类共同决定显示内容
     if (rememberExpandedForm()) {
         ExpandedAssembly(
             uiState = uiState,
-            onBack = onBack,
+            onBack = handleBack,
             onEditStart = viewModel::onEditStart,
             onEditEnd = viewModel::onEditEnd,
             onTitleChange = viewModel::onTitleChange,
@@ -72,7 +84,7 @@ fun MetadataScreen(
     } else {
         CompactAssembly(
             uiState = uiState,
-            onBack = onBack,
+            onBack = handleBack,
             onEditStart = viewModel::onEditStart,
             onEditEnd = viewModel::onEditEnd,
             onTitleChange = viewModel::onTitleChange,
