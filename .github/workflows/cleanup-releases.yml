@@ -14,14 +14,14 @@ jobs:
   cleanup:
     runs-on: ubuntu-24.04
     steps:
-      - name: Delete old releases keeping only latest 5
+      - name: Delete old releases keeping only latest 2
         env:
           # gh 不读取 GITHUB_REPOSITORY，默认依赖工作区的 git remote 推断仓库；
           # 显式声明仓库可省去 checkout（发布管理无需克隆代码）
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          RETAIN=5
+          RETAIN=2
 
           # 仅草稿外的 Release 参与保留计数，避免误删尚未发布的版本；
           # --limit 设置为远超当前体量的值，防止默认 100 条截断漏清理
