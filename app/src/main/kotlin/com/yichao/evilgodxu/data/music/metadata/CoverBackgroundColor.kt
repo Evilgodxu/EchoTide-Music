@@ -41,6 +41,12 @@ private const val LIGHTNESS_CEIL = 0.94f
 // 近灰像素不作主色：灰正是「平均值偏灰」这一观感的源头，先把它挡在候选之外
 private const val SATURATION_FLOOR = 0.08f
 
+// 可采纳色彩的最低色度：色度取最大与最小通道之差，是与明度无关的「有多少颜色」度量。
+// 暗处同样要有最低色度——那里的一点色度多来自压缩噪声，整幅平铺时会被读成一层偏色
+// （近黑底上泛出的紫大多如此）；门槛随明度抬高放宽，纯白处为 0，
+// 因为浅色处的弱彩是封面真实的淡彩，两者观感不同
+private const val DARK_CHROMA_FLOOR = 0.10f
+
 // 簇得分权重：彩度权重最高，因为背景要的是「有颜色」；占比次之，挡住偶发噪声色；
 // 明度适中性再次，挡住过暗与过亮的簇
 private const val SCORE_POPULATION_WEIGHT = 0.36f
@@ -108,6 +114,9 @@ internal data class CoverBackgroundColors(
  *
  * 近黑、近白与近灰像素不进候选（见 ColorQuantizer.isTrustedSample），
  * 但一段内可用像素过少时会回退到边缘环全集，纯黑与灰阶封面仍能取到色。
+ * 「取到色」之后还要过一道色度的门槛：段内平均色达不到其明度下的最低色度（见 minChromaOf）时，
+ * 该段判为无彩，主色只保留明度——择优挑出的可能是噪声里最有彩的那一撮，
+ * 它的色相不代表这段的边缘色（见 [DARK_CHROMA_FLOOR]）。
  * 三段色随后向基准色收敛色相与明度并做饱和度补偿（见 harmonizeEdgeColors），
  * 背景流动的三个色块因此是相近色，叠画后过渡自然。
  *
@@ -165,6 +174,8 @@ private fun Bitmap.edgeColors(): CoverBackgroundColors? {
     val covered = Array(EDGE_SEGMENT_COUNT) { IntArray(trusted[it].size) }
     val trustedCount = IntArray(EDGE_SEGMENT_COUNT)
     val coveredCount = IntArray(EDGE_SEGMENT_COUNT)
+    // 段内各通道的和，用于求段内平均色：判定该段带不带得住色彩只依据平均色
+    val coveredSum = Array(EDGE_SEGMENT_COUNT) { LongArray(3) }
     val sampleHsl = FloatArray(3)
 
     for (y in 0 until height) {
@@ -176,6 +187,9 @@ private fun Bitmap.edgeColors(): CoverBackgroundColors? {
             val pixel = pixels[row + x]
             if (((pixel ushr 24) and 0xFF) < OPAQUE_ALPHA_MIN) continue
             covered[segment][coveredCount[segment]++] = pixel
+            coveredSum[segment][0] += (pixel ushr 16) and 0xFF
+            coveredSum[segment][1] += (pixel ushr 8) and 0xFF
+            coveredSum[segment][2] += pixel and 0xFF
             if (ColorQuantizer.isTrustedSample(pixel, sampleHsl)) {
                 trusted[segment][trustedCount[segment]++] = pixel
             }
@@ -187,10 +201,16 @@ private fun Bitmap.edgeColors(): CoverBackgroundColors? {
     for (index in 0 until EDGE_SEGMENT_COUNT) {
         // 优质像素不足时改用全集：纯黑与灰阶封面不会被过滤条件清空
         val useTrusted = trustedCount[index] >= MIN_TRUSTED_PIXELS
-        segmentColors[index] = quantizer.dominantColor(
+        val dominant = quantizer.dominantColor(
             pixels = if (useTrusted) trusted[index] else covered[index],
             count = if (useTrusted) trustedCount[index] else coveredCount[index],
         )
+        // 段内平均色带不住色彩时本段判为无彩：色相与饱和度都不采纳，只留明度，底色因此是中性灰而不是偏色。
+        // 判据取整段平均色而非择优簇——噪声在暗处的色度集中在最有彩的那一撮上，择优恰好会挑中它
+        val meanHsl = coveredSum[index].meanHsl(coveredCount[index])
+        segmentColors[index] = dominant?.let { color ->
+            if (meanHsl == null || meanHsl.isChromatic()) color else color.neutralized()
+        }
     }
     // 全段无非透明像素时没有可用色调
     val available = segmentColors.filterNotNull()
@@ -201,6 +221,30 @@ private fun Bitmap.edgeColors(): CoverBackgroundColors? {
     val segments = List(EDGE_SEGMENT_COUNT) { segmentColors[it] ?: baseHsl }
     return harmonizeEdgeColors(segments, baseHsl)
 }
+
+// 段内平均色：整段不透明像素的算术平均，段内无像素时返回 null
+private fun LongArray.meanHsl(count: Int): FloatArray? {
+    if (count <= 0) return null
+    val hsl = FloatArray(3)
+    ColorUtils.colorToHSL(
+        0xFF shl 24 or ((this[0] / count).toInt() shl 16) or ((this[1] / count).toInt() shl 8) or
+            (this[2] / count).toInt(),
+        hsl,
+    )
+    return hsl
+}
+
+// 该色是否带得住色彩：明度越低要求的最低色度越高，详见 minChromaOf
+private fun FloatArray.isChromatic(): Boolean = chroma() >= minChromaOf(this[2])
+
+// 去掉色彩只留明度：色相与饱和度都来自噪声，留下只会让底色偏色
+private fun FloatArray.neutralized(): FloatArray = floatArrayOf(this[0], 0f, this[2])
+
+// 色度：最大通道与最小通道之差，与明度无关，同色度下明度高低都不改变它的值
+private fun FloatArray.chroma(): Float = 2f * minOf(this[2], 1f - this[2]) * this[1]
+
+// 某明度下可采纳的最低色度：近黑的底色带不住色彩，门槛随明度抬高线性放宽到纯白处的 0
+private fun minChromaOf(lightness: Float): Float = DARK_CHROMA_FLOOR * (1f - lightness)
 
 /**
  * 段内取色的量化器：直方图与各临时缓冲跨段复用，避免每段重新分配。
@@ -399,6 +443,7 @@ private fun quantize(pixel: Int): Int {
 private fun dequantize(level: Int): Int = (level shl QUANTIZE_SHIFT) + (1 shl (QUANTIZE_SHIFT - 1))
 
 // 三段主色的基准：色相取圆形平均（色相是环形量，直接算术平均在 0°/360° 交界处会出错），
+// 各段的色相按其色度加权——无彩色的色相只是噪声，不该左右三段共同的基准；
 // 明度与饱和度取算术平均。基准只作三段收敛的中心与空段的回退色
 private fun averageHsl(colors: List<FloatArray>): FloatArray {
     var x = 0f
@@ -406,9 +451,10 @@ private fun averageHsl(colors: List<FloatArray>): FloatArray {
     var saturation = 0f
     var lightness = 0f
     colors.forEach { hsl ->
+        val weight = hsl.chroma()
         val radians = hsl[0] * PI / 180.0
-        x += cos(radians).toFloat()
-        y += sin(radians).toFloat()
+        x += weight * cos(radians).toFloat()
+        y += weight * sin(radians).toFloat()
         saturation += hsl[1]
         lightness += hsl[2]
     }

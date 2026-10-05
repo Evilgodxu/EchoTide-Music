@@ -68,10 +68,10 @@ private const val COVER_BACKGROUND_BLUR_RADIUS = 15
 // 流动帧间隔：与显示帧率对齐约 30fps，低于此间隔的重绘并入下一帧
 private const val COVER_BACKGROUND_FLOW_FRAME_INTERVAL_MS = 32L
 
-// 静态底色压暗强度：关闭流动时背景只剩一条自上而下的渐变，均匀压暗给前景文字留出对比。
-// 单值均匀压暗，不随位置变化。流动帧另按 [coverScrimStops] 渐变压暗。
-// 本层与下面的流动帧蒙层、压暗层同乘底色的明度系数（见 [dimScaleOf]）
-private const val COVER_BACKGROUND_DIM_ALPHA = 0.15f
+// 压暗强度的下限：底色的明度再高，各层压暗也不低于这一强度。压暗层同时承担前景文字与状态栏的
+// 对比，浅色底若按明度一路减下去，对比就不够了。关闭流动时的静态底色压暗层正按这一强度铺开，
+// 故它不参与明度收敛；流动帧的压暗层与蒙层基准强度更高，收敛后由本值兜底
+private const val DIM_MIN_ALPHA = 0.15f
 
 // 压暗的明度自适应：底色相对亮度低于 [DIM_LUMINANCE_DARK] 时全额压暗，高于 [DIM_LUMINANCE_LIGHT] 时
 // 降到 [DIM_LIGHT_SCALE]，区间内线性收敛。浅色封面衍生出的浅色底一旦按深色底的强度压暗，
@@ -79,7 +79,7 @@ private const val COVER_BACKGROUND_DIM_ALPHA = 0.15f
 private const val DIM_LUMINANCE_DARK = 0.12f
 private const val DIM_LUMINANCE_LIGHT = 0.60f
 
-// 浅色底保留的压暗比例：压暗层同时承担前景文字与状态栏的对比，浅色底不能完全不压
+// 浅色底保留的压暗比例：明度最高的底色按此比例压缩帧上的压暗强度，压不到下限的由下限兜住
 private const val DIM_LIGHT_SCALE = 0.4f
 
 // 流动帧压暗层的顶端与底端强度：帧由封面叠画而来、整体偏亮，压暗上下边缘保证状态栏与前景文字可读
@@ -87,7 +87,7 @@ private const val COVER_SCRIM_TOP_ALPHA = 0.18f
 private const val COVER_SCRIM_BOTTOM_ALPHA = 0.30f
 
 // 流动帧两层蒙层的强度：第一层以封面主色（向黑收敛 [WASH_PRIMARY_DARKEN]）把画面中占比小的杂色
-// 拉向主色，第二层中性黑只负责压暗、不改变色相。两层的暗化量同乘底色的明度系数
+// 拉向主色，第二层中性黑只负责压暗、不改变色相。两层的暗化量同乘底色的明度系数，强度由 [dimAlpha] 兜底
 private const val WASH_PRIMARY_DARKEN = 0.28f
 private const val WASH_PRIMARY_ALPHA = 0.34f
 private const val WASH_SECONDARY_ALPHA = 0.18f
@@ -101,29 +101,43 @@ private const val COVER_SCRIM_SAMPLE_SEGMENTS = 12
 // 流动帧压暗层色标：顶端 [COVER_SCRIM_TOP_ALPHA] 平滑收敛到 [COVER_SCRIM_ZERO_FRACTION] 处为 0，
 // 再平滑增强到底端 [COVER_SCRIM_BOTTOM_ALPHA]。两半都取自 [smoothFadeAlpha]，
 // 两端与归零点的斜率均为 0：压暗层自身不会在背景中段留下层次分界。
-// [scale] 为底色的明度系数（见 dimScaleOf），两端强度按它整体缩放，浅色底压得更轻。
-// 色标只与常量有关，同一系数下构造一次即可复用
-private fun coverScrimStops(scale: Float): Array<Pair<Float, Color>> = buildList {
-    for (segment in 0 until COVER_SCRIM_SAMPLE_SEGMENTS) {
-        val t = segment.toFloat() / COVER_SCRIM_SAMPLE_SEGMENTS
-        add(
-            COVER_SCRIM_ZERO_FRACTION * t to
-                Color.Black.copy(alpha = COVER_SCRIM_TOP_ALPHA * scale * smoothFadeAlpha(t)),
-        )
-    }
-    for (segment in 0..COVER_SCRIM_SAMPLE_SEGMENTS) {
-        val t = segment.toFloat() / COVER_SCRIM_SAMPLE_SEGMENTS
-        add(
-            (COVER_SCRIM_ZERO_FRACTION + (1f - COVER_SCRIM_ZERO_FRACTION) * t) to
-                Color.Black.copy(alpha = COVER_SCRIM_BOTTOM_ALPHA * scale * (1f - smoothFadeAlpha(t))),
-        )
-    }
-}.toTypedArray()
+// [scale] 为底色的明度系数（见 dimScaleOf），两端强度按它缩放并由 [dimAlpha] 兜住下限；
+// 中段的归零点不受下限约束——上半段的收尾与下半段的起始都要落在那里才接得上。
+// 色标形状只与常量有关，同一系数下构造一次即可复用
+private fun coverScrimStops(scale: Float): Array<Pair<Float, Color>> {
+    val topAlpha = dimAlpha(COVER_SCRIM_TOP_ALPHA, scale)
+    val bottomAlpha = dimAlpha(COVER_SCRIM_BOTTOM_ALPHA, scale)
+    return buildList {
+        for (segment in 0 until COVER_SCRIM_SAMPLE_SEGMENTS) {
+            val t = segment.toFloat() / COVER_SCRIM_SAMPLE_SEGMENTS
+            add(
+                COVER_SCRIM_ZERO_FRACTION * t to
+                    Color.Black.copy(alpha = topAlpha * smoothFadeAlpha(t)),
+            )
+        }
+        for (segment in 0..COVER_SCRIM_SAMPLE_SEGMENTS) {
+            val t = segment.toFloat() / COVER_SCRIM_SAMPLE_SEGMENTS
+            add(
+                (COVER_SCRIM_ZERO_FRACTION + (1f - COVER_SCRIM_ZERO_FRACTION) * t) to
+                    Color.Black.copy(alpha = bottomAlpha * (1f - smoothFadeAlpha(t))),
+            )
+        }
+    }.toTypedArray()
+}
+
+/**
+ * 明度系数对应的压暗强度：按系数缩放，并以 [DIM_MIN_ALPHA] 兜底。
+ * 兜底与缩放同样重要——浅色底压得更轻是为了贴合封面外缘的观感，
+ * 轻到前景文字与状态栏看不出对比便失去了压暗层的意义。
+ */
+private fun dimAlpha(fullAlpha: Float, scale: Float): Float =
+    (fullAlpha * scale).coerceAtLeast(DIM_MIN_ALPHA)
 
 /**
  * 底色明度对应的压暗系数：相对亮度越高系数越低，浅色底因此压得更轻。
- * 相对亮度按人眼感知加权（[luminance]），与按色相/饱和度取值的取色模块口径不同：
+ * 相对亮度按人眼感知加权（[luminance]），与按色相/饱和度取色的取色模块口径不同：
  * 这里要判的是「这个底色看上去有多亮」，而非它是不是有彩。
+ * 系数只决定帧上各层压暗的相对轻，绝对强度由 [dimAlpha] 兜住下限。
  * 无底色可依据时取 1，即维持原有的全额压暗。
  */
 private fun dimScaleOf(color: Color?): Float {
@@ -194,8 +208,9 @@ private data class BackgroundBase(
 // 底色取自封面边缘的三段相近色（见 extractCoverBackgroundColors）：关闭「背景流动」时只铺一条
 // 由三段色构成的自上而下渐变，开启后在其上叠一层缓慢漂移的封面叠画帧（见 renderCoverBackgroundFrame），
 // 帧内以封面主色与中性黑压暗、其上再按 [coverScrimStops] 渐变压暗；关掉流动即撤下帧回到渐变。
-// 各层压暗强度都随底色的明度收敛（见 [dimScaleOf]）：浅色封面叠出的浅色背景只轻度压暗，
-// 保持与封面外缘同色调，封面渐隐带上不出现暗色差带。
+// 帧上的压暗层与蒙层随底色的明度收敛（见 [dimScaleOf]）：浅色封面叠出的浅色背景只轻度压暗，
+// 保持与封面外缘同色调，封面渐隐带上不出现暗色差带；收敛后各层强度由 [DIM_MIN_ALPHA] 兜底，
+// 静态底色压暗层恒定按该强度铺开——浅色底同样要留出前景文字与状态栏的对比。
 // 三段取色未就绪时先回落 [restoredColor]（上次持久化的取色结果）整幅铺色，避免冷启动首帧闪默认色。
 // 底色有变时上一份底色与当前底色交叠一处：切歌按方向整屏横移，同曲取色落地则原地淡出，
 // 两种情形都不会瞬间跳变。
@@ -257,7 +272,7 @@ internal fun SongImmersiveBackground(
     var lastBase by remember { mutableStateOf<BackgroundBase?>(null) }
     // 实际铺开的底色：取色未定论时仍是当前这份；连一份都还没有（冷启动首帧）才回落历史取色与默认渐变
     val base = targetBase ?: lastBase ?: BackgroundBase(colors = null, solid = restoredColor)
-    // 本层压暗层与下方流动帧蒙层共用的明度系数：底色越浅压得越轻（见 dimScaleOf）
+    // 流动帧各层压暗共用的明度系数：底色越浅压得越轻（见 dimScaleOf），强度由 dimAlpha 兜住下限
     val dimScale = remember(base) { dimScaleOf(base.tone) }
     // 当前铺开的底色是否沿用自上一曲：取色未定论期间为真，落地后归假。
     // 它与「上一份有没有取色」合起来判定本次是不是取色落地——落在两处之一都不该按键类型横移
@@ -318,12 +333,13 @@ internal fun SongImmersiveBackground(
         }
     }
 
-    // 流动帧蒙层（见 WASH_* 常量）：两层的暗化量都按 [dimScale] 缩放，浅色封面叠出的浅色帧因此不会被压暗成另一种色调
+    // 流动帧蒙层（见 WASH_* 常量）：两层的暗化量都按 [dimScale] 缩放，浅色封面叠出的浅色帧因此不会被压暗成另一种色调；
+    // 强度由 [dimAlpha] 兜住下限，浅色帧上也要留出前景文字与状态栏的对比
     val washPrimary = remember(background, dimScale) {
         lerp(background, Color.Black, WASH_PRIMARY_DARKEN * dimScale)
-            .copy(alpha = WASH_PRIMARY_ALPHA * dimScale)
+            .copy(alpha = dimAlpha(WASH_PRIMARY_ALPHA, dimScale))
     }
-    val washSecondary = remember(dimScale) { Color.Black.copy(alpha = WASH_SECONDARY_ALPHA * dimScale) }
+    val washSecondary = remember(dimScale) { Color.Black.copy(alpha = dimAlpha(WASH_SECONDARY_ALPHA, dimScale)) }
     LaunchedEffect(thumbnail, flowEnabled, viewportSize, flowTimeMs, washPrimary, washSecondary) {
         val cover = thumbnail?.asAndroidBitmap()
         frame = if (!flowEnabled || cover == null || viewportSize.width <= 0 || viewportSize.height <= 0) {
@@ -368,11 +384,11 @@ internal fun SongImmersiveBackground(
         ) {
             Box(modifier = Modifier.fillMaxSize().background(base.brush()))
             // 静态底色压暗层：关闭流动时背景只剩这条渐变，均匀压暗给前景文字留出对比。
-            // 强度沿全幅一致，不随位置变化，因而不产生亮度层次分界；浅色底按 [dimScale] 减弱
+            // 强度沿全幅一致，不随位置变化，因而不产生亮度层次分界；按压暗下限铺开，浅色底也是这个强度
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = COVER_BACKGROUND_DIM_ALPHA * dimScale)),
+                    .background(Color.Black.copy(alpha = DIM_MIN_ALPHA)),
             )
             // 流动帧整幅铺满并盖住静态底色；帧内已做整体模糊，封面叠画的边界不显形
             frame?.let { bitmap ->
@@ -383,7 +399,8 @@ internal fun SongImmersiveBackground(
                     modifier = Modifier.fillMaxSize(),
                 )
                 // 流动帧压暗层：帧整体偏亮，压暗上下边缘保证状态栏与前景文字可读。
-                // 归零点与两端斜率均为 0，不会在背景中段留下亮度分界
+                // 归零点与两端斜率均为 0，不会在背景中段留下亮度分界；
+                // 两端强度按底色明度收敛，并由 [DIM_MIN_ALPHA] 兜底
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -396,7 +413,8 @@ internal fun SongImmersiveBackground(
         // 横移时向离开侧等速移出，与当前底色层同速：两层的偏移量之和恒为一屏宽，
         // 全程首尾相接拼满整屏，谁也不会先离开而露出空档
         transition?.let { previous ->
-            // 退场层按旧底色自己的明度系数压暗：复刻的是切歌那一刻的画面，不随新底的深浅变化
+            // 退场层里的流动帧按旧底色自己的明度系数压暗：复刻的是切歌那一刻的画面，不随新底的深浅变化。
+            // 静态压暗层是定值，新旧两层自然一致
             val previousDimScale = remember(previous) { dimScaleOf(previous.base.tone) }
             val previousScrimStops = remember(previousDimScale) { coverScrimStops(previousDimScale) }
             Box(
@@ -415,7 +433,7 @@ internal fun SongImmersiveBackground(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = COVER_BACKGROUND_DIM_ALPHA * previousDimScale)),
+                        .background(Color.Black.copy(alpha = DIM_MIN_ALPHA)),
                 )
                 // 冻结的流动帧连同其压暗层一并在层内复刻，退场侧与切歌前的静止画面完全同源，
                 // 不会在切歌伊始由流动帧骤然塌回静态渐变
