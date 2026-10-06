@@ -13,30 +13,18 @@ private const val MAX_PLAUSIBLE_LATENCY_MS = 5_000f
 /**
  * 输出链路的实际延迟。
  *
- * 平台没有按设备查询延迟的公开接口：`AudioDeviceInfo` 不上报延迟，`AudioTrack` 也没有公开的取值方法，
- * 而输出帧数与采样率相除只是 HAL 单次突发的时长——它与当前走哪一路输出无关，挂 USB 解码器时依旧是
- * 那个最小值，USB 传输与解码器自身的排队恰恰落在这一段之外，故该值不能代表输出延迟。
+ * 平台没有按设备查询延迟的公开接口：`AudioDeviceInfo` 不上报延迟，而输出帧数与采样率相除只是
+ * HAL 单次突发的时长——它与当前走哪一路输出无关，挂 USB 解码器时依旧是那个最小值，USB 传输与
+ * 解码器自身的排队恰恰落在这一段之外，故该值不能代表输出延迟。
  *
- * 真正含设备那一段的量只能从当前链路的音频轨上取，此处即按真实度从高到低取两个来源：
+ * 真正含设备那一段的量只能从当前链路的音频轨上取：`AudioTrack.getTimestamp()` 给出
+ * 「第几帧在什么时刻呈现」，把它推到现在，与同一时刻刚挪出音频轨的那一帧（播放头）相比，
+ * 差值换算成时长即「离开音频轨之后还要多久才发声」——是含设备与传输的真实推后量，且为公开接口、
+ * 各系统稳定可用。
  *
- * 1. `AudioTrack.getLatency()`：平台自算的整轨延迟，含本轨缓冲、混音与硬件部分，USB 传输与解码器排队
- *    都在其中。它是非 SDK 接口，新系统上反射多半即行不通，故只在确实取到正值时采用；
- * 2. `AudioTrack.getTimestamp()` 实测：时间戳给出「第几帧在什么时刻呈现」，把它推到现在，与同一时刻
- *    刚挪出音频轨的那一帧（播放头）相比，差值换算成时长即「离开音频轨之后还要多久才发声」，
- *    同样是含设备本身的那一段。
- *
- * 两者都取不到时不产出条目：不接受与当前路由无关的下界值顶替。
+ * 取不到时不产出条目：不接受与当前路由无关的下界值顶替。
  */
 internal object OutputLatency {
-
-    // 反射入口只解析一次：该方法受非 SDK 接口限制，能否使用由系统决定，与具体音频轨无关
-    private val getLatencyMethod = runCatching {
-        AudioTrack::class.java.getMethod("getLatency")
-    }.getOrNull()
-
-    /** 平台自算的延迟是否还值得一试：解析失败、调用被拒或读数越界都是永久性的，不必反复尝试 */
-    @Volatile
-    private var platformLatencyUsable = true
 
     /**
      * 当前音频轨的输出延迟（毫秒），取不到时为 null。
@@ -48,24 +36,7 @@ internal object OutputLatency {
         if (track == null) return null
         if (track.state != AudioTrack.STATE_INITIALIZED) return null
         if (track.playState != AudioTrack.PLAYSTATE_PLAYING) return null
-        return platformLatencyMs(track) ?: timestampLatencyMs(track)
-    }
-
-    private fun platformLatencyMs(track: AudioTrack): Float? {
-        if (!platformLatencyUsable) return null
-        val method = getLatencyMethod
-        if (method == null) {
-            platformLatencyUsable = false
-            return null
-        }
-        val latencyMs = runCatching { method.invoke(track) as? Int }.getOrNull()
-        // 返回单位按平台实现为毫秒；零值与越界都不是可用读数
-        val usable = latencyMs != null && latencyMs > 0 && latencyMs <= MAX_PLAUSIBLE_LATENCY_MS
-        if (!usable) {
-            platformLatencyUsable = false
-            return null
-        }
-        return latencyMs.toFloat()
+        return timestampLatencyMs(track)
     }
 
     /**
