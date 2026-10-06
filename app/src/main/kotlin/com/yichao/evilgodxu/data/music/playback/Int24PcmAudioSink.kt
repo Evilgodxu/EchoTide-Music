@@ -114,6 +114,9 @@ internal class Int24PcmAudioSink(
      * 输出位置只按播放时长推进，与媒体时间之间隔着播放速率，故媒体3 以「媒体时刻 + 当时的写出位置」配对
      * 换算（见其 applyMediaPositionParameters）：本类同样在参数生效的那次写入处落下锚点，速率变化后再落一个，
      * 查询时取最后一个已生效的锚点按速率外推。
+     *
+     * 锚点的两端分属两个基准：媒体时刻取自 [handleBuffer] 的展示时间，即渲染器时间（含渲染器时间偏移）；
+     * 写出位置则是输出侧自 0 起算的时长。换算只能在两端各自的基准内进行，跨基准取最小会把偏移削掉。
      */
     private val checkpoints = ArrayDeque<PositionCheckpoint>()
 
@@ -366,17 +369,22 @@ internal class Int24PcmAudioSink(
     override fun getCurrentPositionUs(sourceEnded: Boolean): Long {
         val output = output ?: return AudioSink.CURRENT_POSITION_NOT_SET
         if (checkpoints.isEmpty()) return AudioSink.CURRENT_POSITION_NOT_SET
-        val outputPositionUs = output.getPositionUs()
+        // 上限只作用于输出位置，不作用于换算后的媒体时间：轨道位置偶发报超前时按已写出时长取上限，
+        // 使待播时长不越过已写出的内容。两个量不同基准——媒体时间是渲染器时间（含渲染器时间偏移，
+        // 量级在 1e12 微秒），已写出时长只是输出侧的时长（量级在曲目时长内），
+        // 拿后者钳前者会把渲染器时间偏移一并削掉，上报位置随之跌出时间轴
+        val outputPositionUs = minOf(
+            output.getPositionUs(),
+            framesToDurationUs(writtenPcmBytes, checkNotNull(inputFormat).sampleRate),
+        )
         var checkpoint = checkpoints.first()
         while (checkpoints.size > 1 && outputPositionUs >= checkpoints[1].outputPositionUs) {
             checkpoints.removeFirst()
             checkpoint = checkpoints.first()
         }
         val playoutDeltaUs = outputPositionUs - checkpoint.outputPositionUs
-        val positionUs = checkpoint.mediaTimeUs +
+        return checkpoint.mediaTimeUs +
             Util.getMediaDurationForPlayoutDuration(playoutDeltaUs, checkpoint.speed)
-        // 上限取已写出时长：轨道位置偶发报超前时不至于让媒体时间冲出已写入的内容
-        return minOf(positionUs, framesToDurationUs(writtenPcmBytes, checkNotNull(inputFormat).sampleRate))
     }
 
     // 上报渲染器用于决定休眠上界：口径与媒体3 一致，采样率取轨道自报值而非解码格式值
