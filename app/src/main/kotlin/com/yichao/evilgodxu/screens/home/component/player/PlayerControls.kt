@@ -40,8 +40,6 @@ import kotlinx.coroutines.launch
 internal fun PlayerControls(
     playbackState: MusicPlaybackState,
     onPlaylistClick: () -> Unit,
-    // 长按上一曲/下一曲唤出调速对话框：弹窗宿主上提至首页对话框层，不随控制栏隐藏而销毁
-    onSpeedLongClick: () -> Unit,
     onPlaylistLongClick: () -> Unit = {},
     // 从播放/暂停按钮向上滑动：唤出音频信息弹窗；为 null 时该按钮保持普通点击行为
     onPlayPauseSwipeUp: (() -> Unit)? = null,
@@ -88,7 +86,6 @@ internal fun PlayerControls(
                     }
                 }
             },
-            onLongClick = onSpeedLongClick,
         )
         PlayerControlButton(
             icon = if (playbackState.isPlaying) AppIcons.Pause else AppIcons.PlayArrow,
@@ -111,7 +108,6 @@ internal fun PlayerControls(
                     }
                 }
             },
-            onLongClick = onSpeedLongClick,
         )
         PlayerControlButton(
             icon = AppIcons.QueueMusic,

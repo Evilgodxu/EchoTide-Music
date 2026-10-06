@@ -202,8 +202,7 @@ internal fun CompactAssembly(
                     // 播放按钮上滑唤出的音频信息弹窗
                     audioInfoVisible = panelState.audioInfoVisible,
                     onAudioInfoVisibilityChange = { panelState.audioInfoVisible = it },
-                    onSpeedLongClick = { panelState.showSpeed = true },
-                    // 长按标题/艺术家菜单"在线搜索"：切到在线搜索页并自动按当前菜单文本搜索
+                    // 长按标题/艺术家菜单「在线搜索」：切到在线搜索页并自动按当前菜单文本搜索
                     onOpenOnlineSearch = { query ->
                         playbackState.setSearchQuery(query)
                         playbackState.setSearchResultsVisible(true)

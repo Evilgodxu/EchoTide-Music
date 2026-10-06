@@ -137,8 +137,6 @@ internal fun PortraitPlayer(
     // 音频信息弹窗显隐：由首页层持有，显示期间禁用上下滑动切歌
     audioInfoVisible: Boolean,
     onAudioInfoVisibilityChange: (Boolean) -> Unit,
-    // 长按上一曲/下一曲唤出调速对话框：弹窗宿主在首页对话框层
-    onSpeedLongClick: () -> Unit,
     onOpenOnlineSearch: (String) -> Unit = {},
     // 点击歌手信息：跳转到该歌手的歌单页
     onOpenArtistPlaylist: (String) -> Unit = {},
@@ -652,7 +650,6 @@ internal fun PortraitPlayer(
                 PlayerControls(
                     playbackState = playbackState,
                     onPlaylistClick = { onPlaylistVisibilityChange(!playlistVisible) },
-                    onSpeedLongClick = onSpeedLongClick,
                     onPlaylistLongClick = { libraryAnalysis.open() },
                     onPlayPauseSwipeUp = { onAudioInfoVisibilityChange(true) },
                     onPlaylistSwipeUp = { onPlaylistVisibilityChange(true) },

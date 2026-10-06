@@ -48,8 +48,6 @@
     <string name="music_panel_timer_minutes">分钟</string>
     <string name="music_panel_timer_confirm">确定</string>
     <string name="music_panel_timer_cancel">取消</string>
-    <string name="music_panel_speed_title">播放速度</string>
-    <string name="music_panel_speed_value">%.1fx</string>
     <string name="music_panel_search_placeholder">搜索歌曲</string>
     <string name="music_panel_search_title">在线搜索</string>
     <string name="music_panel_menu_search">搜索</string>

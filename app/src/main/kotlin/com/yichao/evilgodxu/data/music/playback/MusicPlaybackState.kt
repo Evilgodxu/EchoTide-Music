@@ -2,9 +2,9 @@ package com.yichao.evilgodxu.data.music.playback
 
 import android.content.ContentResolver
 import android.content.Context
+import android.media.AudioTrack
 import android.media.MediaScannerConnection
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -14,7 +14,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -73,10 +72,6 @@ class MusicPlaybackState(
 
     // 常听收录窗口：统计 3 天内完整播放次数不少于 2 次的歌曲
     companion object {
-        // 播放速度调节范围与默认值：步长 0.1
-        const val PLAYBACK_SPEED_MIN = 0.5f
-        const val PLAYBACK_SPEED_MAX = 2.0f
-        const val PLAYBACK_SPEED_DEFAULT = 1.0f
         // 定时关闭时长（分钟）：单次调节步长、下限与上限
         const val TIMER_STEP_MINUTES = 5
         const val TIMER_MIN_MINUTES = 5
@@ -106,7 +101,6 @@ class MusicPlaybackState(
     private val savedUriKey = stringPreferencesKey("music_saved_uri")
     private val savedPositionKey = longPreferencesKey("music_saved_position")
     private val savedModeKey = intPreferencesKey("music_saved_mode")
-    private val savedSpeedKey = floatPreferencesKey("music_saved_speed")
     // 首页背景取色结果持久化键：与播放快照同库写入，冷启动恢复后首帧即可渲染。
     // 键名沿用历史取值：早期版本按渐变的两个色标落盘，主色存在 edge 键下，
     // 改键名会让已装机用户的取色结果读不到而多闪一次默认背景
@@ -399,8 +393,6 @@ class MusicPlaybackState(
     var lastSwitchKind by mutableStateOf(TrackSwitchKind.Select)
         private set
     var playMode by mutableStateOf(PlayMode.RepeatAll)
-    // 播放速度：默认 1.0，调节范围 0.5~2.0
-    var playbackSpeed by mutableFloatStateOf(PLAYBACK_SPEED_DEFAULT)
     var errorMsg by mutableStateOf<String?>(null)
     var isScanning by mutableStateOf(false)
     // 元数据补全（封面解码 / 歌词读取）进行中：曲库分析的自动触发据此让路，
@@ -698,6 +690,15 @@ class MusicPlaybackState(
 
     // 音频输出链路实际写出的 PCM 编码（AudioFormat 编码值）：null 表示输出尚未建立（未起播或已停止）
     var audioSinkOutputEncoding by mutableStateOf<Int?>(null)
+    /**
+     * 输出链路当前使用的音频轨，null 表示输出尚未建立。
+     *
+     * 延迟只能从该轨本身取：平台既没有按设备查询延迟的公开接口，AudioManager 给的输出帧数也只对应 HAL
+     * 单次突发、与当前走哪一路无关。它由音频输出在建轨与释放时上报，生命周期与写出编码一致，
+     * 取值的信息采集跑在后台线程，故以 volatile 跨线程发布。
+     */
+    @Volatile
+    var audioTrack: AudioTrack? = null
     // 独占输出的当前成色：未启用、无设备接入或设备未提供动态混音端口时保持系统混音
     var exclusiveOutputMode by mutableStateOf(AudioOutputMode.MIXER)
 
@@ -983,7 +984,6 @@ class MusicPlaybackState(
         val savedUri = preferences[savedUriKey]
         val savedPosition = preferences[savedPositionKey] ?: 0L
         val savedMode = preferences[savedModeKey] ?: PlayMode.RepeatAll.ordinal
-        val savedSpeed = preferences[savedSpeedKey] ?: PLAYBACK_SPEED_DEFAULT
         val restoredColorUri = preferences[savedBackgroundColorUriKey]
         val restoredColor = preferences[savedBackgroundColorKey]
         withContext(Dispatchers.Main) {
@@ -1019,7 +1019,6 @@ class MusicPlaybackState(
                 currentPosition = savedPosition
             }
             playMode = PlayMode.entries.getOrElse(savedMode) { PlayMode.RepeatAll }
-            playbackSpeed = savedSpeed.coerceIn(PLAYBACK_SPEED_MIN, PLAYBACK_SPEED_MAX)
         }
         // 冷启动预读上次曲目的落盘封面：驻留内存后首帧可同步取用，不阻塞本次恢复
         savedUri?.let { uri -> playbackScope.launch { CurrentCoverCache.load(context, uri) } }
@@ -1072,16 +1071,6 @@ class MusicPlaybackState(
     // 格式信息是否对应当前曲目的当前音频源（供信息条判定是否展示，避免换源后短暂错配残留）
     val isAudioSignalPathCurrent: Boolean
         get() = currentTrack?.let(::isTrackFormatCurrent) == true
-
-    // 持久化播放速度，供重启后恢复
-    private fun persistPlaybackSpeed() {
-        val context = appContext ?: return
-        playbackScope.launch(Dispatchers.IO) {
-            context.settingsDataStore.edit { preferences ->
-                preferences[savedSpeedKey] = playbackSpeed
-            }
-        }
-    }
 
     fun persistPlaylist() {
         val context = appContext ?: return
@@ -1835,12 +1824,6 @@ class MusicPlaybackState(
     // 方法与属性 setter 同名会冲突，故用 @JvmName 指定不同 JVM 名
     @JvmName("updatePlayMode")
     fun setPlayMode(mode: PlayMode) { playMode = mode }
-    @JvmName("updatePlaybackSpeed")
-    fun setPlaybackSpeed(speed: Float) {
-        playbackSpeed = speed.coerceIn(PLAYBACK_SPEED_MIN, PLAYBACK_SPEED_MAX)
-        mediaController?.setPlaybackSpeed(playbackSpeed)
-        persistPlaybackSpeed()
-    }
     @JvmName("updateSearchMode")
     fun setSearchMode(enabled: Boolean) { isSearchMode = enabled }
     @JvmName("updateSearchResultsVisible")

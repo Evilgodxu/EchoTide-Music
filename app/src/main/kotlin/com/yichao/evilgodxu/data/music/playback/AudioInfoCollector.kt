@@ -101,7 +101,7 @@ internal object AudioInfoCollector {
                 audioSessionId = playback.audioSessionId,
                 floatOutput = floatOutputState(state),
                 outputEncoding = outputEncoding(state),
-                latencyMs = nativeOutputLatencyMs(audioManager),
+                latencyMs = OutputLatency.measureMs(state.audioTrack),
                 transportState = playback.transportState,
                 outputDevice = currentOutputDevice(context, audioManager, state, outputs),
             )
@@ -209,25 +209,6 @@ internal object AudioInfoCollector {
             ?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
             ?.toIntOrNull()
             ?.takeIf { it > 0 }
-    }
-
-    /**
-     * 平均延迟：平台按「输出帧数 ÷ 输出采样率」给出的单缓冲时长，
-     * 即音频数据进入输出链路后的平均驻留时间。
-     * 输出帧数与采样率任一未上报则无从推算，返回 null。
-     */
-    private fun nativeOutputLatencyMs(audioManager: AudioManager?): Float? {
-        val framesPerBuffer = audioManager
-            ?.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER)
-            ?.toIntOrNull()
-            ?.takeIf { it > 0 }
-            ?: return null
-        val outputRate = audioManager
-            .getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
-            ?.toIntOrNull()
-            ?.takeIf { it > 0 }
-            ?: return null
-        return framesPerBuffer * 1000f / outputRate
     }
 
     // 传输状态：缓冲与结束属播放器的推进态，优先于起播意愿；空闲态说明输出尚未建立

@@ -113,6 +113,7 @@ data class AudioInfoSnapshot(
     val audioSessionId: Int?,
     val floatOutput: FloatOutputState?,
     val outputEncoding: OutputEncoding?,
+    /** 输出延迟（毫秒）：从当前链路的音频轨实测，取不到时不产出该行 */
     val latencyMs: Float?,
     val transportState: AudioTransportState?,
     // 输出设备

@@ -81,7 +81,7 @@ class MusicPlaybackService : MediaSessionService() {
         super.onCreate()
         audioManager = getSystemService(AudioManager::class.java)
         // 音频输出由 PerDeviceAudioSink 按目标设备挑选浮点/整型变体并自行重建，
-        // 故此处忽略工厂的浮点与变速参数，固定返回同一实例供渲染器使用
+        // 故此处忽略工厂给出的浮点参数，固定返回同一实例供渲染器使用
         val audioSink = PerDeviceAudioSink(
             context = this,
             audioManager = audioManager,
@@ -96,6 +96,9 @@ class MusicPlaybackService : MediaSessionService() {
             // 音频轨的创建与释放同样在播放线程回调，口径同上
             onOutputEncodingChanged = { encoding ->
                 stateHolder.state.audioSinkOutputEncoding = encoding
+            },
+            onAudioTrackChanged = { track ->
+                stateHolder.state.audioTrack = track
             },
             // 独占输出的混音器属性按解码头输出的真实 PCM 编码挑选。只有这里拿得到它：
             // 容器格式（轨道回调）对压缩源只给采样率与声道，pcmEncoding 仍是 NO_VALUE，
@@ -154,6 +157,7 @@ class MusicPlaybackService : MediaSessionService() {
                 if (playbackState == Player.STATE_IDLE) {
                     stateHolder.state.audioSinkFloatOutput = null
                     stateHolder.state.audioSinkOutputEncoding = null
+                    stateHolder.state.audioTrack = null
                 }
             }
 

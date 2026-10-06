@@ -9,15 +9,14 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.AuxEffectInfo
 import androidx.media3.common.C
 import androidx.media3.common.Format
-import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.Clock
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.audio.AudioOutput
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.AudioTrackAudioOutput
-import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.PcmAudioUtil
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
@@ -70,8 +69,6 @@ internal class Int24PcmAudioSink(
     private var preferredDevice: AudioDeviceInfo? = null
     private var volume = 1f
     private var skipSilenceEnabled = false
-    private var playbackParameters = PlaybackParameters.DEFAULT
-
     /** 解码输出格式：本类接受任意线性 PCM 编码，写出统一为 24 位整型 */
     private var inputFormat: Format? = null
     private var outputChannelMask = AudioFormat.CHANNEL_INVALID
@@ -80,8 +77,17 @@ internal class Int24PcmAudioSink(
     private var output: AudioOutput? = null
     private var audioTrackConfig: AudioSink.AudioTrackConfig? = null
 
-    /** 建起的轨道本体：排空判定要直接读它的播放头，而不经媒体3 的位置估计 */
+    /**
+     * 建起的轨道本体：排空判定要直接读它的播放头，而不经媒体3 的位置估计。
+     *
+     * 输出延迟同样只能从它身上取（平台没有按设备查询延迟的公开接口），取值的采集器跑在后台线程，故代为 volatile。
+     */
+    @Volatile
     private var audioTrack: AudioTrack? = null
+
+    /** 当前仍可读取的音频轨：释放后的实例读不出有效延迟，故按轨道自身的状态过滤 */
+    val currentAudioTrack: AudioTrack?
+        get() = audioTrack?.takeIf { it.state == AudioTrack.STATE_INITIALIZED }
 
     /** 实际请求的轨道缓冲字节数：欠载回调按接口约定以字节上报 */
     private var trackBufferBytes = 0
@@ -234,7 +240,6 @@ internal class Int24PcmAudioSink(
     override fun reset() {
         flush()
         playing = false
-        playbackParameters = PlaybackParameters.DEFAULT
     }
 
     override fun release() {
@@ -401,24 +406,17 @@ internal class Int24PcmAudioSink(
         output?.setVolume(volume)
     }
 
-    override fun setPlaybackParameters(playbackParameters: PlaybackParameters) {
-        this.playbackParameters = playbackParameters
-        val output = output ?: return
-        output.setPlaybackParameters(playbackParameters)
-        // 回读实际生效的速率：轨道未必接受请求的速率，锚点须按实际值外推
-        this.playbackParameters = output.getPlaybackParameters()
-        checkpointPending = true
-    }
-
-    override fun getPlaybackParameters(): PlaybackParameters =
-        output?.getPlaybackParameters() ?: playbackParameters
-
     // 独占优先保真：静音跳过需要改动时长映射，本路径不支持，仅如实回报开关状态
     override fun setSkipSilenceEnabled(skipSilenceEnabled: Boolean) {
         this.skipSilenceEnabled = skipSilenceEnabled
     }
 
     override fun getSkipSilenceEnabled(): Boolean = skipSilenceEnabled
+
+    // 变速功能已移除：playback parameters 保持默认值，不接受外部调速请求
+    override fun setPlaybackParameters(playbackParameters: PlaybackParameters) = Unit
+
+    override fun getPlaybackParameters(): PlaybackParameters = PlaybackParameters.DEFAULT
 
     override fun setAudioAttributes(audioAttributes: AudioAttributes) {
         this.audioAttributes = audioAttributes
@@ -472,7 +470,6 @@ internal class Int24PcmAudioSink(
             .setBufferSize(bufferSize)
             .setAudioAttributes(audioAttributes)
             .setAudioSessionId(audioSessionId)
-            .setUsePlaybackParameters(true)
             .build()
         var trackState = AudioTrack.STATE_UNINITIALIZED
         val created = try {
@@ -520,7 +517,7 @@ internal class Int24PcmAudioSink(
             created,
             config,
             null,
-            DefaultAudioSink.MAX_PLAYBACK_SPEED,
+            /* maxAllowedPlaybackSpeed= */ 1.0f,
             clock,
         )
         created1.addListener(outputListener)
@@ -529,10 +526,6 @@ internal class Int24PcmAudioSink(
         if (auxEffectInfo.effectId != AuxEffectInfo.NO_AUX_EFFECT_ID) {
             created1.attachAuxEffect(auxEffectInfo.effectId)
             created1.setAuxEffectSendLevel(auxEffectInfo.sendLevel)
-        }
-        if (playbackParameters != PlaybackParameters.DEFAULT) {
-            // 速率在输出建立前就已设定时须补应用，否则首帧起会以原速播放
-            created1.setPlaybackParameters(playbackParameters)
         }
         if (playing) created1.play()
         output = created1

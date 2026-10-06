@@ -6,10 +6,9 @@ import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.screens.home.component.panel.HomePanelState
 import com.yichao.evilgodxu.screens.home.component.permission.PermissionDialog
 import com.yichao.evilgodxu.screens.home.HomeUiState
-import com.yichao.evilgodxu.ui.component.dialog.SpeedDialog
 import com.yichao.evilgodxu.ui.component.dialog.TimerDialog
 
-// 首页跨形态对话框：权限申请、定时关闭与播放调速
+// 首页跨形态对话框：权限申请与定时关闭
 @Composable
 internal fun HomeDialogs(
     panelState: HomePanelState,
@@ -34,11 +33,5 @@ internal fun HomeDialogs(
             panelState.showTimer = false
         },
         onCancel = { panelState.showTimer = false },
-    )
-    SpeedDialog(
-        visible = panelState.showSpeed,
-        speed = playbackState.playbackSpeed,
-        onSpeedChange = { playbackState.setPlaybackSpeed(it) },
-        onDismiss = { panelState.showSpeed = false },
     )
 }

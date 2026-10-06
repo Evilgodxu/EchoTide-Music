@@ -36,8 +36,6 @@ internal class HomePanelState(
     var audioInfoVisible by mutableStateOf(false)
     // 定时关闭对话框显隐
     var showTimer by mutableStateOf(false)
-    // 播放速度对话框显隐
-    var showSpeed by mutableStateOf(false)
     // 首页背景代表色：供搜索页与歌单页的浮层容器复用，保持与首页底色一致
     var backgroundColor by mutableStateOf(md_theme_dark_surface)
     // 点击歌手信息后请求打开的歌手歌单：由歌单面板消费并跳转到该歌手的曲目列表
