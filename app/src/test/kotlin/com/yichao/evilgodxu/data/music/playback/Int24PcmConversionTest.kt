@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.data.music.playback
 
 import androidx.media3.common.C
+import androidx.media3.exoplayer.audio.AudioSink
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -92,6 +93,38 @@ class Int24PcmConversionTest {
         assertEquals(0, packInt24From(source, output, C.ENCODING_PCM_FLOAT))
 
         assertEquals(4, output.position() / 3)
+    }
+
+    @Test
+    fun floatFormatIsSupportedDirectly() {
+        assertEquals(
+            AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY,
+            int24FormatSupport(C.ENCODING_PCM_FLOAT),
+        )
+    }
+
+    @Test
+    fun int16FormatRequiresTranscoding() {
+        assertEquals(
+            AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING,
+            int24FormatSupport(C.ENCODING_PCM_16BIT),
+        )
+    }
+
+    @Test
+    fun int24FormatRequiresTranscoding() {
+        assertEquals(
+            AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING,
+            int24FormatSupport(C.ENCODING_PCM_24BIT),
+        )
+    }
+
+    @Test
+    fun nonLinearPcmIsUnsupported() {
+        assertEquals(
+            AudioSink.SINK_FORMAT_UNSUPPORTED,
+            int24FormatSupport(C.ENCODING_INVALID),
+        )
     }
 
     private fun convert(samples: ByteArray, inputEncoding: Int): ByteArray {

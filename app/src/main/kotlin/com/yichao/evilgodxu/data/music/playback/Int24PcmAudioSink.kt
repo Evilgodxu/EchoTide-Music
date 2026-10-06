@@ -154,17 +154,21 @@ internal class Int24PcmAudioSink(
     override fun supportsFormat(format: Format): Boolean =
         MimeTypes.AUDIO_RAW == format.sampleMimeType && Util.isEncodingLinearPcm(format.pcmEncoding)
 
-    // 编码会就地转换，故按「支持但需内部转换」上报
     override fun getFormatSupport(format: Format): Int =
-        if (supportsFormat(format)) {
-            AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING
-        } else {
-            AudioSink.SINK_FORMAT_UNSUPPORTED
-        }
+        int24FormatSupport(format.pcmEncoding)
 
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
         val format = audioSinkConfig.format
         inputFormat = format
+        // 可观测性：输入若是 16 位，说明上游解码器已被降级（MediaCodecAudioRenderer
+        // 未拿到 DIRECTLY 回答而退回 16 位），升位到 24 位会丢失精度。
+        if (format.pcmEncoding == C.ENCODING_PCM_16BIT) {
+            CrashLogManager.logInfo(
+                LOG_TAG,
+                "24 位输出收到 16 位输入：解码器输出已被降级，升位会丢失精度；" +
+                    "sampleRate=${format.sampleRate}Hz channelCount=${format.channelCount}",
+            )
+        }
         outputChannelMask = format.channelMask.takeIf { it != Format.NO_VALUE }
             ?: Util.getAudioTrackChannelConfig(format.channelCount)
         outputFrameSize = Util.getPcmFrameSize(C.ENCODING_PCM_24BIT, format.channelCount)
@@ -678,6 +682,23 @@ internal class Int24PcmAudioSink(
 
             override fun onSkipSilenceEnabledChanged(skipSilenceEnabled: Boolean) = Unit
         }
+    }
+}
+
+/**
+ * 24 位整型 sink 的格式支持判定。
+ *
+ * 浮点格式返回 [AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY]，使 [MediaCodecAudioRenderer]
+ * 把解码器配置为浮点输出；本 sink 接收浮点后自行转成 24 位，精度得以保留。
+ * 若返回 TRANSCODING，解码器会被降级为 16 位整型，后续升位会丢失低 8 位。
+ */
+@OptIn(UnstableApi::class)
+internal fun int24FormatSupport(pcmEncoding: Int): Int {
+    if (!Util.isEncodingLinearPcm(pcmEncoding)) return AudioSink.SINK_FORMAT_UNSUPPORTED
+    return if (pcmEncoding == C.ENCODING_PCM_FLOAT) {
+        AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY
+    } else {
+        AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING
     }
 }
 
