@@ -132,12 +132,9 @@ internal class Int24PcmAudioSink(
     /** 输入缓冲长度不成样本整数倍是否已留痕：一次会话只记一条 */
     private var alignmentReported = false
 
-    /** 诊断留痕：独占是否成立只能在设备上判断，这些量正是判断依据，故按秒收敛地写进日志 */
-    private var lastTraceMs = 0L
+    /** 诊断留痕：欠载事件按秒收敛记录，避免日志刷成流水账 */
     private var lastAcceptedWriteMs = 0L
-    private var lastDrainLoggedMs = 0L
     private var lastUnderrunLoggedMs = 0L
-    private var lastPendingData = false
     private var underrunCount = 0
 
     override fun setListener(listener: AudioSink.Listener) {
@@ -289,9 +286,7 @@ internal class Int24PcmAudioSink(
         val output = output ?: return false
         val writtenFrames = writtenPcmBytesAsFrames()
         val consumed = consumedFrameCount(output)
-        val pending = pendingOutput != null || writtenFrames > consumed
-        traceProgress(output, writtenFrames, consumed, pending)
-        return pending
+        return pendingOutput != null || writtenFrames > consumed
     }
 
     /**
@@ -319,50 +314,6 @@ internal class Int24PcmAudioSink(
         lastRawHeadFrames = raw
         consumedFrames = maxOf(consumedFrames, raw + rawHeadBase)
         return consumedFrames
-    }
-
-    /**
-     * 按秒记下输出的驻留与消费情况，并在「排空」那一刻另记一条。
-     *
-     * 这条链路在设备上不可复现，判断「排空是否真实」只能看这几个量：播放头始终追不上已写量即为真实吃完
-     * （供给断了），播放头越过已写量则说明设备读数与写出量不同口径。故此条同时记出两个来源的消费读数
-     * ——原始播放头与媒体3 的位置估计，两者一对比即可看出分歧落在哪一侧。排空一条另附「距上次接纳写入
-     * 的时长」，据此可判断是渲染循环供给间隔过长，还是轨道容量与上报值不符。
-     */
-    private fun traceProgress(
-        output: AudioOutput,
-        writtenFrames: Long,
-        consumedFrames: Long,
-        pending: Boolean,
-    ) {
-        val track = audioTrack ?: return
-        val nowMs = clock.elapsedRealtime()
-        if (nowMs - lastTraceMs >= TRACE_INTERVAL_MS) {
-            lastTraceMs = nowMs
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "输出驻留：已写=${writtenFrames}帧 已消费=${consumedFrames}帧 播放头=${track.playbackHeadPosition}帧 " +
-                    "轨道位置=${outputPositionFrames(output)}帧 驻留=${writtenFrames - consumedFrames}帧 " +
-                    "缓冲=${track.bufferSizeInFrames}帧 欠载=$underrunCount " +
-                    "状态=${playStateLabel(track.playState)} 待播=${if (pending) "是" else "否"}",
-            )
-        }
-        if (lastPendingData && !pending && nowMs - lastDrainLoggedMs >= TRACE_INTERVAL_MS) {
-            lastDrainLoggedMs = nowMs
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "输出已排空：已写=${writtenFrames}帧 已消费=${consumedFrames}帧 播放头=${track.playbackHeadPosition}帧 " +
-                    "轨道位置=${outputPositionFrames(output)}帧，距上次接纳写入 ${nowMs - lastAcceptedWriteMs}ms，" +
-                    "缓冲=${track.bufferSizeInFrames}帧 欠载=$underrunCount",
-            )
-        }
-        lastPendingData = pending
-    }
-
-    private fun playStateLabel(playState: Int): String = when (playState) {
-        AudioTrack.PLAYSTATE_PLAYING -> "播放"
-        AudioTrack.PLAYSTATE_PAUSED -> "暂停"
-        else -> "停止"
     }
 
     // 轨道缓冲时长（毫秒）：欠载回调按接口约定上报该值，取不到时按接口的「未知」取值
@@ -568,8 +519,6 @@ internal class Int24PcmAudioSink(
         rawHeadBase = 0L
         consumedFrames = 0L
         headNeedsBaseline = true
-        // 释放后本无待播数据，标志一并复位：否则随后的首次询问会被记成一条误导性的「已排空」
-        lastPendingData = false
         audioTrackConfig?.let(listener::onAudioTrackReleased)
         audioTrackConfig = null
     }
