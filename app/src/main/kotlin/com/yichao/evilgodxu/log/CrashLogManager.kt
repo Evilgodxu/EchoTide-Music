@@ -17,7 +17,7 @@ import java.util.concurrent.ExecutorService
 import kotlin.system.exitProcess
 
 /**
- * 捕获并记录未捕获异常与 catch 到的异常，链式调用系统默认处理器。
+ * 捕获并记录未捕获异常、catch 到的异常，以及需要留痕的诊断信息，链式调用系统默认处理器。
  * 日志按天写入应用专属外部目录，仅保留今日日志供设置页分享。
  */
 object CrashLogManager : Thread.UncaughtExceptionHandler {
@@ -68,6 +68,23 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
         // 异步写入，不阻塞调用线程
         logExecutor.execute {
             writeLog(title = "$className: $description", throwable = throwable)
+        }
+    }
+
+    /**
+     * 记录诊断信息：非异常但需在日志中留痕的事件，如能力探测结果、功能降级原因。
+     *
+     * 与 [logException] 同走一处落盘，供用户分享日志时一并带出——这类事件往往只在特定设备上出现，
+     * 靠本地复现代价高，写入分享日志才留有定位依据。
+     */
+    fun logInfo(className: String, description: String) {
+        if (logDir == null) {
+            // 未初始化（如独立进程）时降级到系统日志
+            Log.i(TAG, "$className: $description")
+            return
+        }
+        logExecutor.execute {
+            writeLog(title = "$className: $description", throwable = null)
         }
     }
 

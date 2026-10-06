@@ -242,6 +242,7 @@
     <string name="audio_info_value_pcm_32bit">32-bit integer</string>
     <string name="audio_info_value_pcm_float">32-bit float</string>
     <string name="audio_info_output_mode_bit_perfect">Bit-perfect exclusive</string>
+    <string name="audio_info_output_mode_format_locked">Format-locked exclusive</string>
     <string name="audio_info_output_mode_mixer">System mixer</string>
     <!-- "24bit" is the concatenated unit notation, not a countable noun -->
     <string name="audio_info_quality_lossless_bit_depth" tools:ignore="PluralsCandidate">%dbit lossless</string>

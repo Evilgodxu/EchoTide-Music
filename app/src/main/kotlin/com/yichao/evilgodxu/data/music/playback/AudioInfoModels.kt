@@ -40,8 +40,16 @@ data class OutputDeviceInfo(
     val bluetooth: BluetoothLinkInfo?,
 )
 
-// 音频输出模式：位完美独占（不经混音器、不重采样直出）与系统混音
-enum class AudioOutputMode { BIT_PERFECT, MIXER }
+/**
+ * 音频输出模式。
+ *
+ * 独占分两档，差别在厂商是否在动态混音端口上声明了 AUDIO_OUTPUT_FLAG_BIT_PERFECT：
+ * - 位完美独占：音频不经混音、不受音量与音效处理，数据原样下发到设备；
+ * - 格式独占：厂商漏标该标志时的兼容结果——输出流仍按源格式打开因而不发生重采样，
+ *   但音轨音量与音效按常规链路处理。
+ * 两者都谈不上时播放交系统混音器，输出采样率由系统决定，与源不一致即发生重采样。
+ */
+enum class AudioOutputMode { BIT_PERFECT, FORMAT_LOCKED, MIXER }
 
 // 音频传输状态：由播放器的播放状态与起播意愿共同判定
 enum class AudioTransportState { PLAYING, BUFFERING, PAUSED, ENDED, IDLE }

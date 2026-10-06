@@ -239,6 +239,7 @@
     <string name="audio_info_value_pcm_32bit">32 位整型</string>
     <string name="audio_info_value_pcm_float">32 位浮点</string>
     <string name="audio_info_output_mode_bit_perfect">位完美独占</string>
+    <string name="audio_info_output_mode_format_locked">格式独占</string>
     <string name="audio_info_output_mode_mixer">系统混音</string>
     <!-- 「24bit」是位深单位写法（数字与单位连排），不是可数名词 -->
     <string name="audio_info_quality_lossless_bit_depth" tools:ignore="PluralsCandidate">%dbit 无损</string>

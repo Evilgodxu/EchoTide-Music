@@ -239,6 +239,7 @@ private fun audioInfoGroups(snapshot: AudioInfoSnapshot): List<AudioInfoGroup> =
                     stringResource(
                         when (it) {
                             AudioOutputMode.BIT_PERFECT -> R.string.audio_info_output_mode_bit_perfect
+                            AudioOutputMode.FORMAT_LOCKED -> R.string.audio_info_output_mode_format_locked
                             AudioOutputMode.MIXER -> R.string.audio_info_output_mode_mixer
                         }
                     ),
@@ -516,7 +517,7 @@ private fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<
         playbackState.audioDecoderName,
         playbackState.audioSinkFloatOutput,
         playbackState.audioSinkOutputEncoding,
-        playbackState.bitPerfectOutputActive,
+        playbackState.exclusiveOutputMode,
         playerEventVersion,
         deviceEventVersion,
     ) {

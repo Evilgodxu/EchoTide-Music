@@ -10,6 +10,7 @@ import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.AudioSink
@@ -27,6 +28,7 @@ import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.UsbExclusiveOutput
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.settings.usbExclusiveModeFlow
+import com.yichao.evilgodxu.log.CrashLogManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -61,12 +63,15 @@ class MusicPlaybackService : MediaSessionService() {
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
                 resumeAfterFocusLoss = false
+                // 焦点丢失会暂停播放，界面上的表现与「自己停了」无从区分，故留痕区分二者
+                CrashLogManager.logInfo("MusicPlaybackService", "音频焦点丢失（永久），已暂停播放")
                 player.pause()
                 abandonAudioFocus()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 resumeAfterFocusLoss = player.isPlaying
+                CrashLogManager.logInfo("MusicPlaybackService", "音频焦点被临时抢占，已暂停播放")
                 player.pause()
             }
         }
@@ -122,6 +127,16 @@ class MusicPlaybackService : MediaSessionService() {
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) requestAudioFocus()
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                // 播放错误此前无处留痕：音频输出初始化或写入失败会被媒体3 升级为致命错误，
+                // 界面上的表现只是「自动暂停」，日志里空无一物。错误码与原因在此一并记下
+                CrashLogManager.logException(
+                    "MusicPlaybackService",
+                    "播放失败：${error.errorCodeName}，${error.message}",
+                    error,
+                )
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -233,10 +248,10 @@ class MusicPlaybackService : MediaSessionService() {
             .build()
         // 独占输出不参与媒体会话，在会话建立后单独装配；设置变更即刻生效，无需重启服务
         usbExclusiveOutput = UsbExclusiveOutput(player, audioManager)
-        // 独占是否生效由路由钉定结果决定（设备缺失或未实现位完美时不成立），
+        // 独占成色由独占输出自行判定（设备缺失、设备未提供动态混音端口、属性未被系统受理时都退回系统混音），
         // 不能以设置开关代替——开关打开而设备不支撑时播放仍走系统混音
-        usbExclusiveOutput.onRoutingChanged = { device ->
-            stateHolder.state.bitPerfectOutputActive = device != null
+        usbExclusiveOutput.onRoutingChanged = { mode ->
+            stateHolder.state.exclusiveOutputMode = mode
         }
         serviceScope.launch {
             usbExclusiveModeFlow().collect { enabled ->

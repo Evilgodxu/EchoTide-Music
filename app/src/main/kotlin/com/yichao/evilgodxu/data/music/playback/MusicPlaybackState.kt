@@ -698,8 +698,8 @@ class MusicPlaybackState(
 
     // 音频输出链路实际写出的 PCM 编码（AudioFormat 编码值）：null 表示输出尚未建立（未起播或已停止）
     var audioSinkOutputEncoding by mutableStateOf<Int?>(null)
-    // 位完美独占当前是否已钉定输出设备：未启用、无设备接入或设备不支持位完美时均为 false
-    var bitPerfectOutputActive by mutableStateOf(false)
+    // 独占输出的当前成色：未启用、无设备接入或设备未提供动态混音端口时保持系统混音
+    var exclusiveOutputMode by mutableStateOf(AudioOutputMode.MIXER)
 
     // 收藏的歌曲 ID 集合（面板级内存状态）
     var likedIds by mutableStateOf<Set<Long>>(emptySet())

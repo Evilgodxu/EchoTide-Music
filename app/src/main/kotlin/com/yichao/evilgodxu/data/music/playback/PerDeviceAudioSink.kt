@@ -11,7 +11,6 @@ import androidx.media3.common.Format
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.util.Clock
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.analytics.PlayerId
 import androidx.media3.exoplayer.audio.AudioCapabilities
 import androidx.media3.exoplayer.audio.AudioOffloadSupport
@@ -23,20 +22,21 @@ import java.nio.ByteBuffer
 /**
  * 按目标设备重建的音频输出。
  *
- * 浮点输出是 [DefaultAudioSink] 的构造期开关，实例内不可更改：它决定高分辨率 PCM 源写成 32 位浮点
- * 还是先降回 16 位整型。而位完美输出流（USB 独占）只接纳与混音器属性逐字段一致的播放，
- * 设备提供哪些格式随设备而变，因此这里持有两个变体，在每次 [configure] 时按目标设备决策，
- * 决策变化即切换变体——即按设备重建输出，使该设备上能挂上的格式成为当前写出格式。
+ * 写出编码是 [DefaultAudioSink] 的构造期取向，实例内不可更改：浮点变体把高分辨率 PCM 源写成 32 位浮点，
+ * 整型变体把高分辨率源降回 16 位整型，24 位变体则由 [Int24PcmAudioSink] 自行写出 24 位整型——设备只声明
+ * 该编码时，媒体3 的默认输出无从产出它，只能另起一个输出实现。而 USB 独占建立的专用输出流只接纳与混音器
+ * 属性逐字段一致的播放，设备声明哪些格式随机型而变，因此这里持有三个变体，在每次 [configure] 时按目标设备
+ * 决策，决策变化即切换变体——即按设备重建输出，使该设备上能挂上的格式成为当前写出格式。
  *
  * 平台与 media3 都不对线性 PCM 做设备级能力探测，故非独占时一律保持浮点输出；
  * 决策只在 [configure] 处落地——切换需要重开 AudioTrack，只能发生在渲染器重配点。
- * 变体切换不需要回放历史配置：所有设置类调用同时下发到两个变体。
+ * 变体切换不需要回放历史配置：所有设置类调用同时下发到三个变体。
  */
 @OptIn(UnstableApi::class)
 class PerDeviceAudioSink(
     context: Context,
     private val audioManager: AudioManager,
-    /** 独占已钉定的 USB 输出设备，null 表示当前未独占 */
+    /** 已建立独占输出流的 USB 输出设备，null 表示当前未独占 */
     private val exclusiveTarget: () -> AudioDeviceInfo?,
     /** 输出变体变更回调：报告本次配置后是否以浮点 PCM 写出 */
     private val onOutputVariantChanged: (Boolean) -> Unit = {},
@@ -47,32 +47,41 @@ class PerDeviceAudioSink(
     /** 默认变体：高分辨率源以 32 位浮点写出，保留解码精度 */
     private val floatSink: AudioSink = buildSink(context, enableFloatOutput = true)
 
-    /** 降级变体：一律以 16 位整型写出，供位完美流只提供整型格式的设备使用 */
+    /** 降级变体：一律以 16 位整型写出，供独占流只提供整型格式的设备使用 */
     private val intSink: AudioSink = buildSink(context, enableFloatOutput = false)
+
+    /** 24 位变体：自行写出独占流唯一声明的 24 位整型，供前两个变体都挂不上时使用 */
+    private val int24Sink: AudioSink = Int24PcmAudioSink(context)
 
     /**
      * 音频轨的接收回调：先经 [OutputEncodingListener] 截取写出编码，再透传给渲染器。
      *
-     * 两个变体各持一份，编码按变体归属上报；渲染器尚未接管时出口仍为静默实现，事件不外泄但照常截取，
+     * 三个变体各持一份，编码按变体归属上报；渲染器尚未接管时出口仍为静默实现，事件不外泄但照常截取，
      * 避免起播瞬间的编码漏报。
      */
     private val floatListener: AudioSink.Listener = OutputEncodingListener(
-        delegate = { delegateFor(useFloat = true) },
-        onOutputEncodingChanged = { reportOutputEncoding(useFloat = true, it) },
-        onOutputReleased = { reportOutputReleased(useFloat = true) },
+        delegate = { delegateFor(OutputVariant.FLOAT) },
+        onOutputEncodingChanged = { reportOutputEncoding(OutputVariant.FLOAT, it) },
+        onOutputReleased = { reportOutputReleased(OutputVariant.FLOAT) },
     )
 
     private val intListener: AudioSink.Listener = OutputEncodingListener(
-        delegate = { delegateFor(useFloat = false) },
-        onOutputEncodingChanged = { reportOutputEncoding(useFloat = false, it) },
-        onOutputReleased = { reportOutputReleased(useFloat = false) },
+        delegate = { delegateFor(OutputVariant.INT16) },
+        onOutputEncodingChanged = { reportOutputEncoding(OutputVariant.INT16, it) },
+        onOutputReleased = { reportOutputReleased(OutputVariant.INT16) },
+    )
+
+    private val int24Listener: AudioSink.Listener = OutputEncodingListener(
+        delegate = { delegateFor(OutputVariant.INT24) },
+        onOutputEncodingChanged = { reportOutputEncoding(OutputVariant.INT24, it) },
+        onOutputReleased = { reportOutputReleased(OutputVariant.INT24) },
     )
 
     /** 渲染器交给本接收器的回调出口：未接管时为静默实现 */
     private var rendererListener: AudioSink.Listener = SILENT_LISTENER
 
     /** 当前生效的变体；初始按浮点输出，与无独占设备时的决策一致 */
-    private var floatActive = true
+    private var activeVariant = OutputVariant.FLOAT
 
     /**
      * 自上次音频轨建立以来，输出是否已被请求释放。
@@ -91,6 +100,7 @@ class PerDeviceAudioSink(
     init {
         floatSink.setListener(floatListener)
         intSink.setListener(intListener)
+        int24Sink.setListener(int24Listener)
     }
 
     /**
@@ -98,8 +108,8 @@ class PerDeviceAudioSink(
      *
      * 退出方复位时会释放音频轨并回调，此时渲染器正在重配，事件不应再外泄。
      */
-    private fun delegateFor(useFloat: Boolean): AudioSink.Listener =
-        if (useFloat == floatActive) rendererListener else SILENT_LISTENER
+    private fun delegateFor(variant: OutputVariant): AudioSink.Listener =
+        if (variant == activeVariant) rendererListener else SILENT_LISTENER
 
     /**
      * 上报音频轨的写出编码。
@@ -107,8 +117,8 @@ class PerDeviceAudioSink(
      * 只认生效方的取值：变体切换会复位退出方，其音频轨的释放回调随之到达，而该轨已不属于当前链路，
      * 照搬会把生效方已建立的值清成空。建轨即撤销释放请求——当前链路又有音频轨了。
      */
-    private fun reportOutputEncoding(useFloat: Boolean, encoding: Int?) {
-        if (useFloat != floatActive) return
+    private fun reportOutputEncoding(variant: OutputVariant, encoding: Int?) {
+        if (variant != activeVariant) return
         outputReleaseRequested = false
         onOutputEncodingChanged(encoding)
     }
@@ -119,8 +129,8 @@ class PerDeviceAudioSink(
      * 释放事件异步投回，可能晚于后续建轨到达，那时链路已由新音频轨接管，清空会把它的编码一并抹掉，
      * 故只认「请求过释放而其间未重新建轨」的释放。
      */
-    private fun reportOutputReleased(useFloat: Boolean) {
-        if (useFloat != floatActive) return
+    private fun reportOutputReleased(variant: OutputVariant) {
+        if (variant != activeVariant) return
         if (!outputReleaseRequested) return
         outputReleaseRequested = false
         onOutputEncodingChanged(null)
@@ -134,42 +144,50 @@ class PerDeviceAudioSink(
             .build()
 
     /** 当前生效的变体：流数据、位置查询与格式查询都只经它 */
-    private fun active(): AudioSink = if (floatActive) floatSink else intSink
+    private fun active(): AudioSink = when (activeVariant) {
+        OutputVariant.FLOAT -> floatSink
+        OutputVariant.INT16 -> intSink
+        OutputVariant.INT24 -> int24Sink
+    }
 
     /**
-     * 该曲目是否需要浮点写出。
+     * 该曲目应当用哪个变体写出。
      *
-     * 线性 PCM 的设备级浮点能力无从探测（AudioTrack 经混音输出普遍接受浮点，media3 也只按 API 级别
-     * 判定支持），按设备分化的只有位完美流的格式匹配，因此仅在独占已钉定设备时决策。
-     * 判定与独占侧共用 [selectBitPerfectMixer]：选中的条目即独占侧待下发的混音器属性，写出编码须与
+     * 线性 PCM 的设备级能力无从探测（AudioTrack 经混音输出普遍接受浮点与整型，media3 也只按 API 级别
+     * 判定支持），按设备分化的只有独占输出流的格式匹配，因此仅在独占已建立时决策，其余情况保持浮点。
+     * 判定与独占侧共用 [selectExclusiveMixer]：选中的条目即独占侧下发的混音器属性，写出编码须与
      * 之逐字段一致——已核实，格式与偏好不符时 AudioFlinger 不会报错，而是把该轨静默混音输出，
-     * 「已独占」名不副实，故两处必须取同一口径。
+     * 「已独占」名不副实，故两处必须取同一口径；24 位可写入性也须与独占侧同一个结论，
+     * 否则两处会挑出不同条目，由 [Int24OutputSupport] 缓存后统一给出。
      */
-    private fun requiresFloatOutput(format: Format): Boolean {
-        val device = exclusiveTarget() ?: return true
-        // 16 位及以下源在两种变体下都写成整型，重建不会改变挂接结果
-        if (!Util.isEncodingHighResolutionPcm(format.pcmEncoding)) return true
-        val bitPerfect = selectBitPerfectMixer(
+    private fun variantFor(format: Format): OutputVariant {
+        val device = exclusiveTarget() ?: return OutputVariant.FLOAT
+        val attributes = selectExclusiveMixer(
             audioManager.getSupportedMixerAttributes(device),
             format.sampleRate,
             format.channelCount,
             format.pcmEncoding,
-        )
-        // 只有 16 位整型条目可挂接时降级为整型变体；其余（含仅 24/32 位整型条目、无条目）保持浮点
-        return bitPerfect?.format?.encoding != AudioFormat.ENCODING_PCM_16BIT
+            Int24OutputSupport.isSupported(format.sampleRate, format.channelCount),
+        ) ?: return OutputVariant.FLOAT
+        return when (attributes.format.encoding) {
+            AudioFormat.ENCODING_PCM_16BIT -> OutputVariant.INT16
+            AudioFormat.ENCODING_PCM_24BIT_PACKED -> OutputVariant.INT24
+            else -> OutputVariant.FLOAT
+        }
     }
 
     private fun forEachSink(action: (AudioSink) -> Unit) {
         action(floatSink)
         action(intSink)
+        action(int24Sink)
     }
 
-    private fun switchTo(useFloat: Boolean) {
-        if (useFloat == floatActive) return
+    private fun switchTo(variant: OutputVariant) {
+        if (variant == activeVariant) return
         // 取向先翻转再复位退出方：其音频轨的释放回调因此被判为非生效方，既不外泄给渲染器，
         // 也不会把生效方的上报值抹掉
         val outgoing = active()
-        floatActive = useFloat
+        activeVariant = variant
         outgoing.reset()
         // 进入方此刻暂无音频轨，重建发生在下一次数据写入，届时由创建回调给出真实编码；
         // 退出方的编码已不属于当前链路，先清空，避免用上一变体的取值冒充当前写出编码
@@ -177,8 +195,8 @@ class PerDeviceAudioSink(
     }
 
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
-        switchTo(requiresFloatOutput(audioSinkConfig.format))
-        onOutputVariantChanged(floatActive)
+        switchTo(variantFor(audioSinkConfig.format))
+        onOutputVariantChanged(activeVariant == OutputVariant.FLOAT)
         active().configure(audioSinkConfig)
     }
 
@@ -295,6 +313,9 @@ class PerDeviceAudioSink(
         }
     }
 }
+
+// 写出变体：三者的写出编码互不相同，且都是构造期取向，故以变体身份而非布尔标记区分当前生效者
+private enum class OutputVariant { FLOAT, INT16, INT24 }
 
 /**
  * 音频接收回调的转接器：透传渲染器的回调，并截取音频轨被创建与被释放时的写出编码。
