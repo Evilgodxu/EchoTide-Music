@@ -325,8 +325,14 @@ class UsbExclusiveOutput(
             "${attributes.format.sampleRate}Hz/${attributes.format.channelCount}ch/" +
             encodingName(attributes.format.encoding)
 
+    // 条目按动态输出端口逐条上报，同一格式会被多个端口重复声明；去重后只留格式差异，
+    // 否则日志里同一行能力项要重复十几次，真正要看的「卡在哪一项」反而被淹没
     private fun describeSupported(supported: List<AudioMixerAttributes>): String =
-        if (supported.isEmpty()) "无条目" else supported.joinToString("；") { describeMixer(it) }
+        if (supported.isEmpty()) {
+            "无条目"
+        } else {
+            supported.map(::describeMixer).distinct().joinToString("；")
+        }
 
     private fun behaviorName(behavior: Int): String = when (behavior) {
         AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT -> "位完美"
