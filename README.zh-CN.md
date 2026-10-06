@@ -12,7 +12,7 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-4.5.2-informational)
+![Version](https://img.shields.io/badge/version-4.5.5-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.20-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.0-blue)
@@ -155,6 +155,7 @@
 | 通知(`POST_NOTIFICATIONS`) | 版本更新下载完成通知(Android 13+) |
 | 网络(`INTERNET`、`ACCESS_NETWORK_STATE`) | 在线搜索、歌词与封面获取、检查更新 |
 | 音频设置(`MODIFY_AUDIO_SETTINGS`) | 播放引擎的音频配置,含 USB 独占申请位完美混音器所需 |
+| 免打扰(`ACCESS_NOTIFICATION_POLICY`) | USB 独占输出期间自动切至「仅闹钟」档位,屏蔽通知与铃声干扰(不压制媒体流) |
 | 唤醒锁(`WAKE_LOCK`) | 熄屏后维持播放引擎运行 |
 | 忽略电池优化(`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) | 避免后台播放被系统回收 |
 | 安装应用(`REQUEST_INSTALL_PACKAGES`) | 应用内更新时拉起系统安装器 |

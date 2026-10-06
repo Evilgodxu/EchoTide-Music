@@ -12,7 +12,7 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-4.5.2-informational)
+![Version](https://img.shields.io/badge/version-4.5.5-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.20-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.0-blue)
@@ -155,6 +155,7 @@ Metadata editing is a page built on that path rather than inside it: the session
 | Notifications (`POST_NOTIFICATIONS`) | Update download completion notification (Android 13+) |
 | Network (`INTERNET`, `ACCESS_NETWORK_STATE`) | Online search, lyrics, cover lookup and update check |
 | Audio settings (`MODIFY_AUDIO_SETTINGS`) | Audio configuration for the playback engine, incl. the bit-perfect mixer request behind USB exclusive output |
+| Do Not Disturb access (`ACCESS_NOTIFICATION_POLICY`) | Switches DND to "alarms only" during USB exclusive output to mute notification/ringtone interruptions (media is not muted) |
 | Wake lock (`WAKE_LOCK`) | Keeps the playback engine running with the screen off |
 | Ignore battery optimizations (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) | Keeps background playback from being killed by the system |
 | Install packages (`REQUEST_INSTALL_PACKAGES`) | Launching the system installer for an in-app update |
