@@ -42,6 +42,14 @@ class PerDeviceAudioSink(
     private val onOutputVariantChanged: (Boolean) -> Unit = {},
     /** 输出编码变更回调：报告生效变体音频轨实际写出的 PCM 编码，null 表示当前链路无音频轨 */
     private val onOutputEncodingChanged: (Int?) -> Unit = {},
+    /**
+     * 解码输出格式回调：报告解码头实际输出的采样率、声道与线性 PCM 编码。
+     *
+     * 独占输出据此下发混音器属性，且必须在音频轨建立前生效，故在 [configure] 的开头上报——
+     * 这里是全链路最早拿到解码输出格式的地方：容器格式（轨道回调）只给采样率与声道，
+     * 压缩源的 PCM 编码要等解码头出格式才知道。
+     */
+    private val onDecodedFormatChanged: (Int, Int, Int) -> Unit = { _, _, _ -> },
 ) : AudioSink {
 
     /** 默认变体：高分辨率源以 32 位浮点写出，保留解码精度 */
@@ -159,6 +167,9 @@ class PerDeviceAudioSink(
      * 之逐字段一致——已核实，格式与偏好不符时 AudioFlinger 不会报错，而是把该轨静默混音输出，
      * 「已独占」名不副实，故两处必须取同一口径；24 位可写入性也须与独占侧同一个结论，
      * 否则两处会挑出不同条目，由 [Int24OutputSupport] 缓存后统一给出。
+     *
+     * [format] 是解码头输出的格式，其 pcmEncoding 已是真实线性 PCM，正是 [selectExclusiveMixer]
+     * 要的那一项；不是线性 PCM（直通等）时该函数即返回 null，此处随之回落到浮点。
      */
     private fun variantFor(format: Format): OutputVariant {
         val device = exclusiveTarget() ?: return OutputVariant.FLOAT
@@ -195,7 +206,11 @@ class PerDeviceAudioSink(
     }
 
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
-        switchTo(variantFor(audioSinkConfig.format))
+        val format = audioSinkConfig.format
+        // 先上报再挑变体：独占侧据此下发混音器属性，属性生效后 exclusiveTarget 才给出设备，
+        // 变体才能按与属性同一个条目来选；音频轨在下一次数据写入时才建立，属性来得及生效
+        onDecodedFormatChanged(format.sampleRate, format.channelCount, format.pcmEncoding)
+        switchTo(variantFor(format))
         onOutputVariantChanged(activeVariant == OutputVariant.FLOAT)
         active().configure(audioSinkConfig)
     }

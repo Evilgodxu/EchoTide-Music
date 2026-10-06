@@ -97,6 +97,15 @@ class MusicPlaybackService : MediaSessionService() {
             onOutputEncodingChanged = { encoding ->
                 stateHolder.state.audioSinkOutputEncoding = encoding
             },
+            // 独占输出的混音器属性按解码头输出的真实 PCM 编码挑选。只有这里拿得到它：
+            // 容器格式（轨道回调）对压缩源只给采样率与声道，pcmEncoding 仍是 NO_VALUE，
+            // 用它挑出的条目与实际写出的编码未必一致，故改由音频输出在重配时上报
+            onDecodedFormatChanged = { sampleRate, channelCount, pcmEncoding ->
+                // 独占输出在播放器之后装配，尚未装配时无从下发；格式未变时内部会跳过重复下发
+                if (::usbExclusiveOutput.isInitialized) {
+                    usbExclusiveOutput.onTrackFormatChanged(sampleRate, channelCount, pcmEncoding)
+                }
+            },
         )
         val renderersFactory = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
@@ -161,14 +170,6 @@ class MusicPlaybackService : MediaSessionService() {
                     }
                 val state = stateHolder.state
                 val currentTrack = state.currentTrack
-                // 独占输出的混音器属性按解码格式挑选，格式未变时内部会跳过重复下发
-                if (format != null) {
-                    usbExclusiveOutput.onTrackFormatChanged(
-                        format.sampleRate,
-                        format.channelCount,
-                        format.pcmEncoding,
-                    )
-                }
                 // 每次轨道切换后按解码格式更新信号路径状态
                 val fileFormat = format?.let { f ->
                     currentTrack?.path

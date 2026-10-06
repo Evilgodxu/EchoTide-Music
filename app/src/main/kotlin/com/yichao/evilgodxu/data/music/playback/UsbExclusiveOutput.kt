@@ -54,7 +54,11 @@ private const val LOG_TAG = "UsbExclusiveOutput"
  * 独占能否成立取决于设备接入与厂商声明，判定依据只在设备现场可得，故开关状态、解码格式与每次路由重算
  * 的结论都写入诊断日志（设置页可分享），使「设备已识别而独占未生效」能在日志中定位到具体环节。
  *
- * 所有方法都要求在播放器所属线程（主线程）调用。
+ * 线程：独占配置必须在音频轨建立之前下发，而解码格式只有播放线程在音频输出重配那一刻才拿得到，
+ * 故 [onTrackFormatChanged] 由播放线程调用；[setEnabled] 与 [release] 由主线程调用——两处的重算
+ * 都是拿 [AudioManager] 的现场状态重新求值，落点一致，故不额外加锁。播放器自身仍只受理主线程调用，
+ * 涉及它的两处（音频属性、设备钉定）分别以构造期捕获与主线程投递规避，见 [playbackAttributes]
+ * 与 [pinPreferredDevice]。
  */
 @OptIn(UnstableApi::class)
 class UsbExclusiveOutput(
@@ -94,9 +98,13 @@ class UsbExclusiveOutput(
 
     private val audioDeviceHandler = Handler(Looper.getMainLooper())
 
-    // 复用播放器自身的音频属性：原生侧按属性匹配播放记录，另建一份等价属性会对不上
-    private val playbackAttributes
-        get() = player.audioAttributes.platformAudioAttributes
+    /**
+     * 播放的原生音频属性。
+     *
+     * 沿用播放器自身的实例而非另建等价属性：原生侧按属性匹配播放记录。读取它需经播放器的主线程校验，
+     * 而独占配置会在播放线程上下发，故在构造期（主线程）捕获一次——播放建立后音频属性不再变化。
+     */
+    private val playbackAttributes = player.audioAttributes.platformAudioAttributes
 
     private val deviceCallback = object : AudioDeviceCallback() {
         // 插拔会同时让路由与混音器属性失效，两者一并重算
@@ -107,6 +115,16 @@ class UsbExclusiveOutput(
         override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
             refreshOutputRouting()
         }
+    }
+
+    /**
+     * 钉定或解除播放的输出设备。
+     *
+     * 播放器只在应用线程受理这一调用，而独占配置可能在播放线程上下发，故一律投递到主线程；
+     * 同一 Handler 串行执行，先后两次投递的次序与下发次序一致。
+     */
+    private fun pinPreferredDevice(device: AudioDeviceInfo?) {
+        audioDeviceHandler.post { player.setPreferredAudioDevice(device) }
     }
 
     /** 开启或关闭独占；关闭时撤销配置并解除路由钉定，播放回到系统默认混音输出 */
@@ -134,17 +152,20 @@ class UsbExclusiveOutput(
 
     /**
      * 解码格式变化（换曲、换源）后记录新格式，独占开启时据此重新挑选混音器属性。
-     * [pcmEncoding] 是解码头输出的 PCM 编码，挑选混音器条目时据它决定播放器实际写出的编码。
+     *
+     * [decodedPcmEncoding] 必须是解码头实际输出的线性 PCM 编码：容器格式给不出它（压缩源下为 NO_VALUE），
+     * 只有音频输出在重配那一刻手上的解码输出格式才是真值，故由音频输出上报而非由轨道回调传入。
+     * 上报点早于音频轨建立，属性才能在轨建起前生效。非 PCM 编码不予下发，交回系统混音。
      */
-    fun onTrackFormatChanged(sampleRate: Int, channelCount: Int, pcmEncoding: Int) {
+    fun onTrackFormatChanged(sampleRate: Int, channelCount: Int, decodedPcmEncoding: Int) {
         if (sampleRate == decodedSampleRate && channelCount == decodedChannelCount &&
-            pcmEncoding == decodedPcmEncoding
+            decodedPcmEncoding == this.decodedPcmEncoding
         ) {
             return
         }
         decodedSampleRate = sampleRate
         decodedChannelCount = channelCount
-        decodedPcmEncoding = pcmEncoding
+        this.decodedPcmEncoding = decodedPcmEncoding
         logDiagnostic("解码格式变更：${describeDecodedFormat()}")
         refreshOutputRouting()
     }
@@ -185,7 +206,7 @@ class UsbExclusiveOutput(
             releaseConfiguration("改用其它 USB 输出设备")
             // 属性先于路由下发：播放改道到该设备时，才按已配置的属性建立独占输出流
             val accepted = applyMixerAttributes(device, mixerAttributes)
-            player.setPreferredAudioDevice(device)
+            pinPreferredDevice(device)
             updateRouting(device, mixerAttributes.takeIf { accepted })
             if (!accepted) {
                 logDiagnostic(
@@ -235,7 +256,7 @@ class UsbExclusiveOutput(
         // 拔出时 APM 已在断连路径内清除该端口的偏好，此处 clear 会返回 NAME_NOT_FOUND；
         // 属性归属 uid 不符时返回 PERMISSION_DENIED。两者都无需处理
         runCatching { audioManager.clearPreferredMixerAttributes(playbackAttributes, device) }
-        player.setPreferredAudioDevice(null)
+        pinPreferredDevice(null)
         appliedMixerAttributes = null
         logDiagnostic("已解除 USB 独占（$reason）：${deviceLabel(device)}")
         updateRouting(null, null)
@@ -346,7 +367,7 @@ class UsbExclusiveOutput(
     /**
      * 挑出可承载当前曲目的独占混音器条目。
      * 位完美条目优先，缺失时退取同一动态端口的默认行为条目——厂商漏标位完美标志不等于设备做不到
-     * 按源格式打开输出流。解码格式未知（尚未起播）时不下发，等轨道信息就绪后由 onTrackFormatChanged 触发。
+     * 按源格式打开输出流。解码格式未知（尚未起播）或不是线性 PCM 时不下发，等音频输出上报后重新触发。
      */
     private fun pickMixerAttributes(supported: List<AudioMixerAttributes>): AudioMixerAttributes? =
         selectExclusiveMixer(
@@ -388,6 +409,12 @@ class UsbExclusiveOutput(
  * 因此候选严格按这三项筛定，不做「挑最接近条目」的退让：挂不上的条目只会让播放静默落回混音路径，
  * 却让调用方以为独占已经成立。编码一侧的候选取自 [writablePcmEncodings]，即播放器确实写得出的编码。
  *
+ * [decodedPcmEncoding] 必须是解码头实际输出的线性 PCM 编码，调用方各自负责把手上的格式换算到这一项。
+ * 压缩源在解码前无从得知它——容器格式只给采样率与声道，pcmEncoding 仍是 NO_VALUE——故此处不为未知编码
+ * 兜底：以未知编码推出的可写集合里凭空多出 16 位与 24 位，挑出的条目与真正写出的编码未必一致，
+ * 而两处调用点一旦挑出不同条目，AudioFlinger 不报错而是静默混音输出，「已独占」名不副实。
+ * 不是线性 PCM（未取得编码、直通等）即无从判定，直接交回系统混音。
+ *
  * 候选按成色取用：优先厂商声明了 AUDIO_OUTPUT_FLAG_BIT_PERFECT 的条目；无位完美条目时退取同一动态
  * 端口上的默认行为条目。后者是为厂商漏标该标志准备——平台的混音行为枚举对每个动态输出端口恒有一条
  * 默认行为条目，只有声明了标志才额外多出一条位完美条目，故漏标并不等于设备做不到按源格式直出。
@@ -404,11 +431,12 @@ internal fun selectExclusiveMixer(
     supported: List<AudioMixerAttributes>,
     sampleRate: Int,
     channelCount: Int,
-    inputPcmEncoding: Int,
+    decodedPcmEncoding: Int,
     int24Available: Boolean,
 ): AudioMixerAttributes? {
     if (sampleRate <= 0) return null
-    val writable = writablePcmEncodings(inputPcmEncoding, int24Available)
+    if (!Util.isEncodingLinearPcm(decodedPcmEncoding)) return null
+    val writable = writablePcmEncodings(decodedPcmEncoding, int24Available)
     val candidates = supported.filter {
         it.format.sampleRate == sampleRate &&
             it.format.encoding in writable &&
@@ -432,14 +460,17 @@ internal fun selectExclusiveMixer(
  * 16 位及以下源两种变体都写 16 位整型，故浮点只对高分辨率源可选。
  * 24 位整型由 [Int24PcmAudioSink] 写出，需先确认本机在该格式下能建起 24 位整型轨道；
  * 该实现逐样本转换，24 位及以下源不失真，32 位源会丢低位因而不列入。
+ *
+ * [decodedPcmEncoding] 取解码头实际输出的线性 PCM 编码：未取得编码时的取值会让「高分辨率」与
+ * 「32 位」两项判定都失去依据，凭空放宽可写集合，故调用方须先换算到真实 PCM。
  */
 @OptIn(UnstableApi::class)
-internal fun writablePcmEncodings(inputPcmEncoding: Int, int24Available: Boolean): Set<Int> {
+internal fun writablePcmEncodings(decodedPcmEncoding: Int, int24Available: Boolean): Set<Int> {
     val writable = mutableSetOf(AudioFormat.ENCODING_PCM_16BIT)
-    if (Util.isEncodingHighResolutionPcm(inputPcmEncoding)) {
+    if (Util.isEncodingHighResolutionPcm(decodedPcmEncoding)) {
         writable += AudioFormat.ENCODING_PCM_FLOAT
     }
-    if (int24Available && inputPcmEncoding != AudioFormat.ENCODING_PCM_32BIT) {
+    if (int24Available && decodedPcmEncoding != AudioFormat.ENCODING_PCM_32BIT) {
         writable += AudioFormat.ENCODING_PCM_24BIT_PACKED
     }
     return writable
