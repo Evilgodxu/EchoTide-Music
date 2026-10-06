@@ -39,6 +39,7 @@
     <string name="permission_bluetooth_title">Bluetooth</string>
     <string name="permission_notification_title">Notifications</string>
     <string name="permission_battery_title">Background playback</string>
+    <string name="permission_dnd_title">Do Not Disturb</string>
 
     <!-- Music panel -->
     <string name="music_panel_empty">No local music</string>

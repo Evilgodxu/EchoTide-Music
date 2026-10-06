@@ -39,6 +39,7 @@
     <string name="permission_bluetooth_title">蓝牙设备</string>
     <string name="permission_notification_title">通知</string>
     <string name="permission_battery_title">后台播放</string>
+    <string name="permission_dnd_title">免打扰</string>
 
     <!-- 音乐面板 -->
     <string name="music_panel_empty">暂无本地音乐</string>

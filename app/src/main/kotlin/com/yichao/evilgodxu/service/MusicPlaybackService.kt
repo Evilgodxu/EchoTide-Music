@@ -1,5 +1,6 @@
 package com.yichao.evilgodxu.service
 
+import android.app.NotificationManager
 import android.content.Intent
 import android.view.KeyEvent
 import android.media.AudioFocusRequest
@@ -23,6 +24,7 @@ import com.yichao.evilgodxu.App
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.playback.AudioSignalPathFormat
+import com.yichao.evilgodxu.data.music.playback.ExclusiveDoNotDisturb
 import com.yichao.evilgodxu.data.music.playback.PerDeviceAudioSink
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.UsbExclusiveOutput
@@ -46,6 +48,8 @@ class MusicPlaybackService : MediaSessionService() {
     private var audioFocusRequest: AudioFocusRequest? = null
     /** USB 独占输出：把播放钉到 USB 解码器并申请位完美传输 */
     private lateinit var usbExclusiveOutput: UsbExclusiveOutput
+    /** 独占聆听期间的系统免打扰：随独占成色进出 */
+    private lateinit var exclusiveDoNotDisturb: ExclusiveDoNotDisturb
     // 播放设置的读取与独占输出都要求主线程：ExoPlayer 与其 AudioTrack 均只在主线程访问
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     /** 焦点丢失前是否正在播放：恢复焦点后据此自动续播 */
@@ -253,10 +257,20 @@ class MusicPlaybackService : MediaSessionService() {
             .build()
         // 独占输出不参与媒体会话，在会话建立后单独装配；设置变更即刻生效，无需重启服务
         usbExclusiveOutput = UsbExclusiveOutput(player, audioManager)
+        // 免打扰随独占成色进出：位完美与格式独占都属于专注聆听，通知与提示音是最直接的打扰源；
+        // 未获免打扰访问权时类内自行跳过，不影响播放
+        val notificationManager = getSystemService(NotificationManager::class.java)
+        exclusiveDoNotDisturb = ExclusiveDoNotDisturb(
+            isAccessGranted = { notificationManager.isNotificationPolicyAccessGranted },
+            readFilter = { notificationManager.currentInterruptionFilter },
+            writeFilter = { notificationManager.setInterruptionFilter(it) },
+        )
         // 独占成色由独占输出自行判定（设备缺失、设备未提供动态混音端口、属性未被系统受理时都退回系统混音），
         // 不能以设置开关代替——开关打开而设备不支撑时播放仍走系统混音
         usbExclusiveOutput.onRoutingChanged = { mode ->
             stateHolder.state.exclusiveOutputMode = mode
+            // 成色回调来自播放线程与主线程两处，投递主线程使 holding 与还原档位这对状态同处一条线
+            serviceScope.launch { exclusiveDoNotDisturb.onModeChanged(mode) }
         }
         serviceScope.launch {
             usbExclusiveModeFlow().collect { enabled ->
@@ -407,6 +421,8 @@ class MusicPlaybackService : MediaSessionService() {
         abandonAudioFocus()
         serviceScope.cancel()
         usbExclusiveOutput.release()
+        // 服务销毁时成色回调已无从投递（作用域已取消），免打扰在此直接兜底还原
+        exclusiveDoNotDisturb.release()
         mediaSession?.release()
         mediaSession = null
         player.release()

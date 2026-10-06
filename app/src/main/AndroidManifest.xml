@@ -20,6 +20,8 @@
 
     <!-- 音乐播放器声明 -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- USB 独占聆听期间置为「仅闹钟」档位，挡掉通知与铃声（不压媒体流）；须用户在系统设置中单独授予免打扰访问权 -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- 熄屏后台播放保活：ExoPlayer 熄屏期间持有的 CPU 唤醒锁与 WLAN 锁均要求该权限 -->

@@ -3,6 +3,7 @@ package com.yichao.evilgodxu.permission
 import android.content.Context
 import android.content.pm.PackageManager
 import android.Manifest
+import android.app.NotificationManager
 import android.os.Environment
 import android.provider.Settings
 import kotlinx.coroutines.delay
@@ -21,6 +22,7 @@ enum class PermissionType {
     BLUETOOTH_CONNECT,       // 蓝牙设备访问（运行时权限）
     NOTIFICATIONS,           // 通知（运行时权限，系统页改写授权态）
     BATTERY_OPTIMIZATION,    // 电池优化白名单（系统特殊权限，授权页改写授权态）
+    NOTIFICATION_POLICY,     // 免打扰访问（系统特殊权限，授权页改写授权态）
 }
 
 // 音乐访问的运行时权限名
@@ -37,6 +39,9 @@ fun notificationPermission(): String = Manifest.permission.POST_NOTIFICATIONS
 
 // 权限状态监控器
 class PermissionMonitor(private val context: Context) {
+
+    private val notificationManager: NotificationManager? =
+        context.getSystemService(NotificationManager::class.java)
 
     fun isOverlayGranted(): Boolean = Settings.canDrawOverlays(context)
 
@@ -60,6 +65,10 @@ class PermissionMonitor(private val context: Context) {
     fun isNotificationGranted(): Boolean =
         context.checkSelfPermission(notificationPermission()) == PackageManager.PERMISSION_GRANTED
 
+    // 系统免打扰的读写权：USB 独占聆听期间据此置为完全静音
+    fun isNotificationPolicyGranted(): Boolean =
+        notificationManager?.isNotificationPolicyAccessGranted == true
+
     fun isGranted(permissionType: PermissionType): Boolean = when (permissionType) {
         PermissionType.OVERLAY -> isOverlayGranted()
         PermissionType.MANAGE_EXTERNAL_STORAGE -> isAllFilesGranted()
@@ -69,6 +78,7 @@ class PermissionMonitor(private val context: Context) {
         PermissionType.BLUETOOTH_CONNECT -> isBluetoothConnectGranted()
         PermissionType.NOTIFICATIONS -> isNotificationGranted()
         PermissionType.BATTERY_OPTIMIZATION -> isBatteryOptimizationIgnored(context)
+        PermissionType.NOTIFICATION_POLICY -> isNotificationPolicyGranted()
     }
 
     // 持续监控指定权限，直到授权后返回 true

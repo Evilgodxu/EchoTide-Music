@@ -9,6 +9,9 @@ data class HomeUiState(
     val bluetoothConnectGranted: Boolean = false,
     val notificationGranted: Boolean = false,
     val batteryWhitelistGranted: Boolean = false,
+    // 免打扰访问：仅 USB 独占聆听时用得到，故不计入 allPermissionsSatisfied——它的权限行只在独占开关
+    // 开启时列出，计入会让对话框在无行可显示的情况下被这条权限一直挂住
+    val notificationPolicyGranted: Boolean = false,
 ) {
     // 阻塞式核心权限：缺失时首页无法工作，权限对话框因此不可关闭
     val blockingPermissionsGranted: Boolean

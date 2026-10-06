@@ -37,6 +37,8 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yichao.evilgodxu.data.settings.usbExclusiveModeFlow
 import com.yichao.evilgodxu.permission.bluetoothConnectPermission
 import com.yichao.evilgodxu.permission.isBatteryOptimizationIgnored
 import com.yichao.evilgodxu.permission.mediaAudioPermission
@@ -61,6 +63,9 @@ fun PermissionDialog(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    // USB 独占开关与设置页共用同一偏好：免打扰权限只在该开关开启时才有用途
+    val usbExclusive by context.usbExclusiveModeFlow()
+        .collectAsStateWithLifecycle(initialValue = false)
     // LocalContext 为本地化包装 context，宿主 Activity 需从注册表所有者获取
     val activity = LocalActivityResultRegistryOwner.current as? Activity
 
@@ -123,7 +128,10 @@ fun PermissionDialog(
     val dismissible = uiState.blockingPermissionsGranted
     var dismissed by rememberSaveable { mutableStateOf(false) }
 
-    if (!uiState.allPermissionsSatisfied && !dismissed) {
+    // 免打扰访问只在启用 USB 独占后才需要，不计入 allPermissionsSatisfied，故单独判定其缺失
+    val notificationPolicyNeeded = usbExclusive && !uiState.notificationPolicyGranted
+
+    if ((!uiState.allPermissionsSatisfied || notificationPolicyNeeded) && !dismissed) {
         Dialog(
             onDismissRequest = { if (dismissible) dismissed = true },
             properties = DialogProperties(
@@ -264,6 +272,26 @@ fun PermissionDialog(
                             onRequest = requestBatteryWhitelist,
                         )
                     }
+                    // 免打扰访问：仅启用 USB 独占后列出——独占聆听期间置为「仅闹钟」可挡掉通知与铃声，
+                    // 未启用独占则用不到，不该被要求授予系统特殊权限
+                    if (notificationPolicyNeeded) {
+                        PermissionCardRow(
+                            icon = {
+                                Icon(
+                                    AppIcons.Block,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            },
+                            title = stringResource(R.string.permission_dnd_title),
+                            onRequest = {
+                                activity?.let {
+                                    onStartPermissionMonitor(PermissionType.NOTIFICATION_POLICY, it)
+                                }
+                                launchNotificationPolicySettings(context, activity)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -282,5 +310,19 @@ private fun launchNotificationSettings(context: Context, activity: Activity?) {
     val flags = if (activity == null) Intent.FLAG_ACTIVITY_NEW_TASK else 0
     val target = activity ?: context
     runCatching { target.startActivity(notificationIntent.addFlags(flags)) }
+        .onFailure { runCatching { target.startActivity(detailsIntent.addFlags(flags)) } }
+}
+
+// 跳转系统的勿扰访问授权列表（免打扰访问权只有公开的这个入口，无按应用直达页），由用户在其中为本应用开启；
+// 该页在少数 ROM 上缺失时回退到应用详情页。与通知设置跳转一致：无宿主 Activity 时需加 NEW_TASK
+private fun launchNotificationPolicySettings(context: Context, activity: Activity?) {
+    val flags = if (activity == null) Intent.FLAG_ACTIVITY_NEW_TASK else 0
+    val target: Context = activity ?: context
+    val policyIntent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+    val detailsIntent = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        "package:${context.packageName}".toUri(),
+    )
+    runCatching { target.startActivity(policyIntent.addFlags(flags)) }
         .onFailure { runCatching { target.startActivity(detailsIntent.addFlags(flags)) } }
 }

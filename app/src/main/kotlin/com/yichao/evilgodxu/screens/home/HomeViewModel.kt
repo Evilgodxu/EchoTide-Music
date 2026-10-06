@@ -49,6 +49,7 @@ class HomeViewModel(
                 notificationGranted = permissionMonitor.isNotificationGranted(),
                 batteryWhitelistGranted =
                     isBatteryOptimizationIgnored(getApplication<Application>()),
+                notificationPolicyGranted = permissionMonitor.isNotificationPolicyGranted(),
             )
         }
         // 核心权限从未全部授权变为全部授权时，自动扫描歌曲并补全封面/歌词
