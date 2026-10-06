@@ -126,6 +126,9 @@ class MusicPlaybackService : MediaSessionService() {
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    // 空间化是平台唯一可能默认开启的后处理（虚拟环绕/头部追踪），音乐播放追求
+                    // 原样保真，显式禁用；音效类（均衡器等）本应用从不挂载，aux 效果默认即禁用
+                    .setSpatializationBehavior(C.SPATIALIZATION_BEHAVIOR_NEVER)
                     .build(),
                 false
             )

@@ -188,7 +188,17 @@ class PerDeviceAudioSink(
             // 默认变体的音频轨建在输出提供者内部，只有替换它才能拿到轨道本体（延迟取自该轨）
             .setAudioOutputProvider(
                 TrackCapturingOutputProvider(
-                    provider = AudioTrackAudioOutputProvider.Builder(context).build(),
+                    provider = AudioTrackAudioOutputProvider.Builder(context)
+                        // 低延迟只在系统混音路径上开启：该路径要求采样率对齐设备原生采样率、会引入
+                        // 重采样，且音效处理在这条路径上不可用（与本应用的「禁用音效」诉求一致）；
+                        // 独占输出（USB 位完美/格式锁定）追求按源格式直出，不应被重采样破坏，
+                        // 故独占成立时不设性能模式，退回平台默认路径。
+                        .setAudioTrackBuilderModifier { builder, _ ->
+                            if (exclusiveTarget() == null) {
+                                builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                            }
+                        }
+                        .build(),
                     onAudioTrackCreated = { capturedTracks[variant] = it },
                 )
             )
