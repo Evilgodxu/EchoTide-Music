@@ -12,7 +12,7 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-4.5.5-informational)
+![Version](https://img.shields.io/badge/version-4.5.7-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.20-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.0-blue)
@@ -70,7 +70,7 @@
 │       │   │   │   ├── metadata/        #     封面管理、元数据与歌词读写(区间流式标签读写)、元数据缓存、相册图片写入
 │       │   │   │   ├── model/           #     曲目与搜索数据模型(以平台键为身份)
 │       │   │   │   ├── panel/           #     面板状态持有器、搜索逻辑与逐字对齐入口
-│       │   │   │   ├── playback/        #     播放状态、播放器工具、队列切换、歌单排序、USB 直出、按设备音频输出、音频信息快照(含蓝牙链路与编解码器解析)
+│       │   │   │   ├── playback/        #     播放状态、播放器工具、队列切换、歌单排序、USB 直出与免打扰、按设备音频输出(含缓冲策略)、输出延迟实测、音频信息快照(含蓝牙链路与编解码器解析)
 │       │   │   │   ├── proxy/           #     代理音源(导入 / 解析 / 引擎 / 存储)、自定义平台注册表与歌单同步
 │       │   │   │   ├── recommend/       #     每日推荐(榜单候选池、歌词特征、TF-IDF、MMR)
 │       │   │   │   ├── MusicScanner.kt  #     MediaStore 扫描与曲目补全
@@ -130,13 +130,13 @@
 
 被两个及以上功能复用的代码上提至顶层(`data/`、`theme/`、`utils/`、`ui/`),仅单页使用的代码保留在页面模块内。播放逻辑位于 `data/music`(播放 / 下载 / 分析 / 面板 / 推荐),通过窗口级 `MusicPanelStateHolder` 暴露给 UI;悬浮 UI 拆分为 `floatingwindow/`(视图管理,以及迷你播放器自身的可组合项)与 `ui/component/player`(完整音乐面板及其子部件),实际播放由 `service/MusicPlaybackService`(Media3 ExoPlayer + `MediaSessionService`)驱动。
 
-除页面自身状态外,有两类逻辑刻意置于界面树之外,以便跨重组与旋转存活:首页 **面板状态**(`HomePanelState`,持有播放列表显隐、对话框、滑动控制器与曲库分析会话)与共享**播放状态持有者**。其中曲库分析会话常驻首页层,关闭其面板不会中断正在执行的分析。每日推荐的榜单候选池与播放启动镜像同理:候选池由 `App` 在后台预热,最近一次播放状态镜像落盘,使冷启动后的首帧即为完整内容。
+除页面自身状态外,有两类逻辑刻意置于界面树之外,以便跨重组与旋转存活:首页 **面板状态**(`HomePanelState`,持有播放列表显隐、对话框、滑动控制器与曲库分析会话)与共享**播放状态持有者**。其中曲库分析会话常驻首页层,关闭其面板不会中断正在执行的分析。每日推荐的榜单候选池与播放启动镜像同理:候选池由 `App` 在后台预热,最近一次播放状态镜像落盘,使冷启动后的首帧即为完整内容。每日推荐同样过 `MusicBlacklist`:被用户明确拉黑的曲目在粗排阶段直接跳过,而候选集中过代表的特征与被跳过曲目的特征只做降权,故一次拉黑不会退化成逐曲过滤。
 
 频谱分析是独立页面:分析会话按曲目挂在 `SpectrumViewModel` 中,解码跑在 `Dispatchers.Default` 上,离开页面即随作用域取消;解码本体(`SpectrogramDecoder`)与判定入口(`FullSpectrumAnalyzer`)置于 `data/music/analysis`,与曲库分析共用判定缓存与判据。`FullAnalysisLock` 是「以完整分析为准」的落点——曲库分析的分段采样遇到锁定曲目一律跳过,不再改写其结论。
 
 歌词解析同样收在一处:`data/music/api/LyricCodec` 把各平台的歌词原文(普通 LRC、增强 LRC 的行内字标签、QQ 的 QRC、酷狗的 KRC、酷我的 lrcx)统一解析为同一份 `LyricLine` 列表,逐字时间轴一律归一为绝对毫秒,因此各平台的解析结果可直接互换比较,「逐字优先、无字标签则退化为逐行」的选取策略也只需实现一次。取词、解析、缓存写入与自动补译分别落在 `OnlineLyrics`、`LyricCodec`、`MusicMetadataCache` 与 `data/music/panel/MusicPanelLyricsTranslate`,后者的进度对话框与逐字对齐共用同一组件。酷狗 KRC 是唯一自带译文的来源:`[language]` 元信息块(base64 编码的 JSON,取 `type=1` 段)内的译文按歌词行顺序 1:1 对齐,这类曲目无需调用翻译接口即带译文;只有字标签全零的翻译行仍按时间戳并入。
 
-音频信息面板读的是播放链路本身,不与任何播放器布局耦合:`AudioInfoCollector` 从共享播放状态组装出一份 `AudioInfoSnapshot`,Compose 侧则靠一个版本号触发重算——播放器自身回调(播放状态、起播意愿、音频会话 ID)、`AudioDeviceCallback`(设备插拔)与 `ON_RESUME`(刚授予的权限当即体现)各自使其自增。所有字段均可为空,读不到的字段不产出该行,因此同一个面板覆盖扬声器、USB 解码器与蓝牙链路时,UI 侧无需分支。它打印的链路取值——浮点输出、实际写出的 PCM 编码、位完美直出——由按设备音频输出与 USB 直出模块向上回填到共享状态,面板读到的正是播放路径写入的同一份来源,而非从源格式推断。
+音频信息面板读的是播放链路本身,不与任何播放器布局耦合:`AudioInfoCollector` 从共享播放状态组装出一份 `AudioInfoSnapshot`,Compose 侧则靠一个版本号触发重算——播放器自身回调(播放状态、起播意愿、音频会话 ID)、`AudioDeviceCallback`(设备插拔)与 `ON_RESUME`(刚授予的权限当即体现)各自使其自增。所有字段均可为空,读不到的字段不产出该行,因此同一个面板覆盖扬声器、USB 解码器与蓝牙链路时,UI 侧无需分支。它打印的链路取值——浮点输出、实际写出的 PCM 编码、位完美直出——由按设备音频输出与 USB 直出模块向上回填到共享状态,面板读到的正是播放路径写入的同一份来源,而非从源格式推断。面板同时给出实测延迟与音频轨缓冲,两者都不能按设备查询:`OutputLatency` 拿 `AudioTrack.getTimestamp` 分别与播放头、写入帧位比对,把链路在音频轨处切成「轨之后」与「轨自身驻留」两段,相加得出全链路,`OutputLatencySampler` 再对抖动的读数取滑动平均;`PlaybackBufferPolicy` 以 512 帧 PCM 申请缓冲(取代媒体3 固定的 500ms 口径),压住的正是这段驻留。USB 直出期间,`DirectOutputDoNotDisturb` 把输出成色映射到系统免打扰——位完美或源格式直出成立即进入「仅闹钟」,成色消失即还原先前档位,通知与铃声因此不再打扰,而媒体流本身不受压制。
 
 无损与线性 PCM 容器的标签重写走 `TagSource`,它只暴露区间读取与区间搬运:标签布局由文件头部与尾部窗口定位算出,音频体按原偏移流式复制,因此数百 MB 的高解析单文件在改写标签时不再整文件驻留内存。各类容器布局——ID3v2、M4A/MP4 盒子表、FLAC Vorbis 注释、Ogg 页序列,以及 AIFF、DSDIFF、DSF、APE、WAV 的 IFF/RIFF 式块结构——只需给出「头部字面字节 + 音频体区间 + 尾部字面字节」交给写入方。
 
