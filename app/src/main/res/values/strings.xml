@@ -414,7 +414,7 @@
     </plurals>
     <string name="cache_category_image">图片缓存</string>
     <string name="cache_category_temp">中转文件</string>
-    <string name="cache_category_log">异常日志</string>
+    <string name="cache_category_log">运行日志</string>
     <string name="cache_category_lyric">歌词缓存</string>
     <string name="cache_category_audio">歌曲缓存</string>
     <string name="cache_category_update">更新安装包</string>

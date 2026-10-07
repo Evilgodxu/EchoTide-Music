@@ -41,7 +41,7 @@ class CacheViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // 清理应用自身缓存（整清 cacheDir + 异常日志/更新安装包），完成后重新采样使展示与实际一致。
+    // 清理应用自身缓存（整清 cacheDir + 运行日志/更新安装包），完成后重新采样使展示与实际一致。
     // 用户数据各自按保留策略回收，不在此列
     fun clearSystemCache() {
         if (_uiState.value.clearing) return

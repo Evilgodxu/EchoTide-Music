@@ -23,7 +23,7 @@ enum class CacheCategory {
     /** 中转文件：下载与更新过程的临时产物，流程结束即删 */
     TEMP_FILE,
 
-    /** 崩溃与异常日志 */
+    /** 运行日志：崩溃、异常与诊断信息 */
     LOG,
 
     /** 歌词展示缓存 */
@@ -45,7 +45,7 @@ enum class CacheCategory {
 /**
  * 缓存归属范围：按产出归属方划分，是缓存页分卡的依据，也界定「清理缓存」的作用边界。
  *
- * [CLEARABLE] 系统缓存：应用自身可随时回收的运行副产物（cacheDir 内产出、异常日志、更新安装包），
+ * [CLEARABLE] 系统缓存：应用自身可随时回收的运行副产物（cacheDir 内产出、运行日志、更新安装包），
  *              用户可经「清理缓存」整批删除；
  * [APP_DATA] 应用数据：应用自身运行产生的副产物，按各自保留策略回收；（当前无登记项，保留以作区分）
  * [USER_DATA] 用户数据：围绕用户曲库与偏好产生的产出，按各自保留策略回收，或只由用户显式删除。
@@ -128,7 +128,7 @@ internal object CacheInventory {
             scope = CacheScope.CLEARABLE,
             resolve = { context -> tempFiles(context) },
         ),
-        // 异常日志：仅保留今日，写入时顺带清理旧文件；清理作用域内由用户整批删除（逐文件删，目录保留）
+        // 运行日志：仅保留今日，写入时顺带清理旧文件；清理作用域内由用户整批删除（逐文件删，目录保留）
         CacheEntry(
             category = CacheCategory.LOG,
             scope = CacheScope.CLEARABLE,
@@ -200,7 +200,7 @@ internal object CacheInventory {
     /**
      * 清理应用自身缓存：与系统设置页「清除缓存」的作用域一致 —— 整清 cacheDir，
      * 从而自动覆盖任何第三方库落盘在 cacheDir 的缓存，无需逐个登记。
-     * 系统缓存作用域不覆盖的应用专属外部产出（异常日志、更新安装包）在此手动删除。
+     * 系统缓存作用域不覆盖的应用专属外部产出（运行日志、更新安装包）在此手动删除。
      * 活跃的 Coil 磁盘缓存须先经其接口清空以保持索引一致。
      */
     suspend fun clearSystemCache(context: Context) {
@@ -215,7 +215,7 @@ internal object CacheInventory {
         context.cacheDir.listFiles()?.forEach { child ->
             if (child.name != IMAGE_CACHE_DIR_NAME) child.deleteRecursively()
         }
-        // 系统缓存作用域外、应用专属外部的产出（异常日志、更新安装包），系统 API 覆盖不到，手动删除
+        // 系统缓存作用域外、应用专属外部的产出（运行日志、更新安装包），系统 API 覆盖不到，手动删除
         logFiles(context).forEach { deleteQuietly(it) }
         updatePackages(context).forEach { deleteQuietly(it) }
     }
