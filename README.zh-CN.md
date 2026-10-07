@@ -70,7 +70,7 @@
 │       │   │   │   ├── metadata/        #     封面管理、元数据与歌词读写(区间流式标签读写)、元数据缓存、相册图片写入
 │       │   │   │   ├── model/           #     曲目与搜索数据模型(以平台键为身份)
 │       │   │   │   ├── panel/           #     面板状态持有器、搜索逻辑与逐字对齐入口
-│       │   │   │   ├── playback/        #     播放状态、播放器工具、队列切换、歌单排序、USB 独占输出、按设备音频输出、音频信息快照(含蓝牙链路与编解码器解析)
+│       │   │   │   ├── playback/        #     播放状态、播放器工具、队列切换、歌单排序、USB 直出、按设备音频输出、音频信息快照(含蓝牙链路与编解码器解析)
 │       │   │   │   ├── proxy/           #     代理音源(导入 / 解析 / 引擎 / 存储)、自定义平台注册表与歌单同步
 │       │   │   │   ├── recommend/       #     每日推荐(榜单候选池、歌词特征、TF-IDF、MMR)
 │       │   │   │   ├── MusicScanner.kt  #     MediaStore 扫描与曲目补全
@@ -136,7 +136,7 @@
 
 歌词解析同样收在一处:`data/music/api/LyricCodec` 把各平台的歌词原文(普通 LRC、增强 LRC 的行内字标签、QQ 的 QRC、酷狗的 KRC、酷我的 lrcx)统一解析为同一份 `LyricLine` 列表,逐字时间轴一律归一为绝对毫秒,因此各平台的解析结果可直接互换比较,「逐字优先、无字标签则退化为逐行」的选取策略也只需实现一次。取词、解析、缓存写入与自动补译分别落在 `OnlineLyrics`、`LyricCodec`、`MusicMetadataCache` 与 `data/music/panel/MusicPanelLyricsTranslate`,后者的进度对话框与逐字对齐共用同一组件。酷狗 KRC 是唯一自带译文的来源:`[language]` 元信息块(base64 编码的 JSON,取 `type=1` 段)内的译文按歌词行顺序 1:1 对齐,这类曲目无需调用翻译接口即带译文;只有字标签全零的翻译行仍按时间戳并入。
 
-音频信息面板读的是播放链路本身,不与任何播放器布局耦合:`AudioInfoCollector` 从共享播放状态组装出一份 `AudioInfoSnapshot`,Compose 侧则靠一个版本号触发重算——播放器自身回调(播放状态、起播意愿、音频会话 ID)、`AudioDeviceCallback`(设备插拔)与 `ON_RESUME`(刚授予的权限当即体现)各自使其自增。所有字段均可为空,读不到的字段不产出该行,因此同一个面板覆盖扬声器、USB 解码器与蓝牙链路时,UI 侧无需分支。它打印的链路取值——浮点输出、实际写出的 PCM 编码、位完美独占——由按设备音频输出与 USB 独占模块向上回填到共享状态,面板读到的正是播放路径写入的同一份来源,而非从源格式推断。
+音频信息面板读的是播放链路本身,不与任何播放器布局耦合:`AudioInfoCollector` 从共享播放状态组装出一份 `AudioInfoSnapshot`,Compose 侧则靠一个版本号触发重算——播放器自身回调(播放状态、起播意愿、音频会话 ID)、`AudioDeviceCallback`(设备插拔)与 `ON_RESUME`(刚授予的权限当即体现)各自使其自增。所有字段均可为空,读不到的字段不产出该行,因此同一个面板覆盖扬声器、USB 解码器与蓝牙链路时,UI 侧无需分支。它打印的链路取值——浮点输出、实际写出的 PCM 编码、位完美直出——由按设备音频输出与 USB 直出模块向上回填到共享状态,面板读到的正是播放路径写入的同一份来源,而非从源格式推断。
 
 无损与线性 PCM 容器的标签重写走 `TagSource`,它只暴露区间读取与区间搬运:标签布局由文件头部与尾部窗口定位算出,音频体按原偏移流式复制,因此数百 MB 的高解析单文件在改写标签时不再整文件驻留内存。各类容器布局——ID3v2、M4A/MP4 盒子表、FLAC Vorbis 注释、Ogg 页序列,以及 AIFF、DSDIFF、DSF、APE、WAV 的 IFF/RIFF 式块结构——只需给出「头部字面字节 + 音频体区间 + 尾部字面字节」交给写入方。
 
@@ -154,8 +154,8 @@
 | 前台服务(`mediaPlayback`、`FOREGROUND_SERVICE_MEDIA_PLAYBACK`) | 后台播放 + 通知栏 / 锁屏控制 |
 | 通知(`POST_NOTIFICATIONS`) | 版本更新下载完成通知(Android 13+) |
 | 网络(`INTERNET`、`ACCESS_NETWORK_STATE`) | 在线搜索、歌词与封面获取、检查更新 |
-| 音频设置(`MODIFY_AUDIO_SETTINGS`) | 播放引擎的音频配置,含 USB 独占申请位完美混音器所需 |
-| 免打扰(`ACCESS_NOTIFICATION_POLICY`) | USB 独占输出期间自动切至「仅闹钟」档位,屏蔽通知与铃声干扰(不压制媒体流) |
+| 音频设置(`MODIFY_AUDIO_SETTINGS`) | 播放引擎的音频配置,含 USB 直出按设备声明申请动态混音器属性所需 |
+| 免打扰(`ACCESS_NOTIFICATION_POLICY`) | USB 直出期间自动切至「仅闹钟」档位,屏蔽通知与铃声干扰(不压制媒体流) |
 | 唤醒锁(`WAKE_LOCK`) | 熄屏后维持播放引擎运行 |
 | 忽略电池优化(`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) | 避免后台播放被系统回收 |
 | 安装应用(`REQUEST_INSTALL_PACKAGES`) | 应用内更新时拉起系统安装器 |

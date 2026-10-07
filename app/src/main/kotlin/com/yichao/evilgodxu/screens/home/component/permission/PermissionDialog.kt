@@ -38,7 +38,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.yichao.evilgodxu.data.settings.usbExclusiveModeFlow
+import com.yichao.evilgodxu.data.settings.usbDirectOutputModeFlow
 import com.yichao.evilgodxu.permission.bluetoothConnectPermission
 import com.yichao.evilgodxu.permission.isBatteryOptimizationIgnored
 import com.yichao.evilgodxu.permission.mediaAudioPermission
@@ -63,8 +63,8 @@ fun PermissionDialog(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    // USB 独占开关与设置页共用同一偏好：免打扰权限只在该开关开启时才有用途
-    val usbExclusive by context.usbExclusiveModeFlow()
+    // USB 直出开关与设置页共用同一偏好：免打扰权限只在该开关开启时才有用途
+    val usbDirectOutput by context.usbDirectOutputModeFlow()
         .collectAsStateWithLifecycle(initialValue = false)
     // LocalContext 为本地化包装 context，宿主 Activity 需从注册表所有者获取
     val activity = LocalActivityResultRegistryOwner.current as? Activity
@@ -128,8 +128,8 @@ fun PermissionDialog(
     val dismissible = uiState.blockingPermissionsGranted
     var dismissed by rememberSaveable { mutableStateOf(false) }
 
-    // 免打扰访问只在启用 USB 独占后才需要，不计入 allPermissionsSatisfied，故单独判定其缺失
-    val notificationPolicyNeeded = usbExclusive && !uiState.notificationPolicyGranted
+    // 免打扰访问只在启用 USB 直出后才需要，不计入 allPermissionsSatisfied，故单独判定其缺失
+    val notificationPolicyNeeded = usbDirectOutput && !uiState.notificationPolicyGranted
 
     if ((!uiState.allPermissionsSatisfied || notificationPolicyNeeded) && !dismissed) {
         Dialog(
@@ -272,8 +272,8 @@ fun PermissionDialog(
                             onRequest = requestBatteryWhitelist,
                         )
                     }
-                    // 免打扰访问：仅启用 USB 独占后列出——独占聆听期间置为「仅闹钟」可挡掉通知与铃声，
-                    // 未启用独占则用不到，不该被要求授予系统特殊权限
+                    // 免打扰访问：仅启用 USB 直出后列出——直出期间置为「仅闹钟」可挡掉通知与铃声，
+                    // 未启用直出则用不到，不该被要求授予系统特殊权限
                     if (notificationPolicyNeeded) {
                         PermissionCardRow(
                             icon = {

@@ -548,7 +548,7 @@ private fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<
         playbackState.audioDecoderName,
         playbackState.audioSinkFloatOutput,
         playbackState.audioSinkOutputEncoding,
-        playbackState.exclusiveOutputMode,
+        playbackState.directOutputMode,
         playerEventVersion,
         deviceEventVersion,
     ) {

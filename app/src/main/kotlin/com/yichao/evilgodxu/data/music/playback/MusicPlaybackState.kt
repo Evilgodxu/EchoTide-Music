@@ -708,8 +708,8 @@ class MusicPlaybackState(
      * 入口内部读到的是播放线程写的量，那几项各自按 volatile 发布。
      */
     var audioSinkWrittenFrames: (() -> Long?)? = null
-    // 独占输出的当前成色：未启用、无设备接入或设备未提供动态混音端口时保持系统混音
-    var exclusiveOutputMode by mutableStateOf(AudioOutputMode.MIXER)
+    // 直出的当前成色：未启用、无设备接入或设备未提供动态混音端口时保持系统混音
+    var directOutputMode by mutableStateOf(AudioOutputMode.MIXER)
 
     // 收藏的歌曲 ID 集合（面板级内存状态）
     var likedIds by mutableStateOf<Set<Long>>(emptySet())

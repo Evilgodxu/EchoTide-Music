@@ -14,8 +14,8 @@ data class SettingsUiState(
     val swipeToChangeTrack: Boolean = true,
     // 背景流动：开启后首页封面衍生背景按固定默认值缓慢流动，关闭时只渲染一帧
     val backgroundFlow: Boolean = false,
-    // USB 独占：开启后播放锁定 USB 解码器并申请位完美传输
-    val usbExclusive: Boolean = false,
+    // USB 直出：开启后按设备声明的条目为播放申请专用输出流，位完美与否取决于厂商声明
+    val usbDirectOutput: Boolean = false,
     val version: String = "",
     // 已导入的代理音源列表
     val proxySources: List<ProxySourceSpec> = emptyList(),

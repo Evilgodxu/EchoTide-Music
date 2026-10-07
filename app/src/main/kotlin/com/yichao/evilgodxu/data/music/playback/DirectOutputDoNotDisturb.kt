@@ -3,15 +3,15 @@ package com.yichao.evilgodxu.data.music.playback
 import android.app.NotificationManager
 import com.yichao.evilgodxu.log.CrashLogManager
 
-// 诊断日志的类名前缀：与独占输出同处一条链路，免打扰的进出决策都记在此名下
-private const val LOG_TAG = "ExclusiveDoNotDisturb"
+// 诊断日志的类名前缀：与直出同处一条链路，免打扰的进出决策都记在此名下
+private const val LOG_TAG = "DirectOutputDoNotDisturb"
 
 /**
- * USB 独占聆听期间的系统免打扰。
+ * USB 直出期间的系统免打扰。
  *
- * 位完美与格式独占一旦成立，播放已挂上专用输出流，此时通知与系统提示音是最直接的打扰源。
- * 本类把独占成色映射为系统免打扰的进入与退出：成色成立即置为「仅闹钟」，成色消失（拔线、切换输出、
- * 关闭独占开关、服务结束）即还原。退出只认成色、不认播放与暂停——暂停时跟着进出会让手机的静音状态
+ * 位完美与源格式直出一旦成立，播放已挂上专用输出流，此时通知与系统提示音是最直接的打扰源。
+ * 本类把输出成色映射为系统免打扰的进入与退出：成色成立即置为「仅闹钟」，成色消失（拔线、切换输出、
+ * 关闭直出开关、服务结束）即还原。退出只认成色、不认播放与暂停——暂停时跟着进出会让手机的静音状态
  * 反复翻转。
  *
  * 档位取「仅闹钟」而非「完全静音」：平台按档位静音整条流（AudioService.updateZenModeAffectedStreams），
@@ -28,7 +28,7 @@ private const val LOG_TAG = "ExclusiveDoNotDisturb"
  * [holding] 与 [restoreFilter] 是一对不可分的状态，调用方须保证 [onModeChanged] 与 [release] 同处一线程
  * （服务侧统一投递主线程）。
  */
-class ExclusiveDoNotDisturb(
+class DirectOutputDoNotDisturb(
     /** 是否已获系统免打扰访问权；未获权时读写档位都会失败，故先问它 */
     private val isAccessGranted: () -> Boolean,
     /** 读取当前系统免打扰档位 */
@@ -44,16 +44,16 @@ class ExclusiveDoNotDisturb(
     private var restoreFilter = NotificationManager.INTERRUPTION_FILTER_ALL
 
     /**
-     * 独占成色变化时驱动免打扰进出。
+     * 输出成色变化时驱动免打扰进出。
      *
-     * [AudioOutputMode.MIXER] 表示未独占（含设备被拔出、属性未被系统受理、独占开关关闭），
+     * [AudioOutputMode.MIXER] 表示未直出（含设备被拔出、属性未被系统受理、直出开关关闭），
      * 其余成色都视为进入聆听。
      */
     fun onModeChanged(mode: AudioOutputMode) {
         if (mode == AudioOutputMode.MIXER) exitSilence() else enterSilence()
     }
 
-    /** 无条件还原并解除接管；独占输出释放时兜底调用，避免服务销毁后手机停在静音 */
+    /** 无条件还原并解除接管；直出释放时兜底调用，避免服务销毁后手机停在静音 */
     fun release() {
         exitSilence()
     }
@@ -71,7 +71,7 @@ class ExclusiveDoNotDisturb(
         if (!setFilter(NotificationManager.INTERRUPTION_FILTER_ALARMS)) return
         restoreFilter = current
         holding = true
-        logInfo("独占聆听进入免打扰：置为仅闹钟，原档位 ${filterName(current)}")
+        logInfo("直出进入免打扰：置为仅闹钟，原档位 ${filterName(current)}")
     }
 
     private fun exitSilence() {
@@ -80,7 +80,7 @@ class ExclusiveDoNotDisturb(
         val filter = restoreFilter
         holding = false
         if (setFilter(filter)) {
-            logInfo("独占结束退出免打扰：还原为 ${filterName(filter)}")
+            logInfo("直出结束退出免打扰：还原为 ${filterName(filter)}")
         }
     }
 

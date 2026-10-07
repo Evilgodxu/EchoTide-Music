@@ -7,13 +7,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 独占聆听免打扰的进出状态机。
+ * 直出免打扰的进出状态机。
  *
  * 两条关键约束：一是「谁发起的改动由谁还原」——通知已被静音时不得接管，否则退出会改掉用户自己的设置；
  * 二是档位不得落到完全静音——平台会连 STREAM_MUSIC 一并静音，音乐会被自己的免打扰压掉。
  * 用例围绕这两条构造，而不是只验证写入值。
  */
-class ExclusiveDoNotDisturbTest {
+class DirectOutputDoNotDisturbTest {
 
     private val all = NotificationManager.INTERRUPTION_FILTER_ALL
     private val priority = NotificationManager.INTERRUPTION_FILTER_PRIORITY
@@ -24,7 +24,7 @@ class ExclusiveDoNotDisturbTest {
     private var granted = true
     private val writes = mutableListOf<Int>()
 
-    private fun controller(): ExclusiveDoNotDisturb = ExclusiveDoNotDisturb(
+    private fun controller(): DirectOutputDoNotDisturb = DirectOutputDoNotDisturb(
         isAccessGranted = { granted },
         readFilter = { filter },
         writeFilter = {
@@ -34,7 +34,7 @@ class ExclusiveDoNotDisturbTest {
     )
 
     @Test
-    fun exclusiveModeMutesNotificationsThenRestoresPreviousFilter() {
+    fun directOutputMutesNotificationsThenRestoresPreviousFilter() {
         val controller = controller()
 
         controller.onModeChanged(AudioOutputMode.BIT_PERFECT)
@@ -46,7 +46,7 @@ class ExclusiveDoNotDisturbTest {
     }
 
     @Test
-    fun formatLockedAlsoCountsAsExclusive() {
+    fun formatLockedAlsoCountsAsDirectOutput() {
         val controller = controller()
 
         controller.onModeChanged(AudioOutputMode.FORMAT_LOCKED)
@@ -105,7 +105,7 @@ class ExclusiveDoNotDisturbTest {
         assertEquals(all, filter)
     }
 
-    // 成色未成立时不产生任何写入，避免未独占时也动系统档位
+    // 成色未成立时不产生任何写入，避免未直出时也动系统档位
     @Test
     fun mixerModeWithoutHoldingWritesNothing() {
         val controller = controller()

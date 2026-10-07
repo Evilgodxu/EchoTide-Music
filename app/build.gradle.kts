@@ -29,7 +29,7 @@ android {
 
         ndk {
             // 仅打包 arm64：ChromeOS 上的 Android 运行时为 x86_64，加入该 ABI 会显著增大
-            // 安装包体积，而本应用的音频直通与 USB 独占面向的是 arm64 移动设备
+            // 安装包体积，而本应用的音频直通与 USB 直出面向的是 arm64 移动设备
             abiFilters += listOf("arm64-v8a")
         }
     }

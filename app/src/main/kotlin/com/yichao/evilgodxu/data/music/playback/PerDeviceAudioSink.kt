@@ -36,11 +36,11 @@ private const val MILLIS_PER_SECOND = 1000
  *
  * 写出编码是 [DefaultAudioSink] 的构造期取向，实例内不可更改：浮点变体把高分辨率 PCM 源写成 32 位浮点，
  * 整型变体把高分辨率源降回 16 位整型，24 位变体则由 [Int24PcmAudioSink] 自行写出 24 位整型——设备只声明
- * 该编码时，媒体3 的默认输出无从产出它，只能另起一个输出实现。而 USB 独占建立的专用输出流只接纳与混音器
+ * 该编码时，媒体3 的默认输出无从产出它，只能另起一个输出实现。而 USB 直出建立的专用输出流只接纳与混音器
  * 属性逐字段一致的播放，设备声明哪些格式随机型而变，因此这里持有三个变体，在每次 [configure] 时按目标设备
  * 决策，决策变化即切换变体——即按设备重建输出，使该设备上能挂上的格式成为当前写出格式。
  *
- * 平台与 media3 都不对线性 PCM 做设备级能力探测，故非独占时一律保持浮点输出；
+ * 平台与 media3 都不对线性 PCM 做设备级能力探测，故非直出时一律保持浮点输出；
  * 决策只在 [configure] 处落地——切换需要重开 AudioTrack，只能发生在渲染器重配点。
  * 变体切换不需要回放历史配置：所有设置类调用同时下发到三个变体。播放与暂停不属设置类——退出使用的变体
  * 在切换时被复位，其播放状态随之清零，故切换点按登记的播放意图给进入方单独接续（见 [switchTo]）。
@@ -49,8 +49,8 @@ private const val MILLIS_PER_SECOND = 1000
 class PerDeviceAudioSink(
     private val context: Context,
     private val audioManager: AudioManager,
-    /** 已建立独占输出流的 USB 输出设备，null 表示当前未独占 */
-    private val exclusiveTarget: () -> AudioDeviceInfo?,
+    /** 已建立专用输出流的 USB 输出设备，null 表示当前未直出 */
+    private val directTarget: () -> AudioDeviceInfo?,
     /** 输出变体变更回调：报告本次配置后是否以浮点 PCM 写出 */
     private val onOutputVariantChanged: (Boolean) -> Unit = {},
     /** 输出编码变更回调：报告生效变体音频轨实际写出的 PCM 编码，null 表示当前链路无音频轨 */
@@ -65,7 +65,7 @@ class PerDeviceAudioSink(
     /**
      * 解码输出格式回调：报告解码头实际输出的采样率、声道与线性 PCM 编码。
      *
-     * 独占输出据此下发混音器属性，且必须在音频轨建立前生效，故在 [configure] 的开头上报——
+     * 直出据此下发混音器属性，且必须在音频轨建立前生效，故在 [configure] 的开头上报——
      * 这里是全链路最早拿到解码输出格式的地方：容器格式（轨道回调）只给采样率与声道，
      * 压缩源的 PCM 编码要等解码头出格式才知道。
      */
@@ -75,10 +75,10 @@ class PerDeviceAudioSink(
     /** 默认变体：高分辨率源以 32 位浮点写出，保留解码精度 */
     private val floatSink: AudioSink = buildSink(OutputVariant.FLOAT, enableFloatOutput = true)
 
-    /** 降级变体：一律以 16 位整型写出，供独占流只提供整型格式的设备使用 */
+    /** 降级变体：一律以 16 位整型写出，供直出流只提供整型格式的设备使用 */
     private val intSink: AudioSink = buildSink(OutputVariant.INT16, enableFloatOutput = false)
 
-    /** 24 位变体：自行写出独占流唯一声明的 24 位整型，供前两个变体都挂不上时使用 */
+    /** 24 位变体：自行写出直出流唯一声明的 24 位整型，供前两个变体都挂不上时使用 */
     private val int24Sink: Int24PcmAudioSink = Int24PcmAudioSink(context)
 
     /**
@@ -108,7 +108,7 @@ class PerDeviceAudioSink(
     /** 渲染器交给本接收器的回调出口：未接管时为静默实现 */
     private var rendererListener: AudioSink.Listener = SILENT_LISTENER
 
-    /** 当前生效的变体；初始按浮点输出，与无独占设备时的决策一致 */
+    /** 当前生效的变体；初始按浮点输出，与无直出设备时的决策一致 */
     private var activeVariant = OutputVariant.FLOAT
 
     /**
@@ -211,10 +211,10 @@ class PerDeviceAudioSink(
                         .setAudioTrackBufferSizeProvider(PlaybackBufferPolicy.provider)
                         // 低延迟只在系统混音路径上开启：该路径要求采样率对齐设备原生采样率、会引入
                         // 重采样，且音效处理在这条路径上不可用（与本应用的「禁用音效」诉求一致）；
-                        // 独占输出（USB 位完美/格式锁定）追求按源格式直出，不应被重采样破坏，
-                        // 故独占成立时不设性能模式，退回平台默认路径。
+                        // 直出（位完美与源格式两档）追求按源格式输出，不应被重采样破坏，
+                        // 故直出成立时不设性能模式，退回平台默认路径。
                         .setAudioTrackBuilderModifier { builder, _ ->
-                            if (exclusiveTarget() == null) {
+                            if (directTarget() == null) {
                                 builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                             }
                         }
@@ -266,18 +266,18 @@ class PerDeviceAudioSink(
      * 该曲目应当用哪个变体写出。
      *
      * 线性 PCM 的设备级能力无从探测（AudioTrack 经混音输出普遍接受浮点与整型，media3 也只按 API 级别
-     * 判定支持），按设备分化的只有独占输出流的格式匹配，因此仅在独占已建立时决策，其余情况保持浮点。
-     * 判定与独占侧共用 [selectExclusiveMixer]：选中的条目即独占侧下发的混音器属性，写出编码须与
+     * 判定支持），按设备分化的只有专用输出流的格式匹配，因此仅在直出已建立时决策，其余情况保持浮点。
+     * 判定与直出侧共用 [selectDirectMixer]：选中的条目即直出侧下发的混音器属性，写出编码须与
      * 之逐字段一致——已核实，格式与偏好不符时 AudioFlinger 不会报错，而是把该轨静默混音输出，
-     * 「已独占」名不副实，故两处必须取同一口径；24 位可写入性也须与独占侧同一个结论，
+     * 「已直出」名不副实，故两处必须取同一口径；24 位可写入性也须与直出侧同一个结论，
      * 否则两处会挑出不同条目，由 [Int24OutputSupport] 缓存后统一给出。
      *
-     * [format] 是解码头输出的格式，其 pcmEncoding 已是真实线性 PCM，正是 [selectExclusiveMixer]
+     * [format] 是解码头输出的格式，其 pcmEncoding 已是真实线性 PCM，正是 [selectDirectMixer]
      * 要的那一项；不是线性 PCM（直通等）时该函数即返回 null，此处随之回落到浮点。
      */
     private fun variantFor(format: Format): OutputVariant {
-        val device = exclusiveTarget() ?: return OutputVariant.FLOAT
-        val attributes = selectExclusiveMixer(
+        val device = directTarget() ?: return OutputVariant.FLOAT
+        val attributes = selectDirectMixer(
             audioManager.getSupportedMixerAttributes(device),
             format.sampleRate,
             format.channelCount,
@@ -326,7 +326,7 @@ class PerDeviceAudioSink(
 
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
         val format = audioSinkConfig.format
-        // 先上报再挑变体：独占侧据此下发混音器属性，属性生效后 exclusiveTarget 才给出设备，
+        // 先上报再挑变体：直出侧据此下发混音器属性，属性生效后 directTarget 才给出设备，
         // 变体才能按与属性同一个条目来选；音频轨在下一次数据写入时才建立，属性来得及生效
         onDecodedFormatChanged(format.sampleRate, format.channelCount, format.pcmEncoding)
         switchTo(variantFor(format))

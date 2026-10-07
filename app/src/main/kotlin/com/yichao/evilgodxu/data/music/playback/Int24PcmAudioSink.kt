@@ -47,7 +47,7 @@ private const val FALLBACK_BUFFER_FRAMES = 4096
  *
  * 与默认输出的已知差别（均为有意取舍）：
  * - 不裁剪编码器延迟与填充：曲目间隙会比其它变体略长，但不会出现重叠或杂音；
- * - 不支持静音跳过、隧道与卸载：独占优先保真，这些能力在独占成立时不起作用；
+ * - 不支持静音跳过、隧道与卸载：直出优先保真，这些能力在直出成立时不起作用；
  * - 不参与声道映射：输出声道数取解码格式本身。
  *
  * 精度：逐样本经媒体3 自身的读写约定中转。24 位源逐位原样写出，16 位及以下源左移补零因而不失真，
@@ -168,7 +168,7 @@ internal class Int24PcmAudioSink(
         this.clock = clock
     }
 
-    // 只接线性 PCM：独占变体只被选来写出 24 位整型，压缩格式与直通不经此处
+    // 只接线性 PCM：直出变体只被选来写出 24 位整型，压缩格式与直通不经此处
     override fun supportsFormat(format: Format): Boolean =
         MimeTypes.AUDIO_RAW == format.sampleMimeType && Util.isEncodingLinearPcm(format.pcmEncoding)
 
@@ -384,7 +384,7 @@ internal class Int24PcmAudioSink(
         output?.setVolume(volume)
     }
 
-    // 独占优先保真：静音跳过需要改动时长映射，本路径不支持，仅如实回报开关状态
+    // 直出优先保真：静音跳过需要改动时长映射，本路径不支持，仅如实回报开关状态
     override fun setSkipSilenceEnabled(skipSilenceEnabled: Boolean) {
         this.skipSilenceEnabled = skipSilenceEnabled
     }
@@ -416,7 +416,7 @@ internal class Int24PcmAudioSink(
         }
     }
 
-    // 独占路由靠它钉定：播放器的首选设备必须一路传到 AudioTrack，否则独占流挂不上
+    // 直出路由靠它钉定：播放器的首选设备必须一路传到 AudioTrack，否则直出流挂不上
     override fun setPreferredDevice(audioDeviceInfo: AudioDeviceInfo?) {
         preferredDevice = audioDeviceInfo
         output?.setPreferredDevice(audioDeviceInfo)
@@ -731,7 +731,7 @@ internal object Int24OutputSupport {
         cache[key]?.let { return it }
         val supported = canCreateTrack(sampleRate, channelMask, channelCount)
         if (!supported) {
-            // 建不起来即该编码在本机不可用：独占退回系统混音，此处留下依据，不必再靠试听排查
+            // 建不起来即该编码在本机不可用：直出退回系统混音，此处留下依据，不必再靠试听排查
             CrashLogManager.logInfo(
                 LOG_TAG,
                 "本机无法建立 24 位整型轨道，24 位写出不可用：${sampleRate}Hz/${channelCount}ch",

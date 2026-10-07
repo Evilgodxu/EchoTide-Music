@@ -65,7 +65,7 @@ class PermissionMonitor(private val context: Context) {
     fun isNotificationGranted(): Boolean =
         context.checkSelfPermission(notificationPermission()) == PackageManager.PERMISSION_GRANTED
 
-    // 系统免打扰的读写权：USB 独占聆听期间据此置为完全静音
+    // 系统免打扰的读写权：USB 直出期间据此置为完全静音
     fun isNotificationPolicyGranted(): Boolean =
         notificationManager?.isNotificationPolicyAccessGranted == true
 

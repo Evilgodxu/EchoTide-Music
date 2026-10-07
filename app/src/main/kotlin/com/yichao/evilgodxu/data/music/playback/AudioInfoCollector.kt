@@ -154,10 +154,10 @@ internal object AudioInfoCollector {
             ?.channels
             ?.takeIf { it > 0 }
 
-    // 音频输出模式：取独占输出自行判定的成色；未装载曲目时输出链路的取向无意义，不展示
+    // 音频输出模式：取直出自行判定的成色；未装载曲目时输出链路的取向无意义，不展示
     private fun outputMode(state: MusicPlaybackState): AudioOutputMode? {
         if (state.currentTrack == null) return null
-        return state.exclusiveOutputMode
+        return state.directOutputMode
     }
 
     /**
@@ -198,12 +198,12 @@ internal object AudioInfoCollector {
     /**
      * 输出采样率。
      *
-     * 独占输出流是按源格式打开的，输出即源采样率；未独占时输出采样率由系统混音器决定，
+     * 专用输出流是按源格式打开的，输出即源采样率；未直出时输出采样率由系统混音器决定，
      * 只认系统上报值——混音器采样率与源采样率不等即发生重采样，故不能用源采样率冒充输出值。
      * 系统未上报时返回 null，交由展示层跳过该行。
      */
     private fun outputSampleRate(audioManager: AudioManager?, state: MusicPlaybackState): Int? {
-        if (state.exclusiveOutputMode != AudioOutputMode.MIXER) return state.sourceSampleRate()
+        if (state.directOutputMode != AudioOutputMode.MIXER) return state.sourceSampleRate()
         return audioManager
             ?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
             ?.toIntOrNull()
@@ -262,15 +262,15 @@ internal object AudioInfoCollector {
      * 系统策略判定的当前播放输出设备。
      *
      * 媒体路由由系统按音频属性选出，属性路由查询的首项即实际输出目标（仅在多路重复时才有第二项）。
-     * 独占是应用把播放直接钉定到 USB 解码器，该钉定未必反映在策略查询结果中，
-     * 故此状态下按 USB 类型取用——独占成立时输出必然是被钉定的那台 USB 解码器。
+     * 直出是应用把播放直接钉定到 USB 解码器，该钉定未必反映在策略查询结果中，
+     * 故此状态下按 USB 类型取用——直出成立时输出必然是被钉定的那台 USB 解码器。
      */
     private fun routedOutputDevice(
         audioManager: AudioManager?,
         state: MusicPlaybackState,
         outputs: List<AudioDeviceInfo>,
     ): AudioDeviceInfo? {
-        if (state.exclusiveOutputMode != AudioOutputMode.MIXER) {
+        if (state.directOutputMode != AudioOutputMode.MIXER) {
             outputs.firstOrNull { it.type in USB_OUTPUT_TYPES }?.let { return it }
         }
         return runCatching {

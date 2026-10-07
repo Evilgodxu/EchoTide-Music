@@ -44,7 +44,7 @@ internal fun SettingsPane(
     onWordByWordRenderingChange: (Boolean) -> Unit,
     onSwipeToChangeTrackChange: (Boolean) -> Unit,
     onBackgroundFlowChange: (Boolean) -> Unit,
-    onUsbExclusiveChange: (Boolean) -> Unit,
+    onUsbDirectOutputChange: (Boolean) -> Unit,
     onVersionClick: () -> Unit,
     onOpenTypography: () -> Unit,
     onProxySourceImport: (String) -> Unit,
@@ -92,8 +92,8 @@ internal fun SettingsPane(
             onSwipeToChangeTrackChange = onSwipeToChangeTrackChange,
             backgroundFlow = uiState.backgroundFlow,
             onBackgroundFlowChange = onBackgroundFlowChange,
-            usbExclusive = uiState.usbExclusive,
-            onUsbExclusiveChange = onUsbExclusiveChange,
+            usbDirectOutput = uiState.usbDirectOutput,
+            onUsbDirectOutputChange = onUsbDirectOutputChange,
             onTypographyClick = onOpenTypography,
         )
         ProxySource(

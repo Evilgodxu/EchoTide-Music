@@ -13,7 +13,8 @@ private val miniPlayerEnabledKey = booleanPreferencesKey("mini_player_enabled")
 private val wordByWordRenderingKey = booleanPreferencesKey("word_by_word_rendering")
 private val swipeToChangeTrackKey = booleanPreferencesKey("swipe_to_change_track")
 private val backgroundFlowEnabledKey = booleanPreferencesKey("background_flow_enabled")
-private val usbExclusiveModeKey = booleanPreferencesKey("usb_exclusive_mode")
+// 键名沿用 usb_exclusive_mode：已落盘的持久化键，改名会让既有用户的该开关复位
+private val usbDirectOutputModeKey = booleanPreferencesKey("usb_exclusive_mode")
 
 // 迷你模式默认关闭
 fun Context.miniPlayerEnabledFlow(): Flow<Boolean> =
@@ -47,10 +48,10 @@ suspend fun Context.saveBackgroundFlowEnabled(enabled: Boolean) = withContext(Di
     settingsDataStore.edit { it[backgroundFlowEnabledKey] = enabled }
 }
 
-// USB 独占默认关闭：开启后播放锁定 USB 解码器并申请位完美传输，由播放服务读取生效
-fun Context.usbExclusiveModeFlow(): Flow<Boolean> =
-    settingsDataStore.data.map { it[usbExclusiveModeKey] ?: false }
+// USB 直出默认关闭：开启后按设备声明的条目为播放申请专用输出流，位完美与否取决于厂商声明，由播放服务读取生效
+fun Context.usbDirectOutputModeFlow(): Flow<Boolean> =
+    settingsDataStore.data.map { it[usbDirectOutputModeKey] ?: false }
 
-suspend fun Context.saveUsbExclusiveMode(enabled: Boolean) = withContext(Dispatchers.IO) {
-    settingsDataStore.edit { it[usbExclusiveModeKey] = enabled }
+suspend fun Context.saveUsbDirectOutputMode(enabled: Boolean) = withContext(Dispatchers.IO) {
+    settingsDataStore.edit { it[usbDirectOutputModeKey] = enabled }
 }

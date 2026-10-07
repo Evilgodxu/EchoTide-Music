@@ -20,13 +20,13 @@ private val USB_OUTPUT_TYPES = setOf(
     AudioDeviceInfo.TYPE_USB_ACCESSORY,
 )
 
-// 诊断日志的类名前缀：日志文件按「类名: 描述」成条，独占链路的决策结果都记在此名下
-private const val LOG_TAG = "UsbExclusiveOutput"
+// 诊断日志的类名前缀：日志文件按「类名: 描述」成条，直出链路的决策结果都记在此名下
+private const val LOG_TAG = "UsbDirectOutput"
 
 /**
- * USB 独占输出：把播放钉到 USB 解码器，并向原生音频策略申请与该设备格式对齐的专用输出流。
+ * USB 直出：把播放钉到 USB 解码器，并向原生音频策略申请与该设备格式对齐的专用输出流。
  *
- * 独占由两个原生接口共同构成，缺一不可：
+ * 直出由两个原生接口共同构成，缺一不可：
  * - [AudioManager.setPreferredMixerAttributes] 为该设备建立按所请求格式打开的专用输出流；
  * - [ExoPlayer.setPreferredAudioDevice] 把播放器的输出路由固定到同一设备，
  *   使该流成为播放的唯一出口。
@@ -37,7 +37,7 @@ private const val LOG_TAG = "UsbExclusiveOutput"
  * 混音器属性分两档取用，成色随之不同：
  * - 位完美：厂商在动态混音端口上声明了 AUDIO_OUTPUT_FLAG_BIT_PERFECT，音频不经混音、不受音量与音效
  *   处理，数据原样下发到 HAL；
- * - 格式独占：厂商漏标该标志时的兼容结果——仍按源格式请求该端口的输出流，播放格式对齐即不发生重采样，
+ * - 源格式直出：厂商漏标该标志时的兼容结果——仍按源格式请求该端口的输出流，播放格式对齐即不发生重采样，
  *   但音轨音量与音效按常规链路处理。
  *
  * 原生行为（已核实）：
@@ -49,19 +49,19 @@ private const val LOG_TAG = "UsbExclusiveOutput"
  *   才额外多出一条位完美条目（IOProfile::refreshMixerBehaviors）。漏标因此只影响成色，不影响可用性。
  * - 拔出：APM 在断连的同一路径内直接清除该端口的偏好且不回调，故只能经 AudioDeviceCallback 感知。
  * - 格式不符：写出格式与偏好混音器不一致时，AudioFlinger 不会失败，而是把该轨静默混音输出，
- *   因此输出格式必须与偏好对齐，才不会以「已独占」之名走混音路径。
+ *   因此输出格式必须与偏好对齐，才不会以「已直出」之名走混音路径。
  *
- * 独占能否成立取决于设备接入与厂商声明，判定依据只在设备现场可得，故开关状态、解码格式与每次路由重算
- * 的结论都写入诊断日志（设置页可分享），使「设备已识别而独占未生效」能在日志中定位到具体环节。
+ * 直出能否成立取决于设备接入与厂商声明，判定依据只在设备现场可得，故开关状态、解码格式与每次路由重算
+ * 的结论都写入诊断日志（设置页可分享），使「设备已识别而直出未生效」能在日志中定位到具体环节。
  *
- * 线程：独占配置必须在音频轨建立之前下发，而解码格式只有播放线程在音频输出重配那一刻才拿得到，
+ * 线程：直出配置必须在音频轨建立之前下发，而解码格式只有播放线程在音频输出重配那一刻才拿得到，
  * 故 [onTrackFormatChanged] 由播放线程调用；[setEnabled] 与 [release] 由主线程调用——两处的重算
  * 都是拿 [AudioManager] 的现场状态重新求值，落点一致，故不额外加锁。播放器自身仍只受理主线程调用，
  * 涉及它的两处（音频属性、设备钉定）分别以构造期捕获与主线程投递规避，见 [playbackAttributes]
  * 与 [pinPreferredDevice]。
  */
 @OptIn(UnstableApi::class)
-class UsbExclusiveOutput(
+class UsbDirectOutput(
     private val player: ExoPlayer,
     private val audioManager: AudioManager,
 ) {
@@ -72,15 +72,15 @@ class UsbExclusiveOutput(
     /** 已尝试下发的混音器属性：重复下发会让框架重开输出流，故仅在取值变化时调用 */
     private var appliedMixerAttributes: AudioMixerAttributes? = null
     /**
-     * 已被系统受理的混音器属性，null 表示未建立独占输出流。
+     * 已被系统受理的混音器属性，null 表示未建立专用输出流。
      *
-     * 与 [appliedMixerAttributes] 分开记录：后者含被拒的取值，仅用于抑制重复下发；本项才是独占成色的
-     * 依据——取值被拒时播放仍走系统混音，据此判定才不会以「已独占」之名走混音路径。
+     * 与 [appliedMixerAttributes] 分开记录：后者含被拒的取值，仅用于抑制重复下发；本项才是输出成色的
+     * 依据——取值被拒时播放仍走系统混音，据此判定才不会以「已直出」之名走混音路径。
      */
     private var acceptedMixerAttributes: AudioMixerAttributes? = null
-    /** 已对外上报的独占成色，与 [onRoutingChanged] 的出参同处一处，避免内部状态与上报值脱节 */
+    /** 已对外上报的输出成色，与 [onRoutingChanged] 的出参同处一处，避免内部状态与上报值脱节 */
     private var reportedMode = AudioOutputMode.MIXER
-    /** 当前曲目的解码格式，混音器属性需与之逐字段（采样率、声道、编码）匹配才能被独占流接纳 */
+    /** 当前曲目的解码格式，混音器属性需与之逐字段（采样率、声道、编码）匹配才能被直出流接纳 */
     private var decodedSampleRate = 0
     private var decodedChannelCount = 0
     private var decodedPcmEncoding = 0
@@ -93,7 +93,7 @@ class UsbExclusiveOutput(
      */
     private var lastDiagnostic: String? = null
 
-    /** 独占成色变更回调：[AudioOutputMode.MIXER] 表示已回到系统混音输出 */
+    /** 输出成色变更回调：[AudioOutputMode.MIXER] 表示已回到系统混音输出 */
     var onRoutingChanged: ((AudioOutputMode) -> Unit)? = null
 
     private val audioDeviceHandler = Handler(Looper.getMainLooper())
@@ -102,7 +102,7 @@ class UsbExclusiveOutput(
      * 播放的原生音频属性。
      *
      * 沿用播放器自身的实例而非另建等价属性：原生侧按属性匹配播放记录。读取它需经播放器的主线程校验，
-     * 而独占配置会在播放线程上下发，故在构造期（主线程）捕获一次——播放建立后音频属性不再变化。
+     * 而直出配置会在播放线程上下发，故在构造期（主线程）捕获一次——播放建立后音频属性不再变化。
      */
     private val playbackAttributes = player.audioAttributes.platformAudioAttributes
 
@@ -120,18 +120,18 @@ class UsbExclusiveOutput(
     /**
      * 钉定或解除播放的输出设备。
      *
-     * 播放器只在应用线程受理这一调用，而独占配置可能在播放线程上下发，故一律投递到主线程；
+     * 播放器只在应用线程受理这一调用，而直出配置可能在播放线程上下发，故一律投递到主线程；
      * 同一 Handler 串行执行，先后两次投递的次序与下发次序一致。
      */
     private fun pinPreferredDevice(device: AudioDeviceInfo?) {
         audioDeviceHandler.post { player.setPreferredAudioDevice(device) }
     }
 
-    /** 开启或关闭独占；关闭时撤销配置并解除路由钉定，播放回到系统默认混音输出 */
+    /** 开启或关闭直出；关闭时撤销配置并解除路由钉定，播放回到系统默认混音输出 */
     fun setEnabled(value: Boolean) {
         if (enabled == value) return
         enabled = value
-        logDiagnostic(if (value) "独占开关打开，开始接管输出路由" else "独占开关关闭")
+        logDiagnostic(if (value) "直出开关打开，开始接管输出路由" else "直出开关关闭")
         if (value) {
             registerCallback()
             refreshOutputRouting()
@@ -142,16 +142,16 @@ class UsbExclusiveOutput(
     }
 
     /**
-     * 已建立独占输出流的 USB 输出设备，null 表示当前未独占；供音频输出按设备选择写出格式。
+     * 已建立专用输出流的 USB 输出设备，null 表示当前未直出；供音频输出按设备选择写出格式。
      *
-     * 仅钉定路由而未取得混音器属性时不返回设备——此时播放不挂独占流，写出格式无需与任何条目对齐，
-     * 按默认变体写出即可；返回设备会让音频输出按一条不存在的独占流去挑格式。
+     * 仅钉定路由而未取得混音器属性时不返回设备——此时播放不挂直出流，写出格式无需与任何条目对齐，
+     * 按默认变体写出即可；返回设备会让音频输出按一条不存在的直出流去挑格式。
      */
-    fun exclusiveTargetDevice(): AudioDeviceInfo? =
+    fun directTargetDevice(): AudioDeviceInfo? =
         if (acceptedMixerAttributes != null) targetDevice else null
 
     /**
-     * 解码格式变化（换曲、换源）后记录新格式，独占开启时据此重新挑选混音器属性。
+     * 解码格式变化（换曲、换源）后记录新格式，直出开启时据此重新挑选混音器属性。
      *
      * [decodedPcmEncoding] 必须是解码头实际输出的线性 PCM 编码：容器格式给不出它（压缩源下为 NO_VALUE），
      * 只有音频输出在重配那一刻手上的解码输出格式才是真值，故由音频输出上报而非由轨道回调传入。
@@ -172,29 +172,29 @@ class UsbExclusiveOutput(
 
     fun release() {
         enabled = false
-        releaseConfiguration("独占输出释放")
+        releaseConfiguration("直出释放")
         unregisterCallback()
     }
 
     private fun refreshOutputRouting() {
         if (!enabled) return
         val device = findUsbOutputDevice()
-        // 设备支持的混音器属性条目本身即诊断依据：条目缺位或格式对不上时独占无从成立，原因全在这一项里
+        // 设备支持的混音器属性条目本身即诊断依据：条目缺位或格式对不上时直出无从成立，原因全在这一项里
         val supported = device?.let { supportedMixerAttributes(it) }.orEmpty()
         val mixerAttributes = device?.let { pickMixerAttributes(supported) }
-        // 无解码器接入，或设备未提供可承载当前格式的动态混音端口：撤销独占配置，交回系统默认混音输出
+        // 无解码器接入，或设备未提供可承载当前格式的动态混音端口：撤销直出配置，交回系统默认混音输出
         if (device == null || mixerAttributes == null) {
             releaseConfiguration(
                 if (device == null) "无 USB 输出设备" else "设备未提供可承载当前格式的混音器条目"
             )
             logDiagnostic(
                 when {
-                    device == null -> "未找到 USB 输出设备，独占未生效，播放走系统混音"
+                    device == null -> "未找到 USB 输出设备，直出未生效，播放走系统混音"
                     supported.isEmpty() ->
-                        "USB 设备 ${deviceLabel(device)} 未声明动态混音端口，独占未生效，播放走系统混音；" +
+                        "USB 设备 ${deviceLabel(device)} 未声明动态混音端口，直出未生效，播放走系统混音；" +
                             "解码格式 ${describeDecodedFormat()}"
                     else ->
-                        "USB 设备 ${deviceLabel(device)} 的动态混音端口无可承载当前格式的条目，独占未生效，" +
+                        "USB 设备 ${deviceLabel(device)} 的动态混音端口无可承载当前格式的条目，直出未生效，" +
                             "播放走系统混音；本条曲目解码输出 ${describeDecodedFormat()}，" +
                             "设备支持 ${describeSupported(supported)}"
                 }
@@ -203,7 +203,7 @@ class UsbExclusiveOutput(
         }
         if (device != targetDevice) {
             releaseConfiguration("改用其它 USB 输出设备")
-            // 属性先于路由下发：播放改道到该设备时，才按已配置的属性建立独占输出流
+            // 属性先于路由下发：播放改道到该设备时，才按已配置的属性建立专用输出流
             val accepted = applyMixerAttributes(device, mixerAttributes)
             pinPreferredDevice(device)
             updateRouting(device, mixerAttributes.takeIf { accepted })
@@ -227,7 +227,7 @@ class UsbExclusiveOutput(
         }
     }
 
-    /** 下发首选混音器属性，返回系统是否受理；未受理时不会建立独占输出流，播放走默认混音 */
+    /** 下发首选混音器属性，返回系统是否受理；未受理时不会建立专用输出流，播放走默认混音 */
     private fun applyMixerAttributes(
         device: AudioDeviceInfo,
         mixerAttributes: AudioMixerAttributes,
@@ -238,7 +238,7 @@ class UsbExclusiveOutput(
             mixerAttributes,
         )
         if (!accepted) {
-            // 未受理即属性不合法或设备/配置不受支持，不会建立独占输出流，播放走默认混音；
+            // 未受理即属性不合法或设备/配置不受支持，不会建立专用输出流，播放走默认混音；
             // 属性本身已记录，避免每次换曲重试
             CrashLogManager.logException(
                 LOG_TAG,
@@ -249,7 +249,7 @@ class UsbExclusiveOutput(
         return accepted
     }
 
-    /** 撤销独占配置并解除路由钉定；[reason] 是本次撤销的原因，仅用于日志留痕 */
+    /** 撤销直出配置并解除路由钉定；[reason] 是本次撤销的原因，仅用于日志留痕 */
     private fun releaseConfiguration(reason: String) {
         val device = targetDevice ?: return
         // 拔出时 APM 已在断连路径内清除该端口的偏好，此处 clear 会返回 NAME_NOT_FOUND；
@@ -257,12 +257,12 @@ class UsbExclusiveOutput(
         runCatching { audioManager.clearPreferredMixerAttributes(playbackAttributes, device) }
         pinPreferredDevice(null)
         appliedMixerAttributes = null
-        logDiagnostic("已解除 USB 独占（$reason）：${deviceLabel(device)}")
+        logDiagnostic("已解除 USB 直出（$reason）：${deviceLabel(device)}")
         updateRouting(null, null)
     }
 
     /**
-     * 独占状态的唯一出口：记录钉定设备与已受理的属性，据此推出成色对外通知。
+     * 直出状态的唯一出口：记录钉定设备与已受理的属性，据此推出成色对外通知。
      *
      * 赋值与通知同处一处，内部状态与上报值才不会脱节；成色变化即写日志——成色是「设备是否可用、
      * 厂商是否声明位完美、格式能否对齐、属性是否被受理」共同作用的结论，变化点正是定位问题的入口。
@@ -275,11 +275,11 @@ class UsbExclusiveOutput(
         reportedMode = mode
         logDiagnostic(
             when {
-                device == null || attributes == null -> "独占成色：系统混音（无已受理的独占输出）"
+                device == null || attributes == null -> "输出成色：系统混音（无已受理的专用输出）"
                 mode == AudioOutputMode.BIT_PERFECT ->
-                    "独占成色：位完美独占，${deviceLabel(device)}，${describeMixer(attributes)}"
+                    "输出成色：位完美直出，${deviceLabel(device)}，${describeMixer(attributes)}"
                 else ->
-                    "独占成色：格式独占（厂商未在该动态端口声明位完美，改按源格式请求输出流），" +
+                    "输出成色：源格式直出（厂商未在该动态端口声明位完美，改按源格式请求输出流），" +
                         "${deviceLabel(device)}，${describeMixer(attributes)}"
             }
         )
@@ -355,7 +355,7 @@ class UsbExclusiveOutput(
     /**
      * 读取设备支持的混音器属性。
      *
-     * 读取失败按「无条目」处理——独占无从成立，播放退回系统混音；失败本身写入日志而不静默吞掉，
+     * 读取失败按「无条目」处理——直出无从成立，播放退回系统混音；失败本身写入日志而不静默吞掉，
      * 否则日志里只会看到「未提供位完美混音器」，把读取异常误读成设备能力不足。
      */
     private fun supportedMixerAttributes(device: AudioDeviceInfo): List<AudioMixerAttributes> =
@@ -370,12 +370,12 @@ class UsbExclusiveOutput(
             .getOrDefault(emptyList())
 
     /**
-     * 挑出可承载当前曲目的独占混音器条目。
+     * 挑出可承载当前曲目的直出混音器条目。
      * 位完美条目优先，缺失时退取同一动态端口的默认行为条目——厂商漏标位完美标志不等于设备做不到
      * 按源格式打开输出流。解码格式未知（尚未起播）或不是线性 PCM 时不下发，等音频输出上报后重新触发。
      */
     private fun pickMixerAttributes(supported: List<AudioMixerAttributes>): AudioMixerAttributes? =
-        selectExclusiveMixer(
+        selectDirectMixer(
             supported,
             decodedSampleRate,
             decodedChannelCount,
@@ -402,16 +402,16 @@ class UsbExclusiveOutput(
 }
 
 /**
- * 从设备支持的混音器属性中挑出可承载解码格式的独占条目，无可用条目时返回 null。
+ * 从设备支持的混音器属性中挑出可承载解码格式的直出条目，无可用条目时返回 null。
  *
- * 独占输出流只接纳与混音器属性逐字段一致的播放——采样率、声道与编码任一不符，播放都不会挂到该流上，
+ * 专用输出流只接纳与混音器属性逐字段一致的播放——采样率、声道与编码任一不符，播放都不会挂到该流上，
  * 因此候选严格按这三项筛定，不做「挑最接近条目」的退让：挂不上的条目只会让播放静默落回混音路径，
- * 却让调用方以为独占已经成立。编码一侧的候选取自 [writablePcmEncodings]，即播放器确实写得出的编码。
+ * 却让调用方以为直出已经成立。编码一侧的候选取自 [writablePcmEncodings]，即播放器确实写得出的编码。
  *
  * [decodedPcmEncoding] 必须是解码头实际输出的线性 PCM 编码，调用方各自负责把手上的格式换算到这一项。
  * 压缩源在解码前无从得知它——容器格式只给采样率与声道，pcmEncoding 仍是 NO_VALUE——故此处不为未知编码
  * 兜底：以未知编码推出的可写集合里凭空多出 16 位与 24 位，挑出的条目与真正写出的编码未必一致，
- * 而两处调用点一旦挑出不同条目，AudioFlinger 不报错而是静默混音输出，「已独占」名不副实。
+ * 而两处调用点一旦挑出不同条目，AudioFlinger 不报错而是静默混音输出，「已直出」名不副实。
  * 不是线性 PCM（未取得编码、直通等）即无从判定，直接交回系统混音。
  *
  * 候选按成色取用：优先厂商声明了 AUDIO_OUTPUT_FLAG_BIT_PERFECT 的条目；无位完美条目时退取同一动态
@@ -422,11 +422,11 @@ class UsbExclusiveOutput(
  * 同成色内按编码排序：浮点与 16 位整型由媒体3 的默认输出直接产出，优先取用；24 位整型要经自研输出实现
  * 写出，只在无路可走时才落到它——若排在前列，本可在原线路上直出的设备会被无谓地拉进另一套输出实现。
  *
- * 独占侧据此下发混音器属性，[PerDeviceAudioSink] 据此选择写出变体，两处共用本函数才不会各自跑偏：
- * 一旦写出编码与所下发的条目不符，AudioFlinger 不报错而是静默混音输出，「已独占」名不副实。
+ * 直出侧据此下发混音器属性，[PerDeviceAudioSink] 据此选择写出变体，两处共用本函数才不会各自跑偏：
+ * 一旦写出编码与所下发的条目不符，AudioFlinger 不报错而是静默混音输出，「已直出」名不副实。
  */
 @OptIn(UnstableApi::class)
-internal fun selectExclusiveMixer(
+internal fun selectDirectMixer(
     supported: List<AudioMixerAttributes>,
     sampleRate: Int,
     channelCount: Int,

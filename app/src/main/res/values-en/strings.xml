@@ -84,7 +84,7 @@
     <string name="music_quality_high">High</string>
     <string name="music_quality_standard">Standard</string>
     <string name="music_panel_playback_settings">Playback settings</string>
-    <string name="music_panel_usb_exclusive">USB audio direct output</string>
+    <string name="music_panel_usb_direct_output">USB audio direct output</string>
     <string name="music_panel_sound_effects_title">Sound effects</string>
     <string name="music_panel_sound_effects_enter">Open</string>
     <string name="music_panel_sound_effects_not_implemented">Not implemented</string>
@@ -296,8 +296,8 @@
     <string name="settings_swipe_track_desc">Swipe up/down on the home screen to change tracks</string>
     <string name="settings_background_flow_title">Flowing background</string>
     <string name="settings_background_flow_desc">Home background slowly flows with the cover; off keeps it static</string>
-    <string name="settings_usb_exclusive_title">USB audio direct output</string>
-    <string name="settings_usb_exclusive_desc">System-native interface, dynamically adapts to the device</string>
+    <string name="settings_usb_direct_output_title">USB audio direct output</string>
+    <string name="settings_usb_direct_output_desc">System-native interface, dynamically adapts to the device</string>
     <string name="settings_typography_title">Typography</string>
     <string name="settings_typography_desc">Lyric font size and visible lines</string>
 
