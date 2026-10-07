@@ -699,6 +699,15 @@ class MusicPlaybackState(
      */
     @Volatile
     var audioTrack: AudioTrack? = null
+
+    /**
+     * 已写入当前音频轨的帧数读取入口，外层 null 表示当前链路不提供这一读数、内层 null 表示此刻取不到。
+     *
+     * 写作入口而非取值：写入量随播放持续变化，按轨道建立那一刻的取值发布只会得到一个过期数。
+     * 入口随音频输出装配一次（服务创建），取值发生在界面组合，两者同在主线因此无需额外同步；
+     * 入口内部读到的是播放线程写的量，那几项各自按 volatile 发布。
+     */
+    var audioSinkWrittenFrames: (() -> Long?)? = null
     // 独占输出的当前成色：未启用、无设备接入或设备未提供动态混音端口时保持系统混音
     var exclusiveOutputMode by mutableStateOf(AudioOutputMode.MIXER)
 

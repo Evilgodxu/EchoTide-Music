@@ -114,6 +114,9 @@ class MusicPlaybackService : MediaSessionService() {
                 }
             },
         )
+        // 已写入音频轨的帧数随播放持续变化，故发布取值入口而非取值本身：
+        // 该入口只在能给出这一读数的变体（24 位输出）生效时返回非空
+        stateHolder.state.audioSinkWrittenFrames = audioSink::writtenOutputFrames
         val renderersFactory = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
                 context: android.content.Context,

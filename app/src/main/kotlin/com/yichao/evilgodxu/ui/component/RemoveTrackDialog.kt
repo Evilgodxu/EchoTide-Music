@@ -33,7 +33,7 @@ internal fun RemoveTrackDialog(
     titleRes: Int = R.string.playlist_remove_track_title,
     messageRes: Int = R.string.playlist_remove_track_message,
     confirmRes: Int = R.string.playlist_remove_track_confirm,
-    // 可选附加区：渲染在正文与按钮之间，供调用方放置选项列表等（如拉黑时的删除与否选项）。
+    // 可选附加区：渲染在正文与按钮之间，供调用方放置附加选项（如拉黑时的「拉黑并删除」）。
     // 未传入即不渲染，既有无附加项的确认框布局不受影响
     option: (@Composable () -> Unit)? = null,
 ) {

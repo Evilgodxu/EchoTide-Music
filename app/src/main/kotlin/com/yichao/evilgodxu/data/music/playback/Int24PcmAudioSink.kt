@@ -69,6 +69,10 @@ internal class Int24PcmAudioSink(
     /** 解码输出格式：本类接受任意线性 PCM 编码，写出统一为 24 位整型 */
     private var inputFormat: Format? = null
     private var outputChannelMask = AudioFormat.CHANNEL_INVALID
+
+    // 帧长与写入量成对使用（换算已写入的帧数），且一在配置期、一在写入期各自更新；
+    // 两者都由播放线程写、由信息采集在别的线程读，故各自 volatile 发布
+    @Volatile
     private var outputFrameSize = 0
 
     private var output: AudioOutput? = null
@@ -85,6 +89,21 @@ internal class Int24PcmAudioSink(
     /** 当前仍可读取的音频轨：释放后的实例读不出有效延迟，故按轨道自身的状态过滤 */
     val currentAudioTrack: AudioTrack?
         get() = audioTrack?.takeIf { it.state == AudioTrack.STATE_INITIALIZED }
+
+    /**
+     * 已交给音频轨的帧数，null 表示当前没有可读的音频轨。
+     *
+     * 这是逐次写入累计的实测量（[writtenPcmBytes] 记的是音频轨实际接受的字节），不是按当前位置推算，
+     * 故与时间戳的呈现帧位相减即得「已写入而未交出」的驻留量。写入量在冲刷与重建输出时归零，
+     * 与音频轨同生同灭，两者基准因此一致。
+     */
+    val writtenOutputFrames: Long?
+        get() {
+            if (audioTrack == null) return null
+            val frameSize = outputFrameSize
+            if (frameSize <= 0) return null
+            return writtenPcmBytes / frameSize
+        }
 
     /** 实际请求的轨道缓冲字节数：欠载回调按接口约定以字节上报 */
     private var trackBufferBytes = 0
@@ -105,7 +124,12 @@ internal class Int24PcmAudioSink(
     /** 转换用缓冲，按需增长后复用，避免每次写入都分配直接缓冲 */
     private var scratch: ByteBuffer? = null
 
-    /** 已交给输出的字节数：媒体3 的默认输出也按写入量推算位置，此处同口径用于位置上限与待播判定 */
+    /**
+     * 已交给输出的字节数：媒体3 的默认输出也按写入量推算位置，此处同口径用于位置上限与待播判定。
+     *
+     * 信息采集另按它算出「已写入音频轨的帧数」，读取发生在别的线程，故 volatile 发布。
+     */
+    @Volatile
     private var writtenPcmBytes = 0L
 
     private var handledEndOfStream = false

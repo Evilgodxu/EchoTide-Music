@@ -33,7 +33,7 @@ internal data class OutputLatencyReading(
     val trackBufferMs: Float,
     /** 音频轨之后那一段（毫秒）；链路未推进或时间戳不可用时为 null */
     val afterTrackMs: Float?,
-    /** 从写进音频轨起算的全链路（毫秒）；缺少写入帧位（API 37 以下）时为 null */
+    /** 从写进音频轨起算的全链路（毫秒）；取不到写入帧位时为 null */
     val fullChainMs: Float?,
 )
 
@@ -50,8 +50,10 @@ internal data class OutputLatencyReading(
  * - 与**播放头**（[AudioTrack.getPlaybackHeadPosition]）相比，得 [OutputLatencyReading.afterTrackMs]
  *   ——播放头是音频系统已经取走的位置，差值即「离开音频轨之后还要多久才发声」，取自公开接口且各系统
  *   稳定可用；
- * - 与**写入帧位**（[AudioTrack.getWrittenFramesCount]）相比，得全链路——写入帧位是应用已经写进
- *   音频轨的位置，差值含音频轨自身的驻留。该帧位要 API 37 才可读，更低的版本只产出前一段。
+ * - 与**写入帧位**相比，得全链路——它是应用已经写进音频轨的位置，差值含音频轨自身的驻留。
+ *   该帧位优先取自应用自己的输出实现（逐次记账音频轨实际接受的字节，任何 API 都有）；媒体3 的默认
+ *   输出不暴露写入量，那两个变体只能退到平台接口 [AudioTrack.getWrittenFramesCount]（API 37 起可读），
+ *   再取不到时就只产出前一段。
  *
  * 取不到时不产出对应值：不接受与当前路由无关的下界值顶替，也不拿上界冒充实测。
  */
@@ -62,13 +64,15 @@ internal object OutputLatency {
      *
      * 延迟只在链路推进时才谈得上：未推进时播放头与时间戳都不随时间前进，比对出来的差值无从对应到
      * 出站后的那一段，故两项延迟此时留空；容量是轨道的属性，不受推进与否影响，照常给出。
+     *
+     * [writtenFrames] 是「已写进音频轨的帧数」的取值入口，取不到时传 null，此时退到平台接口。
      */
-    fun read(track: AudioTrack?): OutputLatencyReading? {
+    fun read(track: AudioTrack?, writtenFrames: (() -> Long?)?): OutputLatencyReading? {
         if (track == null) return null
         if (track.state != AudioTrack.STATE_INITIALIZED) return null
         val sampleRate = track.sampleRate.takeIf { it > 0 } ?: return null
         val bufferFrames = track.bufferSizeInFrames.takeIf { it > 0 } ?: return null
-        val advanced = advancedLatencyMs(track, sampleRate, bufferFrames)
+        val advanced = advancedLatencyMs(track, sampleRate, bufferFrames, writtenFrames)
         return OutputLatencyReading(
             trackBufferFrames = bufferFrames,
             trackBufferMs = bufferFrames * MILLIS_PER_SECOND / sampleRate,
@@ -84,6 +88,7 @@ internal object OutputLatency {
         track: AudioTrack,
         sampleRate: Int,
         bufferFrames: Int,
+        writtenFrames: (() -> Long?)?,
     ): AdvancedLatency? {
         if (track.playState != AudioTrack.PLAYSTATE_PLAYING) return null
         val timestamp = AudioTimestamp()
@@ -96,7 +101,7 @@ internal object OutputLatency {
         val headFrames = track.playbackHeadPosition.toLong() and FRAME_COUNT_MASK
         val afterTrackFrames = frameDistance(headFrames, presentedFrames)
         val afterTrackMs = afterTrackFrames.toMs(sampleRate) ?: return null
-        val fullChainMs = writtenResidueFrames(track, headFrames, bufferFrames)
+        val fullChainMs = writtenResidueFrames(track, headFrames, bufferFrames, writtenFrames)
             ?.let { residue -> ((afterTrackFrames + residue) and FRAME_COUNT_MASK).toMs(sampleRate) }
         return AdvancedLatency(afterTrackMs, fullChainMs)
     }
@@ -104,23 +109,33 @@ internal object OutputLatency {
     /**
      * 已写进音频轨而尚未交出的帧数，即音频轨自身的驻留。
      *
-     * 写入帧位自音频轨创建起累计，而播放头会被冲刷与停止清零；媒体3 在每次冲刷时整个释放并重建音频轨
-     * （默认输出与 24 位输出都是如此），故同一条音频轨内两者基准一致，差值才是真实的驻留。驻留不可能
-     * 超过轨道容量，超过即说明基准已错位（如音频轨被停过），此时宁缺不用。
+     * 写入帧位有两个来源，优先取应用自己的输出实现：[writtenFrames] 由音频输出逐次记账音频轨实际
+     * 接受的字节，任何 API 上都能精确给出；媒体3 的默认输出不暴露写入量，那两个变体只能退到平台接口
+     * [AudioTrack.getWrittenFramesCount]（API 37 起可读）。两者都拿不到时为 null，全链路延迟随之不产出。
      *
-     * 写入帧位要 API 37 才可读，读不到时返回 null，全链路延迟随之不产出；也一并挡住轨道状态意外时抛出的
-     * 异常——此处只做观测，不该让取值失败影响播放。
+     * 两个来源的基准都与播放头一致：写入帧位自音频轨创建起累计，而播放头会被冲刷与停止清零；媒体3 在
+     * 每次冲刷时整个释放并重建音频轨（默认输出与 24 位输出都是如此），写入量也随之归零，故同一条音频轨
+     * 内两者基准相同，差值才是真实的驻留。驻留不可能超过轨道容量，超过即说明基准已错位（如音频轨被停过），
+     * 此时宁缺不用。
+     *
+     * 平台接口的取值只做观测，不该让它的异常影响播放。
      */
     private fun writtenResidueFrames(
         track: AudioTrack,
         headFrames: Long,
         bufferFrames: Int,
+        writtenFrames: (() -> Long?)?,
     ): Long? {
-        if (Build.VERSION.SDK_INT < API_WRITTEN_FRAMES) return null
-        val written = runCatching { track.writtenFramesCount }.getOrNull() ?: return null
+        val written = writtenFrames?.invoke() ?: platformWrittenFrames(track) ?: return null
         if (written <= 0) return null
         val residue = (written - headFrames) and FRAME_COUNT_MASK
         return residue.takeIf { it <= bufferFrames.toLong() }
+    }
+
+    // 平台侧提供的写入帧位：API 37 起可读，更低的版本返回 null
+    private fun platformWrittenFrames(track: AudioTrack): Long? {
+        if (Build.VERSION.SDK_INT < API_WRITTEN_FRAMES) return null
+        return runCatching { track.writtenFramesCount }.getOrNull()
     }
 
     // 两个帧位之差按模取：两者都是回绕计数，跨回绕时才得真实距离
@@ -149,8 +164,14 @@ internal class OutputLatencySampler(private val window: Int = AVERAGE_WINDOW) {
     private val afterTrackSamples = ArrayDeque<Float>()
     private val fullChainSamples = ArrayDeque<Float>()
 
-    fun sample(track: AudioTrack?): OutputLatencyReading? {
-        val reading = OutputLatency.read(track) ?: return null
+    /**
+     * 采一次并给出窗口内的均值。
+     *
+     * [writtenFrames] 由调用方逐次传入而不在采样器内持有：它读的是当前生效链路的写入量，属外部状态，
+     * 缓存下来会让窗口跨链路混入。
+     */
+    fun sample(track: AudioTrack?, writtenFrames: (() -> Long?)?): OutputLatencyReading? {
+        val reading = OutputLatency.read(track, writtenFrames) ?: return null
         val afterTrackMs = reading.afterTrackMs ?: return reading
         push(afterTrackSamples, afterTrackMs)
         reading.fullChainMs?.let { push(fullChainSamples, it) }

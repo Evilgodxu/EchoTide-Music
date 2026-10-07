@@ -218,6 +218,16 @@ class PerDeviceAudioSink(
             .build()
 
     /**
+     * 当前生效链路已写入音频轨的帧数，null 表示该变体给不出这一读数。
+     *
+     * 只有自研的 24 位输出逐次记账音频轨实际接受的字节；两个默认变体的写入量在媒体3 的输出实现内部，
+     * 外部取不到，且它可能重采样，拿转发字节数推算并不成立。故这一读数只在 24 位变体生效时有值——
+     * 供信息采集算出「写入音频轨 → 发声」的全链路延迟。
+     */
+    fun writtenOutputFrames(): Long? =
+        if (activeVariant == OutputVariant.INT24) int24Sink.writtenOutputFrames else null
+
+    /**
      * 记录音频轨的实得缓冲容量。
      *
      * 请求量未必等于实得量：平台会把低于自身下限的申请抬回下限，能否压到 [PlaybackBufferPolicy] 的

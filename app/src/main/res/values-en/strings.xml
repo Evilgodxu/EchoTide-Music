@@ -460,8 +460,7 @@
     <string name="playlist_remove_track_confirm">Remove</string>
     <string name="playlist_blacklist_title">Block this song?</string>
     <string name="playlist_blacklist_message">Block song \"%1$s\" by %2$s — it will no longer be offered in daily recommendations</string>
-    <string name="playlist_blacklist_option_block_only">Block only</string>
-    <string name="playlist_blacklist_delete_option">Block and delete local files</string>
+    <string name="playlist_blacklist_delete_option">Block and delete</string>
     <string name="playlist_blacklist_delete_hint">The audio file and its local lyrics will be permanently deleted and cannot be recovered</string>
     <string name="playlist_blacklist_confirm">Block</string>
     <string name="playlist_blacklist_delete_confirm">Block and delete</string>

@@ -570,7 +570,7 @@ private fun rememberOutputLatencyReading(
                 sampledTrack = track
                 sampler = OutputLatencySampler()
             }
-            value = sampler.sample(track)
+            value = sampler.sample(track, playbackState.audioSinkWrittenFrames)
             delay(OutputLatencySampler.SAMPLE_INTERVAL_MS)
         }
     }

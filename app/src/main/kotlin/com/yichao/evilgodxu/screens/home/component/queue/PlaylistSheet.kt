@@ -689,9 +689,9 @@ private fun SearchActionButton(
     }
 }
 
-// 拉黑确认对话框：删除与否以选中高亮表达（与切换歌单、排序方式同一交互），默认选中「仅拉黑歌曲」。
-// 选中删除项后确认按钮改为「拉黑并删除」并显示不可恢复提示：不可逆动作既不在选项行上直接触发，
-// 又在最终按钮上直接可见
+// 拉黑确认对话框：默认语义即「拉黑」（只写黑名单），故不渲染多余的「仅拉黑」选项；
+// 「拉黑并删除」以紧凑的选中高亮行呈现（与切换歌单、排序方式同一选中样式），
+// 选中后确认按钮改为同名文案并显示不可恢复提示，使不可逆动作在最终按钮上直接可见
 @Composable
 private fun BlacklistConfirmDialog(
     track: MusicTrack?,
@@ -699,7 +699,7 @@ private fun BlacklistConfirmDialog(
     onDismiss: () -> Unit,
 ) {
     if (track == null) return
-    // 选项态随对话框存活：关闭时目标置空、本组件不再组合，下次打开回到默认选项
+    // 选项态随对话框存活：关闭时目标置空、本组件不再组合，下次打开回到默认的仅拉黑
     var deleteFile by remember { mutableStateOf(false) }
     RemoveTrackDialog(
         track = track,
@@ -712,15 +712,12 @@ private fun BlacklistConfirmDialog(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                DialogOption(
-                    label = stringResource(R.string.playlist_blacklist_option_block_only),
-                    selected = !deleteFile,
-                    onClick = { deleteFile = false },
-                )
+                // 可反复点按切换：取消选中即回到默认的仅拉黑
                 DialogOption(
                     label = stringResource(R.string.playlist_blacklist_delete_option),
                     selected = deleteFile,
-                    onClick = { deleteFile = true },
+                    compact = true,
+                    onClick = { deleteFile = !deleteFile },
                 )
                 if (deleteFile) {
                     Text(

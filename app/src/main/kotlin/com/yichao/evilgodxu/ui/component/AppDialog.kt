@@ -207,6 +207,8 @@ internal fun DialogOption(
     icon: ImageVector? = null,
     selected: Boolean = false,
     enabled: Boolean = true,
+    // 紧凑尺寸：纵向留白减半，用于确认框内高度受限的附加选项；选中样式与常规尺寸一致
+    compact: Boolean = false,
 ) {
     val background = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
     else MaterialTheme.colorScheme.surface
@@ -219,7 +221,10 @@ internal fun DialogOption(
             .clip(RoundedCornerShape(12.dp))
             .background(background)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = if (icon != null) 12.dp else 0.dp, vertical = 14.dp),
+            .padding(
+                horizontal = if (icon != null) 12.dp else 0.dp,
+                vertical = if (compact) 4.dp else 14.dp,
+            ),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
