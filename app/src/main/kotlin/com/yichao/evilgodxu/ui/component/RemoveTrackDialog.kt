@@ -23,7 +23,8 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.R
 
-// 从歌单移除/删除歌曲的确认弹窗：默认文案为「从歌单移除」，可按场景传入删除文案
+// 曲目操作的统一确认弹窗（从歌单移除 / 永久删除 / 拉黑）：默认文案为「从歌单移除」，
+// 标题、正文与确认文案按场景传入，按钮样式与其余确认框一致
 @Composable
 internal fun RemoveTrackDialog(
     track: MusicTrack?,
@@ -32,6 +33,9 @@ internal fun RemoveTrackDialog(
     titleRes: Int = R.string.playlist_remove_track_title,
     messageRes: Int = R.string.playlist_remove_track_message,
     confirmRes: Int = R.string.playlist_remove_track_confirm,
+    // 可选附加区：渲染在正文与按钮之间，供调用方放置选项列表等（如拉黑时的删除与否选项）。
+    // 未传入即不渲染，既有无附加项的确认框布局不受影响
+    option: (@Composable () -> Unit)? = null,
 ) {
     if (track == null) return
     DialogCard(onDismiss = onDismiss) {
@@ -54,6 +58,10 @@ internal fun RemoveTrackDialog(
                 fontSize = 13.sp,
                 textAlign = TextAlign.Center,
             )
+            if (option != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                option()
+            }
             Spacer(modifier = Modifier.height(16.dp))
             Row(
                 modifier = Modifier.widthIn(max = 200.dp),

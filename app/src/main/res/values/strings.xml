@@ -444,6 +444,13 @@
     <string name="playlist_remove_track_title">从歌单移除这首歌曲？</string>
     <string name="playlist_remove_track_message">将移除歌曲「%1$s · %2$s」</string>
     <string name="playlist_remove_track_confirm">移除</string>
+    <string name="playlist_blacklist_title">是否拉黑这首歌曲？</string>
+    <string name="playlist_blacklist_message">将拉黑歌曲「%1$s · %2$s」，之后不再参与每日推荐</string>
+    <string name="playlist_blacklist_option_block_only">仅拉黑歌曲</string>
+    <string name="playlist_blacklist_delete_option">拉黑并删除本地文件</string>
+    <string name="playlist_blacklist_delete_hint">音频文件与本地歌词将永久删除，无法恢复</string>
+    <string name="playlist_blacklist_confirm">拉黑</string>
+    <string name="playlist_blacklist_delete_confirm">拉黑并删除</string>
     <string name="playlist_picker_title">添加歌曲到「%1$s」</string>
     <string name="playlist_picker_select_all">全选</string>
     <string name="playlist_picker_select_none">取消全选</string>
