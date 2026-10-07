@@ -84,7 +84,7 @@
     <string name="music_quality_high">High</string>
     <string name="music_quality_standard">Standard</string>
     <string name="music_panel_playback_settings">Playback settings</string>
-    <string name="music_panel_usb_exclusive">USB audio exclusive</string>
+    <string name="music_panel_usb_exclusive">USB audio direct output</string>
     <string name="music_panel_sound_effects_title">Sound effects</string>
     <string name="music_panel_sound_effects_enter">Open</string>
     <string name="music_panel_sound_effects_not_implemented">Not implemented</string>
@@ -249,8 +249,8 @@
     <string name="audio_info_value_pcm_24bit">24-bit integer</string>
     <string name="audio_info_value_pcm_32bit">32-bit integer</string>
     <string name="audio_info_value_pcm_float">32-bit float</string>
-    <string name="audio_info_output_mode_bit_perfect">Bit-perfect exclusive</string>
-    <string name="audio_info_output_mode_format_locked">Format-locked exclusive</string>
+    <string name="audio_info_output_mode_bit_perfect">Bit-perfect direct</string>
+    <string name="audio_info_output_mode_format_locked">Source-format direct</string>
     <string name="audio_info_output_mode_mixer">System mixer</string>
     <!-- "24bit" is the concatenated unit notation, not a countable noun -->
     <string name="audio_info_quality_lossless_bit_depth" tools:ignore="PluralsCandidate">%dbit lossless</string>
@@ -296,8 +296,8 @@
     <string name="settings_swipe_track_desc">Swipe up/down on the home screen to change tracks</string>
     <string name="settings_background_flow_title">Flowing background</string>
     <string name="settings_background_flow_desc">Home background slowly flows with the cover; off keeps it static</string>
-    <string name="settings_usb_exclusive_title">USB exclusive</string>
-    <string name="settings_usb_exclusive_desc">Bit-perfect USB DAC passthrough</string>
+    <string name="settings_usb_exclusive_title">USB audio direct output</string>
+    <string name="settings_usb_exclusive_desc">System-native interface, dynamically adapts to the device</string>
     <string name="settings_typography_title">Typography</string>
     <string name="settings_typography_desc">Lyric font size and visible lines</string>
 

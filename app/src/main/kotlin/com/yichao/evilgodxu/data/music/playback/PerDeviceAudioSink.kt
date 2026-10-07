@@ -255,7 +255,7 @@ class PerDeviceAudioSink(
         )
     }
 
-    /** 当前生效的变体：流数据、位置查询与格式查询都只经它 */
+    /** 当前生效的变体：流数据与位置查询都经它；能力查询另走能力基准，见 [supportsFormat] */
     private fun active(): AudioSink = when (activeVariant) {
         OutputVariant.FLOAT -> floatSink
         OutputVariant.INT16 -> intSink
@@ -338,9 +338,19 @@ class PerDeviceAudioSink(
         rendererListener = listener
     }
 
-    override fun supportsFormat(format: Format): Boolean = active().supportsFormat(format)
+    /**
+     * 能力查询按浮点变体（能力基准）回答，不随当前生效变体变化。
+     *
+     * 三个变体都接受线性 PCM——整型一侧的转换由媒体3 的 `ToInt16PcmAudioProcessor` 承担，非浮点变体上
+     * 必定挂它——故「能否接受这一格式」是接收器的整体能力，与「本曲由哪个变体写出」是两件事。
+     *
+     * 按生效变体回答会让取值随上一曲遗留的变体漂移：渲染器配置解码器时以浮点格式探一次，命中才向
+     * 解码器索取浮点输出；上一曲是 16 位源时变体已落到整型，探针失手，下一曲的高分辨率源便拿不到浮点
+     * 解码输出，低 8 位在解码口即丢，且此后无缘再回到设备声明的浮点条目。
+     */
+    override fun supportsFormat(format: Format): Boolean = floatSink.supportsFormat(format)
 
-    override fun getFormatSupport(format: Format): Int = active().getFormatSupport(format)
+    override fun getFormatSupport(format: Format): Int = floatSink.getFormatSupport(format)
 
     override fun getFormatOffloadSupport(format: Format): AudioOffloadSupport =
         active().getFormatOffloadSupport(format)
