@@ -157,12 +157,14 @@ internal class Int24PcmAudioSink(
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
         val format = audioSinkConfig.format
         inputFormat = format
-        // 可观测性：输入若是 16 位，说明上游解码器已被降级（MediaCodecAudioRenderer
-        // 未拿到 DIRECTLY 回答而退回 16 位），升位到 24 位会丢失精度。
+        // 可观测性：本类只拿得到解码输出格式，无从分辨「源本就是 16 位」与「高分辨率源被上游降级为
+        // 16 位」——两者到这里都是 16 位输入。补零写出逐位无损，故日志只陈述这一事实，再按源分列结论，
+        // 不把正常的 16 位源断言成丢精度。
         if (format.pcmEncoding == C.ENCODING_PCM_16BIT) {
             CrashLogManager.logInfo(
                 LOG_TAG,
-                "24 位输出收到 16 位输入：解码器输出已被降级，升位会丢失精度；" +
+                "24 位输出收到 16 位输入：左移补零写出，逐位无损；源为 16 位及以下即完整精度，" +
+                    "源为高分辨率则低 8 位系上游解码器所丢；" +
                     "sampleRate=${format.sampleRate}Hz channelCount=${format.channelCount}",
             )
         }
@@ -639,7 +641,8 @@ internal class Int24PcmAudioSink(
  *
  * 浮点格式返回 [AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY]，使 [MediaCodecAudioRenderer]
  * 把解码器配置为浮点输出；本 sink 接收浮点后自行转成 24 位，精度得以保留。
- * 若返回 TRANSCODING，解码器会被降级为 16 位整型，后续升位会丢失低 8 位。
+ * 非浮点编码返回 TRANSCODING：高分辨率源因此被解码器降级为 16 位整型，低 8 位在解码阶段即已丢失，
+ * 与补零升位无关。
  */
 @OptIn(UnstableApi::class)
 internal fun int24FormatSupport(pcmEncoding: Int): Int {
