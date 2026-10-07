@@ -186,6 +186,8 @@
     <string name="audio_info_latency">输出延迟（音频轨之后）</string>
     <string name="audio_info_latency_full">输出延迟（含音频轨）</string>
     <string name="audio_info_track_buffer">音频轨缓冲</string>
+    <!-- 「音频轨缓冲」一行报容量（申请到的上限），本行报此刻的实际占用 -->
+    <string name="audio_info_track_resident">音频轨驻留</string>
     <string name="audio_info_transport_state">传输状态</string>
     <string name="audio_info_device_usb">USB 设备</string>
     <string name="audio_info_device_bluetooth">蓝牙设备</string>

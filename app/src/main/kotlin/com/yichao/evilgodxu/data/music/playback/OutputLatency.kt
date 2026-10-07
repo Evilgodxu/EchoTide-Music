@@ -17,14 +17,16 @@ private const val API_WRITTEN_FRAMES = 37
 /**
  * 输出链路的实测延迟读数。
  *
- * 链路按音频轨切成两段，两段各自可测，也各自对应一类改动：
+ * 链路按音频轨切成两段，两段各自可测，相加即全链路：
  * - [afterTrackMs]：数据**离开音频轨之后**的那一段——AudioFlinger 的混音缓冲、HAL 与设备传输、
- *   解码器自身的排队。它由音频轨把数据交出去起算，与音频轨的容量无关；
- * - [fullChainMs]：**从写进音频轨起算**的全链路，即上一段加上音频轨自身的驻留（已写入而未交出的
- *   部分）。音频轨容量正是这一段的上界。
+ *   解码器自身的排队。它由音频轨把数据交出去起算，与音频轨容量无关，也是全链路能到的最低值
+ *   （驻留为 0 时全链路就等于它）。这一段之内不再可拆：没有接口能把「设备传输」与「解码器自身缓冲」
+ *   分开，只能靠换通路对照（同一时刻另测内置通路相减）；
+ * - [trackResidentMs]：**音频轨自身的驻留**，即已写入而未交出的量。缓冲策略直接决定它，上限为
+ *   [trackBufferFrames]；
+ * - [fullChainMs]：从**写进音频轨**起算的全链路，恒等于上面两段之和。
  *
- * [trackBufferFrames] 是音频轨的容量。把容量与两段读数并列，才能看出「削减缓冲」改变的是哪一部分：
- * 它只压缩第二段的上界，第一段不受影响。
+ * 容量与驻留并列，才能看出缓冲策略的效果与余量：容量是申请到的上限，驻留是此刻实际占用。
  */
 internal data class OutputLatencyReading(
     /** 音频轨缓冲容量（帧） */
@@ -33,6 +35,8 @@ internal data class OutputLatencyReading(
     val trackBufferMs: Float,
     /** 音频轨之后那一段（毫秒）；链路未推进或时间戳不可用时为 null */
     val afterTrackMs: Float?,
+    /** 音频轨自身的驻留（毫秒）；取不到写入帧位时为 null */
+    val trackResidentMs: Float?,
     /** 从写进音频轨起算的全链路（毫秒）；取不到写入帧位时为 null */
     val fullChainMs: Float?,
 )
@@ -77,11 +81,16 @@ internal object OutputLatency {
             trackBufferFrames = bufferFrames,
             trackBufferMs = bufferFrames * MILLIS_PER_SECOND / sampleRate,
             afterTrackMs = advanced?.afterTrackMs,
+            trackResidentMs = advanced?.trackResidentMs,
             fullChainMs = advanced?.fullChainMs,
         )
     }
 
-    private data class AdvancedLatency(val afterTrackMs: Float, val fullChainMs: Float?)
+    private data class AdvancedLatency(
+        val afterTrackMs: Float,
+        val trackResidentMs: Float?,
+        val fullChainMs: Float?,
+    )
 
     /** 推进中的两段延迟；未推进或时间戳不可用时返回 null */
     private fun advancedLatencyMs(
@@ -101,9 +110,12 @@ internal object OutputLatency {
         val headFrames = track.playbackHeadPosition.toLong() and FRAME_COUNT_MASK
         val afterTrackFrames = frameDistance(headFrames, presentedFrames)
         val afterTrackMs = afterTrackFrames.toMs(sampleRate) ?: return null
-        val fullChainMs = writtenResidueFrames(track, headFrames, bufferFrames, writtenFrames)
-            ?.let { residue -> ((afterTrackFrames + residue) and FRAME_COUNT_MASK).toMs(sampleRate) }
-        return AdvancedLatency(afterTrackMs, fullChainMs)
+        val residentMs = writtenResidueFrames(track, headFrames, bufferFrames, writtenFrames)
+            ?.toMs(sampleRate)
+        // 全链路按两段相加得出，不另做一次帧到毫秒的换算：面板上三行因此恒能对上
+        val fullChainMs = residentMs
+            ?.let { resident -> (afterTrackMs + resident).takeIf { it <= MAX_PLAUSIBLE_LATENCY_MS } }
+        return AdvancedLatency(afterTrackMs, residentMs, fullChainMs)
     }
 
     /**
@@ -154,7 +166,8 @@ internal object OutputLatency {
  * 输出延迟读数的滑动平均采样器。
  *
  * 平台明确说明「时间戳在短期内的相邻两次差异不具意义」，单次取值直接展示会把抖动当成变化，故按最近
- * [window] 次取值取平均。容量是音频轨的属性而非随时波动的观测量，不参与平均。
+ * [window] 次取值取平均——两段延迟各成一窗，全链路取两段均值之和。容量是音频轨的属性而非随时波动的
+ * 观测量，不参与平均。
  *
  * 取不到延迟的采样不入窗：那时链路并未推进，掺入零值会把均值拉低。窗口随每次成功采样推移，旧样本
  * 自然被挤出，无需专门复位；换了一条音频轨则由调用方换一个采样器，历史样本不会跨轨混入。
@@ -162,7 +175,7 @@ internal object OutputLatency {
 internal class OutputLatencySampler(private val window: Int = AVERAGE_WINDOW) {
 
     private val afterTrackSamples = ArrayDeque<Float>()
-    private val fullChainSamples = ArrayDeque<Float>()
+    private val residentSamples = ArrayDeque<Float>()
 
     /**
      * 采一次并给出窗口内的均值。
@@ -174,10 +187,14 @@ internal class OutputLatencySampler(private val window: Int = AVERAGE_WINDOW) {
         val reading = OutputLatency.read(track, writtenFrames) ?: return null
         val afterTrackMs = reading.afterTrackMs ?: return reading
         push(afterTrackSamples, afterTrackMs)
-        reading.fullChainMs?.let { push(fullChainSamples, it) }
+        reading.trackResidentMs?.let { push(residentSamples, it) }
+        val averagedAfterTrackMs = afterTrackSamples.average().toFloat()
+        val averagedResidentMs = residentSamples.takeIf { it.isNotEmpty() }?.average()?.toFloat()
         return reading.copy(
-            afterTrackMs = afterTrackSamples.average().toFloat(),
-            fullChainMs = fullChainSamples.takeIf { it.isNotEmpty() }?.average()?.toFloat(),
+            afterTrackMs = averagedAfterTrackMs,
+            trackResidentMs = averagedResidentMs,
+            // 全链路取两段均值之和，而不是把每次读数各自求和后再平均：面板上三行因此恒能对上
+            fullChainMs = averagedResidentMs?.let { averagedAfterTrackMs + it },
         )
     }
 

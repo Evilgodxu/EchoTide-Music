@@ -285,6 +285,12 @@ private fun audioInfoGroups(
                     stringResource(R.string.audio_info_value_ms, it),
                 )
             },
+            latency?.trackResidentMs?.let {
+                AudioInfoRow(
+                    stringResource(R.string.audio_info_track_resident),
+                    stringResource(R.string.audio_info_value_ms, it),
+                )
+            },
             latency?.fullChainMs?.let {
                 AudioInfoRow(
                     stringResource(R.string.audio_info_latency_full),

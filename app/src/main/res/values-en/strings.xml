@@ -188,6 +188,8 @@
     <string name="audio_info_latency">Output latency (after track)</string>
     <string name="audio_info_latency_full">Output latency (incl. track)</string>
     <string name="audio_info_track_buffer">Audio track buffer</string>
+    <!-- "Audio track buffer" reports the capacity (the granted ceiling); this row reports the current occupancy -->
+    <string name="audio_info_track_resident">Audio track residency</string>
     <string name="audio_info_transport_state">Transfer state</string>
     <string name="audio_info_device_usb">USB device</string>
     <string name="audio_info_device_bluetooth">Bluetooth device</string>
