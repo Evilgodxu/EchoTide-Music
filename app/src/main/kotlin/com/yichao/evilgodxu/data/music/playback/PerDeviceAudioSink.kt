@@ -42,7 +42,8 @@ private const val MILLIS_PER_SECOND = 1000
  *
  * 平台与 media3 都不对线性 PCM 做设备级能力探测，故非独占时一律保持浮点输出；
  * 决策只在 [configure] 处落地——切换需要重开 AudioTrack，只能发生在渲染器重配点。
- * 变体切换不需要回放历史配置：所有设置类调用同时下发到三个变体。
+ * 变体切换不需要回放历史配置：所有设置类调用同时下发到三个变体。播放与暂停不属设置类——退出使用的变体
+ * 在切换时被复位，其播放状态随之清零，故切换点按登记的播放意图给进入方单独接续（见 [switchTo]）。
  */
 @OptIn(UnstableApi::class)
 class PerDeviceAudioSink(
@@ -109,6 +110,15 @@ class PerDeviceAudioSink(
 
     /** 当前生效的变体；初始按浮点输出，与无独占设备时的决策一致 */
     private var activeVariant = OutputVariant.FLOAT
+
+    /**
+     * 渲染器最后一次下发的播放意图：为真表示正在播放，为假表示已暂停或已复位。
+     *
+     * 渲染器只在「停止 → 启动」的转换点上调用 [play]，换曲重配（[configure]）发生在播放中时不会再有
+     * 第二次下发；而变体切换会复位退出使用的变体，其播放状态随之清零，新生效的变体因此无从得知当前
+     * 是否该播。故意图在此登记，切换时按它接续。
+     */
+    private var playRequested = false
 
     /**
      * 自上次音频轨建立以来，输出是否已被请求释放。
@@ -301,6 +311,17 @@ class PerDeviceAudioSink(
         // 轨道本体同理：退出方的轨道已随复位释放，留在手里只会让延迟读到已作废的实例
         onOutputEncodingChanged(null)
         onAudioTrackChanged(null)
+        // 切换点会改变写出路径，是否接续播放又决定播放能否推进，两项一并留痕：日志里读得到「换了变体」，
+        // 才解释得了某一次为什么没有出声
+        CrashLogManager.logInfo(
+            LOG_TAG,
+            "变体切换：$outgoingVariant → $variant，${if (playRequested) "接续播放" else "保持暂停"}",
+        )
+        // 进入方此前也是在退出使用的那一刻被复位的，此刻两个变体都不在播，而渲染器只在停止 → 启动的
+        // 转换点上下发 [play]，换曲重配恰好落在播放中时不会有第二次——故按登记的播放意图补上一次。
+        // 少了这一次，进入方的音频轨建起后不会被启动，位置随之停滞：渲染器此时「已就绪且正在播放」
+        // 而位置不再推进，媒体3 的停滞检测满 10 秒即以超时错误终止播放。
+        if (playRequested) active().play()
     }
 
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
@@ -350,9 +371,15 @@ class PerDeviceAudioSink(
         encodedAccessUnitCount: Int,
     ): Boolean = active().handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
 
-    override fun play() = active().play()
+    override fun play() {
+        playRequested = true
+        active().play()
+    }
 
-    override fun pause() = active().pause()
+    override fun pause() {
+        playRequested = false
+        active().pause()
+    }
 
     // 音频轨的实际释放只发生在 media3 的 flush 内（释放异步延后），故释放请求在此登记；
     // 登记的时点早于释放事件，后续建轨会撤销它，据此把迟到的释放事件判为不属于当前链路
@@ -405,6 +432,8 @@ class PerDeviceAudioSink(
         forEachSink { it.setAudioOutputProvider(audioOutputProvider) }
 
     override fun reset() {
+        // 整体复位即整体停用：此刻起没有输出在播，接续依据随之作废，重新播放须由渲染器再次下发 play
+        playRequested = false
         outputReleaseRequested = true
         forEachSink { it.reset() }
     }
