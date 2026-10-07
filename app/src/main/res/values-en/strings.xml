@@ -184,7 +184,10 @@
     <string name="audio_info_session_id">Audio session ID</string>
     <string name="audio_info_float_output">Float output</string>
     <string name="audio_info_output_encoding">Output encoding</string>
-    <string name="audio_info_latency">Average latency</string>
+    <!-- The parentheses state where this reading starts; the audio track's own part is reported by the "incl. track" row -->
+    <string name="audio_info_latency">Output latency (after track)</string>
+    <string name="audio_info_latency_full">Output latency (incl. track)</string>
+    <string name="audio_info_track_buffer">Audio track buffer</string>
     <string name="audio_info_transport_state">Transfer state</string>
     <string name="audio_info_device_usb">USB device</string>
     <string name="audio_info_device_bluetooth">Bluetooth device</string>
@@ -226,6 +229,10 @@
     <plurals name="audio_info_value_channels">
         <item quantity="one">%d channel</item>
         <item quantity="other">%d channels</item>
+    </plurals>
+    <plurals name="audio_info_value_frames_ms">
+        <item quantity="one">%1$d frame / %2$.1f ms</item>
+        <item quantity="other">%1$d frames / %2$.1f ms</item>
     </plurals>
     <string name="audio_info_value_channel_count">%d</string>
     <string name="audio_info_value_mono">Mono</string>

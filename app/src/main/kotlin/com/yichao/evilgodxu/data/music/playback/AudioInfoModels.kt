@@ -93,6 +93,9 @@ enum class OutputEncoding {
  *
  * 每个可选项为 null 均表示该项在本次播放链路中不可获取（平台或设备未上报、尚未起播、权限不足），
  * 展示层据此跳过对应行；不写占位值顶替，避免把未知项展示成真实信息。
+ *
+ * 输出延迟不在此列：它是随链路持续波动的观测量，按固定间隔单独采样（见 [OutputLatencySampler]），
+ * 与本快照「随关键项变化才重算」的节奏不同，合并进来只会得到一个停留在旧时刻的数。
  */
 data class AudioInfoSnapshot(
     // 音频源
@@ -113,8 +116,6 @@ data class AudioInfoSnapshot(
     val audioSessionId: Int?,
     val floatOutput: FloatOutputState?,
     val outputEncoding: OutputEncoding?,
-    /** 输出延迟（毫秒）：从当前链路的音频轨实测，取不到时不产出该行 */
-    val latencyMs: Float?,
     val transportState: AudioTransportState?,
     // 输出设备
     val outputDevice: OutputDeviceInfo?,

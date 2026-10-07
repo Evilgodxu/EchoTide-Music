@@ -101,7 +101,6 @@ internal object AudioInfoCollector {
                 audioSessionId = playback.audioSessionId,
                 floatOutput = floatOutputState(state),
                 outputEncoding = outputEncoding(state),
-                latencyMs = OutputLatency.measureMs(state.audioTrack),
                 transportState = playback.transportState,
                 outputDevice = currentOutputDevice(context, audioManager, state, outputs),
             )

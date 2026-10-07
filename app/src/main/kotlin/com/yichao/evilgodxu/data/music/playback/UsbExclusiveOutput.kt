@@ -195,8 +195,7 @@ class UsbExclusiveOutput(
                             "解码格式 ${describeDecodedFormat()}"
                     else ->
                         "USB 设备 ${deviceLabel(device)} 的动态混音端口无可承载当前格式的条目，独占未生效，" +
-                            "播放走系统混音；解码格式 ${describeDecodedFormat()}" +
-                            "（播放器写出的编码只能是 ${describeWritableEncodings()}），" +
+                            "播放走系统混音；本条曲目解码输出 ${describeDecodedFormat()}，" +
                             "设备支持 ${describeSupported(supported)}"
                 }
             )
@@ -388,12 +387,6 @@ class UsbExclusiveOutput(
     private fun int24OutputAvailable(): Boolean =
         decodedSampleRate > 0 && decodedChannelCount > 0 &&
             Int24OutputSupport.isSupported(decodedSampleRate, decodedChannelCount)
-
-    // 可写编码的可读描述：独占失败时写进日志，读日志即可对照设备条目看出卡在哪一项
-    private fun describeWritableEncodings(): String =
-        writablePcmEncodings(decodedPcmEncoding, int24OutputAvailable())
-            .map(::encodingName)
-            .joinToString("、")
 
     private fun registerCallback() {
         if (callbackRegistered) return

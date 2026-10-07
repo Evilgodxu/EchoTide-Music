@@ -182,7 +182,10 @@
     <string name="audio_info_session_id">音频会话 ID</string>
     <string name="audio_info_float_output">浮点输出</string>
     <string name="audio_info_output_encoding">输出编码</string>
-    <string name="audio_info_latency">平均延迟</string>
+    <!-- 括号内是这段读数的起算点：音频轨自身那一段另由「含音频轨」一行给出 -->
+    <string name="audio_info_latency">输出延迟（音频轨之后）</string>
+    <string name="audio_info_latency_full">输出延迟（含音频轨）</string>
+    <string name="audio_info_track_buffer">音频轨缓冲</string>
     <string name="audio_info_transport_state">传输状态</string>
     <string name="audio_info_device_usb">USB 设备</string>
     <string name="audio_info_device_bluetooth">蓝牙设备</string>
@@ -223,6 +226,9 @@
     <string name="audio_info_value_ms">%.1f ms</string>
     <plurals name="audio_info_value_channels">
         <item quantity="other">%d 声道</item>
+    </plurals>
+    <plurals name="audio_info_value_frames_ms">
+        <item quantity="other">%1$d 帧 / %2$.1f ms</item>
     </plurals>
     <string name="audio_info_value_channel_count">%d</string>
     <string name="audio_info_value_mono">单声道</string>

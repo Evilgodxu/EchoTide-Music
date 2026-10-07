@@ -22,7 +22,14 @@ import androidx.media3.exoplayer.audio.AudioTrackAudioOutput
 import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioOutputProvider
+import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
+
+// 音频轨诊断的类名前缀：缓冲请求量与实得量写在此名下，与音频信息面板的延迟读数互为印证
+private const val LOG_TAG = "PerDeviceAudioSink"
+
+// 帧数换算时长用，与采样率相除即得毫秒
+private const val MILLIS_PER_SECOND = 1000
 
 /**
  * 按目标设备重建的音频输出。
@@ -189,6 +196,9 @@ class PerDeviceAudioSink(
             .setAudioOutputProvider(
                 TrackCapturingOutputProvider(
                     provider = AudioTrackAudioOutputProvider.Builder(context)
+                        // 缓冲按本应用的目标帧数申请：媒体3 的固定 500ms 目标会让音频轨长期驻留半秒
+                        // 音频，实测延迟随之与设备无关地高出一个数量级，按源格式直出换来的收益因此被淹没
+                        .setAudioTrackBufferSizeProvider(PlaybackBufferPolicy.provider)
                         // 低延迟只在系统混音路径上开启：该路径要求采样率对齐设备原生采样率、会引入
                         // 重采样，且音效处理在这条路径上不可用（与本应用的「禁用音效」诉求一致）；
                         // 独占输出（USB 位完美/格式锁定）追求按源格式直出，不应被重采样破坏，
@@ -199,10 +209,31 @@ class PerDeviceAudioSink(
                             }
                         }
                         .build(),
-                    onAudioTrackCreated = { capturedTracks[variant] = it },
+                    onAudioTrackCreated = { track ->
+                        capturedTracks[variant] = track
+                        reportTrackBuffer(variant, track)
+                    },
                 )
             )
             .build()
+
+    /**
+     * 记录音频轨的实得缓冲容量。
+     *
+     * 请求量未必等于实得量：平台会把低于自身下限的申请抬回下限，能否压到 [PlaybackBufferPolicy] 的
+     * 目标帧数只能在建轨后由音频轨自报的容量判定，故两者一并落盘。实测延迟与这一段驻留同级，
+     * 读数对不上时这里即是判断依据。
+     */
+    private fun reportTrackBuffer(variant: OutputVariant, track: AudioTrack) {
+        val frames = track.bufferSizeInFrames
+        val sampleRate = track.sampleRate
+        val bufferMs = if (sampleRate > 0) frames * MILLIS_PER_SECOND / sampleRate else 0
+        CrashLogManager.logInfo(
+            LOG_TAG,
+            "音频轨缓冲：变体=$variant 请求=${PlaybackBufferPolicy.TARGET_FRAMES}帧 " +
+                "实得=${frames}帧(${bufferMs}ms)",
+        )
+    }
 
     /** 当前生效的变体：流数据、位置查询与格式查询都只经它 */
     private fun active(): AudioSink = when (activeVariant) {

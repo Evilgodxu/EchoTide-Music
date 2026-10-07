@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothClass
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.AudioTrack
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.LocalActivityResultRegistryOwner
@@ -59,10 +60,13 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.OutputDeviceInfo
 import com.yichao.evilgodxu.data.music.playback.OutputDeviceKind
 import com.yichao.evilgodxu.data.music.playback.OutputEncoding
+import com.yichao.evilgodxu.data.music.playback.OutputLatencyReading
+import com.yichao.evilgodxu.data.music.playback.OutputLatencySampler
 import com.yichao.evilgodxu.permission.PermissionMonitor
 import com.yichao.evilgodxu.permission.bluetoothConnectPermission
 import com.yichao.evilgodxu.utils.formatMebibytes
 import com.yichao.evilgodxu.utils.formatMegabytes
+import kotlinx.coroutines.delay
 import com.yichao.evilgodxu.R
 
 // 行内文本最大行数：超出以省略号截断，避免个别超长设备描述撑开整块面板
@@ -81,6 +85,7 @@ internal fun AudioInfoContent(
     scrollState: ScrollState = rememberScrollState(),
 ) {
     val snapshot by rememberAudioInfoSnapshot(playbackState)
+    val latency by rememberOutputLatencyReading(playbackState)
     // 蓝牙设备名与真实地址都受授权限制：当前输出是蓝牙而名称读不到时，在展示处就地申请授权
     BluetoothConnectPermissionRequest(snapshot?.outputDevice)
     Column(
@@ -89,7 +94,7 @@ internal fun AudioInfoContent(
     ) {
         // 快照未就绪（首次采集尚未返回）时不渲染任何内容，避免空态提示一闪而过
         val collected = snapshot ?: return@Column
-        val groups = audioInfoGroups(collected)
+        val groups = audioInfoGroups(collected, latency)
         if (groups.isEmpty()) {
             Text(
                 text = stringResource(R.string.audio_info_empty),
@@ -164,7 +169,10 @@ private data class AudioInfoGroup(val title: String, val rows: List<AudioInfoRow
 
 // 组装四个分组的字段行；不可获取的字段不产出对应行
 @Composable
-private fun audioInfoGroups(snapshot: AudioInfoSnapshot): List<AudioInfoGroup> = listOf(
+private fun audioInfoGroups(
+    snapshot: AudioInfoSnapshot,
+    latency: OutputLatencyReading?,
+): List<AudioInfoGroup> = listOf(
     AudioInfoGroup(
         title = stringResource(R.string.audio_info_group_source),
         rows = listOfNotNull(
@@ -260,9 +268,26 @@ private fun audioInfoGroups(snapshot: AudioInfoSnapshot): List<AudioInfoGroup> =
                     outputEncodingLabel(it),
                 )
             },
-            snapshot.latencyMs?.let {
+            latency?.let {
+                AudioInfoRow(
+                    stringResource(R.string.audio_info_track_buffer),
+                    pluralStringResource(
+                        R.plurals.audio_info_value_frames_ms,
+                        it.trackBufferFrames,
+                        it.trackBufferFrames,
+                        it.trackBufferMs,
+                    ),
+                )
+            },
+            latency?.afterTrackMs?.let {
                 AudioInfoRow(
                     stringResource(R.string.audio_info_latency),
+                    stringResource(R.string.audio_info_value_ms, it),
+                )
+            },
+            latency?.fullChainMs?.let {
+                AudioInfoRow(
+                    stringResource(R.string.audio_info_latency_full),
                     stringResource(R.string.audio_info_value_ms, it),
                 )
             },
@@ -524,6 +549,31 @@ private fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<
         value = AudioInfoCollector.collect(context, playbackState)
     }
 }
+
+/**
+ * 采样当前输出延迟。
+ *
+ * 延迟随链路持续波动，与本文件其余「随关键项变化才重算」的字段节奏不同，故独立按固定间隔采样，
+ * 由 [OutputLatencySampler] 取滑动平均。音频轨是跨线程的易变引用、不是 Compose 状态，读取不会引发
+ * 重组，故每次采样都重新取一次，换轨由采样器按实例身份发现并重建窗口；面板关闭即离开组合，采样随之停止。
+ */
+@Composable
+private fun rememberOutputLatencyReading(
+    playbackState: MusicPlaybackState,
+): State<OutputLatencyReading?> =
+    produceState<OutputLatencyReading?>(initialValue = null, playbackState) {
+        var sampler = OutputLatencySampler()
+        var sampledTrack: AudioTrack? = null
+        while (true) {
+            val track = playbackState.audioTrack
+            if (track !== sampledTrack) {
+                sampledTrack = track
+                sampler = OutputLatencySampler()
+            }
+            value = sampler.sample(track)
+            delay(OutputLatencySampler.SAMPLE_INTERVAL_MS)
+        }
+    }
 
 /**
  * 蓝牙授权补申请。

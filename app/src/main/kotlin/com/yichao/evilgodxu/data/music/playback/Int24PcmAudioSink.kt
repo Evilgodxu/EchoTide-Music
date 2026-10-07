@@ -28,10 +28,7 @@ private const val BYTES_PER_INT24_SAMPLE = 3
 // 24 位输出的类名前缀
 private const val LOG_TAG = "Int24PcmAudioSink"
 
-// 输出缓冲取平台下限的倍数：与媒体3 默认输出同一口径，缓冲过短会让独占流欠载
-private const val BUFFER_SIZE_MULTIPLIER = 4
-
-// 平台下限取不到时的兜底缓冲时长（帧），仅影响建轨，不影响播放时长
+// 平台下限取不到时的兜底缓冲帧数：仅用于该异常分支的建轨，与常规路径的目标帧数无关
 private const val FALLBACK_BUFFER_FRAMES = 4096
 
 /**
@@ -416,10 +413,13 @@ internal class Int24PcmAudioSink(
         val sampleRate = format.sampleRate
         val minimumBufferSize =
             AudioTrack.getMinBufferSize(sampleRate, outputChannelMask, C.ENCODING_PCM_24BIT)
-        val bufferSize = maxOf(
-            minimumBufferSize * BUFFER_SIZE_MULTIPLIER,
-            outputFrameSize * FALLBACK_BUFFER_FRAMES,
-        )
+        // 平台下限取不到（该格式未被音频策略受理）时为负值，直接参与取值会把缓冲缩到建不起轨道，
+        // 故按兜底帧数申请，真正的下限仍交给 AudioTrack 在建轨时判定
+        val bufferSize = if (minimumBufferSize > 0) {
+            PlaybackBufferPolicy.trackBufferBytes(minimumBufferSize, outputFrameSize)
+        } else {
+            outputFrameSize * FALLBACK_BUFFER_FRAMES
+        }
         val config = androidx.media3.exoplayer.audio.AudioOutputProvider.OutputConfig.Builder()
             .setSampleRate(sampleRate)
             .setChannelMask(outputChannelMask)
