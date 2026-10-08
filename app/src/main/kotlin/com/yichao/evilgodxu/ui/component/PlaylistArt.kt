@@ -1,24 +1,21 @@
 package com.yichao.evilgodxu.ui.component
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.model.MusicTrack
-import com.yichao.evilgodxu.ui.icons.AppIcons
+
+// 列表行封面的淡入时长：取 Coil crossfade 的默认档（200ms）。
+// 不沿用首页大封面的 500ms —— 那档是给「两次取图之间的清晰度差」留的节奏，
+// 列表行只有 28dp，同屏十余行还可能同时到达，更慢的淡入会叠成整片涌动。
+// 真正让滚动不闪的是邻域预取（见 CoverPrefetch）把封面提前放进内存缓存：
+// 大多行首帧即同步命中，压根走不到这条淡入路径上
+private const val LIST_COVER_FADE_IN_MS = 200
 
 // 封面显示：索引曲目取系统略缩图，非索引曲目取音频文件的内嵌封面（见 rememberSystemThumbnail）。
 // 取不到即占位符——当前曲目的一张缩略图会落盘供冷启动复用（见 CurrentCoverCache），但不回退在线封面地址：
@@ -35,27 +32,18 @@ private fun SystemCoverArt(
     LaunchedEffect(track?.id) {
         track?.let { stateHolder.state.requestMetadata(it) }
     }
-    if (thumb != null) {
-        Image(
-            bitmap = thumb,
-            contentDescription = track?.title,
-            contentScale = ContentScale.Crop,
-            filterQuality = FilterQuality.High,
-            modifier = modifier.background(Color.Black),
-        )
-    } else {
-        Box(
-            modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = AppIcons.MusicNote,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(placeholderIconSize)
-            )
-        }
-    }
+    // 与音乐面板光碟同一过渡（见 CoverTransition）：底层常驻 + 上层淡入。
+    // 首帧即命中内存缓存时取到的是同一个位图实例，过渡被短路成「直接落图」；
+    // 只有异步取到、此前确为空的那一次才淡入 —— 与 Coil 的过渡口径一致：
+    // 命中内存缓存不做过渡，否则每次滚回同一行都淡入一次，那才是闪烁
+    CoverTransition(
+        bitmap = thumb,
+        contentDescription = track?.title,
+        placeholderColor = MaterialTheme.colorScheme.surfaceVariant,
+        placeholderIconSize = placeholderIconSize,
+        fadeInMillis = LIST_COVER_FADE_IN_MS,
+        modifier = modifier,
+    )
 }
 
 @Composable

@@ -10,16 +10,9 @@ import android.util.LruCache
 // 封面重写后同一 URI 的略缩图已更新，由 bumpCoverRevision 清空本缓存。
 internal object SystemThumbnailCache {
 
-    // 驻留上限：按解码后位图的真实内存占用计，与 EmbeddedCoverCache 保持一致。
-    // 进出页面时列表与其详情页会连续驻留多批略缩图：上限需同时容纳可见列表及展开的详情，
-    // 否则详情解码会顶掉刚展示的列表封面，返回时重新解码造成闪烁。
-    // 列表行封面按显示尺寸取图后约 16–36KB，本上限可容纳约 900 张（远超任何一屏所需），
-    // 相比按 256px 请求时的同预算容量提升数倍；首页大封面另走 LargeCoverStore 独占预算，不挤占这里
-    private const val MAX_BYTES = 32 * 1024 * 1024
-
     private data class Key(val audioUri: String, val sizePx: Int)
 
-    private val cache = object : LruCache<Key, Bitmap>(MAX_BYTES) {
+    private val cache = object : LruCache<Key, Bitmap>(coverThumbnailCacheBytes(Runtime.getRuntime().maxMemory())) {
         override fun sizeOf(key: Key, value: Bitmap): Int = value.allocationByteCount
     }
 
@@ -45,3 +38,28 @@ internal object SystemThumbnailCache {
         cache.evictAll()
     }
 }
+
+// 驻留比例：封面缓存该占多大取决于设备给了应用多少堆，2GB 与 12GB 机型相差数倍，
+// 写死字节数必然在低内存机型上偏大、在高内存机型上偏小。口径对齐 Coil 的 MemoryCache.maxSizePercent ——
+// 按可用堆取比例，再夹在上下限之间
+private const val COVER_CACHE_SIZE_PERCENT = 0.10
+
+// 驻留下限：改造前的固定值。列表行封面按显示尺寸取图后约 16–36KB，该预算可容纳约 900 张，
+// 覆盖常见的一屏来回滚动；低内存机型不再因此变小
+private const val COVER_CACHE_MIN_BYTES = 32 * 1024 * 1024
+
+// 驻留上限：再高的堆也只用到这里。本应用同时驻留 ExoPlayer 的高解析度音频缓冲与解码峰值，
+// 封面缓存与 Coil 自身的图片缓存（见 App 的 0.10）合计不超过可用堆的两成，留出余量
+private const val COVER_CACHE_MAX_BYTES = 64 * 1024 * 1024
+
+/**
+ * 索引曲目略缩图内存缓存的驻留上限（字节）：按应用可用堆 [maxHeapBytes] 的比例计算，
+ * 并夹在上下限之间。抽成纯函数以便单测覆盖边界（低内存机型落到下限、高内存机型落到上限）。
+ *
+ * 返回 Int 而非 Long：消费方 [android.util.LruCache] 的容量就是 Int，
+ * 而上限（[COVER_CACHE_MAX_BYTES]）远在 Int 量程之内，不必让调用方各做一次窄化转换。
+ */
+internal fun coverThumbnailCacheBytes(maxHeapBytes: Long): Int =
+    (maxHeapBytes * COVER_CACHE_SIZE_PERCENT).toLong()
+        .coerceIn(COVER_CACHE_MIN_BYTES.toLong(), COVER_CACHE_MAX_BYTES.toLong())
+        .toInt()

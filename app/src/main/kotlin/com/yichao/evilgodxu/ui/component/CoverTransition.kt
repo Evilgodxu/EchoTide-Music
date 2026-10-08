@@ -28,7 +28,8 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 
 // 封面换图（略缩图升清、换曲换封面、占位块出场）的淡入时长。
 // 取 500ms 而非常规元素过渡的 300ms：这里叠的是两次取图之间的清晰度差与整幅换图，
-// 再快就读成「跳」而不是「化」。首页大封面与音乐面板/迷你播放器光碟共用同一节拍
+// 再快就读成「跳」而不是「化」。首页大封面与音乐面板/迷你播放器光碟共用同一节拍；
+// 列表行封面只有 28dp 且同屏十余行可能同时到达，另取更短的档位（见 PlaylistArt）
 internal const val COVER_FADE_IN_MS = 500
 
 /**
@@ -44,6 +45,11 @@ internal const val COVER_FADE_IN_MS = 500
  *
  * [animated] 为假时不做过渡、直接替换，并跳过两层的全部开销：
  * 用于封面不随播放变更的场景（3D 轮播的格位、封面替换对话框的对比图）。
+ *
+ * 过渡只在「新到的一张与正显示的不是同一张」时发生（见下方 `bitmap === base` 的短路）：
+ * 命中内存缓存时初值就是同步取回的那一张，本组件第一帧即以它为底层，随后异步取图拿回同一个实例、
+ * [bitmap] 不变，这次开合根本不会发生。于是平滑只落在「异步取到、此前为空」的那一次——
+ * 滚动中反复滚回同一行不会每次都淡入一次，那才会被读成闪烁。
  */
 @Composable
 internal fun CoverTransition(
@@ -53,6 +59,7 @@ internal fun CoverTransition(
     modifier: Modifier = Modifier,
     placeholderIconSize: Dp = 24.dp,
     animated: Boolean = true,
+    fadeInMillis: Int = COVER_FADE_IN_MS,
 ) {
     // 底层内容：当前已完全显示的一张
     var base by remember { mutableStateOf(bitmap) }
@@ -62,7 +69,7 @@ internal fun CoverTransition(
     var fading by remember { mutableStateOf(false) }
     val fade = remember { Animatable(1f) }
 
-    LaunchedEffect(bitmap, animated) {
+    LaunchedEffect(bitmap, animated, fadeInMillis) {
         // 不做过渡、或结果与正在显示的是同一张图（首帧、取图命中同一实例）时直接回到单层，
         // 不摆一次空转的动画
         if (!animated || bitmap === base) {
@@ -76,7 +83,7 @@ internal fun CoverTransition(
         incoming = bitmap
         fading = true
         fade.snapTo(0f)
-        fade.animateTo(1f, tween(durationMillis = COVER_FADE_IN_MS))
+        fade.animateTo(1f, tween(durationMillis = fadeInMillis))
         // 上层完全显示才落成底层；三处赋值之间没有挂起点，同一帧内一并生效，替换处不会露出空档
         base = bitmap
         incoming = null

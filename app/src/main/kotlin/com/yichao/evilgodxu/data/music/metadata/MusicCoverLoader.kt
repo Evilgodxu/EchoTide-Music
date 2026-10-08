@@ -73,20 +73,34 @@ internal object MusicCoverLoader {
     }
 
     /**
-     * 预取封面：把 [tracks] 的缩略图按给定顺序补进内存缓存，已驻留或正在取图的由 [load] 直接短路。
+     * 内存缓存命中查询：返回该曲目已驻留的缩略图，未命中返回 null。
      *
-     * 顺序即优先级——调用方按「可视区由近及远」给出，本函数逐个取图而不并发：
-     * 既不与可视区行的即时加载争抢系统略缩图查询，也让先取到的近邻项先出图。
+     * 供两处共用，且两处必须同一口径：显示端首帧同步取用它以避免先闪占位符，
+     * 列表预取用它跳过已就位的项。判定若不一致，预取会空转 ——
+     * 既没让行提前出图，还占着系统略缩图查询。
+     *
+     * 本函数不上锁也不触发取图，可在组合期同步调用。
      */
-    suspend fun prefetch(context: Context, tracks: List<MusicTrack>, sizePx: Int) {
-        tracks.forEach { track ->
-            try {
-                load(context, track, sizePx)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                // 单首取图失败不中断后续曲目的预取：显示端滚入视口时仍会按需重试
-            }
+    fun cachedThumbnail(track: MusicTrack, sizePx: Int): Bitmap? =
+        if (track.isMediaStoreIndexed) {
+            SystemThumbnailCache.get(track.audioUri, sizePx)
+        } else {
+            EmbeddedCoverCache.peek(track.id, sizePx)
+        }
+
+    /**
+     * 预取单曲封面：走与显示端相同的 [load] 入口，已驻留或正在取图的直接短路。
+     *
+     * 顺序与并发由调用方（列表邻域预取）掌管：它知道哪一项离视口最近、窗口何时移走，
+     * 本入口只负责「取这一张，失败了也别把调用方打断」。
+     */
+    suspend fun prefetch(context: Context, track: MusicTrack, sizePx: Int) {
+        try {
+            load(context, track, sizePx)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // 单首取图失败不影响后续预取：显示端滚入视口时仍会按需重试
         }
     }
 
