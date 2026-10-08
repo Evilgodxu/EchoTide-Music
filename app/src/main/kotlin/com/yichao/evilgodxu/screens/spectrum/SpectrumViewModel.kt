@@ -56,11 +56,14 @@ class SpectrumViewModel(
     }
 
     // 全曲分析：把整曲解码为可直接渲染的时频矩阵。
+    // 解码是 CPU 重活且为阻塞式循环，必须离开 viewModelScope 的主线程调度器；
     // 时频矩阵为空说明音频不可解码，此时页面按不可分析处理
     private fun analyse(track: MusicTrack) {
         viewModelScope.launch {
-            val spectrogram = SpectrogramDecoder.decode(track) { progress ->
-                _uiState.update { it.copy(progress = progress) }
+            val spectrogram = withContext(Dispatchers.Default) {
+                SpectrogramDecoder.decode(track) { progress ->
+                    _uiState.update { it.copy(progress = progress) }
+                }
             }
             _uiState.update { it.copy(analyzing = false, spectrogram = spectrogram) }
         }

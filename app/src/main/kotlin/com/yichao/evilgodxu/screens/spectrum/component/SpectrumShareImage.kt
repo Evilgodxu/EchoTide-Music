@@ -16,7 +16,7 @@ import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// 导出图内容：首行曲名与歌手、图下方参数行。
+// 导出图内容：图下方两行——曲名与歌手、参数行。
 // 文案由界面按当前语言产出后传入，渲染端不与资源耦合
 internal class SpectrumShareContent(
     val title: String,
@@ -25,7 +25,7 @@ internal class SpectrumShareContent(
     val info: String,
 )
 
-// 频谱图导出渲染：把首行曲名与歌手、时频图、频率刻度、dB 色标与参数行排成一张固定宽度的高清图。
+// 频谱图导出渲染：把时频图、频率刻度、dB 色标与图下方两行信息排成一张固定宽度的高清图。
 // 版面按导出图自身尺寸定（不随屏幕尺寸变化），绘图区按 3:2 铺开取更多频率与时间细节；
 // 图内每一行与左轴刻度的换算沿用屏幕同一套 FrequencyAxisScale 与档位挑选规则，两处读数一致。
 // 整体取深色版式：频谱图本身为深色，导出图与图内配色同源
@@ -35,11 +35,10 @@ internal object SpectrumShareImage {
     private const val WIDTH = 1920
     private const val PAD = 48f
 
-    // 各段字号：首行曲名与歌手取较大字号作标题，刻度与参数行同取正文号
-    private const val CREDIT_TEXT_SIZE = 40f
-    private const val LABEL_TEXT_SIZE = 30f
+    // 正文与刻度统一字号：图下方两行（曲名与歌手、参数行）同此号并居中
+    private const val TEXT_SIZE = 30f
 
-    // 首行曲名与歌手之间的分隔符
+    // 曲名与歌手之间的分隔符
     private const val CREDIT_SEPARATOR = " · "
 
     // 绘图区版面：左右两侧分别留给频率刻度与色标
@@ -82,20 +81,22 @@ internal object SpectrumShareImage {
         val plotRight = WIDTH - PAD - SCALE_LABEL_WIDTH - BAR_WIDTH - BAR_GAP
         val plotWidth = (plotRight - plotLeft).toInt()
         val plotHeight = plotWidth / PLOT_ASPECT
-
-        // 全图文字同取一种正文色，字号各自区分层次
-        val creditPaint = textPaint(CREDIT_TEXT_SIZE, TEXT_COLOR)
-        val bodyPaint = textPaint(LABEL_TEXT_SIZE, TEXT_COLOR)
-
-        // 自上而下排布：首行为曲名与歌手，其后为绘图区、时间刻度与参数行，空行不占位
-        var y = PAD
-        val creditBaseline = baselineOfTop(creditPaint, y)
-        y += lineHeight(creditPaint) + BLOCK_GAP
-        val plotTop = y
+        // 顶部不留标题区：图自顶缘留白起铺开
+        val plotTop = PAD
         val plotBottom = plotTop + plotHeight
-        y = plotBottom + LINE_GAP + lineHeight(bodyPaint) + BLOCK_GAP
+
+        val paint = textPaint(TEXT_SIZE, TEXT_COLOR)
+        val creditText = creditLine(content.title, content.artist, paint)
+
+        // 图下方两行自上而下排布：上为曲名与歌手，下为参数行，两行同字号并居中，空行不占位
+        var y = plotBottom + LINE_GAP + lineHeight(paint) + BLOCK_GAP
+        val creditBaseline = if (creditText.isNotBlank()) {
+            baselineOfTop(paint, y).also { y += lineHeight(paint) + LINE_GAP }
+        } else {
+            null
+        }
         val infoBaseline = if (content.info.isNotBlank()) {
-            baselineOfTop(bodyPaint, y).also { y += lineHeight(bodyPaint) }
+            baselineOfTop(paint, y).also { y += lineHeight(paint) }
         } else {
             null
         }
@@ -104,39 +105,33 @@ internal object SpectrumShareImage {
         val bitmap = createBitmap(WIDTH, height)
         val canvas = Canvas(bitmap)
         canvas.drawColor(BACKGROUND)
-        drawCreditLine(canvas, content, creditBaseline, creditPaint)
         canvas.drawBitmap(
             renderSpectrogramBitmap(spectrogram, scale, plotWidth, plotHeight.toInt()),
             plotLeft,
             plotTop,
             null,
         )
-        drawFrequencyAxis(canvas, scale, plotLeft, plotTop, plotBottom, plotHeight, bodyPaint)
-        drawColorScale(canvas, plotRight, plotTop, plotBottom, plotHeight, bodyPaint)
-        drawTimeLabels(canvas, plotLeft, plotRight, plotBottom, content.durationMs, bodyPaint)
+        drawFrequencyAxis(canvas, scale, plotLeft, plotTop, plotBottom, plotHeight, paint)
+        drawColorScale(canvas, plotRight, plotTop, plotBottom, plotHeight, paint)
+        drawTimeLabels(canvas, plotLeft, plotRight, plotBottom, content.durationMs, paint)
+        if (creditBaseline != null) {
+            drawCentered(canvas, creditText, creditBaseline, paint)
+        }
         if (infoBaseline != null) {
-            drawCentered(canvas, content.info, infoBaseline, bodyPaint)
+            drawCentered(canvas, content.info, infoBaseline, paint)
         }
         return bitmap
     }
 
-    // 首行：曲名与歌手居中于整图宽度，两者以分隔符相接；歌手名为空时只留曲名。
-    // 整串超出可用宽度时按末尾截断，避免溢出图缘
-    private fun drawCreditLine(
-        canvas: Canvas,
-        content: SpectrumShareContent,
-        baseline: Float,
-        paint: TextPaint,
-    ) {
-        val separator = if (content.artist.isBlank()) "" else CREDIT_SEPARATOR
-        val full = content.title + separator + content.artist
+    // 曲名与歌手的整行文案：两者以分隔符相接，歌手名为空时只留曲名；
+    // 超出可用宽度时按末尾截断，避免溢出图缘
+    private fun creditLine(title: String, artist: String, paint: TextPaint): String {
+        if (title.isBlank() && artist.isBlank()) return ""
+        val separator = if (title.isBlank() || artist.isBlank()) "" else CREDIT_SEPARATOR
+        val full = title + separator + artist
         val maxWidth = WIDTH - PAD * 2
-        val text = if (paint.measureText(full) > maxWidth) {
-            TextUtils.ellipsize(full, paint, maxWidth, TextUtils.TruncateAt.END).toString()
-        } else {
-            full
-        }
-        drawCentered(canvas, text, baseline, paint)
+        if (paint.measureText(full) <= maxWidth) return full
+        return TextUtils.ellipsize(full, paint, maxWidth, TextUtils.TruncateAt.END).toString()
     }
 
     // 频率刻度：档位挑选与屏幕同一规则，标签右对齐到刻度线以左
@@ -163,7 +158,7 @@ internal object SpectrumShareImage {
             canvas.drawText(
                 tick.label,
                 plotLeft - TICK_LINE_LENGTH - AXIS_GAP - width,
-                y + LABEL_TEXT_SIZE * BASELINE_CENTER_RATIO,
+                y + TEXT_SIZE * BASELINE_CENTER_RATIO,
                 labelPaint,
             )
         }
@@ -199,7 +194,7 @@ internal object SpectrumShareImage {
             canvas.drawText(
                 label,
                 barRight + AXIS_GAP,
-                plotTop + plotHeight * fraction + LABEL_TEXT_SIZE * BASELINE_CENTER_RATIO,
+                plotTop + plotHeight * fraction + TEXT_SIZE * BASELINE_CENTER_RATIO,
                 labelPaint,
             )
         }
@@ -214,7 +209,7 @@ internal object SpectrumShareImage {
         durationMs: Long,
         labelPaint: Paint,
     ) {
-        val baseline = plotBottom + LINE_GAP + LABEL_TEXT_SIZE
+        val baseline = plotBottom + LINE_GAP + TEXT_SIZE
         canvas.drawText(formatTime(0L), plotLeft, baseline, labelPaint)
         val end = formatTime(durationMs)
         canvas.drawText(end, plotRight - labelPaint.measureText(end), baseline, labelPaint)
