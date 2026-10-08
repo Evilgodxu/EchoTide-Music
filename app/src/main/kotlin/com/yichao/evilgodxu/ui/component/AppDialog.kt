@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -26,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -207,6 +209,8 @@ internal fun DialogOption(
     icon: ImageVector? = null,
     selected: Boolean = false,
     enabled: Boolean = true,
+    // 加载态：文案转为透明并在原位置显示进度圈，行高不变，避免加载指示另起一行把对话框撑高
+    loading: Boolean = false,
     // 紧凑尺寸：纵向留白减半，用于确认框内高度受限的附加选项；选中样式与常规尺寸一致
     compact: Boolean = false,
 ) {
@@ -236,12 +240,25 @@ internal fun DialogOption(
                 modifier = Modifier.size(20.dp),
             )
         }
-        Text(
-            text = label,
+        // 文案与加载指示叠在同一层：加载时文案透明化但保留占位，进度圈落在文案原位，行高与常规态一致
+        Box(
             modifier = Modifier.weight(1f),
-            textAlign = if (icon != null) TextAlign.Start else TextAlign.Center,
-            color = contentColor,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-        )
+            contentAlignment = if (icon != null) Alignment.CenterStart else Alignment.Center,
+        ) {
+            Text(
+                text = label,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = if (icon != null) TextAlign.Start else TextAlign.Center,
+                color = if (loading) Color.Transparent else contentColor,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            )
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
     }
 }

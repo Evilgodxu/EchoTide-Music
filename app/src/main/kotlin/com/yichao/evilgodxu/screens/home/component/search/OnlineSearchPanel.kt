@@ -517,6 +517,8 @@ private fun SearchQualityDialog(
     val track = playbackState.qualityPickTrack ?: return
     val metadataEnricher = LocalMetadataEnricher.current
     val playlistRefresher = LocalPlaylistRefresher.current
+    // 正在尝试的档位：加载指示渲染在该档位行内。对话框重开（换曲）时随组合重建自动复位
+    var pendingQuality by remember { mutableStateOf<MusicQuality?>(null) }
     // 尝试进行中不响应收起，避免归还对话框后解析回调丢失宿主
     val dismiss = {
         if (!playbackState.qualityBusy) {
@@ -545,7 +547,10 @@ private fun SearchQualityDialog(
             DialogOption(
                 label = stringResource(qualityLabelRes(quality)),
                 enabled = !playbackState.qualityBusy,
+                // 加载态挂到被点选的那一行，而不是另起一行把对话框撑高
+                loading = playbackState.qualityBusy && pendingQuality == quality,
                 onClick = {
+                    pendingQuality = quality
                     scope.launch {
                         playbackState.qualityBusy = true
                         playbackState.qualityError = null
@@ -560,16 +565,6 @@ private fun SearchQualityDialog(
                         }
                     }
                 },
-            )
-        }
-        // 尝试中加载指示
-        if (playbackState.qualityBusy) {
-            CircularProgressIndicator(
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .size(20.dp),
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.primary,
             )
         }
         // 最近一次音质尝试失败提示
