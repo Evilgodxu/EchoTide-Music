@@ -74,8 +74,9 @@ internal object SpectrumShareImage {
             }
         }
 
-    // 版面与绘制：先按内容行数定出图高，再逐块绘制
-    private fun draw(spectrogram: Spectrogram, content: SpectrumShareContent): Bitmap {
+    // 版面与绘制：先按内容行数定出图高，再逐块绘制。
+    // 时频图的重采样会自行摊到多核，故本函数须为挂起函数
+    private suspend fun draw(spectrogram: Spectrogram, content: SpectrumShareContent): Bitmap {
         val scale = FrequencyAxisScale.ofSampleRate(spectrogram.sampleRate)
         val plotLeft = PAD + AXIS_LABEL_WIDTH + AXIS_GAP
         val plotRight = WIDTH - PAD - SCALE_LABEL_WIDTH - BAR_WIDTH - BAR_GAP

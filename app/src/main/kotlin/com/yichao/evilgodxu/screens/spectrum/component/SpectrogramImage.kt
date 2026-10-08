@@ -25,6 +25,9 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.sqrt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
 // 位图像素总数上限：位图与像素缓冲在渲染期间同时驻留，超限等比缩小后再由绘制放大
@@ -32,6 +35,10 @@ private const val MAX_IMAGE_PIXELS = 2_400_000
 
 // 单边像素上限：容器尺寸不可测（无约束布局）时的兜底，避免按无限尺寸分配
 private const val MAX_IMAGE_SIDE = 4096
+
+// 渲染并行度：重采样逐行独立、各像素只读源矩阵，按行带摊到多核。
+// 留一核给解码与界面，避免与同一批默认调度任务互相抢占
+private val RENDER_PARTS = (Runtime.getRuntime().availableProcessors() - 1).coerceIn(1, 8)
 
 // 频谱图：把时频矩阵渲染成位图后铺满容器。
 // 轴朝向固定——时间沿水平方向自左向右、频率沿竖直方向自下而上；
@@ -76,7 +83,7 @@ internal fun SpectrogramImage(
 // 使图内每一行都与左侧同一高度的刻度读数对应。
 // 目标像素稀于源数据时同样按数据块取均值，避免长音频压缩到窄位图时出现摩尔纹。
 // 屏幕图与导出的高清图共用本函数，仅目标尺寸不同；重采样为纯计算，调用方须在后台线程调用
-internal fun renderSpectrogramBitmap(
+internal suspend fun renderSpectrogramBitmap(
     spectrogram: Spectrogram,
     scale: FrequencyAxisScale,
     widthPx: Int,
@@ -90,28 +97,47 @@ internal fun renderSpectrogramBitmap(
     val rows = spectrogram.rows
     val nyquistHz = spectrogram.sampleRate / 2f
     val pixels = IntArray(bitmapWidth * bitmapHeight)
-    for (y in 0 until bitmapHeight) {
-        // 频率自下而上：位图末行对应最低频，该行覆盖的频率区间由轴刻度反算，
-        // 再按源矩阵的频率间隔换算成行号区间（含首尾整行，避免行间出现空档）
-        val fromBottom = bitmapHeight - 1 - y
-        val lowHz = scale.hertzAt(fromBottom.toFloat() / bitmapHeight)
-        val highHz = scale.hertzAt((fromBottom + 1).toFloat() / bitmapHeight)
-        val rowStart = floor(lowHz / nyquistHz * rows).toInt().coerceIn(0, rows - 1)
-        val rowEnd = ceil(highHz / nyquistHz * rows).toInt().coerceIn(rowStart + 1, rows)
-        for (x in 0 until bitmapWidth) {
-            val columnStart = x * columns / bitmapWidth
-            val columnEnd = ((x + 1) * columns / bitmapWidth).coerceAtLeast(columnStart + 1)
-            var sum = 0f
-            var count = 0
-            for (column in columnStart until columnEnd) {
-                val base = column * rows
-                for (row in rowStart until rowEnd) {
-                    sum += values[base + row]
-                    count++
+    // 每个像素列覆盖的源矩阵列区间只与 x 有关：先整体算好。
+    // 否则同一组整数除法会在每一行上重算一遍，行数越高浪费越大——高清导出图的乘数尤其可观
+    val columnFrom = IntArray(bitmapWidth)
+    val columnTo = IntArray(bitmapWidth)
+    for (x in 0 until bitmapWidth) {
+        val start = x * columns / bitmapWidth
+        columnFrom[x] = start
+        columnTo[x] = ((x + 1) * columns / bitmapWidth).coerceAtLeast(start + 1)
+    }
+    // 行带并行：各带只写 pixels 的不相交区间、只读源矩阵，故互不干扰；
+    // 行数少于并行度时按行数收窄，不产生空带
+    coroutineScope {
+        val parts = RENDER_PARTS.coerceIn(1, bitmapHeight)
+        (0 until parts).map { part ->
+            async {
+                val from = bitmapHeight * part / parts
+                val to = bitmapHeight * (part + 1) / parts
+                for (y in from until to) {
+                    // 频率自下而上：位图末行对应最低频，该行覆盖的频率区间由轴刻度反算，
+                    // 再按源矩阵的频率间隔换算成行号区间（含首尾整行，避免行间出现空档）
+                    val fromBottom = bitmapHeight - 1 - y
+                    val lowHz = scale.hertzAt(fromBottom.toFloat() / bitmapHeight)
+                    val highHz = scale.hertzAt((fromBottom + 1).toFloat() / bitmapHeight)
+                    val rowStart = floor(lowHz / nyquistHz * rows).toInt().coerceIn(0, rows - 1)
+                    val rowEnd = ceil(highHz / nyquistHz * rows).toInt().coerceIn(rowStart + 1, rows)
+                    for (x in 0 until bitmapWidth) {
+                        var sum = 0f
+                        var count = 0
+                        for (column in columnFrom[x] until columnTo[x]) {
+                            val base = column * rows
+                            for (row in rowStart until rowEnd) {
+                                sum += values[base + row]
+                                count++
+                            }
+                        }
+                        pixels[y * bitmapWidth + x] =
+                            spectrumColor(if (count > 0) sum / count else 0f)
+                    }
                 }
             }
-            pixels[y * bitmapWidth + x] = spectrumColor(if (count > 0) sum / count else 0f)
-        }
+        }.awaitAll()
     }
     val bitmap = createBitmap(bitmapWidth, bitmapHeight)
     bitmap.setPixels(pixels, 0, bitmapWidth, 0, 0, bitmapWidth, bitmapHeight)

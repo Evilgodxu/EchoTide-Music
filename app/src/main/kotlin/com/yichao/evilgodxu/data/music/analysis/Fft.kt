@@ -11,8 +11,10 @@ internal object Fft {
     // 窗函数按长度缓存：变换本身可跨线程并发执行，缓存须线程安全
     private val windows = ConcurrentHashMap<Int, FloatArray>()
 
-    // Hann 窗，最末点回零以保证两端连续
-    fun hannWindow(size: Int): FloatArray = windows.getOrPut(size) {
+    // Hann 窗，最末点回零以保证两端连续。
+    // 用 computeIfAbsent 而非 getOrPut：多核变换会在启动瞬间同时索取同一长度，
+    // 前者保证只构造一次，后者只保证不损坏映射，会重复构造同一窗函数
+    fun hannWindow(size: Int): FloatArray = windows.computeIfAbsent(size) {
         FloatArray(size) { i -> 0.5f - 0.5f * cos(2f * PI.toFloat() * i / (size - 1)) }
     }
 
