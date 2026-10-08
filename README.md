@@ -214,7 +214,7 @@ Search services rely on public web endpoints. The built-in search services are u
 
 - NetEase Cloud Music parsing originally referenced from [Qplayer](https://github.com/TIMER-err/qplayer)
 - Drag-reorder of list items [Reorderable](https://github.com/Calvin-LL/Reorderable); now self-implemented in-app (algorithm-equivalent)
-- NetEase Cloud Music, Kugou, Kuwo, Migu and QQ Kotlin-native audio source parsing is based on [musicdl](https://github.com/CharlesPikachu/musicdl)
+- NetEase Cloud Music, Kugou, Kuwo and QQ Kotlin-native audio source parsing is based on [musicdl](https://github.com/CharlesPikachu/musicdl)
 
 ## License
 

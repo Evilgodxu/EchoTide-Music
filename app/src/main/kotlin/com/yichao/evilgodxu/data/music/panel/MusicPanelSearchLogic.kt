@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import com.yichao.evilgodxu.data.music.api.KugouMusicApi
 import com.yichao.evilgodxu.data.music.api.KuwoMusicApi
-import com.yichao.evilgodxu.data.music.api.MiguMusicApi
 import com.yichao.evilgodxu.data.music.api.MusicQuality
 import com.yichao.evilgodxu.data.music.api.NeteaseMusicApi
 import com.yichao.evilgodxu.data.music.api.QQMusicApi
@@ -634,7 +633,6 @@ private suspend fun builtInPlayUrl(target: NeteaseSongSearchResult): String? =
             MusicSearchSource.QQ -> QQMusicApi.songUrl(target.sourceId.orEmpty())
             MusicSearchSource.KUGOU -> KugouMusicApi.songUrl(target.sourceId.orEmpty())
             MusicSearchSource.KUWO -> KuwoMusicApi.songUrl(target.sourceId.orEmpty())
-            MusicSearchSource.MIGU -> MiguMusicApi.songUrl(target.sourceId.orEmpty())
             else -> null
         }
     }
@@ -692,7 +690,6 @@ internal suspend fun resolvePlayUrlByQuality(
         MusicSearchSource.QQ -> QQMusicApi.songUrl(target.sourceId.orEmpty(), quality)
         MusicSearchSource.KUGOU -> KugouMusicApi.songUrl(target.sourceId.orEmpty())
         MusicSearchSource.KUWO -> KuwoMusicApi.songUrl(target.sourceId.orEmpty(), quality)
-        MusicSearchSource.MIGU -> MiguMusicApi.songUrl(target.sourceId.orEmpty(), quality)
         else -> null
     }
 }

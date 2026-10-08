@@ -18,6 +18,5 @@ internal suspend fun fetchPlatformLyrics(result: NeteaseSongSearchResult): List<
         MusicSearchSource.QQ -> QQMusicApi.lyricLines(result).orEmpty()
         MusicSearchSource.KUGOU -> KugouMusicApi.lyricLines(result).orEmpty()
         MusicSearchSource.KUWO -> KuwoMusicApi.lyricLines(result).orEmpty()
-        MusicSearchSource.MIGU -> MiguMusicApi.lyricLines(result).orEmpty()
         else -> emptyList()
     }

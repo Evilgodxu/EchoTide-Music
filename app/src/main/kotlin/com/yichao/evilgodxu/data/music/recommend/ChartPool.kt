@@ -75,7 +75,6 @@ internal object ChartPool {
         "QQ" to MusicSearchSource.QQ.key,
         "KUGOU" to MusicSearchSource.KUGOU.key,
         "KUWO" to MusicSearchSource.KUWO.key,
-        "MIGU" to MusicSearchSource.MIGU.key,
     )
 
     /**

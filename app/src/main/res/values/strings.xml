@@ -72,7 +72,6 @@
     <string name="music_panel_search_source_qq">QQ音乐</string>
     <string name="music_panel_search_source_kugou">酷狗</string>
     <string name="music_panel_search_source_kuwo">酷我</string>
-    <string name="music_panel_search_source_migu">咪咕</string>
     <string name="music_panel_daily_recommend_title">每日推荐</string>
     <string name="music_panel_daily_recommend_loading">正在生成每日推荐…</string>
     <string name="music_panel_daily_recommend_empty">暂无可推荐的新歌</string>

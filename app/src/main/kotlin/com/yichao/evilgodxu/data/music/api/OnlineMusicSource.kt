@@ -25,6 +25,5 @@ internal fun builtInSourceOf(source: MusicSearchSource): OnlineMusicSource? = wh
     MusicSearchSource.QQ -> QQMusicApi
     MusicSearchSource.KUGOU -> KugouMusicApi
     MusicSearchSource.KUWO -> KuwoMusicApi
-    MusicSearchSource.MIGU -> MiguMusicApi
     else -> null
 }

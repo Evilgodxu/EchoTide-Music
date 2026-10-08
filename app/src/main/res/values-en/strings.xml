@@ -73,7 +73,6 @@
     <string name="music_panel_search_source_qq">QQ Music</string>
     <string name="music_panel_search_source_kugou">Kugou</string>
     <string name="music_panel_search_source_kuwo">Kuwo</string>
-    <string name="music_panel_search_source_migu">Migu</string>
     <string name="music_panel_daily_recommend_title">Daily Mix</string>
     <string name="music_panel_daily_recommend_loading">Building your daily mix…</string>
     <string name="music_panel_daily_recommend_empty">No new songs to recommend</string>

@@ -38,7 +38,6 @@ internal object OnlinePlatformRegistry {
         MusicSearchSource.QQ -> R.string.music_panel_search_source_qq
         MusicSearchSource.KUGOU -> R.string.music_panel_search_source_kugou
         MusicSearchSource.KUWO -> R.string.music_panel_search_source_kuwo
-        MusicSearchSource.MIGU -> R.string.music_panel_search_source_migu
         else -> null
     }
 }

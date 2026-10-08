@@ -214,7 +214,7 @@ python tools/make_promo_hero.py
 
 - 网易云音乐解析早期参考 [Qplayer](https://github.com/TIMER-err/qplayer)
 - 列表拖拽排序 [Reorderable](https://github.com/Calvin-LL/Reorderable),现已在应用内自行实现(算法等价)
-- 基于 [musicdl](https://github.com/CharlesPikachu/musicdl) 实现 网易云音乐 酷狗 酷我 咪咕 QQ 的 Kotlin 原生音源解析
+- 基于 [musicdl](https://github.com/CharlesPikachu/musicdl) 实现 网易云音乐 酷狗 酷我 QQ 的 Kotlin 原生音源解析
 
 ## License
 
