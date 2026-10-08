@@ -97,6 +97,9 @@ class MainActivity : ComponentActivity() {
             // 系统栏图标外观由 Compose 按主题与页面控制，这里仅跟随系统作为初始兜底值
             statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
         )
+        // 三键导航栏默认开启强制对比度：系统会在导航栏区域铺一层不透明底色，既不随沉浸背景透明，
+        // 又与底部控件争夺同一片区域。关闭后导航栏背景真正透明，其高度占位由界面侧自行避让
+        window.isNavigationBarContrastEnforced = false
         setupSystemBars()
         // 绑定当前 Activity，使对话框等独立窗口在切语言时同步更新资源
         localizationManager.bindActivity(this)

@@ -20,12 +20,16 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -218,8 +222,10 @@ internal fun PlaylistSheet(
                         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                     )
                     .padding(horizontal = 12.dp, vertical = 10.dp)
-                    // 键盘弹出时面板内容整体上移避开键盘，窗口与其他页面保持原位
-                    .imePadding(),
+                    // 键盘与系统导航栏取并集后整体避让：键盘收起时让出导航栏高度，否则底部搜索框与末项
+                    // 会被虚拟按键压住；键盘展开时键盘本身已占住导航栏区域，取并集可避免两者高度叠加。
+                    // 避让施加在面板内容上，面板底色仍铺到屏幕底缘
+                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
             ) {
                 // 展开就绪：等面板滑入动画完成后再定位当前曲目，避免滚动与展开动画叠加卡顿
                 var playlistSettled by remember { mutableStateOf(false) }

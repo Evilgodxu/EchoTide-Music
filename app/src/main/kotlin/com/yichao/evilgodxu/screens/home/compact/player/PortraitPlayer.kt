@@ -21,10 +21,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -265,12 +267,16 @@ internal fun PortraitPlayer(
         }
     }
 
-    // 多窗口（自由窗口/分屏）检测：小窗底部有系统控制条，需预留半高控制栏的避让留白
+    // 底部避让量：竖屏首页系统导航栏常驻显示，控制栏须整块让出它的高度，否则虚拟按键会压在控制按钮上。
+    // 多窗口（自由窗口/分屏）下小窗底部另有系统控制条，与导航栏同时存在时取两者较大值
+    val navigationBarBottom = with(LocalDensity.current) {
+        WindowInsets.navigationBars.getBottom(this).toDp()
+    }
     val activity = LocalActivityResultRegistryOwner.current as? Activity
     val bottomClearance = if (activity?.isInMultiWindowMode() == true) {
-        BottomControlBarClearance
+        maxOf(BottomControlBarClearance, navigationBarBottom)
     } else {
-        0.dp
+        navigationBarBottom
     }
 
     // 外层容器：沉浸封面置顶，其余模块从封面下方按序排列

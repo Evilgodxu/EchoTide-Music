@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -119,7 +120,10 @@ internal fun AudioInfoSheet(
                         color = MaterialTheme.colorScheme.surface,
                         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                     )
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    // 面板内容让出系统导航栏高度：三键导航栏常驻显示时会压住末行信息。
+                    // 避让施加在内容上，面板底色仍铺到屏幕底缘
+                    .navigationBarsPadding(),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

@@ -21,6 +21,7 @@ import com.yichao.evilgodxu.screens.home.compact.CompactAssembly
 import com.yichao.evilgodxu.screens.home.component.panel.HomePage
 import com.yichao.evilgodxu.screens.home.component.panel.rememberHomePanelState
 import com.yichao.evilgodxu.screens.home.expanded.ExpandedAssembly
+import com.yichao.evilgodxu.theme.LocalIsDarkTheme
 import com.yichao.evilgodxu.theme.SystemBarAppearance
 import com.yichao.evilgodxu.windowsize.rememberExpandedForm
 import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
@@ -78,9 +79,6 @@ fun HomeScreen(
     // 朝向以窗口实测宽高比为准：Activity 自行处理方向变更，配置读取可能不随之刷新
     val isPortrait = !rememberWindowLandscape()
 
-    // 首页背景恒为深色封面衍生背景：状态栏被临时唤出时图标固定白色，不沿用上个页面的深色图标
-    SideEffect { SystemBarAppearance.isLightStatusBars = false }
-
     // 横竖屏切换：按当前朝向请求目标方向
     val onToggleLandscape = {
         activity?.requestedOrientation = if (isPortrait) {
@@ -94,6 +92,18 @@ fun HomeScreen(
     val panelState = rememberHomePanelState()
     val playbackState = panelState.playbackState.state
     val pagerState = panelState.pagerState
+
+    // 系统栏图标按「图标底下压着什么」定色：首页恒为深色封面衍生背景，被临时唤出时图标固定白色，
+    // 不沿用上个页面的深色图标；底部弹层展开时导航栏落在跟随主题的面板上，改回按主题取色，
+    // 否则浅色主题下白图标压在浅色面板上不可辨
+    val sheetOnTop = panelState.playlistVisible ||
+        panelState.audioInfoVisible ||
+        panelState.libraryAnalysis.visible
+    val lightNavigationBars = sheetOnTop && !LocalIsDarkTheme.current
+    SideEffect {
+        SystemBarAppearance.isLightStatusBars = false
+        SystemBarAppearance.isLightNavigationBars = lightNavigationBars
+    }
 
     // 在线搜索页返回键：优先清空搜索结果与输入框；搜索状态已清空时才返回播放器
     BackHandler(enabled = panelState.currentPage == HomePage.SEARCH) {
