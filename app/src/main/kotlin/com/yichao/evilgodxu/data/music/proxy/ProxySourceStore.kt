@@ -85,7 +85,7 @@ internal object ProxySourceStore {
     }
 
     // 指定平台的生效音源：同一平台多音源时各动作独立取最近配置该动作的音源，
-    // 不同音源可分别覆盖搜索/播放/歌词/封面/歌单等动作而不互相顶替
+    // 不同音源可分别覆盖搜索/播放/歌词/封面等动作而不互相顶替
     fun platformSpec(context: Context, platform: String): ProxyPlatformSpec? {
         val covering = all(context)
             .filter { it.enabled && it.platforms.containsKey(platform) }
@@ -103,7 +103,6 @@ internal object ProxySourceStore {
             url = latest { it.url },
             lyric = latest { it.lyric },
             pic = latest { it.pic },
-            playlist = latest { it.playlist },
         ).takeIf { it.hasAnyAction }
     }
 

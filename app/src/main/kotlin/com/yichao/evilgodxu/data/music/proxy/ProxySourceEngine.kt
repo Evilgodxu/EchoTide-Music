@@ -26,9 +26,6 @@ import org.json.JSONTokener
 internal object ProxySourceEngine {
 
     private const val SEARCH_COUNT = 20
-    // 歌单分页每页条数与最大页数：防止接口异常时无限翻页
-    private const val PLAYLIST_PAGE_SIZE = 50
-    private const val MAX_PLAYLIST_PAGES = 100
 
     suspend fun search(
         context: Context,
@@ -68,50 +65,6 @@ internal object ProxySourceEngine {
         return builtInSourceOf(source)?.let { builtIn ->
             runCatching { builtIn.search(keyword, page, pageSize) }.getOrDefault(emptyList())
         }.orEmpty()
-    }
-
-    // 按歌单 ID 拉取歌单歌曲：跨页循环直至拉满或接口无新条目，按 id 去重
-    suspend fun fetchPlaylist(
-        context: Context,
-        source: MusicSearchSource,
-        playlistId: String,
-    ): ProxyPlaylistResult? {
-        val action = ProxySourceStore.platformSpec(context, source.key)?.playlist
-            ?: return null
-        val songs = mutableListOf<NeteaseSongSearchResult>()
-        var name = ""
-        var page = 1
-        while (page <= MAX_PLAYLIST_PAGES) {
-            val body = executeAction(
-                action,
-                mapOf(
-                    "playlistId" to playlistId,
-                    "page" to page.toString(),
-                    "count" to PLAYLIST_PAGE_SIZE.toString(),
-                ),
-            ) ?: break
-            if (name.isBlank()) name = resolveString(body, action.result.playlistName).orEmpty()
-            val listPath = action.result.list
-            val array = if (listPath == null) {
-                body as? JSONArray
-            } else {
-                ProxyJsonPath.resolve(body, listPath) as? JSONArray
-            } ?: break
-            val mapped = List(array.length()) { index -> mapSearchResult(array.opt(index), action, source) }
-                .filterNotNull()
-            if (mapped.isEmpty()) break
-            // 接口可能重复返回同一页：无新条目即视为已拉完
-            val merged = (songs + mapped).distinctBy { it.id }
-            if (merged.size == songs.size) break
-            songs.clear()
-            songs.addAll(merged)
-            val total = resolveLong(body, action.result.total) ?: 0L
-            if (total > 0 && songs.size >= total) break
-            // 本页不足一页即为末页
-            if (mapped.size < PLAYLIST_PAGE_SIZE) break
-            page++
-        }
-        return songs.takeIf { it.isNotEmpty() }?.let { ProxyPlaylistResult(name, it) }
     }
 
     // 按音质档位解析播放直链：直链同时用于播放与缓存下载

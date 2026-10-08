@@ -75,7 +75,6 @@ internal object ProxySourceParser {
             url = if (platform.has("url")) parseAction(platform.optJSONObject("url")) else null,
             lyric = if (platform.has("lyric")) parseAction(platform.optJSONObject("lyric")) else null,
             pic = if (platform.has("pic")) parseAction(platform.optJSONObject("pic")) else null,
-            playlist = if (platform.has("playlist")) parseAction(platform.optJSONObject("playlist")) else null,
         ).takeIf { it.hasAnyAction }
     }
 
@@ -134,8 +133,6 @@ internal object ProxySourceParser {
             url = obj.optString("url", "").takeIf { it.isNotBlank() },
             lyric = obj.optString("lyric", "").takeIf { it.isNotBlank() },
             tlyric = obj.optString("tlyric", "").takeIf { it.isNotBlank() },
-            playlistName = obj.optString("playlistName", "").takeIf { it.isNotBlank() },
-            total = obj.optString("total", "").takeIf { it.isNotBlank() },
         )
     }
 }

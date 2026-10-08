@@ -16,7 +16,7 @@ internal val LOSSLESS_TIERS: List<MusicQuality> = listOf(MusicQuality.HI_RES, Mu
 
 // 音质自适应候选顺序：无损档以 Hi-Res 优先，其余档位先取自身，缺档时按音质由低到高向上匹配，再逐级降级；
 // 候选链顶端恒为 Hi-Res，母带等平台升频音质不参与匹配。
-// 解析与下载（歌单同步）或解析与试播（在线播放）均按此顺序逐档尝试，全部不可用才判定失败
+// 在线播放与无损升级解析直链均按此顺序逐档尝试，全部不可用才判定失败
 fun MusicQuality.adaptiveCandidates(): List<MusicQuality> = when (this) {
     MusicQuality.HI_RES,
     MusicQuality.LOSSLESS -> LOSSLESS_TIERS + listOf(MusicQuality.HIGH, MusicQuality.STANDARD)

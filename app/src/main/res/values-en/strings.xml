@@ -489,29 +489,6 @@
     <string name="playlist_switch_default">Default playlist</string>
     <string name="playlist_sort_handle">Reorder</string>
     <string name="playlist_edit_album_title">Edit album metadata</string>
-    <string name="playlist_import">Import from link</string>
-    <string name="playlist_import_title">Import playlist from link</string>
-    <string name="playlist_import_link_hint">Paste a Netease playlist share link</string>
-    <string name="playlist_import_tip">Netease playlists parsed built-in; QQ/Kuwo need a proxy source</string>
-    <string name="playlist_import_parse">Parse</string>
-    <string name="playlist_import_parsing">Parsing…</string>
-    <string name="playlist_import_name_hint">Playlist name</string>
-    <plurals name="playlist_import_preview_songs">
-        <item quantity="one">%1$d song, all will be downloaded locally</item>
-        <item quantity="other">%1$d songs, all will be downloaded locally</item>
-    </plurals>
-    <string name="playlist_import_start">Start sync</string>
-    <string name="playlist_import_quality_title">Select download quality</string>
-    <string name="playlist_import_invalid_link">Cannot recognize this share link</string>
-    <string name="playlist_import_fetch_failed">Failed to parse playlist, check your network</string>
-    <string name="playlist_import_empty">No downloadable songs</string>
-    <string name="playlist_import_failed">Playlist sync failed</string>
-    <string name="playlist_import_default_name">Imported playlist</string>
-    <string name="playlist_import_progress">Syncing %1$d/%2$d · %3$s</string>
-    <string name="playlist_import_preparing">Syncing…</string>
-    <!-- Three independent counts in one summary line: no single count governs plurality,
-         so the wording is kept count-neutral ("added"/"existing"/"failed" as bare past participles) -->
-    <string name="playlist_import_done" tools:ignore="PluralsCandidate">Sync done · %1$d added · %2$d existing · %3$d failed</string>
     <string name="playlist_search_placeholder">Search playlist</string>
     <string name="playlist_search_no_results">No matching songs</string>
     <string name="playlist_search_artist_placeholder">Search artists</string>

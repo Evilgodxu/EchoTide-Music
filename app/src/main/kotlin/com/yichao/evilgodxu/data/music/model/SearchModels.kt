@@ -52,12 +52,6 @@ data class NeteaseSongSearchResult(
     val coverId: String? = null,
 )
 
-// 内置歌单解析结果：歌单名称 + 歌曲列表
-internal data class NeteasePlaylistData(
-    val name: String,
-    val songs: List<NeteaseSongSearchResult>,
-)
-
 // 在线歌词数据
 internal data class NeteaseLyricData(val lines: List<LyricLine>)
 

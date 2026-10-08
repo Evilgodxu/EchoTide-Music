@@ -30,7 +30,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -44,12 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yichao.evilgodxu.data.music.api.MusicQuality
 import com.yichao.evilgodxu.data.music.model.MusicTrack
-import com.yichao.evilgodxu.data.music.proxy.PlaylistSyncer
-import com.yichao.evilgodxu.data.music.proxy.PlaylistSyncResult
-import com.yichao.evilgodxu.data.music.proxy.RemotePlaylistLink
-import com.yichao.evilgodxu.data.music.proxy.SyncFailure
 import com.yichao.evilgodxu.data.playlist.Playlist
 import com.yichao.evilgodxu.data.playlist.PlaylistGroup
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
@@ -62,16 +56,11 @@ import com.yichao.evilgodxu.data.playlist.distinctArtistCount
 import com.yichao.evilgodxu.data.playlist.smartTrackCount
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.LocalPlaylistRefresher
 import com.yichao.evilgodxu.LocalPlaylistStore
-import com.yichao.evilgodxu.screens.home.component.dialog.PlaylistImportDialog
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 
 // 首页左滑呼出的歌单面板：系统歌单 + 自定义歌单，支持页面栈导航
 @Composable
@@ -86,7 +75,6 @@ internal fun PlaylistPanel(
 ) {
     val context = LocalContext.current
     val playlistStore = LocalPlaylistStore.current
-    val playlistRefresher = LocalPlaylistRefresher.current
     // 读盘切到 IO：首次 getSharedPreferences 需同步解析整份歌单 JSON，在主线程执行会阻塞首帧
     LaunchedEffect(Unit) { playlistStore.awaitLoaded(context) }
     var backStack by remember { mutableStateOf(listOf<PlaylistPage>(PlaylistPage.Overview)) }
@@ -109,58 +97,12 @@ internal fun PlaylistPanel(
     var showCreate by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<Playlist?>(null) }
     var deleteTarget by remember { mutableStateOf<Playlist?>(null) }
-    var showImport by remember { mutableStateOf(false) }
-    // 歌单同步后台状态：进度显示在总览标题区，完成提示短暂展示后自动清理
-    var syncState by remember { mutableStateOf<SyncUiState?>(null) }
-    var syncJob by remember { mutableStateOf<Job?>(null) }
-    val scope = rememberCoroutineScope()
-    val importFailedMessage = stringResource(R.string.playlist_import_failed)
-    val importFetchFailedMessage = stringResource(R.string.playlist_import_fetch_failed)
-    val importEmptyMessage = stringResource(R.string.playlist_import_empty)
-
-    fun startSync(link: RemotePlaylistLink, name: String, quality: MusicQuality) {
-        syncJob?.cancel()
-        syncState = SyncUiState.Running(0, 0, "")
-        syncJob = scope.launch {
-            val result = PlaylistSyncer.syncToLibrary(
-                context, playbackState, link, quality, playlistRefresher,
-            ) { done, total, title ->
-                syncState = SyncUiState.Running(total, done, title)
-            }
-            syncState = when (result) {
-                is PlaylistSyncResult.Success -> {
-                    // 已存在同名歌单则并入做增量更新，仅无同名时才新建
-                    val target = playlistStore.findOrCreateByName(context, name)
-                    if (target != null) {
-                        playlistStore.addTracks(context, target.id, result.trackIds)
-                        SyncUiState.Finished(
-                            result.stats.downloadedCount,
-                            result.stats.existingCount,
-                            result.stats.failedCount,
-                        )
-                    } else {
-                        SyncUiState.Failed(importFailedMessage)
-                    }
-                }
-                is PlaylistSyncResult.Failure -> SyncUiState.Failed(
-                    when (result.reason) {
-                        SyncFailure.FETCH_FAILED -> importFetchFailedMessage
-                        SyncFailure.NO_DOWNLOAD -> importEmptyMessage
-                        SyncFailure.LIBRARY_MATCH_FAILED -> importFailedMessage
-                    }
-                )
-            }
-            delay(SYNC_DONE_DISMISS_MS)
-            syncState = null
-            syncJob = null
-        }
-    }
 
     Box(modifier = modifier) {
         // 透明全屏布局，与在线搜索面板一致，透出首页沉浸渐变背景
         Column(modifier = Modifier.fillMaxSize()) {
             PanelHeader(
-                title = if (page is PlaylistPage.Overview) syncTitle(syncState) else page.title(),
+                title = page.title(),
                 showBack = backStack.size > 1,
                 onBack = { backStack = backStack.dropLast(1) },
             )
@@ -178,7 +120,6 @@ internal fun PlaylistPanel(
                     },
                     onOpenCustom = { playlist -> backStack = backStack + PlaylistPage.Tracks(playlist) },
                     onCreatePlaylist = { showCreate = true },
-                    onImportPlaylist = { showImport = true },
                     onRename = { renameTarget = it },
                     onDelete = { deleteTarget = it },
                 )
@@ -208,15 +149,6 @@ internal fun PlaylistPanel(
             backStack = backStack + PlaylistPage.Tracks(playlist)
         },
         onDismiss = { showCreate = false },
-    )
-    PlaylistImportDialog(
-        visible = showImport,
-        onSyncStart = { link, name, quality ->
-            showImport = false
-            // 同步在后台进行，进度显示在歌单面板标题区
-            startSync(link, name, quality)
-        },
-        onDismiss = { showImport = false },
     )
     RenamePlaylistDialog(playlist = renameTarget, onDismiss = { renameTarget = null })
     DeletePlaylistDialog(playlist = deleteTarget, onDismiss = { deleteTarget = null })
@@ -284,7 +216,6 @@ private fun PlaylistOverview(
     onOpenSmart: (SmartPlaylistType) -> Unit,
     onOpenCustom: (Playlist) -> Unit,
     onCreatePlaylist: () -> Unit,
-    onImportPlaylist: () -> Unit,
     onRename: (Playlist) -> Unit,
     onDelete: (Playlist) -> Unit,
 ) {
@@ -366,8 +297,6 @@ private fun PlaylistOverview(
             Spacer(modifier = Modifier.height(6.dp))
         }
         item {
-            Spacer(modifier = Modifier.height(8.dp))
-            ImportPlaylistRow(onClick = onImportPlaylist)
             Spacer(modifier = Modifier.height(8.dp))
             CreatePlaylistRow(onClick = onCreatePlaylist)
             Spacer(modifier = Modifier.height(8.dp))
@@ -567,32 +496,6 @@ private fun CreatePlaylistRow(onClick: () -> Unit) {
     }
 }
 
-// 从平台分享链接导入歌单入口：样式与新建歌单卡片一致，纯文字无图标
-@Composable
-private fun ImportPlaylistRow(onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .border(
-                width = 1.dp,
-                color = Color.White.copy(alpha = 0.45f),
-                shape = RoundedCornerShape(24.dp),
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = stringResource(R.string.playlist_import),
-            color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-        )
-    }
-}
-
 private fun smartTypeIcon(type: SmartPlaylistType): ImageVector = when (type) {
     SmartPlaylistType.RECENT -> AppIcons.History
     SmartPlaylistType.FAVORITE -> AppIcons.Favorite
@@ -600,31 +503,6 @@ private fun smartTypeIcon(type: SmartPlaylistType): ImageVector = when (type) {
     SmartPlaylistType.ARTIST -> AppIcons.Person
 }
 
-// 歌单同步状态：运行中实时进度 / 已完成统计 / 失败原因
-private sealed interface SyncUiState {
-    data class Running(val total: Int, val done: Int, val currentTitle: String) : SyncUiState
-    data class Finished(val success: Int, val existing: Int, val failed: Int) : SyncUiState
-    data class Failed(val message: String) : SyncUiState
-}
-
-// 总览页标题区文案：同步进行中显示进度，完成后显示统计
-@Composable
-private fun syncTitle(syncState: SyncUiState?): String = when (syncState) {
-    is SyncUiState.Running ->
-        if (syncState.total > 0) {
-            stringResource(R.string.playlist_import_progress, syncState.done, syncState.total, syncState.currentTitle)
-        } else {
-            stringResource(R.string.playlist_import_preparing)
-        }
-    is SyncUiState.Finished ->
-        stringResource(R.string.playlist_import_done, syncState.success, syncState.existing, syncState.failed)
-    is SyncUiState.Failed -> syncState.message
-    null -> ""
-}
-
-// 同步完成提示的展示时长
-private const val SYNC_DONE_DISMISS_MS = 3_000L
-
-// 总览列表里歌单行之前的头部项数：系统歌单卡片、我的歌单分节标题、导入与新建入口各占一项。
+// 总览列表里歌单行之前的头部项数：系统歌单卡片、我的歌单分节标题、新建入口各占一项。
 // 预取按列表下标解析歌单时须按此回退，新增头部项时同步调整
 private const val OVERVIEW_HEADER_ITEM_COUNT = 3

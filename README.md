@@ -71,7 +71,7 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 │       │   │   │   ├── model/           #     Track & search data models (platform key as identity)
 │       │   │   │   ├── panel/           #     Panel state holder, search logic & lyric alignment entry
 │       │   │   │   ├── playback/        #     Playback state, player helper, queue switch, playlist sorting, USB direct output & Do Not Disturb, per-device audio sink (incl. buffer policy), output-latency measurement, audio-info snapshot (incl. Bluetooth link & codec resolution)
-│       │   │   │   ├── proxy/           #     Proxy source (import / parse / engine / store), custom-platform registry & playlist syncer
+│       │   │   │   ├── proxy/           #     Proxy source (import / parse / engine / store) & custom-platform registry
 │       │   │   │   ├── recommend/       #     Daily recommendation (chart pool, lyric features, TF-IDF, MMR)
 │       │   │   │   ├── MusicScanner.kt  #     MediaStore scanning & track enrichment
 │       │   │   │   └── PlaylistRefresher.kt  # Playlist refresh pipeline

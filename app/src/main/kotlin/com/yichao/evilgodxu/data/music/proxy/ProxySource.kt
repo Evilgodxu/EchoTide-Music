@@ -1,11 +1,10 @@
 package com.yichao.evilgodxu.data.music.proxy
 
 import com.yichao.evilgodxu.data.music.api.MusicQuality
-import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import org.json.JSONArray
 import org.json.JSONObject
 
-// 代理音源数据模型：对应「忆潮代理音源规范」文档 v1.1.0
+// 代理音源数据模型：对应「忆潮代理音源规范」文档 v1.3.0
 data class ProxySourceSpec(
     val name: String,
     val version: String,
@@ -27,11 +26,9 @@ data class ProxyPlatformSpec(
     val url: ProxyActionSpec? = null,
     val lyric: ProxyActionSpec? = null,
     val pic: ProxyActionSpec? = null,
-    // 歌单动作：按 {playlistId} 拉取整个歌单的歌曲列表，供歌单同步使用
-    val playlist: ProxyActionSpec? = null,
 ) {
     val hasAnyAction: Boolean
-        get() = search != null || url != null || lyric != null || pic != null || playlist != null
+        get() = search != null || url != null || lyric != null || pic != null
 }
 
 // 动作定义：请求模板 + 音质映射 + 结果映射
@@ -62,16 +59,6 @@ data class ProxyResultSpec(
     val url: String? = null,
     val lyric: String? = null,
     val tlyric: String? = null,
-    // 歌单名称 JSONPath（playlist 动作专用）；解析失败时由调用方回退默认名
-    val playlistName: String? = null,
-    // 歌单歌曲总数 JSONPath（playlist 动作专用），用于判断分页是否拉满
-    val total: String? = null,
-)
-
-// 代理歌单拉取结果：歌单名称 + 歌曲列表
-data class ProxyPlaylistResult(
-    val name: String,
-    val songs: List<NeteaseSongSearchResult>,
 )
 
 // 最小 JSONPath 子集：支持 $、.字段 与 [下标]；提取失败返回 null

@@ -478,26 +478,6 @@
     <string name="playlist_switch_default">默认歌单</string>
     <string name="playlist_sort_handle">排序调整</string>
     <string name="playlist_edit_album_title">编辑专辑元数据</string>
-    <string name="playlist_import">导入歌单</string>
-    <string name="playlist_import_title">从链接导入歌单</string>
-    <string name="playlist_import_link_hint">粘贴歌单分享链接</string>
-    <string name="playlist_import_tip">网易云歌单内置解析，其余平台需代理音源</string>
-    <string name="playlist_import_parse">解析</string>
-    <string name="playlist_import_parsing">正在解析…</string>
-    <string name="playlist_import_name_hint">歌单名称</string>
-    <plurals name="playlist_import_preview_songs">
-        <item quantity="other">共 %1$d 首歌曲，将全部下载到本地</item>
-    </plurals>
-    <string name="playlist_import_start">开始同步</string>
-    <string name="playlist_import_quality_title">选择下载音质</string>
-    <string name="playlist_import_invalid_link">无法识别该分享链接</string>
-    <string name="playlist_import_fetch_failed">解析歌单失败，请检查网络后重试</string>
-    <string name="playlist_import_empty">没有可下载的歌曲</string>
-    <string name="playlist_import_failed">歌单同步失败</string>
-    <string name="playlist_import_default_name">导入歌单</string>
-    <string name="playlist_import_progress">正在同步 %1$d/%2$d · %3$s</string>
-    <string name="playlist_import_preparing">正在同步…</string>
-    <string name="playlist_import_done">同步完成 · 新增 %1$d · 已存在 %2$d · 失败 %3$d</string>
     <string name="playlist_search_placeholder">搜索播放列表</string>
     <string name="playlist_search_no_results">未找到匹配歌曲</string>
     <string name="playlist_search_artist_placeholder">搜索歌手</string>
