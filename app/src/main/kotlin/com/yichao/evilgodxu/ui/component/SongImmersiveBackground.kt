@@ -51,8 +51,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 
-// 封面取样尺寸：取色只需封面边缘环的平均色，64px 已足够且解码代价最低
-private const val COVER_BACKGROUND_SAMPLE_SIZE = 64
+// 封面取样尺寸：取色只需封面边缘环的平均色，64px 已足够且解码代价最低。
+// 显示端的背景取样与切歌时的代现算（见 CoverFlowFrameStore）取同一档位，两处取到的才是同一张图
+internal const val COVER_BACKGROUND_SAMPLE_SIZE = 64
 
 // 背景帧降采样倍数：帧位图边长为视口的 1/16（像素量约 1/256），叠画、模糊与放大都以小图为准
 private const val COVER_BACKGROUND_DOWNSAMPLE = 16
@@ -68,6 +69,10 @@ private const val COVER_BACKGROUND_BLUR_RADIUS = 15
 
 // 流动帧间隔：与显示帧率对齐约 30fps，低于此间隔的重绘并入下一帧
 private const val COVER_BACKGROUND_FLOW_FRAME_INTERVAL_MS = 32L
+
+// 单帧可计入相位推进的帧间隔上限：正常帧远低于它，越过去的只有应用不可见造成的停滞，
+// 那段停滞必须不计入（见流动时间轴），否则相位会在回前台首帧上一次性跳过去
+private const val FLOW_FRAME_MAX_GAP_MS = 1_000L
 
 // 压暗强度的下限：底色的明度再高，各层压暗也不低于这一强度。压暗层同时承担前景文字与状态栏的
 // 对比，浅色底若按明度一路减下去，对比就不够了。关闭流动时的静态底色压暗层正按这一强度铺开，
@@ -207,7 +212,7 @@ private data class BackgroundBase(
 
 // 歌曲沉浸式背景：整屏统一渲染，不随顶置封面位置做局部处理，左右切页时背景始终连续。
 // 底色取自封面边缘的三段相近色（见 extractCoverBackgroundColors）：关闭「背景流动」时只铺一条
-// 由三段色构成的自上而下渐变，开启后在其上叠一层缓慢漂移的封面叠画帧（见 renderCoverBackgroundFrame），
+// 由三段色构成的自上而下渐变，开启后在其上叠一层缓慢漂移的封面叠画帧（见 renderCoverFlowFrame），
 // 帧内以封面主色与中性黑压暗、其上再按 [coverScrimStops] 渐变压暗；关掉流动即撤下帧回到渐变。
 // 帧上的压暗层与蒙层随底色的明度收敛（见 [dimScaleOf]）：浅色封面叠出的浅色背景只轻度压暗，
 // 保持与封面外缘同色调，封面渐隐带上不出现暗色差带；收敛后各层强度由 [DIM_MIN_ALPHA] 兜底，
@@ -218,6 +223,8 @@ private data class BackgroundBase(
 // 回前台不补播过渡：应用不可见期间发生的换色谁也没看见，重新可见时才被应用的那一次若补播横移，
 // 返回前台就成了「先看到上一首的底色，再看着它整屏移走」，故按可见会话识别后直接落位；
 // 取色尚未定论、暂时沿用上一份底色的兜底不受此影响（回落时机不属于一次换色）。
+// 流动帧同样不等显示端：相位自本曲起播按帧累加（可见期间才推进），切歌起播即由代现算备好零点那一帧
+// （见 [CoverFlowFrameStore]），回前台首帧铺出的就是它，与显示端随后现算的帧同源同相位。
 // 首页与 3D 封面轮播共用，随传入曲目实时变化；背景代表色经回调暴露供浮层容器复用。
 @Composable
 internal fun SongImmersiveBackground(
@@ -258,6 +265,15 @@ internal fun SongImmersiveBackground(
     // 提前于换色逻辑声明：换色过渡要把切歌瞬间的这一帧冻结进退场层
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
+    // 显示端现算出的那一帧所属的曲目：与当前曲目一致才认它，流动的逐帧推进都发生在它身上
+    var frameUri by remember { mutableStateOf<String?>(null) }
+    // 代现算备好的同曲目帧：切歌起播时（显示端重组停摆的那段时间）已现算好，
+    // 回前台、重新进入页面、配置变更后重建时同步命中，不必等显示端自己的现算从零点起步。
+    // 与显示端现算的帧同源同相位，两者可互换（见 renderCoverFlowFrame 与流动时间轴）
+    val preparedFrame = remember(audioUri, coverRevision) { CoverFlowFrameStore.peek(audioUri, coverRevision) }
+    // 铺出的一帧：显示端为本曲目现算过就以它为准；尚未现算过（刚换曲、页面重建、后台切歌回来）
+    // 才由代现算那一帧顶上，取不到时沿用上一次铺出的帧，避免换帧窗口里露出底色
+    val shownFrame = if (frameUri == audioUri) frame else preparedFrame ?: frame
 
     // 整屏换色：上一份底色连同切歌瞬间冻结的流动帧整屏铺在上层，按下述方式与当前底色交叠。
     // 流动帧必须一并冻结带走：帧由封面现算，切歌那刻会立刻换成新曲目的帧，而底色交叠要持续一整段时长；
@@ -317,7 +333,8 @@ internal fun SongImmersiveBackground(
             switching = null
             return@LaunchedEffect
         }
-        // 此刻 frame 仍是旧曲目的帧：新曲目的帧要等略缩图解码后才现算，本效果先于那次现算读到它
+        // 冻结的是此刻铺在画面上的那一帧（frame 的所有者仍是被切走的那一首）：本曲目的帧要么等
+        // 本效果之后的现算，要么由代现算备好，都不属于切歌那一刻的画面，退场层要复现的只有前者
         switching = BackgroundSwitchState(base = previous, switch = sweep, frame = frame)
         switchProgress.snapTo(1f)
         switchProgress.animateTo(
@@ -329,49 +346,52 @@ internal fun SongImmersiveBackground(
         switching = null
     }
 
-    // 流动时间轴：仅在开关打开时推进，关闭后停在原地不再推进
+    // 流动时间轴：相位以本曲起播为零点按帧间隔累加，且只在本曲目可见期间推进。
+    // 不取系统时间而取累加：应用不可见期间没有帧，相位随之停住，回前台接着走，
+    // 而不是把停滞的整段时间一次性补上——那一次跳变正落在回前台首帧上。
+    // 起点为零还让帧可被代现算（见 CoverFlowFrameStore）：代现算备好的就是零点那一帧，
+    // 与显示端接管后现算出的帧同相位，两者可互换而看不出接缝。
+    // 会话与首帧都从零累计：前者是停滞后的第一个间隔（正是那段停滞本身），后者根本无间隔可累加
     val flowEnabled by context.backgroundFlowEnabledFlow().collectAsStateWithLifecycle(initialValue = false)
-    var flowTimeMs by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(flowEnabled, thumbnail) {
+    // 开关上报给代现算：关闭流动时帧根本不参与渲染，代现算连同取图都可省下
+    LaunchedEffect(flowEnabled) { CoverFlowFrameStore.setFlowEnabled(flowEnabled) }
+    var flowTimeMs by remember(audioUri) { mutableLongStateOf(0L) }
+    LaunchedEffect(flowEnabled, thumbnail, visibleSession) {
         if (!flowEnabled) {
             flowTimeMs = 0L
             return@LaunchedEffect
         }
+        var elapsedMs = flowTimeMs
+        var previousNanos = 0L
         var lastPublishedNanos = 0L
         while (true) {
             val nowNanos = withFrameNanos { it }
+            // 帧间隔上限：正常帧远低于它，越过去的只有应用不可见或长时间停摆
+            val deltaNanos = (nowNanos - previousNanos)
+                .takeIf { previousNanos != 0L && it in 0..FLOW_FRAME_MAX_GAP_MS * 1_000_000L } ?: 0L
+            previousNanos = nowNanos
+            elapsedMs += deltaNanos / 1_000_000L
             if (lastPublishedNanos == 0L ||
                 nowNanos - lastPublishedNanos >= COVER_BACKGROUND_FLOW_FRAME_INTERVAL_MS * 1_000_000L
             ) {
-                flowTimeMs = nowNanos / 1_000_000L
+                flowTimeMs = elapsedMs
                 lastPublishedNanos = nowNanos
             }
         }
     }
 
-    // 流动帧蒙层（见 WASH_* 常量）：两层的暗化量都按 [dimScale] 缩放，浅色封面叠出的浅色帧因此不会被压暗成另一种色调；
-    // 强度由 [dimAlpha] 兜住下限，浅色帧上也要留出前景文字与状态栏的对比
-    val washPrimary = remember(background, dimScale) {
-        lerp(background, Color.Black, WASH_PRIMARY_DARKEN * dimScale)
-            .copy(alpha = dimAlpha(WASH_PRIMARY_ALPHA, dimScale))
-    }
-    val washSecondary = remember(dimScale) { Color.Black.copy(alpha = dimAlpha(WASH_SECONDARY_ALPHA, dimScale)) }
-    LaunchedEffect(thumbnail, flowEnabled, viewportSize, flowTimeMs, washPrimary, washSecondary) {
+    LaunchedEffect(thumbnail, flowEnabled, viewportSize, flowTimeMs, base.tone) {
         val cover = thumbnail?.asAndroidBitmap()
-        frame = if (!flowEnabled || cover == null || viewportSize.width <= 0 || viewportSize.height <= 0) {
+        val rendered = if (!flowEnabled || cover == null || viewportSize.width <= 0 || viewportSize.height <= 0) {
             null
         } else {
             withContext(Dispatchers.Default) {
-                renderCoverBackgroundFrame(
-                    cover = cover,
-                    viewportWidth = viewportSize.width,
-                    viewportHeight = viewportSize.height,
-                    timeMs = flowTimeMs,
-                    washPrimaryArgb = washPrimary.toArgb(),
-                    washSecondaryArgb = washSecondary.toArgb(),
-                ).asImageBitmap()
+                renderCoverFlowFrame(cover, viewportSize, base.tone, flowTimeMs)
             }
         }
+        frame = rendered
+        // 只有真算出帧才认领本曲目：取图未就绪时的空帧不该顶掉代现算备好的那一帧
+        if (rendered != null) frameUri = audioUri
     }
     val transition = switching
     // 压暗层色标随底色明度变化，按系数缓存复用
@@ -379,7 +399,11 @@ internal fun SongImmersiveBackground(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .onSizeChanged { viewportSize = it },
+            .onSizeChanged {
+                viewportSize = it
+                // 代现算按同一显示尺寸渲染，帧的构图才与显示端逐帧现算出的完全一致
+                CoverFlowFrameStore.setViewport(it)
+            },
     ) {
         // 当前底色层：三段取色构成的自上而下渐变，流动帧叠在其上，关掉流动即露出渐变；
         // 仅持上次持久化的代表色时先整幅铺该色，取色未就绪时才用主题默认渐变。
@@ -407,7 +431,7 @@ internal fun SongImmersiveBackground(
                     .background(Color.Black.copy(alpha = DIM_MIN_ALPHA)),
             )
             // 流动帧整幅铺满并盖住静态底色；帧内已做整体模糊，封面叠画的边界不显形
-            frame?.let { bitmap ->
+            shownFrame?.let { bitmap ->
                 Image(
                     bitmap = bitmap,
                     contentDescription = null,
@@ -481,11 +505,39 @@ private fun defaultBackgroundGradient(): Brush =
     )
 
 /**
+ * 现算一帧背景流动帧：底色蒙层、叠画尺寸与模糊的全套口径都在本入口内定下。
+ *
+ * 显示端的逐帧现算与切歌起播时的代现算（见 [CoverFlowFrameStore]）共用本入口，口径只有一份，
+ * 代现算备好的帧与显示端此后现算出的帧因此完全同源——包括相位：两处都从本曲起播算起（见流动时间轴），
+ * 代现算的零点帧与显示端接管后的首帧相差不到一帧的旋转量，替换时看不出差异。
+ *
+ * [tone] 取底色代表色：蒙层强度按它的明度收敛（见 [dimScaleOf]），压暗与着色因此出自同一个色调。
+ */
+internal fun renderCoverFlowFrame(cover: Bitmap, viewport: IntSize, tone: Color?, timeMs: Long): ImageBitmap {
+    val dimScale = dimScaleOf(tone)
+    // 蒙层（见 WASH_* 常量）：两层的暗化量都按底色明度缩放，浅色封面叠出的浅色帧不会被压暗成另一种色调；
+    // 强度由 [dimAlpha] 兜住下限，浅色帧上也要留出前景文字与状态栏的对比
+    val washPrimary = lerp(tone ?: md_theme_dark_surface, Color.Black, WASH_PRIMARY_DARKEN * dimScale)
+        .copy(alpha = dimAlpha(WASH_PRIMARY_ALPHA, dimScale))
+    val washSecondary = Color.Black.copy(alpha = dimAlpha(WASH_SECONDARY_ALPHA, dimScale))
+    return renderCoverBackgroundFrame(
+        cover = cover,
+        viewportWidth = viewport.width,
+        viewportHeight = viewport.height,
+        timeMs = timeMs,
+        washPrimaryArgb = washPrimary.toArgb(),
+        washSecondaryArgb = washSecondary.toArgb(),
+    ).asImageBitmap()
+}
+
+/**
  * 渲染一帧流动背景：在 1/16 视口尺寸的小画布上错位叠画三份高饱和封面，叠加主色与中性黑两层蒙层后
  * 整体模糊，由显示端放大铺满。像素量约为整屏的 1/256，叠画与模糊的代价随之降到可忽略。
  * [timeMs] 推进三层的旋转角度。
+ *
+ * 只由 [renderCoverFlowFrame] 调用：蒙层与色调的取法属于那一层的口径，这里只管叠画本身。
  */
-internal fun renderCoverBackgroundFrame(
+private fun renderCoverBackgroundFrame(
     cover: Bitmap,
     viewportWidth: Int,
     viewportHeight: Int,
