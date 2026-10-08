@@ -24,12 +24,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,9 +47,6 @@ import androidx.compose.ui.window.Dialog
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
-import com.yichao.evilgodxu.data.music.analysis.AiMusicAnalyzer
-import com.yichao.evilgodxu.data.music.analysis.analyzeLibraryCombined
-import com.yichao.evilgodxu.data.music.analysis.FakeLosslessAnalyzer
 import com.yichao.evilgodxu.data.music.analysis.trackFormatCategory
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PlaylistSource
@@ -60,12 +55,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import java.util.Locale
 import kotlin.math.roundToInt
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 // 格式导航行高与可见行数：列表项超出可见行数时固定该高度滚动，避免对话框随格式数量拉伸
 private val FormatListRowHeight = 30.dp
@@ -85,16 +75,6 @@ internal fun LibraryAnalysisSheet(
     // 全量库统计：切换歌单时曲库范围不变，仅依赖全量库数据
     val stats = remember(playbackState.libraryTracks) {
         analyzeLibraryFormats(context, playbackState.libraryTracks)
-    }
-    // 对话框打开或曲库变化时触发分析：任务由控制器在首页层后台执行，
-    // 关闭对话框不中断，重开时沿用进行中的进度。
-    // 首次启动的扫描与封面/歌词补全进行中时让路：频谱解码与封面位图解码同为 CPU 重活，
-    // 并发只会同时拖慢首屏补齐与分析本身，故等库就绪（既不扫描也不补全）后再自动开始；
-    // 等待期间收起对话框即取消本次触发，不会留下后台任务
-    LaunchedEffect(playbackState.libraryTracks) {
-        snapshotFlow { playbackState.isScanning || playbackState.isEnrichingMetadata }
-            .first { !it }
-        analysis.onSheetOpen(playbackState.libraryTracks)
     }
     val currentKey = playbackState.playlistSource?.key
 
@@ -127,20 +107,6 @@ internal fun LibraryAnalysisSheet(
                     fontSize = 12.sp,
                 )
                 Spacer(Modifier.weight(1f))
-                // 刷新：忽略既有判定重新分析，规避识别策略更新后旧判定复用导致音质异常被放行；
-                // 已由全曲分析锁定的曲目保持其完整分析结论，不随刷新降级为分段采样；
-                // 分析进行中置灰不可点，防手抖/重复触发
-                IconButton(
-                    onClick = { analysis.onRefresh(playbackState.libraryTracks) },
-                    enabled = !analysis.analyzing,
-                    modifier = Modifier.size(32.dp),
-                ) {
-                    Icon(
-                        imageVector = AppIcons.Refresh,
-                        contentDescription = stringResource(R.string.library_analysis_refresh),
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
                 IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
                     Icon(
                         imageVector = AppIcons.Close,
@@ -163,35 +129,6 @@ internal fun LibraryAnalysisSheet(
                 }
             } else {
                 val total = stats.sumOf { it.count }
-                // 音质异常 / AI 音乐为识别算法的补充类目：仅在校验发现的疑似文件并入定位列表
-                val fakeCount = analysis.fakeLosslessCount
-                val hasFakeLossless = fakeCount != null && fakeCount > 0
-                val aiCount = analysis.aiMusicCount
-                val hasAiMusic = aiCount != null && aiCount > 0
-                val specialRowCount = (if (hasFakeLossless) 1 else 0) + (if (hasAiMusic) 1 else 0)
-                val navStats = buildList {
-                    if (hasFakeLossless) {
-                        add(
-                            FormatStat(
-                                key = FakeLosslessAnalyzer.FAKE_LOSSLESS_KEY,
-                                name = stringResource(R.string.library_analysis_fake_lossless),
-                                count = fakeCount,
-                                percent = (fakeCount * 1000f / total).roundToInt() / 10f,
-                            ),
-                        )
-                    }
-                    if (hasAiMusic) {
-                        add(
-                            FormatStat(
-                                key = AiMusicAnalyzer.AI_MUSIC_KEY,
-                                name = stringResource(R.string.library_analysis_ai_music),
-                                count = aiCount,
-                                percent = (aiCount * 1000f / total).roundToInt() / 10f,
-                            ),
-                        )
-                    }
-                    addAll(stats)
-                }
                 // 圆环 + 图例：图例行点击切换到对应格式歌单
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -255,35 +192,16 @@ internal fun LibraryAnalysisSheet(
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.weight(1f),
                     )
-                    // 校验中在标题右侧提示（含逐曲进度），显隐不改变列表区高度
-                    val progress = analysis.checkingProgress
-                    when {
-                        progress != null -> Text(
-                            text = stringResource(
-                                R.string.library_analysis_check_progress,
-                                progress.first,
-                                progress.second,
-                            ),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp,
-                        )
-                        analysis.fakeLosslessCount == null -> Text(
-                            text = stringResource(R.string.library_analysis_checking),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp,
-                        )
-                    }
                 }
                 Spacer(Modifier.height(6.dp))
                 // 格式列表不超过可见行数时按内容完整展示（不滚动），超出才固定高度滚动，
                 // 避免仅有 3 条时仍出现滚动条
-                if (navStats.size <= FormatListVisibleRows) {
+                if (stats.size <= FormatListVisibleRows) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        navStats.forEachIndexed { index, stat ->
+                        stats.forEachIndexed { index, stat ->
                             FormatNavRowItem(
                                 index = index,
                                 stat = stat,
-                                specialRowCount = specialRowCount,
                                 isCurrent = currentKey == formatSourceKey(stat.key),
                                 onClick = {
                                     switchToFormat(context, playbackState, stat, metadataEnricher)
@@ -298,11 +216,10 @@ internal fun LibraryAnalysisSheet(
                             .height(FormatListRowHeight * FormatListVisibleRows),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        itemsIndexed(navStats, key = { _, stat -> stat.key }) { index, stat ->
+                        itemsIndexed(stats, key = { _, stat -> stat.key }) { index, stat ->
                             FormatNavRowItem(
                                 index = index,
                                 stat = stat,
-                                specialRowCount = specialRowCount,
                                 isCurrent = currentKey == formatSourceKey(stat.key),
                                 onClick = {
                                     switchToFormat(context, playbackState, stat, metadataEnricher)
@@ -317,9 +234,8 @@ internal fun LibraryAnalysisSheet(
     }
 }
 
-// 切换播放列表为指定格式/识别类目曲目（音质异常、AI 音乐按校验结果过滤，其余按格式分类过滤），
-// 复用歌单切换（备份默认列表 + 加载首曲不自动播放 + 补全元数据）。
-// 在播放器全局作用域执行：识别类目过滤需读文件（缓存命中即瞬时返回），且弹层关闭不取消切换
+// 切换播放列表为指定格式曲目，复用歌单切换（备份默认列表 + 加载首曲不自动播放 + 补全元数据）。
+// 在播放器全局作用域执行，弹层关闭不取消切换
 private fun switchToFormat(
     context: Context,
     playbackState: MusicPlaybackState,
@@ -327,17 +243,7 @@ private fun switchToFormat(
     metadataEnricher: MetadataEnricher,
 ) {
     playbackState.playbackScope.launch {
-        val tracks = playbackState.libraryTracks.filter { track ->
-            when (stat.key) {
-                FakeLosslessAnalyzer.FAKE_LOSSLESS_KEY -> withContext(Dispatchers.IO) {
-                    FakeLosslessAnalyzer.isSuspectedFakeLossless(context, track)
-                }
-                AiMusicAnalyzer.AI_MUSIC_KEY -> withContext(Dispatchers.IO) {
-                    AiMusicAnalyzer.isSuspectedAiMusic(context, track)
-                }
-                else -> trackFormatCategory(context, track) == stat.name
-            }
-        }
+        val tracks = playbackState.libraryTracks.filter { trackFormatCategory(context, it) == stat.name }
         switchToPlaylistQueue(
             context = context,
             state = playbackState,
@@ -351,7 +257,7 @@ private fun switchToFormat(
 // 格式歌单来源 key：刷新后据此重建歌单
 private fun formatSourceKey(key: String): String = "smart:FORMAT:$key"
 
-// 单个格式的占比统计；key 为稳定标识（格式名或识别类目键），name 为展示名
+// 单个格式的占比统计；key 为稳定标识（格式名），name 为展示名
 private data class FormatStat(
     val key: String,
     val name: String,
@@ -473,26 +379,17 @@ private fun FormatStatRow(
     }
 }
 
-// 格式导航项：统一配色规则，供普通 Column 与滚动 LazyColumn 两处复用；
-// specialRowCount 为前置识别类目数（音质异常/AI 音乐），用于普通格式行色板索引回退
+// 格式导航项：统一配色规则，供普通 Column 与滚动 LazyColumn 两处复用
 @Composable
 private fun FormatNavRowItem(
     index: Int,
     stat: FormatStat,
-    specialRowCount: Int,
     isCurrent: Boolean,
     onClick: () -> Unit,
 ) {
     FormatNavRow(
         stat = stat,
-        color = when (stat.key) {
-            FakeLosslessAnalyzer.FAKE_LOSSLESS_KEY -> FORMAT_COLOR_PALETTE[3]
-            AiMusicAnalyzer.AI_MUSIC_KEY -> FORMAT_COLOR_PALETTE[4]
-            // 普通格式行减去前置识别类目数后映射色板，保证与头部统计区的颜色一致
-            else -> FORMAT_COLOR_PALETTE[
-                (index - specialRowCount).coerceAtLeast(0) % FORMAT_COLOR_PALETTE.size
-            ]
-        },
+        color = FORMAT_COLOR_PALETTE[index % FORMAT_COLOR_PALETTE.size],
         isCurrent = isCurrent,
         onClick = onClick,
     )
@@ -555,30 +452,10 @@ private fun formatPercent(percent: Float): String =
         String.format(Locale.US, "%.1f%%", percent)
     }
 
-// 曲库分析会话控制器：状态与分析协程常驻首页层（对话框关闭不销毁），
-// 关闭对话框后任务在后台继续执行，标题区据 analyzing 展示分析进度
-internal class LibraryAnalysisController(
-    private val context: Context,
-    private val scope: CoroutineScope,
-) {
-    // 对话框显隐：关闭仅收起展示，不中断分析
+// 曲库分析对话框显隐：由首页层持有，跨形态保持
+internal class LibraryAnalysisController {
     var visible by mutableStateOf(false)
         private set
-    // 分析进度：(已校验数, 总数)，null 表示未在分析或已结束
-    var checkingProgress by mutableStateOf<Pair<Int, Int>?>(null)
-        private set
-    // 音质异常 / AI 音乐识别结果：null 表示对应识别阶段尚未完成
-    var fakeLosslessCount by mutableStateOf<Int?>(null)
-        private set
-    var aiMusicCount by mutableStateOf<Int?>(null)
-        private set
-    // 分析进行中：驱动刷新按钮防抖；对话框收起后仍在后台执行
-    var analyzing by mutableStateOf(false)
-        private set
-
-    // 当前分析任务与最近一次分析的曲库快照（曲库变化时强制重启）
-    private var analysisJob: Job? = null
-    private var analyzedTracks: List<MusicTrack>? = null
 
     fun open() {
         visible = true
@@ -586,56 +463,5 @@ internal class LibraryAnalysisController(
 
     fun dismiss() {
         visible = false
-    }
-
-    // 对话框打开或曲库变化时触发：分析已完成或曲库范围变化则启动增量分析；
-    // 后台任务进行中再次打开沿用当前进度，不重复启动
-    fun onSheetOpen(tracks: List<MusicTrack>) {
-        if (analyzedTracks !== tracks || !analyzing) {
-            startAnalysis(tracks, forceRecompute = false)
-        }
-    }
-
-    // 手动刷新：强制忽略既有判定重新分析未锁定曲目（旧版本判定结果不可复用）；
-    // 已由全曲分析锁定的曲目保持其完整分析结论，不随刷新降级为分段采样
-    fun onRefresh(tracks: List<MusicTrack>) {
-        startAnalysis(tracks, forceRecompute = true)
-    }
-
-    private fun startAnalysis(tracks: List<MusicTrack>, forceRecompute: Boolean) {
-        val previous = analysisJob
-        previous?.cancel()
-        analyzedTracks = tracks
-        analysisJob = scope.launch {
-            val job = coroutineContext[Job]
-            analyzing = true
-            checkingProgress = null
-            fakeLosslessCount = null
-            aiMusicCount = null
-            // 等上一轮彻底收尾再开解码：取消只发出信号，上一轮的解码器各自到取消点才释放，
-            // 缓存收尾（NonCancellable）也还在跑。不等就会有两代解码器同时持有，
-            // 且上一轮的缓存剪枝会与新轮的写入交叠
-            previous?.join()
-            try {
-                // 合并单次遍历：每文件只解码一次，同时产出音质异常与 AI 判定；
-                // 进度以本批需解码文件数为基数连续递增
-                val result = analyzeLibraryCombined(
-                    context = context,
-                    tracks = tracks,
-                    forceRecompute = forceRecompute,
-                    onProgress = { checked, total ->
-                        if (total > 0) checkingProgress = checked to total
-                    },
-                )
-                fakeLosslessCount = result.fakeLosslessCount
-                aiMusicCount = result.aiMusicCount
-            } finally {
-                // 仅当仍是当前任务时复位，避免被新一轮任务抢先覆盖状态
-                if (analysisJob === job) {
-                    analyzing = false
-                    checkingProgress = null
-                }
-            }
-        }
     }
 }

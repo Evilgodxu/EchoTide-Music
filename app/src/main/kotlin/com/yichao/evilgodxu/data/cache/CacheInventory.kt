@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Environment
 import android.util.Log
 import coil3.SingletonImageLoader
-import com.yichao.evilgodxu.data.music.analysis.TrackVerdictCache
 import com.yichao.evilgodxu.data.music.clip.SpectrumImageSharing
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
 import com.yichao.evilgodxu.data.music.metadata.LargeCoverStore
@@ -34,9 +33,6 @@ enum class CacheCategory {
 
     /** 更新安装包 */
     UPDATE_PACKAGE,
-
-    /** 曲库分析缓存：对曲库的判定结果，可重算 */
-    ANALYSIS,
 
     /** 用户偏好：DataStore 与 SharedPreferences 中的用户配置、歌单与播放记录，属用户数据 */
     PREFERENCE,
@@ -158,12 +154,6 @@ internal object CacheInventory {
             scope = CacheScope.USER_DATA,
             resolve = { context -> preferenceStores(context) },
         ),
-        // 曲库分析缓存：识别结果可重算，识别策略升级或用户主动刷新时整体清空
-        CacheEntry(
-            category = CacheCategory.ANALYSIS,
-            scope = CacheScope.USER_DATA,
-            resolve = { context -> verdictCaches(context) },
-        ),
     )
 
     /** 扫描全部登记项，产出各类缓存的当前占用。目录遍历为阻塞 IO，必须在 IO 线程调用 */
@@ -252,10 +242,6 @@ internal object CacheInventory {
         ?.listFiles { file -> file.isFile && file.extension.equals("apk", ignoreCase = true) }
         ?.toList()
         .orEmpty()
-
-    // 判定缓存落点：含写入中断可能留下的 .tmp 中间文件
-    private fun verdictCaches(context: Context): List<File> = TrackVerdictCache.KNOWN_FILE_NAMES
-        .flatMap { name -> listOf(File(context.filesDir, name), File(context.filesDir, "$name.tmp")) }
 
     // 偏好落点：两个目录都只由框架写入本应用的偏好文件，按目录整体计入而不逐个登记存储名，
     // 新增偏好存储无需补登记也不会漏计

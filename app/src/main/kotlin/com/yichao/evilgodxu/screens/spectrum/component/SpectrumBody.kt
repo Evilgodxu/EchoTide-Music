@@ -15,7 +15,6 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.analysis.Spectrogram
 import com.yichao.evilgodxu.data.music.clip.SpectrumImageSharing
 import com.yichao.evilgodxu.screens.spectrum.SpectrumUiState
-import com.yichao.evilgodxu.screens.spectrum.hasVerdict
 import kotlinx.coroutines.launch
 
 // 上区槽位与顶部标题区的固定间距
@@ -24,15 +23,11 @@ private val PLOT_SLOT_TOP_GAP = 4.dp
 // 底部信息块与频谱图的间距
 private val BOTTOM_INFO_TOP_GAP = 4.dp
 
-// 导出图中两路结论之间的分隔符
-private const val VERDICT_SEPARATOR = "  ·  "
-
 // 频谱内容：上区按时频分析状态分发——分析中报进度、有结果则铺开时频图与两侧刻度，
 // 否则给出不可分析占位；三种状态共用同一槽位尺寸，切换时下半区不跳动。
-// 下区紧随槽位排布：源文件参数行距图 4dp、曲目判定结论再随其后。
+// 下区紧随槽位排布：源文件参数行距图 4dp。
 // 槽位按权重吃掉全部剩余高度，页面底缘留白只由组装器给出：此处若再按比例分一份，
 // 高屏上会随内容区高度放大成大片空白，底部信息块下方出现明显空档。
-// 分析未完成时结论显示校验中，该区域不会先空后跳。
 // 与顶部标题区的 4dp 间距由槽位统一给出，组装器不得再叠加顶部留白。
 // 长按频谱图导出高清图：由界面渲染，交数据层写入相册或分享
 @Composable
@@ -43,7 +38,7 @@ internal fun SpectrumBody(
     val spectrogram = uiState.spectrogram
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // 底部避让系统导航栏：页面内容延伸到屏幕底缘，不避让则结论块被三键导航的虚拟按键压住。
+    // 底部避让系统导航栏：页面内容延伸到屏幕底缘，不避让则参数行被三键导航的虚拟按键压住。
     // 此处只避让窗口内边距，页面自身的底缘留白仍由组装器给出
     Column(modifier = modifier.navigationBarsPadding()) {
         val slotModifier = Modifier
@@ -70,12 +65,6 @@ internal fun SpectrumBody(
             sizeBytes = uiState.sizeBytes,
             modifier = Modifier.fillMaxWidth().padding(top = BOTTOM_INFO_TOP_GAP),
         )
-        if (uiState.analysis.hasVerdict()) {
-            SpectrumAnalysisPanel(
-                analysis = uiState.analysis,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
     }
 }
 
@@ -107,24 +96,11 @@ private suspend fun exportSpectrumImage(
     Toast.makeText(context, context.getString(messageRes), Toast.LENGTH_SHORT).show()
 }
 
-// 导出内容：文案取自与界面同一套口径（参数行、两路结论、右下角免责说明）
-private fun spectrumShareContent(context: Context, uiState: SpectrumUiState): SpectrumShareContent {
-    val fake = fakeLosslessDisplay(context, uiState.analysis)
-    val ai = aiMusicDisplay(context, uiState.analysis)
-    return SpectrumShareContent(
+// 导出内容：文案取自与界面同一套口径（首行曲名与歌手、参数行）
+private fun spectrumShareContent(context: Context, uiState: SpectrumUiState): SpectrumShareContent =
+    SpectrumShareContent(
         title = uiState.title.ifBlank { context.getString(R.string.spectrum_screen_title) },
         artist = uiState.artist,
         durationMs = uiState.durationMs,
         info = spectrumInfoText(context, uiState.signalFormat, uiState.sizeBytes),
-        verdicts = if (uiState.analysis.hasVerdict()) {
-            listOf(
-                SpectrumShareVerdict("${fake.label} ${fake.value}", fake.flagged),
-                SpectrumShareVerdict(VERDICT_SEPARATOR, false),
-                SpectrumShareVerdict("${ai.label} ${ai.value}", ai.flagged),
-            )
-        } else {
-            emptyList()
-        },
-        disclaimer = context.getString(R.string.spectrum_export_disclaimer),
     )
-}

@@ -4,10 +4,8 @@
    for details.
 -->
 <data-extraction-rules>
+    <!-- 当前无可重建的派生数据需要排除；新增需排除的文件时在此登记 -->
     <cloud-backup>
-        <!-- 音质异常检测结果缓存：派生数据可重建，不参与云端备份 -->
-        <exclude domain="file" path="fake_lossless_cache.json"/>
-        <exclude domain="file" path="fake_lossless_cache.json.tmp"/>
     </cloud-backup>
     <!--
     <device-transfer>

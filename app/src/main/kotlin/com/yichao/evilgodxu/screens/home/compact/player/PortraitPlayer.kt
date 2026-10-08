@@ -129,7 +129,7 @@ internal fun PortraitPlayer(
     swipePreviewText: String? = null,
     // 歌词区快速纵向滑动的切歌出口（true 为下一曲）：与整页上下滑动切歌同一套判定
     onVerticalFling: ((next: Boolean) -> Unit)? = null,
-    // 曲库分析会话：状态与后台分析任务常驻首页层
+    // 曲库格式分析对话框显隐：常驻首页层
     libraryAnalysis: LibraryAnalysisController,
     // 逐字对齐会话：进度对话框收起后对齐仍在后台继续
     lyricsAlignment: LyricsAlignmentController,
@@ -152,7 +152,7 @@ internal fun PortraitPlayer(
     // 切歌过渡锚点：标题与艺术家随锚点整体横移，方向来自本次变更的类型
     val trackAnchor = rememberTrackSwitchAnchor(playbackState.currentTrack, playbackState.lastSwitchKind)
 
-    // 播放列表与音频信息弹层展开时，系统返回键收起弹层（曲库分析关闭不中断后台任务）
+    // 播放列表、音频信息与曲库格式分析弹层展开时，系统返回键收起弹层
     BackHandler(enabled = playlistVisible || audioInfoVisible || libraryAnalysis.visible) {
         when {
             libraryAnalysis.visible -> libraryAnalysis.dismiss()

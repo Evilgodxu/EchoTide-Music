@@ -5,8 +5,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-// 频谱分析共用的离散变换与窗函数：平均功率谱（音质与 AI 合成判定）与频谱图（时频分析）
-// 走同一份基 2 快速傅里叶变换，避免变换规则出现第二份实现。仅支持 2 的幂长度。
+// 频谱图（时频分析）所用的离散变换与窗函数：基 2 快速傅里叶变换，仅支持 2 的幂长度。
 internal object Fft {
 
     // 窗函数按长度缓存：变换本身可跨线程并发执行，缓存须线程安全
@@ -61,14 +60,6 @@ internal object Fft {
                 i += len
             }
             len = len shl 1
-        }
-    }
-
-    // 把变换结果的半谱功率累加到目标数组：目标长度取 FFT 长度的一半加一，
-    // 覆盖直流到奈奎斯特的全部频率桶，由调用方复用以避免逐帧分配
-    fun accumulatePower(re: FloatArray, im: FloatArray, target: FloatArray) {
-        for (i in target.indices) {
-            target[i] += re[i] * re[i] + im[i] * im[i]
         }
     }
 }

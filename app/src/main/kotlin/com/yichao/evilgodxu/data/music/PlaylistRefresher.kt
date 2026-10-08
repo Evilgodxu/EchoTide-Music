@@ -3,8 +3,6 @@ package com.yichao.evilgodxu.data.music
 import android.content.Context
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
-import com.yichao.evilgodxu.data.music.analysis.AiMusicAnalyzer
-import com.yichao.evilgodxu.data.music.analysis.FakeLosslessAnalyzer
 import com.yichao.evilgodxu.data.music.analysis.trackFormatCategory
 import com.yichao.evilgodxu.data.music.panel.normalizeTitle
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
@@ -140,24 +138,9 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
                 library.filter { it.id in state.likedIds }
             source.key.startsWith("smart:FORMAT:") -> {
                 val format = source.key.removePrefix("smart:FORMAT:")
-                // 识别类目逐曲校验、格式类目逐曲判定都在 IO 执行，避免占用主线程
+                // 格式类目逐曲判定在 IO 执行，避免占用主线程
                 withContext(Dispatchers.IO) {
-                    if (format == FakeLosslessAnalyzer.FAKE_LOSSLESS_KEY ||
-                        format == AiMusicAnalyzer.AI_MUSIC_KEY
-                    ) {
-                        buildList {
-                            library.forEach { track ->
-                                val hit = if (format == FakeLosslessAnalyzer.FAKE_LOSSLESS_KEY) {
-                                    FakeLosslessAnalyzer.isSuspectedFakeLossless(context, track)
-                                } else {
-                                    AiMusicAnalyzer.isSuspectedAiMusic(context, track)
-                                }
-                                if (hit) add(track)
-                            }
-                        }
-                    } else {
-                        library.filter { trackFormatCategory(context, it) == format }
-                    }
+                    library.filter { trackFormatCategory(context, it) == format }
                 }
             }
             source.key.startsWith("custom:") -> {

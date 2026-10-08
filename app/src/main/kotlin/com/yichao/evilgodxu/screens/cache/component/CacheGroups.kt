@@ -219,6 +219,5 @@ private val CacheCategory.labelRes: Int
         CacheCategory.LYRIC -> R.string.cache_category_lyric
         CacheCategory.AUDIO -> R.string.cache_category_audio
         CacheCategory.UPDATE_PACKAGE -> R.string.cache_category_update
-        CacheCategory.ANALYSIS -> R.string.cache_category_analysis
         CacheCategory.PREFERENCE -> R.string.cache_category_preference
     }

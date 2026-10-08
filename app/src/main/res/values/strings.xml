@@ -352,19 +352,11 @@
     <plurals name="spectrum_info_channel_count">
         <item quantity="other">%1$d 声道</item>
     </plurals>
-    <string name="spectrum_analysis_fake_lossless">音质异常</string>
-    <string name="spectrum_analysis_ai_music">AI 合成</string>
-    <string name="spectrum_analysis_checking">校验中…</string>
-    <string name="spectrum_analysis_clear">未检出</string>
-    <string name="spectrum_analysis_fake_detected">疑似异常</string>
-    <string name="spectrum_analysis_ai_detected">疑似 AI</string>
-    <string name="spectrum_analysis_not_applicable">不适用</string>
     <string name="spectrum_menu_share_image">分享图片</string>
     <string name="spectrum_menu_save_image">保存图片</string>
     <string name="spectrum_image_saved">图片已保存到相册</string>
     <string name="spectrum_image_save_failed">保存图片失败</string>
     <string name="spectrum_image_share_failed">分享图片失败</string>
-    <string name="spectrum_export_disclaimer">检测结果未必准确</string>
     <string name="spectrum_export_name_suffix">频谱图</string>
     <string name="spectrum_share_chooser_title">分享频谱图</string>
 
@@ -418,7 +410,6 @@
     <string name="cache_category_lyric">歌词缓存</string>
     <string name="cache_category_audio">歌曲缓存</string>
     <string name="cache_category_update">更新安装包</string>
-    <string name="cache_category_analysis">曲库分析缓存</string>
     <string name="cache_category_preference">用户偏好</string>
 
     <!-- 卡片与排版设置 -->
@@ -487,7 +478,7 @@
     <string name="playlist_scroll_to_top">滚动至顶</string>
     <string name="playlist_locate_playing">定位播放</string>
 
-    <!-- 曲库分析 -->
+    <!-- 曲库格式分析 -->
     <string name="library_analysis_title">曲库分析</string>
     <string name="library_analysis_select_format">按格式定位</string>
     <plurals name="library_analysis_formats">
@@ -496,11 +487,6 @@
     <string name="library_analysis_empty">曲库为空</string>
     <string name="library_analysis_other">其他</string>
     <string name="library_analysis_online">在线</string>
-    <string name="library_analysis_fake_lossless">音质异常</string>
-    <string name="library_analysis_ai_music">疑似AI</string>
-    <string name="library_analysis_checking">正在校验…</string>
-    <string name="library_analysis_check_progress">曲库分析中 %1$d/%2$d</string>
-    <string name="library_analysis_refresh">重新分析</string>
 
     <!-- 应用信息 -->
     <string name="app_info_brand">Evilgodxu</string>

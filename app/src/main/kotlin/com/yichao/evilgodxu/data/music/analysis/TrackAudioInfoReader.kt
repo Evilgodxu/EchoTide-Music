@@ -72,14 +72,6 @@ internal object TrackAudioInfoReader {
         return ContainerHeaderParser.parseMp4(moov, moovOffset, fileLength)
     }
 
-    // 音质异常识别的容器头入口：候选面只有 FLAC，与通用入口共用同一解析实现
-    fun readFlacContainerFormat(context: Context, track: MusicTrack): ContainerFormat? =
-        if (track.path.substringAfterLast('.', "").uppercase() == "FLAC") {
-            readContainerFormat(context, track)
-        } else {
-            null
-        }
-
     // 冷启动未播放时预填的格式信息：采样率/比特率走官方 MediaMetadataRetriever，
     // 位深与声道按容器头解析（覆盖无损与线性 PCM 容器）。读不到的项一律留空，
     // 不做位深/声道推测；全部读不到时返回 null，由展示层保持空白

@@ -18,11 +18,11 @@ import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
-// 首页跨形态共享状态：在形态分派之上创建；旋转不重建 Activity，页面位置与后台分析需跨形态保持
+// 首页跨形态共享状态：在形态分派之上创建；旋转不重建 Activity，页面位置需跨形态保持
 @Stable
 internal class HomePanelState(
     val playbackState: MusicPanelStateHolder,
-    // 曲库分析会话：状态与后台任务常驻首页层，关闭对话框后分析继续执行
+    // 曲库格式分析对话框显隐：常驻首页层，关闭仅收起展示
     val libraryAnalysis: LibraryAnalysisController,
     // 逐字对齐会话：同上，进度对话框收起后对齐继续执行并自动应用结果
     val lyricsAlignment: LyricsAlignmentController,
@@ -74,7 +74,7 @@ internal fun rememberHomePanelState(): HomePanelState {
     return remember(context, playbackState, pagerState) {
         HomePanelState(
             playbackState = playbackState,
-            libraryAnalysis = LibraryAnalysisController(context, scope),
+            libraryAnalysis = LibraryAnalysisController(),
             lyricsAlignment = LyricsAlignmentController(context, scope),
             pagerState = pagerState,
             scope = scope,

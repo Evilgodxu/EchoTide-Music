@@ -3,7 +3,7 @@ package com.yichao.evilgodxu.screens.spectrum
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.yichao.evilgodxu.data.music.analysis.FullSpectrumAnalyzer
+import com.yichao.evilgodxu.data.music.analysis.SpectrogramDecoder
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// 频谱分析页状态持有者：进入页面即对目标曲目做完整频谱分析并跑信号判定，
+// 频谱分析页状态持有者：进入页面即对目标曲目做完整频谱分析，
 // 离开页面时随作用域取消
 class SpectrumViewModel(
     application: Application,
@@ -32,10 +32,8 @@ class SpectrumViewModel(
         val track = playbackState.playlist.firstOrNull { it.id == trackId }
             ?: playbackState.libraryTracks.firstOrNull { it.id == trackId }
         if (track == null || !track.isLocalAudioSource) {
-            // 不可分析：判定结论一并置为不适用，避免「未检出」被误读为「已确认正常」
-            _uiState.update {
-                it.copy(analyzing = false, analysis = SpectrumAnalysis(checking = false))
-            }
+            // 不可分析：结束加载态，页面据时频矩阵为空展示不可分析占位
+            _uiState.update { it.copy(analyzing = false) }
         } else {
             _uiState.update {
                 it.copy(title = track.title, artist = track.artist, durationMs = track.duration)
@@ -57,30 +55,14 @@ class SpectrumViewModel(
         }
     }
 
-    // 全曲分析：完整频谱与两路判定出自同一次解码，结论写入两路共用判定缓存并锁定该曲，
-    // 此后曲库分析的分段快速采样不再改写该结论（见 FullSpectrumAnalyzer 与 FullAnalysisLock）。
-    // 时频矩阵为空说明音频不可解码，此时两路判定不予采信，统一置为不适用
+    // 全曲分析：把整曲解码为可直接渲染的时频矩阵。
+    // 时频矩阵为空说明音频不可解码，此时页面按不可分析处理
     private fun analyse(track: MusicTrack) {
         viewModelScope.launch {
-            val context = getApplication<Application>()
-            val verdict = FullSpectrumAnalyzer.analyze(context, track) { progress ->
+            val spectrogram = SpectrogramDecoder.decode(track) { progress ->
                 _uiState.update { it.copy(progress = progress) }
             }
-            _uiState.update {
-                it.copy(
-                    analyzing = false,
-                    spectrogram = verdict.spectrogram,
-                    analysis = if (verdict.spectrogram == null) {
-                        SpectrumAnalysis(checking = false)
-                    } else {
-                        SpectrumAnalysis(
-                            checking = false,
-                            fakeLossless = verdict.fakeLossless,
-                            aiMusic = verdict.aiMusic,
-                        )
-                    },
-                )
-            }
+            _uiState.update { it.copy(analyzing = false, spectrogram = spectrogram) }
         }
     }
 }

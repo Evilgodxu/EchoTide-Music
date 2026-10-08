@@ -359,19 +359,11 @@
         <item quantity="one">%1$d channel</item>
         <item quantity="other">%1$d channels</item>
     </plurals>
-    <string name="spectrum_analysis_fake_lossless">Audio quality</string>
-    <string name="spectrum_analysis_ai_music">AI generated</string>
-    <string name="spectrum_analysis_checking">Checking…</string>
-    <string name="spectrum_analysis_clear">Not detected</string>
-    <string name="spectrum_analysis_fake_detected">Suspected</string>
-    <string name="spectrum_analysis_ai_detected">Suspected AI</string>
-    <string name="spectrum_analysis_not_applicable">N/A</string>
     <string name="spectrum_menu_share_image">Share image</string>
     <string name="spectrum_menu_save_image">Save image</string>
     <string name="spectrum_image_saved">Image saved to gallery</string>
     <string name="spectrum_image_save_failed">Failed to save image</string>
     <string name="spectrum_image_share_failed">Failed to share image</string>
-    <string name="spectrum_export_disclaimer">Detection results may be inaccurate</string>
     <string name="spectrum_export_name_suffix">spectrum</string>
     <string name="spectrum_share_chooser_title">Share spectrum image</string>
 
@@ -426,7 +418,6 @@
     <string name="cache_category_lyric">Lyric cache</string>
     <string name="cache_category_audio">Song cache</string>
     <string name="cache_category_update">Update packages</string>
-    <string name="cache_category_analysis">Library analysis cache</string>
     <string name="cache_category_preference">User preferences</string>
 
     <!-- Cards & typography settings -->
@@ -498,7 +489,7 @@
     <string name="playlist_scroll_to_top">Scroll to top</string>
     <string name="playlist_locate_playing">Locate current track</string>
 
-    <!-- Library analysis -->
+    <!-- Library format analysis -->
     <string name="library_analysis_title">Library Analysis</string>
     <string name="library_analysis_select_format">Find by format</string>
     <plurals name="library_analysis_formats">
@@ -508,11 +499,6 @@
     <string name="library_analysis_empty">Library is empty</string>
     <string name="library_analysis_other">Other</string>
     <string name="library_analysis_online">Online</string>
-    <string name="library_analysis_fake_lossless">Fake Lossless</string>
-    <string name="library_analysis_ai_music">AI Music</string>
-    <string name="library_analysis_checking">Checking…</string>
-    <string name="library_analysis_check_progress">Analyzing audio %1$d/%2$d</string>
-    <string name="library_analysis_refresh">Re-analyze</string>
 
     <!-- App info -->
     <string name="app_info_brand">Evilgodxu</string>

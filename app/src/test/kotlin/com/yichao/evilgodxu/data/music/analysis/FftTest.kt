@@ -74,14 +74,6 @@ class FftTest {
         assertSame(Fft.hannWindow(512), Fft.hannWindow(512))
     }
 
-    @Test
-    fun accumulatePowerAddsHalfSpectrumIntoTarget() {
-        val target = floatArrayOf(1f, 1f)
-        Fft.accumulatePower(floatArrayOf(3f, 4f), floatArrayOf(0f, 0f), target)
-        assertEquals(10.0, target[0].toDouble(), EPS)
-        assertEquals(17.0, target[1].toDouble(), EPS)
-    }
-
     /** 朴素 DFT：按定义逐点求和，作为 FFT 的独立基准 */
     private fun naiveDft(re: FloatArray, im: FloatArray): Pair<FloatArray, FloatArray> {
         val n = re.size

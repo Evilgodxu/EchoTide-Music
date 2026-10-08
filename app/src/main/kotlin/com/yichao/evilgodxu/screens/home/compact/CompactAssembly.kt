@@ -100,15 +100,7 @@ internal fun CompactAssembly(
         playbackState = playbackState,
         sheetVisible = panelState.playlistVisible || panelState.audioInfoVisible,
     )
-    // 对话框收起后的后台分析进度：在标题区居中展示
-    val analysisCenterTitle = if (!panelState.libraryAnalysis.visible && panelState.libraryAnalysis.analyzing) {
-        panelState.libraryAnalysis.checkingProgress?.let { (checked, total) ->
-            stringResource(R.string.library_analysis_check_progress, checked, total)
-        } ?: stringResource(R.string.library_analysis_checking)
-    } else {
-        null
-    }
-    // 逐字对齐转入后台后的进度：与曲库分析同方案在标题区展示，实时反映已对齐行数
+    // 逐字对齐转入后台后的进度：在标题区居中的展示，实时反映已对齐行数
     val wordAlignCenterTitle = if (!panelState.lyricsAlignment.visible && panelState.lyricsAlignment.aligning) {
         panelState.lyricsAlignment.progress?.let { (done, total) ->
             stringResource(R.string.music_panel_word_align_progress, done, total)
@@ -155,7 +147,7 @@ internal fun CompactAssembly(
                 playbackState = playbackState,
                 isLiked = isLiked,
                 favoriteEnabled = currentTrackId != null,
-                centerTitle = wordAlignCenterTitle ?: analysisCenterTitle,
+                centerTitle = wordAlignCenterTitle,
                 onShowTimer = { panelState.showTimer = true },
                 onToggleFavorite = { currentTrackId?.let { playbackState.toggleFavorite(it) } },
                 onToggleLandscape = onToggleLandscape,
