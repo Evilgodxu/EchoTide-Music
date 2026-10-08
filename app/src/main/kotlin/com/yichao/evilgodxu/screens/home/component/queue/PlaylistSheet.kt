@@ -16,20 +16,16 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -221,12 +217,12 @@ internal fun PlaylistSheet(
                         color = MaterialTheme.colorScheme.surface,
                         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                     )
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-                    // 键盘与系统导航栏取并集后整体避让：键盘展开时键盘本身已占住导航栏区域，取并集可避免
-                    // 两者高度叠加；键盘收起时让出导航栏高度（首页全沉浸隐藏了两条系统栏，该值为 0，
-                    // 保留是为了导航栏被外部显示出来时底部搜索框与末项仍不被压住）。
-                    // 避让施加在面板内容上，面板底色仍铺到屏幕底缘
-                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
+                    // 内边距只给左右与顶部：面板底色铺到屏幕底缘，底部再留内边距就会在末行下方
+                    // 空出一条与底色同色、不随列表滚动的色带
+                    .padding(start = 12.dp, end = 12.dp, top = 10.dp)
+                    // 只避让键盘：键盘弹出时面板内容整体上移，其自身已覆盖导航栏区域，无需再叠加导航栏高度。
+                    // 不避让导航栏——首页全沉浸已隐藏导航栏，在面板根节点预留这段高度同样只会留下底部色带
+                    .imePadding(),
             ) {
                 // 展开就绪：等面板滑入动画完成后再定位当前曲目，避免滚动与展开动画叠加卡顿
                 var playlistSettled by remember { mutableStateOf(false) }
