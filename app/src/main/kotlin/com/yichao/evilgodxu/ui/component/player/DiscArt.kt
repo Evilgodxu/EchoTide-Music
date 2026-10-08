@@ -35,12 +35,12 @@ internal fun DiscArt(
     modifier: Modifier = Modifier,
     coverArt: @Composable (MusicTrack?) -> Unit = { target ->
         // 光碟尺寸即控件实际渲染尺寸：封面请求档位据此换算，不沿用面板/轮播的大图档位。
-        // 换曲与缩略图升清都经同一层淡入淡出，封面不出现先占位后突现的闪跳
+        // 换曲与占位块出场都经「底层常驻 + 上层淡入」过渡，封面不出现亮度塌陷与突现
         AlbumArt(
             track = target,
             modifier = Modifier.fillMaxSize(),
             thumbnailSize = coverThumbnailSize(LocalDensity.current, discSize * DISC_COVER_INSET),
-            crossfade = true,
+            animated = true,
         )
     },
 ) {

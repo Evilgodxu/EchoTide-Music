@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaScannerConnection
-import android.net.Uri
 import androidx.core.net.toUri
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.log.CrashLogManager

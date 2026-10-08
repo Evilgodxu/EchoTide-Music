@@ -1,55 +1,37 @@
 package com.yichao.evilgodxu.screens.home.component.player
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.theme.md_theme_dark_background
 import com.yichao.evilgodxu.ui.component.COVER_FADE_RATIO
+import com.yichao.evilgodxu.ui.component.CoverTransition
 import com.yichao.evilgodxu.ui.component.coverFadeBrush
 import com.yichao.evilgodxu.ui.component.coverLeftRightFadeBrush
 import com.yichao.evilgodxu.ui.component.coverTopBottomFadeBrush
 import com.yichao.evilgodxu.ui.component.noElementTransition
 import com.yichao.evilgodxu.ui.component.rememberLargeCoverState
 import com.yichao.evilgodxu.ui.component.trackSlideTransform
-import com.yichao.evilgodxu.ui.icons.AppIcons
-
-// 大封面换图（略缩图升清、切歌换封面、退回占位符）的淡入时长。
-// 取 500ms 而非常规元素过渡的 300ms：这里叠的是两级取图之间的清晰度差，再快就读成「跳」而不是「化」
-private const val COVER_FADE_IN_MS = 500
 
 // 首页大封面：竖屏沉浸封面与横屏融合封面铺满首屏，取图分三步 ——
 // 1. 先以系统最大档略缩图占位出图（列表点选任意曲目时内嵌原图的读取与解码可能要 1–3 秒，封面不能空等）；
 // 2. 异步解码内嵌原图（长边至 LargeCoverStore.MAX_EDGE_PX），相邻曲目另按 当前 → 下一 → 上一 预热；
-// 3. 高清就位后按「底层常驻 + 上层淡入」替换占位图（见 CoverBitmap）。
+// 3. 高清就位后按「底层常驻 + 上层淡入」替换占位图（见 CoverTransition）。
 // 第 3 步不能直接换画面：两级取图的清晰度差与新封面入场都经这一层过渡，直接替换会闪一下再跳一下。
 // 缩放由 ImageDecoder 按精确目标尺寸重采样完成（线性过滤 + 多级 mipmap），
 // 大比例缩小时边缘与细线不会出现毛刺与锯齿；结果以 WebP 落盘并驻留当前/下一/上一三张，
@@ -92,88 +74,12 @@ internal fun HomeAlbumArt(
         val shown = state.cover ?: lastShown.takeIf { state.pending }
         // 只在真正取到图时更新：占位与「暂无」都不该顶掉已就位的一张
         LaunchedEffect(state.cover) { state.cover?.let { lastShown = it } }
-        CoverBitmap(track = layer, cover = shown)
-    }
-}
-
-// 单张大封面：换图（沿用上一张 → 略缩图 → 高清原图 → 退回占位符）走「底层常驻 + 上层淡入」，不做交叠淡出。
-// 交叠淡出要两层同时半透明，合成结果在过渡中段只剩约七成不透明度，近黑底色会透上来，
-// 表现为封面整体暗一下再亮回来——这就是换图时看到的闪烁。
-// 改为：底层那张始终保持完全不透明铺满容器，新到的一张叠在其上、alpha 由 0 动画到 1；
-// 过渡全程至少有一层以实色盖住底色，亮度不塌陷。上层完全显示后才撤下底层，回到单层驻留。
-@Composable
-private fun CoverBitmap(track: MusicTrack?, cover: ImageBitmap?) {
-    // 底层内容：当前已完全显示的一张。为 null 即占位符——占位符同样要实色垫底，不能透出页面底色
-    var base by remember { mutableStateOf(cover) }
-    // 上层内容：正在淡入的一张。它可以是 null（占位符淡入），故另设 fading 标记在场与否，
-    // 不能以「位图为空」判定，否则占位符永远进不了上层
-    var incoming by remember { mutableStateOf<ImageBitmap?>(null) }
-    var fading by remember { mutableStateOf(false) }
-    val fade = remember { Animatable(1f) }
-
-    LaunchedEffect(cover) {
-        // 退回到正在显示的底色（首帧、或取图结果与已显示的是同一张）时中止未完成的淡入，直接回到单层
-        if (cover === base) {
-            incoming = null
-            fading = false
-            fade.snapTo(1f)
-            return@LaunchedEffect
-        }
-        // 先挂到 0f 再起动画：起手若沿用上一轮推进过的值，会先以半透明亮一帧再回落
-        incoming = cover
-        fading = true
-        fade.snapTo(0f)
-        fade.animateTo(1f, tween(durationMillis = COVER_FADE_IN_MS))
-        // 上层完全显示才落成底层；三处赋值之间没有挂起点，同一帧内一并生效，替换处不会露出空档
-        base = cover
-        incoming = null
-        fading = false
-        fade.snapTo(1f)
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        CoverLayer(bitmap = base, track = track)
-        if (fading) {
-            CoverLayer(
-                bitmap = incoming,
-                track = track,
-                // alpha 只在绘制阶段读取，逐帧推进不触发重组
-                modifier = Modifier.graphicsLayer { alpha = fade.value },
-            )
-        }
-    }
-}
-
-// 单层封面内容：有位图即整幅铺满，无位图即占位符。
-// 底层与上层共用这一份实现，两层的构图、缩放与过滤口径因此完全一致，过渡期间不会错位或清晰度突变
-@Composable
-private fun CoverLayer(bitmap: ImageBitmap?, track: MusicTrack?, modifier: Modifier = Modifier) {
-    if (bitmap != null) {
-        Image(
-            bitmap = bitmap,
-            contentDescription = track?.title,
-            contentScale = ContentScale.Crop,
-            // 高清渲染：mipmap 三线性过滤，缩放/旋转均无锯齿与模糊
-            filterQuality = FilterQuality.High,
-            modifier = modifier
-                .fillMaxSize()
-                .background(Color.Black),
+        CoverTransition(
+            bitmap = shown,
+            contentDescription = layer?.title,
+            // 首页背景恒为深色，占位块固定用深色主题背景色，避免浅色主题下首帧浅色闪烁
+            placeholderColor = md_theme_dark_background,
         )
-    } else {
-        Box(
-            // 首页背景恒为深色，占位背景固定用深色主题背景色，避免浅色主题下首帧浅色闪烁
-            modifier = modifier
-                .fillMaxSize()
-                .background(md_theme_dark_background),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = AppIcons.MusicNote,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp),
-            )
-        }
     }
 }
 

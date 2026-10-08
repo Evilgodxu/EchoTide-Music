@@ -2,7 +2,6 @@ package com.yichao.evilgodxu.data.music.playback
 
 import android.content.ComponentName
 import android.content.Context
-import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
