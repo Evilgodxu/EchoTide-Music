@@ -93,9 +93,9 @@ fun HomeScreen(
     val playbackState = panelState.playbackState.state
     val pagerState = panelState.pagerState
 
-    // 系统栏图标按「图标底下压着什么」定色：首页恒为深色封面衍生背景，被临时唤出时图标固定白色，
-    // 不沿用上个页面的深色图标；底部弹层展开时导航栏落在跟随主题的面板上，改回按主题取色，
-    // 否则浅色主题下白图标压在浅色面板上不可辨
+    // 系统栏图标按「图标底下压着什么」定色：首页两条系统栏全沉浸隐藏，图标只在上滑临时唤出时可见，
+    // 而首页恒为深色封面衍生背景，故固定白色、不沿用上个页面的深色图标；底部弹层展开时导航栏落在
+    // 跟随主题的面板上，改回按主题取色，否则浅色主题下白图标压在浅色面板上不可辨
     val sheetOnTop = panelState.playlistVisible ||
         panelState.audioInfoVisible ||
         panelState.libraryAnalysis.visible

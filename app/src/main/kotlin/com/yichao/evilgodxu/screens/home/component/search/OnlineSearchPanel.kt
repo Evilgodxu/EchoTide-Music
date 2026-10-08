@@ -14,14 +14,18 @@ import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -110,11 +114,13 @@ internal fun OnlineSearchPanel(
                     }
             )
         }
-        // imePadding 收紧面板底部：键盘弹出时仅压缩结果区，输入框保持原位不被整窗顶起
+        // 底部收紧：键盘展开时仅压缩结果区，输入框保持原位不被整窗顶起；键盘收起时让出系统导航栏高度
+        // （首页全沉浸隐藏了两条系统栏，正常路径下该值为 0，保留是为了导航栏被外部显示出来时末项不被压住）。
+        // 两者取并集而非叠加：键盘高度已含导航栏区域
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .imePadding()
+                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
         ) {
             PanelHeader()
             // 黑名单快照在推荐生成前载入：候选过滤与偏好基线都依赖它，未载入会误判为「无黑名单」

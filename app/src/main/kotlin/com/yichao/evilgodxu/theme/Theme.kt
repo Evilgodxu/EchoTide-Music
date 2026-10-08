@@ -48,7 +48,7 @@ object SystemBarAppearance {
             onChanged?.invoke()
         }
 
-    // 首页竖屏沉浸请求（仅隐藏状态栏）：由导航宿主按栈顶目的地声明，离开首页即撤销
+    // 首页竖屏沉浸请求（隐藏全部系统栏）：由导航宿主按栈顶目的地声明，离开首页即撤销
     var isHomePortraitImmersive: Boolean = false
         set(value) {
             if (field == value) return

@@ -3,6 +3,7 @@ package com.yichao.evilgodxu.screens.settings.component
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.rememberScrollState
@@ -73,6 +74,9 @@ internal fun SettingsPane(
             .consumeWindowInsets(innerPadding)
             .padding(innerPadding)
             .padding(horizontal = 16.dp)
+            // 宿主为 edge-to-edge 且页面无底部栏代管：末项（关于分组）须自行避让系统导航栏，
+            // 否则滚到底部时被三键导航的虚拟按键压住
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState()),
     ) {
         Appearance(

@@ -7,11 +7,15 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -94,9 +98,11 @@ internal fun MetadataForm(
             // 也不跟随键盘显隐 —— 系统返回键收起键盘后输入框保持编辑态与焦点，
             // 用户得以继续查看刚输入的内容是否无误，确认无误再点空白处或按返回键收起
             .pointerInput(Unit) { detectTapGestures(onTap = { onEditEnd() }) }
-            // 键盘避让：键盘弹出时底部收紧，配合输入框自身的 bringIntoView 使输入框整体滚到键盘上方。
+            // 底部收紧：键盘展开时让出键盘，配合输入框自身的 bringIntoView 使输入框整体滚到键盘上方；
+            // 键盘收起时让出系统导航栏高度，否则表单末项被三键导航的虚拟按键压住。
+            // 两者取并集而非叠加：键盘高度已含导航栏区域，叠加会多让出一段。
             // 只做这一处收缩，不再额外叠加固定底部内边距 —— 固定内边距会紧贴键盘上沿形成一条不随内容滚动的色带
-            .imePadding()
+            .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
             .verticalScroll(rememberScrollState()),
     ) {
         // 标签读取期间不展示表单：空字段与「文件里就是空的」在界面上无法区分，易被误保存

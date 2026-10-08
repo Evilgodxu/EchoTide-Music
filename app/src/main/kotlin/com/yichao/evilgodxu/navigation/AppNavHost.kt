@@ -37,7 +37,7 @@ fun AppNavHost(
     val backStack = rememberNavBackStack(Home)
     val context = LocalContext.current
     val stateHolder = LocalMusicPanelStateHolder.current
-    // 竖屏首页沉浸（仅隐藏状态栏）：由栈顶目的地驱动。若等到首页组合销毁才撤销，
+    // 首页竖屏沉浸（隐藏全部系统栏）：由栈顶目的地驱动。若等到首页组合销毁才撤销，
     // 沉浸状态会在切换动画期间残留，使目标页标题栏先按零内边距嵌入状态栏区域、再整体下移
     val isHomeOnTop = backStack.lastOrNull() is Home
     val isPortrait = !rememberWindowLandscape()

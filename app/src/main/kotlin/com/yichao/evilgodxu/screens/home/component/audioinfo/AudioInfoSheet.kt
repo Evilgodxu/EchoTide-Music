@@ -121,7 +121,8 @@ internal fun AudioInfoSheet(
                         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                     )
                     .padding(horizontal = 12.dp, vertical = 10.dp)
-                    // 面板内容让出系统导航栏高度：三键导航栏常驻显示时会压住末行信息。
+                    // 面板内容让出系统导航栏高度：首页全沉浸隐藏了两条系统栏，正常路径下该值为 0；
+                    // 保留是为了导航栏被外部显示出来时末行信息仍不被压住。
                     // 避让施加在内容上，面板底色仍铺到屏幕底缘
                     .navigationBarsPadding(),
             ) {

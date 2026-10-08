@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -51,6 +52,9 @@ internal fun TypographyGroups(
             .consumeWindowInsets(innerPadding)
             .padding(innerPadding)
             .padding(horizontal = 16.dp)
+            // 宿主为 edge-to-edge 且页面无底部栏代管：末项须自行避让系统导航栏，
+            // 否则滚到底部时被三键导航的虚拟按键压住
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState()),
     ) {
         // 音乐面板：独立调节

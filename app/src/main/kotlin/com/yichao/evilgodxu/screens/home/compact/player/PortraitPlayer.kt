@@ -267,7 +267,8 @@ internal fun PortraitPlayer(
         }
     }
 
-    // 底部避让量：竖屏首页系统导航栏常驻显示，控制栏须整块让出它的高度，否则虚拟按键会压在控制按钮上。
+    // 底部避让量：系统导航栏（三键/手势）高度。首页全沉浸隐藏了两条系统栏，正常路径下该值为 0；
+    // 保留它是为了导航栏被外部原因显示出来时（独立窗口、切页过渡、ROM 不认隐藏请求）控制栏仍不被压住。
     // 多窗口（自由窗口/分屏）下小窗底部另有系统控制条，与导航栏同时存在时取两者较大值
     val navigationBarBottom = with(LocalDensity.current) {
         WindowInsets.navigationBars.getBottom(this).toDp()

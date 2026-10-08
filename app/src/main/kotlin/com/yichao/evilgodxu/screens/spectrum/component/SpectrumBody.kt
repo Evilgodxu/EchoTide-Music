@@ -4,6 +4,7 @@ import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
@@ -42,7 +43,9 @@ internal fun SpectrumBody(
     val spectrogram = uiState.spectrogram
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    Column(modifier = modifier) {
+    // 底部避让系统导航栏：页面内容延伸到屏幕底缘，不避让则结论块被三键导航的虚拟按键压住。
+    // 此处只避让窗口内边距，页面自身的底缘留白仍由组装器给出
+    Column(modifier = modifier.navigationBarsPadding()) {
         val slotModifier = Modifier
             .fillMaxWidth()
             .weight(1f)

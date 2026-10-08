@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,7 +29,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyColumn
@@ -222,8 +222,9 @@ internal fun PlaylistSheet(
                         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                     )
                     .padding(horizontal = 12.dp, vertical = 10.dp)
-                    // 键盘与系统导航栏取并集后整体避让：键盘收起时让出导航栏高度，否则底部搜索框与末项
-                    // 会被虚拟按键压住；键盘展开时键盘本身已占住导航栏区域，取并集可避免两者高度叠加。
+                    // 键盘与系统导航栏取并集后整体避让：键盘展开时键盘本身已占住导航栏区域，取并集可避免
+                    // 两者高度叠加；键盘收起时让出导航栏高度（首页全沉浸隐藏了两条系统栏，该值为 0，
+                    // 保留是为了导航栏被外部显示出来时底部搜索框与末项仍不被压住）。
                     // 避让施加在面板内容上，面板底色仍铺到屏幕底缘
                     .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
             ) {
