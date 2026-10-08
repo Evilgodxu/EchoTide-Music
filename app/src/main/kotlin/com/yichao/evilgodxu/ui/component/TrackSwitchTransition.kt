@@ -12,6 +12,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntOffset
@@ -72,6 +73,10 @@ internal fun rememberTrackSwitchAnchor(track: MusicTrack?, kind: TrackSwitchKind
  * 方向不取播放列表下标差——随机播放下标差读不出前后，而类型本身始终可读。
  * 无方向可读的类型（选曲播放、内容同源的变更）不做元素级过渡，直接替换：
  * 前者移入的一侧取不出来，后者内容一致、位移只会添乱。
+ *
+ * 回前台不补播过渡：应用不可见期间的切歌谁也没看见，重新可见时才被应用的那一次变更若按横移
+ * 补播，返回前台就成了「先看到上一首，再看着它切走」。以可见会话为键重建过渡状态，
+ * 这类变更直接落位当前曲目。
  */
 @Composable
 internal fun TrackSwitchTransition(
@@ -82,28 +87,31 @@ internal fun TrackSwitchTransition(
 ) {
     // 入场方向在过渡规格之外定下：规格里要读的入场方类型，就是本次锚点的类型
     val kind = anchor.kind
-    AnimatedContent(
-        targetState = anchor,
-        modifier = modifier,
-        // 以曲目标识为过渡键：锚点里的曲目实例会随元数据补全被替换，用实例作键会误触发过渡
-        contentKey = { it.id },
-        transitionSpec = {
-            when (style) {
-                TrackSwitchStyle.Crossfade ->
-                    fadeIn(tween(TRACK_FADE_ENTER_MS)) togetherWith fadeOut(tween(TRACK_FADE_EXIT_MS))
+    val visibleSession = rememberVisibleSession()
+    key(visibleSession) {
+        AnimatedContent(
+            targetState = anchor,
+            modifier = modifier,
+            // 以曲目标识为过渡键：锚点里的曲目实例会随元数据补全被替换，用实例作键会误触发过渡
+            contentKey = { it.id },
+            transitionSpec = {
+                when (style) {
+                    TrackSwitchStyle.Crossfade ->
+                        fadeIn(tween(TRACK_FADE_ENTER_MS)) togetherWith fadeOut(tween(TRACK_FADE_EXIT_MS))
 
-                TrackSwitchStyle.Slide -> when (kind) {
-                    TrackSwitchKind.Previous -> trackSlideTransform(enterFromLeft = true)
-                    TrackSwitchKind.Next -> trackSlideTransform(enterFromLeft = false)
-                    // 选曲播放没有可读的方向，移入的一侧无从取；内容同源的变更本就看不出变化，
-                    // 两者都不做元素级过渡，直接替换
-                    TrackSwitchKind.Select, TrackSwitchKind.SameContent -> noElementTransition
+                    TrackSwitchStyle.Slide -> when (kind) {
+                        TrackSwitchKind.Previous -> trackSlideTransform(enterFromLeft = true)
+                        TrackSwitchKind.Next -> trackSlideTransform(enterFromLeft = false)
+                        // 选曲播放没有可读的方向，移入的一侧无从取；内容同源的变更本就看不出变化，
+                        // 两者都不做元素级过渡，直接替换
+                        TrackSwitchKind.Select, TrackSwitchKind.SameContent -> noElementTransition
+                    }
                 }
-            }
-        },
-        label = "trackSwitch",
-        content = { state -> content(state) },
-    )
+            },
+            label = "trackSwitch",
+            content = { state -> content(state) },
+        )
+    }
 }
 
 /** 不做元素级过渡：新旧内容直接替换，用于无方向可读的变更、或新旧内容同源的场景。 */

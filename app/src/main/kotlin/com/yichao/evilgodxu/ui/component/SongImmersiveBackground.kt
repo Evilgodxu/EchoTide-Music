@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -214,6 +215,9 @@ private data class BackgroundBase(
 // 三段取色未就绪时先回落 [restoredColor]（上次持久化的取色结果）整幅铺色，避免冷启动首帧闪默认色。
 // 底色有变时上一份底色与当前底色交叠一处：切歌按方向整屏横移，同曲取色落地则原地淡出，
 // 两种情形都不会瞬间跳变。
+// 回前台不补播过渡：应用不可见期间发生的换色谁也没看见，重新可见时才被应用的那一次若补播横移，
+// 返回前台就成了「先看到上一首的底色，再看着它整屏移走」，故按可见会话识别后直接落位；
+// 取色尚未定论、暂时沿用上一份底色的兜底不受此影响（回落时机不属于一次换色）。
 // 首页与 3D 封面轮播共用，随传入曲目实时变化；背景代表色经回调暴露供浮层容器复用。
 @Composable
 internal fun SongImmersiveBackground(
@@ -269,7 +273,11 @@ internal fun SongImmersiveBackground(
             BackgroundBase(colors = colors, solid = if (colors == null) restoredColor else null)
         }
     }
+    val visibleSession = rememberVisibleSession()
     var lastBase by remember { mutableStateOf<BackgroundBase?>(null) }
+    // 铺下上一份底色时的可见会话：与当前会话不同，说明这份底色与本次换色之间隔着一段页面不可见的时间，
+    // 即本次换色发生在后台。这类换色回前台时才被应用，不是「刚刚发生」的事件，见下方过渡判定
+    var lastBaseSession by remember { mutableIntStateOf(visibleSession) }
     // 实际铺开的底色：取色未定论时仍是当前这份；连一份都还没有（冷启动首帧）才回落历史取色与默认渐变
     val base = targetBase ?: lastBase ?: BackgroundBase(colors = null, solid = restoredColor)
     // 流动帧各层压暗共用的明度系数：底色越浅压得越轻（见 dimScaleOf），强度由 dimAlpha 兜住下限
@@ -280,12 +288,20 @@ internal fun SongImmersiveBackground(
     var switching by remember { mutableStateOf<BackgroundSwitchState?>(null) }
     // 过渡进度：1 为过渡起点（当前底色尚未入场），0 为过渡结束（当前底色完全落位）
     val switchProgress = remember { Animatable(0f) }
-    LaunchedEffect(targetBase, base) {
+    LaunchedEffect(targetBase, base, visibleSession) {
         val previous = lastBase
         val previousInherited = baseInherited
+        // 页面刚重新可见（会话切换）：不可见期间谁也没看见画面，回前台不该补播任何过渡。
+        // 上一轮未走完的过渡连同进度一并作废——动画在不可见期间停摆，接着走等于把半途的横移补出来；
+        // 同时据此识别下方「本次换色发生在后台」的情形
+        val resumed = lastBaseSession != visibleSession
+        if (resumed) switching = null
         lastBase = base
+        lastBaseSession = visibleSession
         baseInherited = targetBase == null && previous != null
         if (previous == null || previous == base) return@LaunchedEffect
+        // 本次换色发生在页面不可见期间：底色照常换成新曲目的取色，只是补播横移会读成刚切歌，直接落位
+        if (resumed) return@LaunchedEffect
         // 上一份是回落色（无取色）或沿用自上一曲，说明本次是取色落地：先后关系不可读，只做淡出；
         // 两份都持真实取色时才谈方向，方向由变更类型给出——选曲播放与内容同源的变更都没有方向，
         // 不做过渡，底色原地换掉

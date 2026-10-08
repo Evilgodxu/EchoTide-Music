@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -26,6 +27,7 @@ import com.yichao.evilgodxu.ui.component.coverLeftRightFadeBrush
 import com.yichao.evilgodxu.ui.component.coverTopBottomFadeBrush
 import com.yichao.evilgodxu.ui.component.noElementTransition
 import com.yichao.evilgodxu.ui.component.rememberLargeCoverState
+import com.yichao.evilgodxu.ui.component.rememberVisibleSession
 import com.yichao.evilgodxu.ui.component.trackSlideTransform
 
 // 首页大封面：竖屏沉浸封面与横屏融合封面铺满首屏，取图分三步 ——
@@ -41,7 +43,9 @@ import com.yichao.evilgodxu.ui.component.trackSlideTransform
 //
 // 换曲目则走整幅横移（见 trackSlideTransform）：方向取自本次变更的类型，与歌曲信息同一套判定。
 // 上下两首都已预热在内存，入场的一层从进场那一刻就是成图，不必用过渡遮盖取图空窗；
-// 横移全程两层都不透明、首尾相接，容器不会被透出底色
+// 横移全程两层都不透明、首尾相接，容器不会被透出底色。
+// 应用不可见期间发生的切歌不补播横移：那几次切歌谁也没看见，回前台时才被应用的一次若按横移补播，
+// 返回前台就成了「先看到上一首，再看着它切走」（见 rememberVisibleSession）
 @Composable
 internal fun HomeAlbumArt(
     track: MusicTrack?,
@@ -51,35 +55,41 @@ internal fun HomeAlbumArt(
     // 上一张已就位的封面：新曲目的封面还在取图时先沿用它，而不退回占位符。
     // 占位符是与页面底色同为近黑的色块，换曲取图期间直接露出来就是一次黑闪
     var lastShown by remember { mutableStateOf<ImageBitmap?>(null) }
-    AnimatedContent(
-        targetState = track,
-        // 以曲目标识为过渡键：曲目实例会随歌词补全等元数据更新被替换，用实例作键会误触发过渡
-        contentKey = { it?.id },
-        transitionSpec = {
-            when (kind) {
-                TrackSwitchKind.Previous -> trackSlideTransform(enterFromLeft = true)
-                TrackSwitchKind.Next -> trackSlideTransform(enterFromLeft = false)
-                // 选曲播放没有可读的方向，移入的一侧无从取；
-                // 内容同源的变更（在线曲迁到本地）直接替换，横移会让同源封面错位成接缝
-                TrackSwitchKind.Select, TrackSwitchKind.SameContent -> noElementTransition
-            }
-        },
-        // 渐隐羽化蒙层加在过渡层之外：四条边只对合成后的结果羽化一次。
-        // 加在每一层上则位移期间各层的羽化边会移进视口，与本层封面错位成一道可辨的接缝
-        modifier = modifier,
-        label = "homeCover",
-    ) { layer ->
-        val state = rememberLargeCoverState(layer)
-        // 取图中且暂无图可显示时沿用上一张；已确认这首没有封面则退回占位符（此时 lastShown 不参与）
-        val shown = state.cover ?: lastShown.takeIf { state.pending }
-        // 只在真正取到图时更新：占位与「暂无」都不该顶掉已就位的一张
-        LaunchedEffect(state.cover) { state.cover?.let { lastShown = it } }
-        CoverTransition(
-            bitmap = shown,
-            contentDescription = layer?.title,
-            // 首页背景恒为深色，占位块固定用深色主题背景色，避免浅色主题下首帧浅色闪烁
-            placeholderColor = md_theme_dark_background,
-        )
+    // 回前台不补播切歌过渡：后台期间应用不可见，那几次切歌谁也没看见；重新可见时才被应用的
+    // 一次变更若按横移补播，返回前台就成了「先看到上一首，再看着它切走」。
+    // 会话重建使过渡以当前曲目为初值，直接落位；当前曲目的封面已由切歌预取备好，首帧即是成图
+    val visibleSession = rememberVisibleSession()
+    key(visibleSession) {
+        AnimatedContent(
+            targetState = track,
+            // 以曲目标识为过渡键：曲目实例会随歌词补全等元数据更新被替换，用实例作键会误触发过渡
+            contentKey = { it?.id },
+            transitionSpec = {
+                when (kind) {
+                    TrackSwitchKind.Previous -> trackSlideTransform(enterFromLeft = true)
+                    TrackSwitchKind.Next -> trackSlideTransform(enterFromLeft = false)
+                    // 选曲播放没有可读的方向，移入的一侧无从取；
+                    // 内容同源的变更（在线曲迁到本地）直接替换，横移会让同源封面错位成接缝
+                    TrackSwitchKind.Select, TrackSwitchKind.SameContent -> noElementTransition
+                }
+            },
+            // 渐隐羽化蒙层加在过渡层之外：四条边只对合成后的结果羽化一次。
+            // 加在每一层上则位移期间各层的羽化边会移进视口，与本层封面错位成一道可辨的接缝
+            modifier = modifier,
+            label = "homeCover",
+        ) { layer ->
+            val state = rememberLargeCoverState(layer)
+            // 取图中且暂无图可显示时沿用上一张；已确认这首没有封面则退回占位符（此时 lastShown 不参与）
+            val shown = state.cover ?: lastShown.takeIf { state.pending }
+            // 只在真正取到图时更新：占位与「暂无」都不该顶掉已就位的一张
+            LaunchedEffect(state.cover) { state.cover?.let { lastShown = it } }
+            CoverTransition(
+                bitmap = shown,
+                contentDescription = layer?.title,
+                // 首页背景恒为深色，占位块固定用深色主题背景色，避免浅色主题下首帧浅色闪烁
+                placeholderColor = md_theme_dark_background,
+            )
+        }
     }
 }
 
