@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.analysis.isLosslessFormat
 import com.yichao.evilgodxu.data.music.playback.AudioSignalPathFormat
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
-import com.yichao.evilgodxu.data.music.playback.seekTo
+import com.yichao.evilgodxu.data.music.playback.seekToAndPlay
 import com.yichao.evilgodxu.ui.component.rememberVisibleSession
 import com.yichao.evilgodxu.utils.formatTime
 import kotlin.math.abs
@@ -114,11 +114,13 @@ internal fun ProgressSection(
                                     isSeeking = true
                                 } else {
                                     // 松手才跳转。单击同为「按下即抬起」，与拖动走同一条路径完成定位；
-                                    // 时长未知（曲目未就绪）时不下发无意义的定位
+                                    // 时长未知（曲目未就绪）时不下发无意义的定位。
+                                    // 定位后起播：暂停状态下拖拽或点击进度条即视为要听该处内容，
+                                    // 与歌词拖拽跳转保持一致；播放中调用 play 不改变播放状态。
                                     if (playbackState.duration > 0L) {
                                         val targetPosition = (seekFraction * playbackState.duration).toLong()
                                             .coerceIn(0L, playbackState.duration)
-                                        seekTo(playbackState, targetPosition)
+                                        seekToAndPlay(playbackState, targetPosition)
                                         // 立刻回写位置：等控制器回报期间显示值不被钳回拖动前的进度
                                         playbackState.setCurrentPosition(targetPosition)
                                     }

@@ -309,16 +309,11 @@ fun togglePlayPause(state: MusicPlaybackState) {
     }
 }
 
-fun seekTo(state: MusicPlaybackState, positionMs: Long) {
-    state.mediaController?.let { controller ->
-        state.playbackScope.launch { controller.seekTo(positionMs) }
-    }
-}
-
 /**
  * 跳转到指定位置并开始播放。
- * 暂停状态下用歌词拖拽定位后需要直接起播；seek 与 play 分开派发时会互相竞争
+ * 暂停状态下拖拽进度条或歌词跳转定位后需要直接起播；seek 与 play 分开派发时会互相竞争
  * （play 可能先于 seek 生效，出现从旧位置起播的瞬间），故合并到同一协程内顺序执行。
+ * 播放中调用 play 不改变播放状态，因此本接口对「播放中跳转」同样适用。
  */
 fun seekToAndPlay(state: MusicPlaybackState, positionMs: Long) {
     state.mediaController?.let { controller ->
