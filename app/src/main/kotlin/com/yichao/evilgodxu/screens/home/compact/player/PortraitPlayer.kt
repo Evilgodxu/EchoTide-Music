@@ -1,9 +1,7 @@
 package com.yichao.evilgodxu.screens.home.compact.player
 
-import android.app.Activity
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -16,7 +14,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -267,111 +264,103 @@ internal fun PortraitPlayer(
         }
     }
 
-    // 底部避让量：系统导航栏（三键/手势）高度。首页全沉浸隐藏了两条系统栏，正常路径下该值为 0；
-    // 保留它是为了导航栏被外部原因显示出来时（独立窗口、切页过渡、ROM 不认隐藏请求）控制栏仍不被压住。
-    // 多窗口（自由窗口/分屏）下小窗底部另有系统控制条，与导航栏同时存在时取两者较大值
+    // 底部避让量：控制栏与屏幕底缘的间距，取固定留白与系统导航栏（三键/手势）高度中的较大者。
+    // 首页全沉浸隐藏了两条系统栏，正常路径下导航栏高度为 0，此时由固定留白决定，
+    // 使底部留白不随屏幕尺寸与高宽比变化；导航栏被外部原因显示出来时（独立窗口、切页过渡、
+    // ROM 不认隐藏请求）、或处于多窗口（自由窗口/分屏，小窗底部另有系统控制条）时，
+    // 导航栏高度覆盖固定留白，控制栏同样不被压住
     val navigationBarBottom = with(LocalDensity.current) {
         WindowInsets.navigationBars.getBottom(this).toDp()
     }
-    val activity = LocalActivityResultRegistryOwner.current as? Activity
-    val bottomClearance = if (activity?.isInMultiWindowMode() == true) {
-        maxOf(BottomControlBarClearance, navigationBarBottom)
-    } else {
-        navigationBarBottom
-    }
+    val bottomClearance = maxOf(BottomBarClearance, navigationBarBottom)
 
-    // 外层容器：沉浸封面置顶，其余模块从封面下方按序排列
-    BoxWithConstraints(modifier = modifier) {
-        // 封面保持全宽沉浸：常规窗口下为宽高等于宽度的正方形；自由窗口高度偏矮时按可用高度压缩高度，
-        // 配合内容裁切保留全宽置顶的沉浸效果，避免底部内容被截断
-        val coverHeight = (maxHeight - lyricsAreaHeight - BottomFixedContentHeight - bottomClearance)
-            .coerceAtLeast(MinCoverHeight)
-            .coerceAtMost(maxWidth)
-        // 沉浸式专辑封面：全宽置顶（含状态栏后方），仅下边缘渐隐融入封面衍生背景
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .height(coverHeight)
-                .combinedClickable(
-                    onClick = {},
-                    onLongClick = { if (playbackState.currentTrack != null) showCoverMenu = true },
-                ),
-        ) {
-            HomeImmersiveCover(
-                track = playbackState.currentTrack,
-                kind = playbackState.lastSwitchKind,
-                modifier = Modifier.fillMaxSize(),
-            )
-            // 长按菜单锚定封面，显示在封面底部
-            CoverContextMenu(
-                visible = showCoverMenu,
-                onOnlineCover = {
-                    showCoverMenu = false
-                    coverTargetId = playbackState.currentTrack?.id
-                    showCoverRefresh = true
-                    playbackState.currentTrack?.let { track ->
-                        scope.launch { searchCoverCandidates(context, playbackState, track, playbackState.coverRefreshSource) }
-                    }
-                },
-                onLocalCover = {
-                    showCoverMenu = false
-                    coverTargetId = playbackState.currentTrack?.id
-                    selectedLocalCover = null
-                    showLocalCover = true
-                    scope.launch { playbackState.setLocalCoverCandidates(loadRecentCovers(context)) }
-                },
-                // 保存内嵌封面原图到系统相册：不改动曲目元数据，故无目标校验；
-                // 无内嵌封面时以提示告知，写入失败仍复用封面错误横幅
-                onSaveCover = {
-                    showCoverMenu = false
-                    playbackState.currentTrack?.let { track ->
-                        scope.launch {
-                            val message = when (CoverExporter.export(context, track)) {
-                                CoverExporter.Result.Saved -> coverSavedMessage
-                                CoverExporter.Result.NoEmbeddedCover -> coverNoEmbeddedMessage
-                                CoverExporter.Result.Failed -> null
-                            }
-                            if (message != null) {
-                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                            } else {
-                                coverSaveFailed = true
+    // 外层容器：沉浸封面置顶，其余模块从封面下方按序排列。
+    // 封面与底部内容同处一列：内容先按自身高度测量，封面再取走剩余空间，
+    // 底部留白由内容区的固定间距决定，不再随屏幕尺寸与高宽比漂移
+    Box(modifier = modifier) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // 沉浸式专辑封面：全宽置顶（含状态栏后方），仅下边缘渐隐融入封面衍生背景。
+            // 高度取底部内容之外的剩余空间：窗口变矮时随之收缩，优先保证底部内容完整
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .combinedClickable(
+                        onClick = {},
+                        onLongClick = { if (playbackState.currentTrack != null) showCoverMenu = true },
+                    ),
+            ) {
+                HomeImmersiveCover(
+                    track = playbackState.currentTrack,
+                    kind = playbackState.lastSwitchKind,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // 长按菜单锚定封面，显示在封面底部
+                CoverContextMenu(
+                    visible = showCoverMenu,
+                    onOnlineCover = {
+                        showCoverMenu = false
+                        coverTargetId = playbackState.currentTrack?.id
+                        showCoverRefresh = true
+                        playbackState.currentTrack?.let { track ->
+                            scope.launch { searchCoverCandidates(context, playbackState, track, playbackState.coverRefreshSource) }
+                        }
+                    },
+                    onLocalCover = {
+                        showCoverMenu = false
+                        coverTargetId = playbackState.currentTrack?.id
+                        selectedLocalCover = null
+                        showLocalCover = true
+                        scope.launch { playbackState.setLocalCoverCandidates(loadRecentCovers(context)) }
+                    },
+                    // 保存内嵌封面原图到系统相册：不改动曲目元数据，故无目标校验；
+                    // 无内嵌封面时以提示告知，写入失败仍复用封面错误横幅
+                    onSaveCover = {
+                        showCoverMenu = false
+                        playbackState.currentTrack?.let { track ->
+                            scope.launch {
+                                val message = when (CoverExporter.export(context, track)) {
+                                    CoverExporter.Result.Saved -> coverSavedMessage
+                                    CoverExporter.Result.NoEmbeddedCover -> coverNoEmbeddedMessage
+                                    CoverExporter.Result.Failed -> null
+                                }
+                                if (message != null) {
+                                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                } else {
+                                    coverSaveFailed = true
+                                }
                             }
                         }
-                    }
-                },
-                onDismiss = { showCoverMenu = false },
-            )
-            // 纵向切歌预览：滑动未松手时显示于封面底部，提醒将播放的曲目方向
-            AnimatedVisibility(
-                visible = swipePreviewText != null,
-                modifier = Modifier.align(Alignment.BottomCenter),
-                enter = fadeIn(animationSpec = tween(150)) +
-                    slideInVertically(animationSpec = tween(150)) { it / 2 },
-                exit = fadeOut(animationSpec = tween(150)) +
-                    slideOutVertically(animationSpec = tween(150)) { it / 2 },
-            ) {
-                Box(
-                    modifier = Modifier
-                        .padding(bottom = 24.dp)
-                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    },
+                    onDismiss = { showCoverMenu = false },
+                )
+                // 纵向切歌预览：滑动未松手时显示于封面底部，提醒将播放的曲目方向。
+                // 显式限定到顶层重载：此处同时处于 Column 与 Box 两个作用域，不加限定会解析到
+                // ColumnScope 版本，而该版本无法在本层（Box 内）用隐式接收者调用
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = swipePreviewText != null,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    enter = fadeIn(animationSpec = tween(150)) +
+                        slideInVertically(animationSpec = tween(150)) { it / 2 },
+                    exit = fadeOut(animationSpec = tween(150)) +
+                        slideOutVertically(animationSpec = tween(150)) { it / 2 },
                 ) {
-                    Text(
-                        text = swipePreviewText.orEmpty(),
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
+                    Box(
+                        modifier = Modifier
+                            .padding(bottom = 24.dp)
+                            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            text = swipePreviewText.orEmpty(),
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
                 }
             }
-        }
-        // 歌词/标题/进度/控制栏：从封面下方按序排列
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = coverHeight),
-        ) {
+            // 歌词/标题/进度/控制栏：封面之下按序排列，底部留出固定避让间距
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1051,9 +1040,7 @@ private fun LyricsMenuItem(
 // 歌词微调单次步长（毫秒）
 private const val LyricFineTuneStepMs = 100L
 
-// 歌词区下方固定区域高度：间距、标题/艺人两行、进度条与控制栏，用于计算封面可占用高度
-private val BottomFixedContentHeight = 8.dp + 8.dp + 24.dp + 4.dp + 20.dp + 8.dp + 40.dp + 8.dp + 48.dp
-// 自由窗口下封面最小高度：窗口过矮时不再压缩封面，保证封面可用
-private val MinCoverHeight = 120.dp
-// 多窗口底部系统控制条避让留白：播放控制栏高度（48dp）的一半
-private val BottomControlBarClearance = 24.dp
+// 控制栏与屏幕底缘的固定留白：即使导航栏被隐藏也保留的呼吸空间，兼作多窗口下
+// 小窗系统控制条的避让量。取控制栏高度（48dp）的一半，底部留白由此恒定，
+// 不再由「屏幕高宽差减去内容高度」的余量决定
+private val BottomBarClearance = 24.dp
