@@ -62,7 +62,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -84,7 +83,6 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
-import com.yichao.evilgodxu.ui.component.DialogOption
 import com.yichao.evilgodxu.ui.component.ExpandDirection
 import com.yichao.evilgodxu.ui.component.ExpandPicker
 import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
@@ -169,9 +167,8 @@ internal fun PlaylistSheet(
     var deleteTrack by remember { mutableStateOf<MusicTrack?>(null) }
     // 右滑高级菜单目标：非空时显示菜单对话框
     var advancedTrack by remember { mutableStateOf<MusicTrack?>(null) }
-    // 左滑拉黑目标：非空时显示确认对话框。黑名单没有单曲撤销入口，误触只能整表重置，故写入前须二次确认；
-    // 是否一并删除本地文件由确认框内的选中项决定，默认仅拉黑
-    var blacklistTarget by remember { mutableStateOf<MusicTrack?>(null) }
+    // 左滑歌单归属目标：非空时显示归属弹窗，勾选/取消勾选即时加入或移出对应歌单
+    var playlistTarget by remember { mutableStateOf<MusicTrack?>(null) }
     // 设为默认铃声的请求：非空时由安装组件提交并在授权往返后自动续做
     var soundRequest by remember { mutableStateOf<DefaultSoundRequest?>(null) }
     val shareChooserTitle = stringResource(R.string.playlist_advanced_menu_share)
@@ -491,10 +488,10 @@ internal fun PlaylistSheet(
                                     val track = tracks.getOrNull(index) ?: return@itemsIndexed
                                     // 展示列表可能与播放队列不同，播放态按曲目 id 判定而非列表下标
                                     val isActive = track.id == playbackState.currentTrack?.id
-                                    // 右滑露出高级菜单，左滑露出拉黑：拉黑只写入黑名单算法，列表项本身保持可见
+                                    // 右滑露出高级菜单，左滑露出歌单归属：归属弹窗只调整自定义歌单成员，
+                                    // 列表项本身保持可见
                                     TrackSwipeRow(
-                                        // 左滑仅选中目标，由确认对话框决定是否真正写入黑名单
-                                        onSwipeBlacklist = { blacklistTarget = track },
+                                        onSwipePlaylist = { playlistTarget = track },
                                         onSwipeAdvanced = { advancedTrack = track },
                                     ) {
                                         PlaylistRow(
@@ -658,17 +655,9 @@ internal fun PlaylistSheet(
             },
             onDismiss = { deleteTrack = null },
         )
-        BlacklistConfirmDialog(
-            track = blacklistTarget,
-            onConfirm = { track, deleteFile ->
-                playbackState.blacklistTrack(context, track)
-                // 删除与拉黑在数据层保持解耦：只有用户显式勾选才落到文件层，并复用统一删除路径
-                // （音频源文件 + 仅该曲引用的歌词缓存，同步曲库、播放队列与歌单引用）。
-                // 黑名单条目不随之清除：文本键与文件是否存在无关，用户日后重新放入该文件仍应保持拉黑
-                if (deleteFile) scope.launch { playbackState.deleteSongPermanently(context, track) }
-                blacklistTarget = null
-            },
-            onDismiss = { blacklistTarget = null },
+        TrackPlaylistDialog(
+            track = playlistTarget,
+            onDismiss = { playlistTarget = null },
         )
         TrackAdvancedMenuDialog(
             visible = advancedTrack != null,
@@ -750,52 +739,6 @@ private fun SearchActionButton(
             modifier = Modifier.size(18.dp),
         )
     }
-}
-
-// 拉黑确认对话框：默认语义即「拉黑」（只写黑名单），故不渲染多余的「仅拉黑」选项；
-// 「拉黑并删除」以紧凑的选中高亮行呈现（与切换歌单、排序方式同一选中样式），
-// 选中后确认按钮改为同名文案并显示不可恢复提示，使不可逆动作在最终按钮上直接可见
-@Composable
-private fun BlacklistConfirmDialog(
-    track: MusicTrack?,
-    onConfirm: (MusicTrack, Boolean) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    if (track == null) return
-    // 选项态随对话框存活：关闭时目标置空、本组件不再组合，下次打开回到默认的仅拉黑
-    var deleteFile by remember { mutableStateOf(false) }
-    RemoveTrackDialog(
-        track = track,
-        titleRes = R.string.playlist_blacklist_title,
-        messageRes = R.string.playlist_blacklist_message,
-        confirmRes = if (deleteFile) R.string.playlist_blacklist_delete_confirm
-            else R.string.playlist_blacklist_confirm,
-        option = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                // 可反复点按切换：取消选中即回到默认的仅拉黑
-                DialogOption(
-                    label = stringResource(R.string.playlist_blacklist_delete_option),
-                    selected = deleteFile,
-                    compact = true,
-                    onClick = { deleteFile = !deleteFile },
-                )
-                if (deleteFile) {
-                    Text(
-                        text = stringResource(R.string.playlist_blacklist_delete_hint),
-                        color = MaterialTheme.colorScheme.error,
-                        fontSize = 11.sp,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            }
-        },
-        onConfirm = { onConfirm(it, deleteFile) },
-        onDismiss = onDismiss,
-    )
 }
 
 // 排序字段对应的文案资源

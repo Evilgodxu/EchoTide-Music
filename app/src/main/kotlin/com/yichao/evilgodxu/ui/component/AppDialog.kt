@@ -49,7 +49,7 @@ private val DIALOG_HEADER_HEIGHT = 32.dp
 private val DIALOG_HEADER_ICON_SIZE = 32.dp
 private val DIALOG_PADDING = 16.dp
 
-// 统一对话框：卡片样式与重置黑名单对话框一致（DialogCard + 居中标题 + 内边距 16dp，高度随内容撑开）。
+// 统一对话框：卡片样式与其余确认框一致（DialogCard + 居中标题 + 内边距 16dp，高度随内容撑开）。
 // 返回、关闭、尾部操作与底部按钮均为可选参数，未传入即不渲染，不给不需要的对话框强加按钮。
 @Composable
 internal fun AppDialog(

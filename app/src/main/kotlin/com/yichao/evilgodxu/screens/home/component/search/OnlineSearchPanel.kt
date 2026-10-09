@@ -64,7 +64,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.api.MusicQuality
-import com.yichao.evilgodxu.data.music.blacklist.BlacklistStore
 import com.yichao.evilgodxu.data.music.panel.performSearch
 import com.yichao.evilgodxu.data.music.panel.playSearchResultWithQuality
 import com.yichao.evilgodxu.data.music.panel.tryPlayLocalMatch
@@ -92,7 +91,6 @@ internal fun OnlineSearchPanel(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val metadataEnricher = LocalMetadataEnricher.current
     val focusManager = LocalFocusManager.current
     // 搜索输入框聚焦状态：键盘展开期间显示拦截层，点击面板空白处仅收起键盘并阻断透传
     var searchInputFocused by remember { mutableStateOf(false) }
@@ -123,18 +121,6 @@ internal fun OnlineSearchPanel(
                 .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
         ) {
             PanelHeader()
-            // 黑名单快照在回忆推荐前载入：候选过滤与偏好基线都依赖它，未载入会误判为「无黑名单」
-            LaunchedEffect(Unit) { BlacklistStore.ensureLoaded(context) }
-            // 载入完成、黑名单变更或解锁状态变化时重排：以真实快照为准，
-            // 避免先按空黑名单算出一版无效结果。已排出名次时不重算（生成入口内部判定）
-            LaunchedEffect(
-                BlacklistStore.isLoaded,
-                BlacklistStore.keys,
-                playbackState.isMemoryUnlocked,
-                playbackState.isRestoreSettled,
-            ) {
-                if (BlacklistStore.isLoaded) playbackState.loadMemoryRecommendations(context)
-            }
             // 心动模式整队列都定位不到副歌时会自行退出，这里说明原因 ——
             // 否则用户只看到模式自己变了，会当成失灵
             LaunchedEffect(playbackState.highlightExitNotice) {
@@ -147,20 +133,6 @@ internal fun OnlineSearchPanel(
                     ).show()
                 }
             }
-            MemoryEntryCard(
-                unlocked = playbackState.isMemoryUnlocked,
-                loading = playbackState.isMemoryLoading,
-                songCount = playbackState.memoryPageTracks.size,
-                onEnter = {
-                    // 整页曲目一次成为播放队列并起播；顺带补全本页歌词，
-                    // 心动模式要靠它定位副歌片段
-                    playbackState.playMemoryQueue(context)
-                    val enricher = metadataEnricher
-                    scope.launch { enricher.enrichAndCleanup(context, playbackState) }
-                },
-                onRefresh = { playbackState.nextMemoryPage() },
-            )
-            Spacer(modifier = Modifier.height(8.dp))
             SearchInput(
                 playbackState = playbackState,
                 menuBackgroundColor = menuBackgroundColor,

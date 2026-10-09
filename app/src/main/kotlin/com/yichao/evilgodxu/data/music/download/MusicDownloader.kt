@@ -155,7 +155,7 @@ private suspend fun registerCachedFileAsLocal(
         // 缓存完成后以本地文件补齐当前曲目信息条，避免在线播放期间空白
         playbackState.refreshTrackFormatInfoFromLocal(context)
     }
-    // 曲库新增了这首歌：通知状态层作废本次回忆推荐名次并回收无引用的播放计数（纯本地，不联网）
+    // 曲库新增了这首歌：通知状态层补扫新曲目的副歌片段（纯本地，不联网）
     withContext(Dispatchers.Main) {
         playbackState.onLibraryChanged()
     }

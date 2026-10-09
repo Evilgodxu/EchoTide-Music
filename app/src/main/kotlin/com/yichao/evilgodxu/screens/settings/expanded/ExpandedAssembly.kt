@@ -25,7 +25,6 @@ private val SETTINGS_CONTENT_MAX_WIDTH = 720.dp
 @Composable
 internal fun ExpandedAssembly(
     uiState: SettingsUiState,
-    blockedCount: Int,
     onBack: () -> Unit,
     onThemeSelected: (ThemeMode) -> Unit,
     onLanguageSelected: (AppLanguage) -> Unit,
@@ -42,7 +41,6 @@ internal fun ExpandedAssembly(
     onProxySourceRemove: (String) -> Unit,
     onProxyImportMessageDismiss: () -> Unit,
     onOpenCache: () -> Unit,
-    onResetBlacklist: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -55,7 +53,6 @@ internal fun ExpandedAssembly(
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             SettingsPane(
                 uiState = uiState,
-                blockedCount = blockedCount,
                 innerPadding = innerPadding,
                 onThemeSelected = onThemeSelected,
                 onLanguageSelected = onLanguageSelected,
@@ -72,7 +69,6 @@ internal fun ExpandedAssembly(
                 onProxySourceRemove = onProxySourceRemove,
                 onProxyImportMessageDismiss = onProxyImportMessageDismiss,
                 onOpenCache = onOpenCache,
-                onResetBlacklist = onResetBlacklist,
                 modifier = Modifier.widthIn(max = SETTINGS_CONTENT_MAX_WIDTH),
             )
         }

@@ -36,14 +36,14 @@ private val SWIPE_TRIGGER_DP = 56.dp
 private const val SWIPE_SETTLE_MS = 180
 
 /**
- * 播放列表项滑动容器：右滑露出并触发高级菜单，左滑露出并触发加入黑名单。
+ * 播放列表项滑动容器：右滑露出并触发高级菜单，左滑露出并触发歌单归属（加入 / 移出歌单）。
  *
  * 两侧图标常驻在内容之下，只在内容位移后露出，因此滑动过程中即可预判释放后的动作。
  * 图标不带文案：露出区域窄，文字会被裁切，且动作含义由图标本身即可辨识。
  */
 @Composable
 internal fun TrackSwipeRow(
-    onSwipeBlacklist: () -> Unit,
+    onSwipePlaylist: () -> Unit,
     onSwipeAdvanced: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
@@ -56,13 +56,13 @@ internal fun TrackSwipeRow(
 
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         SwipeActionIcon(
-            icon = AppIcons.MoreVert,
+            icon = AppIcons.AppRegistration,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             alignment = Alignment.CenterStart,
         )
         SwipeActionIcon(
-            icon = AppIcons.Block,
-            tint = MaterialTheme.colorScheme.error,
+            icon = AppIcons.Rule,
+            tint = MaterialTheme.colorScheme.primary,
             alignment = Alignment.CenterEnd,
         )
         Box(
@@ -84,7 +84,7 @@ internal fun TrackSwipeRow(
                                     }
                                     dragged <= -triggerPx -> {
                                         offset.snapTo(0f)
-                                        onSwipeBlacklist()
+                                        onSwipePlaylist()
                                     }
                                     else -> offset.animateTo(0f, tween(SWIPE_SETTLE_MS))
                                 }

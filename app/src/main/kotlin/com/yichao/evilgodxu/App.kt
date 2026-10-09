@@ -16,7 +16,6 @@ import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
-import com.yichao.evilgodxu.data.music.playback.PlayCountStore
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.repository.SettingsRepository
 import com.yichao.evilgodxu.data.settings.bootstrapAppLanguage
@@ -108,10 +107,6 @@ class App : Application() {
         appScope.launch {
             runCatching { CacheInventory.reclaimOnColdStart(this@App) }
         }
-
-        // 累计播放次数随冷启动一并载入：回忆模式的启用门槛与排名都读它，
-        // 留到进入入口时才载入会让门槛先按「零计数」判一次，把已解锁的入口误判为未解锁
-        appScope.launch { PlayCountStore.ensureLoaded(this@App) }
     }
 
     private fun readAppVersion(): String =

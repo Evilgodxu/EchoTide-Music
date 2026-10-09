@@ -19,7 +19,6 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
-import com.yichao.evilgodxu.data.music.blacklist.BlacklistStore
 import com.yichao.evilgodxu.data.music.metadata.CoverColorCache
 import com.yichao.evilgodxu.data.music.metadata.CoverSkipRegistry
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
@@ -37,7 +36,6 @@ import com.yichao.evilgodxu.data.music.model.PlayMode
 import com.yichao.evilgodxu.data.music.model.RecentCover
 import com.yichao.evilgodxu.data.music.highlight.HighlightScanner
 import com.yichao.evilgodxu.data.music.highlight.HighlightStore
-import com.yichao.evilgodxu.data.music.recommend.MemoryRecommender
 import com.yichao.evilgodxu.data.music.trackIdentityKey
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.settings.settingsDataStore
@@ -86,8 +84,6 @@ class MusicPlaybackState(
         // 进度单调复位兜底：未触发切歌/拖动回调但位置大幅回退（如切换歌单重载同 ID 曲目）时视为重置；
         // 小幅回退仍按流媒体回锚处理，保持进度单调
         private const val MONO_REBASELINE_JUMP_MS = 3000L
-        // 跳过判定：已播放进度达到该百分比即视为正常欣赏，不计入逆向反馈
-        private const val SKIP_POSITION_PERCENT = 50L
         // 切歌预取内嵌封面前的稳定期：快速连点、在列表里来回挑歌时相邻两次切歌往往不足 2 秒，
         // 预取刚起步就被下一次切歌作废，白烧一次内嵌图读取与高清解码；等曲目稳定下来再取，
         // 快速切歌期间等于完全不预取。窗口取宽一些更稳健 —— 代价只是正常听歌时预热晚 2 秒开始
@@ -134,11 +130,6 @@ class MusicPlaybackState(
     // 避免界面、悬浮窗与授权扫描各自触发重复的读盘与解析
     private val restoreMutex = Mutex()
     private var restoreJob: Deferred<Unit>? = null
-    // 冷启动恢复（曲库、收藏、面板态）是否已了结：回忆模式的画像与候选池都取自恢复结果，
-    // 在它了结前排序只能得到空名次，故据此拦住入口。失败也算了结 —— 否则入口会被永久拦下。
-    // 作为 Compose 状态：入口的重排副作用以它为键，未了结时触发的那次会在了结后自动补跑
-    var isRestoreSettled by mutableStateOf(false)
-        private set
     var appContext: Context? = null
     var mediaController: MediaController? by mutableStateOf(null)
     var player: Player? by mutableStateOf(null)
@@ -151,15 +142,12 @@ class MusicPlaybackState(
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
             // 换曲（含单曲循环重播同一曲目）后上一曲的歌词进度不再适用
             invalidateLyricTimeline()
-            // 逆向反馈：用户主动切走推荐曲目即视为跳过，其特征计入黑名单并落盘。
-            // 须在更新 currentTrack 前判定：此处 currentTrack 仍是被切走的那一首
-            recordRecommendationSkip(mediaItem?.mediaId?.toLongOrNull(), reason)
             // 曲目自然播完即计一次完整播放，作为常听收录依据：
             // AUTO=自动续播/单曲结束切下一首；REPEAT=单曲循环重播当前曲目。
             // 手动切歌(SEEK)、列表变更(PLAYLIST_CHANGED)非自然结束，不计入。
             // 需在更新 currentTrack 前记录，此处 currentTrack 仍为刚播完的上一首。
             // 心动模式播的是 30–45 秒的副歌片段，不是一次完整播放：计入会把每首都刷成「听过的」，
-            // 既污染常听歌单，也毁掉回忆模式赖以判定「尘封」的累计计数
+            // 污染常听歌单
             if (playMode != PlayMode.Highlight &&
                 (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
                     reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)
@@ -503,26 +491,6 @@ class MusicPlaybackState(
     var lyricsRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
     var coverRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
 
-    // ===== 回忆模式 =====
-    // 本次展示的一页：由完整名次按页切出，翻页不重算
-    var memoryPageTracks by mutableStateOf<List<MusicTrack>>(emptyList())
-        private set
-    var isMemoryLoading by mutableStateOf(false)
-        private set
-    // 完整名次：进入时算一次，翻页只在它上面切窗口；重复进入会重排（反映最新的常听与计数）
-    private var memoryRanked by mutableStateOf<List<MemoryRecommender.Pick>>(emptyList())
-    private var memoryPageIndex = 0
-    private var memoryRankJob: Job? = null
-
-    /**
-     * 回忆模式是否已达启用门槛。
-     *
-     * 计数覆盖的曲目太少时，「从没听过」与「数据还没攒够」无从区分，强行启用会把用户
-     * 当下在听的歌也当成尘封曲推出来，故门槛未到时入口只作说明、不进入。
-     */
-    val isMemoryUnlocked: Boolean
-        get() = MemoryRecommender.isUnlocked(PlayCountStore.trackedCount, likedIds.size)
-
     // ===== 心动模式 =====
     // 连续跳过计数：整队列都无可定位副歌时防止回绕空转
     private var highlightSkipStreak = 0
@@ -828,11 +796,6 @@ class MusicPlaybackState(
         recentPlayEvents = listOf(PlayEvent(trackId, now)) +
             recentPlayEvents.filter { it.timestamp >= now - recentWindowMs }
         persistRecentPlayed()
-        // 累计计数与常听在同一时刻递增：两者都只由本函数写入，收录时机天然一致。
-        // 调用方已保证心动模式的片段播放不进入这里，故计数不会把「听了 40 秒」当成一次完整播放
-        appContext?.let { context ->
-            playbackScope.launch { PlayCountStore.increment(context, trackId) }
-        }
     }
 
     // 从常听手动移除：清除该曲目的播放记录，期间不再自动收录
@@ -1083,13 +1046,8 @@ class MusicPlaybackState(
         }
         // 冷启动预读上次曲目的落盘封面：驻留内存后首帧可同步取用，不阻塞本次恢复
         savedUri?.let { uri -> playbackScope.launch { CurrentCoverCache.load(context, uri) } }
-        // 累计播放次数在启动时载入：回忆模式的启用门槛与排名都读它，
-        // 等到进入入口时才载入会让门槛先按「零计数」判一次，把入口误判为未解锁
-        PlayCountStore.ensureLoaded(context)
         // 副歌片段表在启动时补齐：心动模式要在播放时零解析，就得先把全库算完落盘
         ensureHighlightScan(context)
-        // 曲库与收藏至此可见：回忆模式的排序据此放行
-        isRestoreSettled = true
     }
 
     // 冷启动未播放时预读当前曲目格式信息，供音频信息条展示；开始播放后由解码头覆盖
@@ -1669,8 +1627,6 @@ class MusicPlaybackState(
 
     // 切换指定曲目的收藏状态：仅就地更新收藏标记，不改变列表顺序。
     // 全量库备份须一并更新：面板浏览非播放队列的歌单时曲目取自备份，只改队列会让收藏图标不刷新。
-    // 收藏是回忆模式画像的补足来源，但**不在此处预排**：排序只在进入回忆模式时算一次，
-    // 收藏时提前算既没有展示位，也会白烧一轮全库歌词特征提取
     fun toggleFavorite(trackId: Long) {
         val newLiked = if (likedIds.contains(trackId)) likedIds - trackId else likedIds + trackId
         likedIds = newLiked
@@ -1975,150 +1931,23 @@ class MusicPlaybackState(
         invalidateLyricTimeline()
     }
 
-    // ===== 回忆模式 =====
-
-    // 曲目特征只用于跳过反馈（用户切走推荐曲目时对同类内容降权），随本次名次一并留存
-    private var memoryRecommendedFeatures: Map<Long, Set<String>> = emptyMap()
-
-    // 上次回收播放计数所依据的曲库签名：批量下载会逐首触发曲库变更，据此去重，不为每首各写一次盘
-    private var generatedLibrary: Set<Long> = emptySet()
-
-    /**
-     * 生成回忆模式的一页推荐。
-     *
-     * 与已归档的每日推荐最大的不同是整条链路离线：候选取自本地全库，画像取自本机常听与收藏，
-     * 没有候选池要联网刷新，也没有换期刻度 —— 每次进入重排一次，翻页只在本次名次上切窗口。
-     *
-     * 不在收藏/曲库变更时预热排序：那两条路径每次变动都重排一遍全库歌词特征，而结果只在进入
-     * 回忆模式时才有展示位，提前算纯属白烧。进入时算一次即可。
-     *
-     * @param force 手动刷新：重排一次并回到第一页
-     */
-    fun loadMemoryRecommendations(context: Context, force: Boolean = false) {
-        // 冷启动恢复完成前曲库与收藏尚为空，此时排出来的名次基于空输入，会被误当成有效结果
-        if (!isRestoreSettled) return
-        if (!force && (memoryRanked.isNotEmpty() || isMemoryLoading)) return
-        if (!isMemoryUnlocked) {
-            memoryRanked = emptyList()
-            memoryPageTracks = emptyList()
-            return
-        }
-        memoryRankJob?.cancel()
-        isMemoryLoading = true
-        memoryRankJob = playbackScope.launch {
-            try {
-                val ranked = try {
-                    MemoryRecommender.rank(
-                        context = context,
-                        library = libraryTracks,
-                        recentPlayedIds = recentPlayedIds,
-                        likedIds = likedIds,
-                        playCounts = PlayCountStore.counts,
-                    )
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    CrashLogManager.logException("MusicPlaybackState", "生成回忆推荐失败", e)
-                    emptyList()
-                }
-                memoryRanked = ranked
-                memoryRecommendedFeatures = ranked.associate { it.track.id to it.features }
-                memoryPageIndex = 0
-                memoryPageTracks = pageSlice(ranked, 0)
-            } finally {
-                // 取消路径同样复位：否则入口会一直显示进行中，后续生成也会因「已在载入」被跳开
-                isMemoryLoading = false
-            }
-        }
-    }
-
-    /** 翻到下一页；已到末页则绕回第一页，保证刷新始终有内容可展示 */
-    fun nextMemoryPage() {
-        if (memoryRanked.isEmpty()) return
-        val pageCount = (memoryRanked.size + MemoryRecommender.PAGE_SIZE - 1) / MemoryRecommender.PAGE_SIZE
-        memoryPageIndex = if (memoryPageIndex + 1 >= pageCount) 0 else memoryPageIndex + 1
-        memoryPageTracks = pageSlice(memoryRanked, memoryPageIndex)
-    }
-
-    /**
-     * 播放回忆模式当前页。
-     *
-     * 队列整段换成当前页的曲目并自首曲起播：回忆模式给出的是「想不起来但会喜欢」的一批歌，
-     * 逐首点选反而失去「让它替你翻箱底」的意味。
-     */
-    fun playMemoryQueue(context: Context) {
-        val tracks = memoryPageTracks
-        if (tracks.isEmpty()) return
-        // 名次本身就是队列顺序，不能走「按排序规则重排」那条路：那条路属于默认全量库，
-        // 会按用户的列表排序规则把推荐名次打散
-        if (playlistSource == null && defaultPlaylistBackup == null) {
-            defaultPlaylistBackup = playlist
-        }
-        playlist = tracks
-        playlistSource = null
-        currentIndex = 0
-        persistPlaylist()
-        playbackScope.launch { playTrackAt(context, this@MusicPlaybackState, 0) }
-    }
+    // 上次补扫副歌片段所依据的曲库签名：批量下载会逐首触发曲库变更，据此去重，不为每首各扫一遍
+    private var scannedLibrary: Set<Long> = emptySet()
 
     /**
      * 本地曲库变化（缓存 / 下载入库）后同步派生数据。
      *
-     * 曲目增删会改变回忆模式的候选池，并留下已无引用的播放计数，故作废本次名次并回收计数。
-     * 批量下载会逐首触发本方法，故以曲库签名去重。不在此处预排回忆结果。
+     * 新入库的歌还没有副歌片段，补一次扫描（只处理指纹过期的曲目）。
      */
     internal fun onLibraryChanged() {
-        if (librarySignature() == generatedLibrary) return
-        generatedLibrary = librarySignature()
-        memoryRanked = emptyList()
-        memoryPageTracks = emptyList()
+        if (librarySignature() == scannedLibrary) return
+        scannedLibrary = librarySignature()
         val context = appContext ?: return
-        playbackScope.launch {
-            PlayCountStore.prune(context, libraryTracks.mapTo(HashSet()) { it.id })
-        }
-        // 新入库的歌还没有片段，补一次扫描（只处理指纹过期的曲目）
         ensureHighlightScan(context)
     }
 
     /** 本地曲库的身份快照：曲目增删都会改变它 */
     private fun librarySignature(): Set<Long> = libraryTracks.mapTo(HashSet()) { it.id }
-
-    private fun pageSlice(ranked: List<MemoryRecommender.Pick>, page: Int): List<MusicTrack> {
-        val from = page * MemoryRecommender.PAGE_SIZE
-        if (from >= ranked.size) return emptyList()
-        return ranked.subList(from, minOf(from + MemoryRecommender.PAGE_SIZE, ranked.size)).map { it.track }
-    }
-
-
-    // ===== 黑名单 =====
-
-    // 拉黑曲目：黑名单与曲库解耦，曲目删除后条目依然保留，无需随曲库清理。
-    // 拉黑只写入黑名单算法，不改变该曲目在播放列表中的可见性与队列位置
-    fun blacklistTrack(context: Context, track: MusicTrack) {
-        playbackScope.launch { BlacklistStore.add(context, track) }
-    }
-
-    /**
-     * 逆向反馈：切歌即视为对回忆模式推荐结果不满意，把该曲目的概念特征计入黑名单
-     * （落盘，重启后仍生效）。
-     *
-     * 只对回忆模式推荐出的曲目计数，且要求未被听过大半 —— 自然播完、单曲循环、列表增删导致的
-     * 原地回调都不构成跳过信号，否则会把正常播放误判为负反馈。
-     */
-    private fun recordRecommendationSkip(nextMediaId: Long?, reason: Int) {
-        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
-            reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
-        ) {
-            return
-        }
-        val track = currentTrack ?: return
-        // 曲目未变（列表增删触发的回调）不算切歌
-        if (nextMediaId == track.id) return
-        if (duration > 0L && currentPosition * 100 >= duration * SKIP_POSITION_PERCENT) return
-        val features = memoryRecommendedFeatures[track.id] ?: return
-        val context = appContext ?: return
-        playbackScope.launch { BlacklistStore.recordSkip(context, features) }
-    }
 
     /**
      * 心动模式下曲目落定后的收尾：不可定位副歌的曲目直接跳过。

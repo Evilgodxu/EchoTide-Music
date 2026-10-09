@@ -64,16 +64,15 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 │       │   │   ├── music/               #   Music scanning / online sources / metadata / proxy source
 │       │   │   │   ├── api/             #     Search services, translation endpoint & HTTP client
 │       │   │   │   ├── analysis/        #     Lossless-format, audio info, word-level lyric alignment, FFT & full-track spectrogram, per-frame energy envelope
-│       │   │   │   ├── blacklist/       #     Blacklist store
 │       │   │   │   ├── clip/            #     Sharing, default ringtone / alarm installer, readable URIs, spectrum image export
 │       │   │   │   ├── download/        #     Online track download & cache
 │       │   │   │   ├── highlight/       #     Chorus (highlight) location (lyric structure + audio energy) & whole-library segment table (background scan + persist), drives chorus-only playback
 │       │   │   │   ├── metadata/        #     Cover management, metadata & lyric read/write (ranged streaming tag I/O), metadata cache, gallery image writes
 │       │   │   │   ├── model/           #     Track & search data models (platform key as identity)
 │       │   │   │   ├── panel/           #     Panel state holder, search logic & lyric alignment entry
-│       │   │   │   ├── playback/        #     Playback state, player helper, queue switch, playlist sorting, cumulative play counts & recent plays, chorus-segment loading, USB direct output & Do Not Disturb, per-device audio sink (incl. buffer policy), output-latency measurement, audio-info snapshot (incl. Bluetooth link & codec resolution)
+│       │   │   │   ├── playback/        #     Playback state, player helper, queue switch, playlist sorting, recent plays, chorus-segment loading, USB direct output & Do Not Disturb, per-device audio sink (incl. buffer policy), output-latency measurement, audio-info snapshot (incl. Bluetooth link & codec resolution)
 │       │   │   │   ├── proxy/           #     Proxy source (import / parse / engine / store) & custom-platform registry
-│       │   │   │   ├── recommend/       #     Memory mode (lyric features, TF-IDF, blacklist algorithm, MMR re-ranking)
+│       │   │   │   ├── recommend/       #     Lyric text cleanup shared with chorus location
 │       │   │   │   ├── MusicScanner.kt  #     MediaStore scanning & track enrichment
 │       │   │   │   └── PlaylistRefresher.kt  # Playlist refresh pipeline
 │       │   │   ├── playlist/            #   Playlist store (smart & custom) & grouping
@@ -90,7 +89,7 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 │       │   │   │   ├── compact/         #     Portrait assembly, player & player parts
 │       │   │   │   ├── expanded/        #     Landscape assembly, player & player parts
 │       │   │   │   └── component/       #     analysis / audioinfo / bar / dialog / panel / permission / player / playlist / queue / search / shell / swipe
-│       │   │   ├── settings/            #   Appearance / blacklist / cache / language / playback / proxy source / about
+│       │   │   ├── settings/            #   Appearance / cache / language / playback / proxy source / about
 │       │   │   ├── cache/               #   Storage / cache management
 │       │   │   ├── spectrum/            #   Spectrum analysis page (compact / expanded / component)
 │       │   │   ├── typography/          #   Lyric typography settings
@@ -134,8 +133,6 @@ Code shared by two or more features is promoted to the top level (`data/`, `them
 A few decisions shape the rest of the codebase:
 
 - **State that must outlive the UI tree is kept outside it** — the home panel state and the shared playback state holder survive recomposition and rotation, and the last playback state is mirrored to disk so a cold start already shows a complete first frame.
-
-- **Recommendation filters at the ranking stage, not per track** — a blacklisted song is skipped in the coarse ranking and its features are only down-weighted, so one block never collapses into per-track filtering.
 
 - **Analysis runs in a page-scoped session** — spectrum analysis decodes a whole track into a directly renderable time-frequency matrix off the main dispatcher, and the session is cancelled when the page is left; the page only views or exports the result.
 

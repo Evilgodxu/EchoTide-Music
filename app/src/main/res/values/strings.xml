@@ -72,11 +72,6 @@
     <string name="music_panel_search_source_qq">QQ</string>
     <string name="music_panel_search_source_kugou">酷狗</string>
     <string name="music_panel_search_source_kuwo">酷我</string>
-    <string name="music_panel_memory_mode_title">回忆模式</string>
-    <string name="music_panel_memory_mode_subtitle">替你翻出尘封的歌</string>
-    <string name="music_panel_memory_mode_loading">正在翻找…</string>
-    <string name="music_panel_memory_mode_refresh">换一批</string>
-    <string name="music_panel_memory_mode_poem">故曲沉沙久，\n蒙尘未可闻。\n待潮生浅岸，\n一一为君陈。</string>
     <string name="music_panel_highlight_exit_notice">歌单里没有可定位的高潮片段，已退出心动模式</string>
     <string name="music_panel_quality_title">选择音质</string>
     <string name="music_panel_quality_failed">该音质无法播放，请选择其它音质</string>
@@ -300,18 +295,6 @@
     <string name="settings_typography_title">排版</string>
     <string name="settings_typography_desc">歌词字号与显示行数</string>
 
-    <!-- 黑名单 -->
-    <string name="settings_section_blacklist">黑名单</string>
-    <string name="settings_blacklist_reset_title">重置黑名单</string>
-    <plurals name="settings_blacklist_reset_desc">
-        <item quantity="other">已拉黑 %1$d 首，重置后重新参与推荐</item>
-    </plurals>
-    <string name="settings_blacklist_reset_confirm_title">重置黑名单</string>
-    <string name="settings_blacklist_reset_confirm_message">重置后已拉黑的歌曲与跳过反馈累积的特征将重新参与推荐排序</string>
-    <string name="settings_blacklist_reset_confirm">重置</string>
-    <string name="settings_blacklist_reset_cancel">取消</string>
-    <string name="settings_blacklist_reset_done">黑名单已重置</string>
-
     <!-- 播放列表滑动操作 -->
     <string name="playlist_advanced_menu_title">高级菜单</string>
     <string name="playlist_advanced_menu_share">分享音乐</string>
@@ -446,12 +429,8 @@
     <string name="playlist_remove_track_title">从歌单移除这首歌曲？</string>
     <string name="playlist_remove_track_message">将移除歌曲「%1$s · %2$s」</string>
     <string name="playlist_remove_track_confirm">移除</string>
-    <string name="playlist_blacklist_title">是否拉黑这首歌曲？</string>
-    <string name="playlist_blacklist_message">将拉黑歌曲「%1$s · %2$s」，之后不再参与每日推荐</string>
-    <string name="playlist_blacklist_delete_option">拉黑并删除</string>
-    <string name="playlist_blacklist_delete_hint">音频文件与本地歌词将永久删除，无法恢复</string>
-    <string name="playlist_blacklist_confirm">拉黑</string>
-    <string name="playlist_blacklist_delete_confirm">拉黑并删除</string>
+    <string name="playlist_membership_title">加入歌单</string>
+    <string name="playlist_membership_empty">暂无歌单，请先在歌单页新建</string>
     <string name="playlist_picker_title">添加歌曲到「%1$s」</string>
     <string name="playlist_picker_select_all">全选</string>
     <string name="playlist_picker_select_none">取消全选</string>
