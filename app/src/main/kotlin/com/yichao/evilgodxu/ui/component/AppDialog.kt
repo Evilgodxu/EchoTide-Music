@@ -41,7 +41,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
 // 非列表对话框内容区的最大高度：超出后在卡片内滚动，避免长内容把对话框撑满屏幕
-private val DIALOG_CONTENT_MAX_HEIGHT = 240.dp
+private val DIALOG_CONTENT_MAX_HEIGHT = 320.dp
 // 列表类对话框内容区占屏幕高度的比例：列表过长时在该高度内滚动，保证对话框高度上限稳定
 internal const val DIALOG_LIST_HEIGHT_FRACTION = 0.36f
 // 标题栏高度与图标按钮尺寸：保证带按钮时标题区依然紧凑，不产生额外留白

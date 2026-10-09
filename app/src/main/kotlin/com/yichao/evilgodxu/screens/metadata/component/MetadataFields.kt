@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -14,13 +16,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.screens.metadata.MetadataEditTarget
+import com.yichao.evilgodxu.ui.icons.AppIcons
 
 // 原文与翻译的字号层级：翻译行更小，从视觉上从属于原文行
 private val LYRIC_ORIGINAL_FONT_SIZE = 15.sp
@@ -28,6 +30,9 @@ private val LYRIC_TRANSLATION_FONT_SIZE = 13.sp
 
 // 全文编辑框的字号：整篇文本较长，取行内字号略小以便一屏容纳更多行
 private val LYRIC_WHOLE_FONT_SIZE = 13.sp
+
+// 模式切换图标：与头部 12sp 的行数概览同一视觉量级，不撑高头部
+private val LYRIC_MODE_TOGGLE_ICON_SIZE = 20.dp
 
 // 单行原文编辑框的最大行数：整行增强 LRC(含逐字标签)较长，允许折行以便完整核对
 private const val LYRIC_RAW_MAX_LINES = 4
@@ -169,16 +174,17 @@ private fun LyricsHeader(
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(
-            text = stringResource(
-                if (wholeMode) R.string.metadata_lyrics_line_edit else R.string.metadata_lyrics_whole_edit
+        // 切换按钮用图标标识当前模式：逐行编辑是逐条改字，全文编辑是整篇列表核对
+        Icon(
+            imageVector = if (wholeMode) AppIcons.ChecklistRtl else AppIcons.EditNote,
+            contentDescription = stringResource(
+                if (wholeMode) R.string.metadata_lyrics_whole_edit else R.string.metadata_lyrics_line_edit
             ),
-            color = MaterialTheme.colorScheme.primary,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
+            tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier
                 .clickable(enabled = enabled, onClick = onToggle)
-                .padding(horizontal = 6.dp, vertical = 2.dp),
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+                .size(LYRIC_MODE_TOGGLE_ICON_SIZE),
         )
     }
 }
