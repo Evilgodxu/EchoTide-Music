@@ -657,6 +657,7 @@ internal fun PlaylistSheet(
         )
         TrackPlaylistDialog(
             track = playlistTarget,
+            libraryTracks = library,
             onDismiss = { playlistTarget = null },
         )
         TrackAdvancedMenuDialog(

@@ -289,11 +289,15 @@ private fun SwitchRow(
                 )
             }
         }
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center,
+        ) {
             Text(
                 text = title,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 12.sp,
+                lineHeight = 15.sp,
                 fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -303,6 +307,7 @@ private fun SwitchRow(
                     text = subtitle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 10.sp,
+                    lineHeight = 12.sp,
                 )
             }
         }

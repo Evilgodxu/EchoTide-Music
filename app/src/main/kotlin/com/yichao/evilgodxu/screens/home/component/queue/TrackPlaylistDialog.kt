@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -16,6 +17,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
@@ -31,6 +33,7 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.AppDialog
 import com.yichao.evilgodxu.ui.component.DIALOG_LIST_HEIGHT_FRACTION
+import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
 /**
@@ -42,12 +45,15 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 @Composable
 internal fun TrackPlaylistDialog(
     track: MusicTrack?,
+    libraryTracks: List<MusicTrack>,
     onDismiss: () -> Unit,
 ) {
     if (track == null) return
     val context = LocalContext.current
     val playlistStore = LocalPlaylistStore.current
     val playlists = playlistStore.playlists
+    // 行内取封面按 id 查表，避免每行线性扫描全库
+    val libraryById = remember(libraryTracks) { libraryTracks.associateBy { it.id } }
     AppDialog(
         onDismiss = onDismiss,
         title = stringResource(R.string.playlist_membership_title),
@@ -91,6 +97,7 @@ internal fun TrackPlaylistDialog(
                         name = playlist.name,
                         count = playlist.trackIds.size,
                         isMember = isMember,
+                        coverTrack = playlist.trackIds.firstOrNull()?.let { libraryById[it] },
                         onClick = {
                             if (isMember) {
                                 playlistStore.removeTracks(context, playlist.id, listOf(track.id))
@@ -105,12 +112,13 @@ internal fun TrackPlaylistDialog(
     }
 }
 
-// 歌单归属行：名称 + 曲目数 + 归属状态图标；勾选态用主色，未勾选用浅色加号提示可加入
+// 歌单归属行：首曲封面 + 名称 + 曲目数 + 归属状态图标；勾选态用主色，未勾选用浅色加号提示可加入
 @Composable
 private fun PlaylistMembershipRow(
     name: String,
     count: Int,
     isMember: Boolean,
+    coverTrack: MusicTrack?,
     onClick: () -> Unit,
 ) {
     Row(
@@ -129,18 +137,26 @@ private fun PlaylistMembershipRow(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = AppIcons.QueueMusic,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp),
-            )
+            if (coverTrack != null) {
+                PlaylistArt(track = coverTrack, modifier = Modifier.fillMaxSize())
+            } else {
+                Icon(
+                    imageVector = AppIcons.QueueMusic,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center,
+        ) {
             Text(
                 text = name,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 12.sp,
+                lineHeight = 15.sp,
                 fontWeight = if (isMember) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -149,6 +165,7 @@ private fun PlaylistMembershipRow(
                 text = pluralStringResource(R.plurals.music_panel_track_count, count, count),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 10.sp,
+                lineHeight = 12.sp,
             )
         }
         Icon(

@@ -17,16 +17,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -304,7 +303,7 @@ internal fun AddSongsPicker(
                 .fillMaxWidth()
                 .fillMaxHeight(0.425f)
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(20.dp))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -319,11 +318,19 @@ internal fun AddSongsPicker(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = onDismiss) {
+                // 用紧凑点击区替代 Material 图标按钮：其固定 48dp 触控高度会把标题行撑高，在标题上下留下大片留白
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onDismiss),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Icon(
                         imageVector = AppIcons.Close,
                         contentDescription = stringResource(R.string.back),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
                     )
                 }
             }
@@ -423,12 +430,11 @@ internal fun AddSongsPicker(
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 2.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text(
                             text = pluralStringResource(
@@ -440,32 +446,21 @@ internal fun AddSongsPicker(
                             fontSize = 12.sp,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(
+                        // 用紧凑点击区替代 Material 文字按钮：其固定 48dp 触控高度会把底栏撑得过高
+                        PickerAction(
+                            text = stringResource(
+                                if (allSelected) R.string.playlist_picker_select_none else R.string.playlist_picker_select_all
+                            ),
+                            enabled = true,
                             onClick = {
                                 selected = if (allSelected) emptySet() else filtered.map { it.id }.toSet()
                             },
-                        ) {
-                            Text(
-                                text = stringResource(
-                                    if (allSelected) R.string.playlist_picker_select_none else R.string.playlist_picker_select_all
-                                ),
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Medium,
-                            )
-                        }
-                        TextButton(
-                            onClick = {
-                                onConfirm(selected.toList())
-                            },
+                        )
+                        PickerAction(
+                            text = stringResource(R.string.playlist_picker_add, selected.size),
                             enabled = selected.isNotEmpty(),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.playlist_picker_add, selected.size),
-                                color = if (selected.isNotEmpty()) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = FontWeight.Medium,
-                            )
-                        }
+                            onClick = { onConfirm(selected.toList()) },
+                        )
                     }
                 }
             }
@@ -473,7 +468,31 @@ internal fun AddSongsPicker(
     }
 }
 
-// 选曲行：封面 + 标题/艺术家 + 勾选框，几何与排版对齐歌单列表行
+// 选曲弹窗底栏的紧凑文字操作：无固定触控高度，按文案 + 内边距撑开，避免 Material 文字按钮把底栏撑高
+@Composable
+private fun PickerAction(
+    text: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = if (enabled) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+// 选曲行：封面 + 标题/艺术家 + 选中标识，几何与排版对齐歌单列表行
 @Composable
 private fun SelectableTrackRow(
     track: MusicTrack,
@@ -495,11 +514,15 @@ private fun SelectableTrackRow(
                 .size(28.dp)
                 .clip(RoundedCornerShape(6.dp)),
         )
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center,
+        ) {
             Text(
                 text = track.title,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 12.sp,
+                lineHeight = 15.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -507,13 +530,25 @@ private fun SelectableTrackRow(
                 text = track.artist,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 10.sp,
+                lineHeight = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Checkbox(
-            checked = checked,
-            onCheckedChange = onToggle,
-        )
+        // 选中态用主色对勾，与加入歌单行的归属标识一致；未选中留出等宽占位，
+        // 避免勾选切换时标题的可排版宽度变化导致文本跳动
+        Box(
+            modifier = Modifier.size(20.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (checked) {
+                Icon(
+                    imageVector = AppIcons.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
     }
 }
