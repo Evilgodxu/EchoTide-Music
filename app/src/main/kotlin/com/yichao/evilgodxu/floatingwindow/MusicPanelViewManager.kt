@@ -144,9 +144,9 @@ class MusicPanelViewManager(
         fun performRestore() = controller.performRestore(null)
     }
 
-    // 显示音乐面板悬浮窗
+    // 显示音乐面板悬浮窗；showPlaylist 为真时面板直接落在播放列表上
     @SuppressLint("ClickableViewAccessibility")
-    fun show() {
+    fun show(showPlaylist: Boolean = false) {
         if (composeView != null) return
 
         val flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
@@ -176,7 +176,8 @@ class MusicPanelViewManager(
                     MusicPanelOverlay(
                         playbackState = playbackState,
                         onScan = { requestScan() },
-                        onDismiss = { dismiss() }
+                        onDismiss = { dismiss() },
+                        initialShowPlaylist = showPlaylist,
                     )
                 }
             }

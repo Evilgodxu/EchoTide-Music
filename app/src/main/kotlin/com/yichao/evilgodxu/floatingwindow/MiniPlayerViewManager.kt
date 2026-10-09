@@ -1,22 +1,14 @@
 package com.yichao.evilgodxu.floatingwindow
 
 import android.annotation.SuppressLint
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.content.res.Configuration
 import android.graphics.PixelFormat
-import android.os.Handler
-import android.os.Looper
 import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.view.Gravity
-import android.view.KeyEvent
-import android.view.MotionEvent
 import android.view.WindowInsets
 import android.view.WindowManager
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -44,11 +36,12 @@ import com.yichao.evilgodxu.floatingwindow.miniplayer.MiniPlayerOverlay
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-// 迷你播放器浮动窗管理器：状态栏下方的紧凑播放条，支持展开完整面板与下拉播放列表
+// 迷你播放器浮动窗管理器：状态栏下方的紧凑播放条，支持展开完整音乐面板与下滑隐藏
 class MiniPlayerViewManager(
     private val context: Context,
     private val stateHolder: MusicPanelStateHolder,
     private val onExpandPanel: () -> Unit,
+    private val onOpenPlaylist: () -> Unit,
     private val onSwipedDismiss: () -> Unit,
 ) {
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -56,19 +49,8 @@ class MiniPlayerViewManager(
     private var isDismissing = false
     private val playbackState: MusicPlaybackState get() = stateHolder.state
 
-    // 播放列表展开状态（Compose 状态 + 窗口布局共用）
-    private val playlistExpanded = mutableStateOf(false)
-    // 视觉展开状态：收起动画播放期间保持展开内容与全屏窗口，动画结束才恢复紧凑
-    private val visualExpanded = mutableStateOf(false)
+    // 顶部偏移基准。迷你条窗口始终只有紧凑条一种尺寸，此处仅随状态栏高度变化校正纵向位置
     private var statusBarHeight = currentTopInset()
-
-    private val mainHandler = Handler(Looper.getMainLooper())
-
-    private val screenOffReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == Intent.ACTION_SCREEN_OFF) collapsePlaylist()
-        }
-    }
 
     val isShowing: Boolean get() = composeView != null
 
@@ -95,16 +77,14 @@ class MiniPlayerViewManager(
         fun performRestore() = controller.performRestore(null)
     }
 
-    @SuppressLint("ClickableViewAccessibility", "InflateParams")
+    @SuppressLint("InflateParams")
     fun show() {
         if (composeView != null) return
         statusBarHeight = currentTopInset()
-        playlistExpanded.value = false
 
         val barH = barHeightPx()
         val flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
 
         val params = WindowManager.LayoutParams(
@@ -128,11 +108,7 @@ class MiniPlayerViewManager(
                         playbackState = playbackState,
                         barHeightPx = barH,
                         barWidthPx = barWidthPx(),
-                        playlistExpanded = playlistExpanded.value,
-                        visualExpanded = visualExpanded.value,
-                        onPlaylistExpandedChange = { expanded -> setPlaylistExpanded(expanded) },
-                        onLayoutChanged = { applyWindowLayout() },
-                        onCollapseAnimationEnd = { finalizeCollapse() },
+                        onOpenPlaylist = onOpenPlaylist,
                         onExpandPanel = onExpandPanel,
                         onSwipeDismiss = { temporaryDismiss() }
                     )
@@ -156,22 +132,6 @@ class MiniPlayerViewManager(
             ViewCompat.dispatchApplyWindowInsets(v, insets)
         }
 
-        // 点击迷你播放器窗口以外的区域：收起播放列表
-        view.setOnTouchListener { _, event ->
-            if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
-                collapsePlaylist()
-                true
-            } else false
-        }
-        // 系统返回键：收起播放列表
-        view.setOnKeyListener { _, keyCode, event ->
-            if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
-                collapsePlaylist()
-                true
-            } else false
-        }
-        view.isFocusableInTouchMode = true
-
         composeView = view
         try {
             windowManager.addView(view, params)
@@ -193,71 +153,14 @@ class MiniPlayerViewManager(
             .setDuration(260)
             .setInterpolator(DecelerateInterpolator())
             .start()
-
-        context.registerReceiver(
-            screenOffReceiver,
-            IntentFilter(Intent.ACTION_SCREEN_OFF),
-            Context.RECEIVER_NOT_EXPORTED
-        )
     }
 
-    private fun setPlaylistExpanded(expanded: Boolean) {
-        if (playlistExpanded.value == expanded) return
-        playlistExpanded.value = expanded
-        // 展开/收起时切换窗口焦点：展开移除 NOT_FOCUSABLE，使系统返回键可收起列表
-        val view = composeView
-        val params = view?.layoutParams as? WindowManager.LayoutParams
-        if (params != null) {
-            params.flags = if (expanded) {
-                params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
-            } else {
-                params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            }
-            // params 非空即 view 非空（params 由 view.layoutParams 派生），此处无需再断言
-            runCatching { windowManager.updateViewLayout(view, params) }
-        }
-        if (expanded) {
-            // 展开：视觉状态同步切换并立即铺满窗口，卡片缩放动画由 Compose 侧播放
-            visualExpanded.value = true
-            view?.let {
-                it.isFocusableInTouchMode = true
-                it.requestFocus()
-            }
-            applyWindowLayout()
-        }
-        // 收起：保留展开内容与全屏窗口以播放反向缩放动画，动画结束后由 finalizeCollapse 恢复紧凑
-    }
-
-    // 收起反向动画结束：切换到紧凑视觉状态并恢复窗口尺寸
-    private fun finalizeCollapse() {
-        visualExpanded.value = false
-        applyWindowLayout()
-    }
-
-    private fun collapsePlaylist() {
-        if (!playlistExpanded.value) return
-        setPlaylistExpanded(false)
-    }
-
-    // 设置窗口尺寸与位置：视觉展开时铺满屏幕，收起后恢复紧凑条（不做逐帧动画，避免卡顿）
+    // 校正窗口纵向位置：状态栏高度变化时重新贴到状态栏下方
     private fun applyWindowLayout() {
         val view = composeView ?: return
         val params = view.layoutParams as? WindowManager.LayoutParams ?: return
-        val targetWidth: Int
-        val targetHeight: Int
-        val targetY: Int
-        if (visualExpanded.value) {
-            targetWidth = WindowManager.LayoutParams.MATCH_PARENT
-            targetHeight = WindowManager.LayoutParams.MATCH_PARENT
-            targetY = 0
-        } else {
-            targetWidth = barWidthPx()
-            targetHeight = barHeightPx()
-            targetY = topOffsetPx()
-        }
-        if (targetWidth != params.width || targetHeight != params.height || targetY != params.y) {
-            params.width = targetWidth
-            params.height = targetHeight
+        val targetY = topOffsetPx()
+        if (targetY != params.y) {
             params.y = targetY
             runCatching { windowManager.updateViewLayout(view, params) }
         }
@@ -318,13 +221,6 @@ class MiniPlayerViewManager(
                 } catch (e: Exception) {
                     CrashLogManager.logException("MiniPlayerViewManager", "移除迷你播放器失败", e)
                 }
-                mainHandler.post {
-                    try {
-                        context.unregisterReceiver(screenOffReceiver)
-                    } catch (e: Exception) {
-                        CrashLogManager.logException("MiniPlayerViewManager", "注销熄屏监听失败", e)
-                    }
-                }
                 composeView = null
                 isDismissing = false
                 if (notifySwiped) onSwipedDismiss()
@@ -337,6 +233,5 @@ class MiniPlayerViewManager(
         private const val BAR_HEIGHT_DP = 32
         // 横屏时顶部保留的间距
         private const val LANDSCAPE_TOP_GAP_DP = 1
-        const val MAX_VISIBLE_ROWS = 5
     }
 }

@@ -68,6 +68,14 @@ class MusicPanelController(
         showPanelInternal()
     }
 
+    // 展开完整音乐面板并直接展示面板内的播放列表：迷你播放器的播放列表入口走这条路径，
+    // 与「点封面展开面板」共用同一次隐藏迷你播放器与打开面板的流程
+    fun openPlaylistPanel() {
+        // 面板已显示时不再重复打开：迷你播放器与面板不会同时存在，此处仅作兜底
+        if (panelManager?.hasWindow == true) return
+        showPanelInternal(showPlaylist = true)
+    }
+
     // 从外部打开/分享的音频 URI 后台播放：不展示全屏面板，经迷你播放器播放并保持后台运行
     fun playExternalInBackground(uri: android.net.Uri) {
         val manager = panelManager ?: MusicPanelViewManager(
@@ -87,7 +95,7 @@ class MusicPanelController(
         }
     }
 
-    private fun showPanelInternal() {
+    private fun showPanelInternal(showPlaylist: Boolean = false) {
         dismissMiniPlayer()
         miniPlayerTemporarilyHidden = false
 
@@ -102,7 +110,8 @@ class MusicPanelController(
                     maybeShowMiniPlayer()
                 }
             ).also { panelManager = it }
-            manager.show()
+            // 待授权往返的入口同样携带该意图：授权完成后展开的面板直接落在播放列表上
+            manager.show(showPlaylist = showPlaylist)
             val pendingUri = pendingExternalPlayUri
             if (pendingUri != null) {
                 pendingExternalPlayUri = null
@@ -136,6 +145,7 @@ class MusicPanelController(
             context = context,
             stateHolder = stateHolder,
             onExpandPanel = { openMusicPanel() },
+            onOpenPlaylist = { openPlaylistPanel() },
             onSwipedDismiss = {
                 miniPlayerTemporarilyHidden = true
                 miniPlayerManager = null

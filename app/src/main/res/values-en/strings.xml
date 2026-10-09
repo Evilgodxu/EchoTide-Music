@@ -272,7 +272,6 @@
     <string name="mini_player_previous">Previous</string>
     <string name="mini_player_next">Next</string>
     <string name="mini_player_playlist">Playlist</string>
-    <string name="mini_player_playlist_title">Playlist</string>
 
     <!-- Home player -->
     <string name="home_player_play">Play</string>

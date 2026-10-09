@@ -100,6 +100,8 @@ fun MusicPanelOverlay(
     playbackState: MusicPlaybackState,
     onScan: () -> Unit,
     onDismiss: () -> Unit,
+    // 面板打开时是否直接落在播放列表上：迷你播放器的播放列表入口以此为展开意图
+    initialShowPlaylist: Boolean = false,
 ) {
     val context = LocalContext.current
     val metadataEnricher = LocalMetadataEnricher.current
@@ -131,7 +133,7 @@ fun MusicPanelOverlay(
     val coverSavedMessage = stringResource(R.string.music_panel_save_cover_success)
     val coverNoEmbeddedMessage = stringResource(R.string.music_panel_save_cover_no_embedded)
 
-    var showPlaylist by remember { mutableStateOf(false) }
+    var showPlaylist by remember { mutableStateOf(initialShowPlaylist) }
     var showTimer by remember { mutableStateOf(false) }
     // 播放模式选择展开态：展开时控制栏让位给四种播放模式。点击面板其他区域由下方根点击兜底收起
     var playModeSelectorExpanded by remember { mutableStateOf(false) }

@@ -81,8 +81,7 @@ import kotlinx.coroutines.launch
 internal fun MiniPlayerBar(
     playbackState: MusicPlaybackState,
     barHeight: Dp,
-    playlistExpanded: Boolean,
-    onPlaylistExpandedChange: (Boolean) -> Unit,
+    onOpenPlaylist: () -> Unit,
     onExpandPanel: () -> Unit,
     swipeTrackThreshold: Float,
     onSwipeOffsetChange: (Float) -> Unit,
@@ -107,9 +106,9 @@ internal fun MiniPlayerBar(
         controlsVisible = true
         interactionTick++
     }
-    LaunchedEffect(interactionTick, playlistExpanded, playModeSelectorExpanded) {
+    LaunchedEffect(interactionTick, playModeSelectorExpanded) {
         // 选择展开期间不自动隐藏：否则控件连同展开态一起被收起，选择过程被打断
-        if (playlistExpanded || playModeSelectorExpanded) {
+        if (playModeSelectorExpanded) {
             controlsVisible = true
             return@LaunchedEffect
         }
@@ -184,7 +183,7 @@ internal fun MiniPlayerBar(
             .height(barHeight)
             // 手势按首个越过触摸阈值的轴向锁定：横滑切歌与下滑隐藏互斥，斜滑不会同时触发；
             // 仅未越过阈值的轻点还原控制栏，滑动切歌/下滑隐藏属于滑动手势，不触发控制栏显隐
-            .pointerInput(playlistExpanded) {
+            .pointerInput(Unit) {
                 var totalDx = 0f
                 var totalDy = 0f
                 awaitEachGesture {
@@ -197,7 +196,7 @@ internal fun MiniPlayerBar(
                     }
                     if (drag == null) {
                         // 未越过触摸阈值（含点击控制按钮被消费）：视为轻点，还原控制栏并顺延自动隐藏计时
-                        if (!playlistExpanded) resetAutoHide()
+                        resetAutoHide()
                         return@awaitEachGesture
                     }
                     drag.consume()
@@ -220,7 +219,7 @@ internal fun MiniPlayerBar(
                             break
                         }
                     }
-                    if (gestureEnded && !playlistExpanded) {
+                    if (gestureEnded) {
                         when (axis) {
                             // 水平：右滑上一曲、左滑下一曲；直接切歌，无需滑出动画
                             1 -> if (kotlin.math.abs(totalDx) >= swipeTrackThreshold) {
@@ -334,11 +333,12 @@ internal fun MiniPlayerBar(
                         }
                     }
                 )
-                // 播放列表
+                // 播放列表：直接展开完整音乐面板并落在其播放列表上，
+                // 与点封面展开面板共用「隐藏迷你播放器后再打开面板」的同一路径
                 MiniControlButton(
                     icon = AppIcons.QueueMusic,
                     contentDescription = stringResource(R.string.mini_player_playlist),
-                    onClick = { onPlaylistExpandedChange(!playlistExpanded) }
+                    onClick = onOpenPlaylist
                 )
             }
         } else {
