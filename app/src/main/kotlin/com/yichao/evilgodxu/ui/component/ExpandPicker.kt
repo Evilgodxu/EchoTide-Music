@@ -27,9 +27,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
@@ -51,8 +52,8 @@ enum class ExpandDirection { Up, Down, Right }
 /**
  * 展开式选择器：点击、沿展开方向滑动展开，反向滑动收起，点击其他区域自动收回。
  *
- * 触发区域由 [trigger] 槽位承载，其大小决定触控热区；展开后菜单自触发一侧缩放展开，
- * 选项按顺序逐项浮现，收起时逐项隐去。选项内容由 [itemContent] 注入，选中态（背景高亮）
+ * 触发区域由 [trigger] 槽位承载，其大小决定触控热区；展开后菜单自触发一侧向外长出，
+ * 选项自锚点侧起逐项浮现，收起时逐项隐去。选项内容由 [itemContent] 注入，选中态（背景高亮）
  * 由本组件统一处理，前景配色由注入内容按 selected 自行决定。跨页面复用，故上提至 ui/component/。
  *
  * [horizontalAlignment] 在 [ExpandDirection.Up] / [ExpandDirection.Down] 下控制菜单相对触发区域
@@ -142,16 +143,17 @@ fun <T> ExpandPicker(
 }
 
 /**
- * 菜单主体：容器整体缩放并淡入淡出，内部选项按「距锚点远近」逐项浮现/隐去。
+ * 菜单主体：容器自锚点一侧向外裁切展开/收起，内部选项按「距锚点远近」逐项浮现/隐去。
  *
- * 容器与选项共用同一条进度时间轴（[progress]，0 收起 / 1 展开）：选项的浮现窗口映射在进度轴上，
- * 容器展开到该项所在位置时它即开始浮现，收起时又随进度回落逐项隐去，二者天然同步，
- * 不会出现等容器完全展开后内容才弹出、或容器收完内容还残留的脱节。
+ * 容器与选项共用同一条进度时间轴（[progress]，0 收起 / 1 展开）：容器的可见区域随进度自锚点一侧长出，
+ * 选项的浮现窗口也映射在同一进度轴上——容器展开到该项所在位置时它开始浮现，收起时随进度回落逐项隐去，
+ * 二者因此天然同步，不会出现等容器完全展开后内容才弹出、或容器收完内容还残留的脱节。
  *
- * 选项始终参与组合与布局，仅以 [graphicsLayer] 调整透明度，容器尺寸在动画期间恒定——
- * 弹窗定位依赖内容尺寸，若动画改变尺寸会导致定位逐帧重算（抖动/闪烁的来源），
- * 且项不再因显隐进出组合树，容器也就不会在末尾露出空框。展开与收起由 [visibleState] 的过渡驱动：
- * 它由动画库创建，首次组合即为 current=false、target=true，因此不会出现「首帧已是展开态故不播动画」。
+ * 展开由裁切而非整体缩放完成：缩放只是把整块内容缩小，视觉上像「瞬间出现后再微调」；裁切则让容器
+ * 真正从锚点一侧往外生长，边缘推到哪一项，哪一项就露出来。裁切在绘制层进行，容器布局尺寸在动画期间恒定——
+ * 弹窗定位依赖内容尺寸，若改变尺寸会导致定位逐帧重算（抖动/闪烁的来源），且项始终参与组合与布局，
+ * 不会在末尾露出空框。展开与收起由 [visibleState] 的过渡驱动：它由动画库创建，首次组合即为
+ * current=false、target=true，因此不会出现「首帧已是展开态故不播动画」。
  */
 @Composable
 private fun <T> ExpandMenuContent(
@@ -173,27 +175,41 @@ private fun <T> ExpandMenuContent(
         transitionSpec = { tween(MENU_REVEAL_MS) },
         label = "revealProgress",
     ) { expanded -> if (expanded) 1f else 0f }
-    // 容器：自锚点一侧缩放展开，并在展开初期快速显形
-    val containerScale = CONTAINER_CLOSED_SCALE + (1f - CONTAINER_CLOSED_SCALE) * progress
+    // 容器不透明度：仅在展开初期快速显形，用于柔化裁切前沿；实际展开由裁切驱动
     val containerAlpha = (progress / CONTAINER_FADE_PROGRESS).coerceIn(0f, 1f)
-    // 缩放原点落在触发区域一侧，使菜单自触发处向外展开
-    val transformOrigin = when (direction) {
-        ExpandDirection.Up -> TransformOrigin(0.5f, 1f)
-        ExpandDirection.Down -> TransformOrigin(0.5f, 0f)
-        ExpandDirection.Right -> TransformOrigin(0f, 0.5f)
-    }
 
     // header 占第一个呈现位，其后选项顺延
     val headerCount = if (header != null) 1 else 0
     val itemCount = options.size + headerCount
 
     Surface(
-        modifier = Modifier.graphicsLayer {
-            scaleX = containerScale
-            scaleY = containerScale
-            alpha = containerAlpha
-            this.transformOrigin = transformOrigin
-        },
+        modifier = Modifier
+            .graphicsLayer { alpha = containerAlpha }
+            .drawWithContent {
+                // 自锚点一侧向外裁切出可见区域：展开时边缘持续推进，边缘越过的项随之露出；收起时反向收回
+                when (direction) {
+                    ExpandDirection.Up -> clipRect(
+                        left = 0f,
+                        top = size.height * (1f - progress),
+                        right = size.width,
+                        bottom = size.height,
+                    ) { this@drawWithContent.drawContent() }
+
+                    ExpandDirection.Down -> clipRect(
+                        left = 0f,
+                        top = 0f,
+                        right = size.width,
+                        bottom = size.height * progress,
+                    ) { this@drawWithContent.drawContent() }
+
+                    ExpandDirection.Right -> clipRect(
+                        left = 0f,
+                        top = 0f,
+                        right = size.width * progress,
+                        bottom = size.height,
+                    ) { this@drawWithContent.drawContent() }
+                }
+            },
         shape = containerShape,
         color = containerColor,
         shadowElevation = MENU_SHADOW_ELEVATION,
@@ -407,14 +423,12 @@ private suspend fun PointerInputScope.detectSwipe(
 
 // 容器展开/收起总时长：容器与选项的浮现/隐去共用此时间轴
 private const val MENU_REVEAL_MS = 220
-// 容器不透明度到达 1 所需的进度比例：容器先快速显形，随后继续完成缩放展开
+// 容器不透明度到达 1 所需的进度比例：容器先快速显形以柔化裁切前沿，随后裁切继续推进完成展开
 private const val CONTAINER_FADE_PROGRESS = 0.3f
 // 首项开始浮现前容器的展开进度：先让容器露出，再逐项带出内容
 private const val ITEM_REVEAL_LEAD_IN = 0.12f
 // 单项浮现占用的进度窗口：末项据此收束在进度 1，与容器完全展开同步
 private const val ITEM_REVEAL_SPAN = 0.3f
-// 收起态容器缩放：自锚点一侧略小，展开时放大到 1
-private const val CONTAINER_CLOSED_SCALE = 0.85f
 // 菜单容器阴影
 private val MENU_SHADOW_ELEVATION = 8.dp
 // 菜单容器内边距
