@@ -216,7 +216,6 @@ private fun <T> ExpandMenuContent(
             },
         shape = containerShape,
         color = containerColor,
-        shadowElevation = MENU_SHADOW_ELEVATION,
     ) {
         Column(
             modifier = Modifier
@@ -437,8 +436,6 @@ private const val CONTAINER_FADE_PROGRESS = 0.3f
 private const val ITEM_REVEAL_LEAD_IN = 0.12f
 // 单项浮现占用的进度窗口：末项据此收束在进度 1，与容器完全展开同步
 private const val ITEM_REVEAL_SPAN = 0.3f
-// 菜单容器阴影
-private val MENU_SHADOW_ELEVATION = 8.dp
 // 菜单容器内边距
 private val MENU_PADDING = 4.dp
 // 菜单与触发区域的间隔

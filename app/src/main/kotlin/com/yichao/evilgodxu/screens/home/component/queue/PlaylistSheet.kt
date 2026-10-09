@@ -46,6 +46,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -305,14 +306,30 @@ internal fun PlaylistSheet(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.Center,
                                 ) {
-                                    Text(
-                                        text = stringResource(
-                                            if (playbackState.playlistSortDescending) R.string.music_panel_sort_descending
-                                            else R.string.music_panel_sort_ascending
-                                        ),
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontSize = 13.sp,
-                                    )
+                                    // 排序方向取 sync_alt 旋转 90° 后的上下双向箭头：单向上/下箭头易被读作页面导航而非排序。
+                                    // 整套轮廓压暗、仅高亮当前方向的一支（原左向笔画旋转后朝上，原右向笔画旋转后朝下）
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .rotate(90f),
+                                    ) {
+                                        Icon(
+                                            imageVector = AppIcons.SyncAlt,
+                                            contentDescription = stringResource(
+                                                if (playbackState.playlistSortDescending) R.string.music_panel_sort_descending
+                                                else R.string.music_panel_sort_ascending
+                                            ),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                        Icon(
+                                            imageVector = if (playbackState.playlistSortDescending) AppIcons.SyncAltArrowRight
+                                            else AppIcons.SyncAltArrowLeft,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
                                 }
                             },
                             trigger = {
