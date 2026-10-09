@@ -20,14 +20,16 @@ data class Highlight(val startMs: Long, val endMs: Long) {
  * （频谱解码基建是给可视化用的），而副歌在歌词上表现为「同一批行反复出现」，
  * 是与 [LyricFeatures.structure] 同一思路的零成本近似。
  *
- * 定位是**纯函数**：同一份歌词与时长必得同一区间。冷启动恢复依赖这一点 ——
- * 片段内进度只有在区间可复现时才能还原到正确位置。
+ * 定位是**纯函数**：同一份歌词与时长必得同一区间。仅在后台扫描时调用一次
+ * （见 [HighlightScanner]），结果连同伴随判据由 [HighlightStore] 落盘；播放路径只查表，
+ * 从不调用本函数 —— 片段因此不会在切歌时才现算，也不会因歌词晚到而行为不定。
  *
- * 无法定位时返回 null，由调用方决定跳过该曲（本项目在心动模式下即跳过）。
+ * 无法定位时返回 null。调用方据此区分「有歌词但确实没有副歌」（该曲跳过）与
+ * 「歌词还没到位」（整曲播放），判定归属见 [HighlightStore]。
  */
 internal object HighlightLocator {
 
-    // 目标片段时长：低于下限向前补足，高于上限截断
+    // 目标片段时长：先纳入整个副歌块，再逐行补到下限；上限用「再补一行就会超出」判定
     private const val MIN_SEGMENT_MS = 30_000L
     private const val MAX_SEGMENT_MS = 45_000L
 
@@ -50,19 +52,14 @@ internal object HighlightLocator {
      * @return 片段区间；不可定位时返回 null
      */
     fun locate(lines: List<LyricLine>, durationMs: Long): Highlight? {
-        // 整曲不足最小片段：无论取哪一段都达不到目标时长，直接判不可定位
-        if (durationMs < MIN_SEGMENT_MS) return null
+        // 整曲不足片段下限的一半：无论取哪一段都短到没有意义，直接判不可定位
+        if (durationMs < MIN_SEGMENT_MS / 2) return null
 
         val timed = timedLyricLines(lines)
         if (timed.size < MIN_TIMED_LINES) return null
 
         val block = repeatedBlock(timed.map { normalize(it.text) }) ?: return null
-
-        val startLine = block.firstStart
-        val blockEndLine = startLine + block.width
-        // 块末行的结束点由后继行起点界定；块收尾于末行时以曲末为界
-        val rawEnd = timed.getOrNull(blockEndLine)?.timeMs ?: durationMs
-        return clampToSegment(timed[startLine].timeMs, rawEnd, durationMs)
+        return buildSegment(timed, block, durationMs)
     }
 
     /**
@@ -119,21 +116,32 @@ internal object HighlightLocator {
     }
 
     /**
-     * 把定位到的行块时间收敛到目标片段长度。
+     * 以副歌块为锚点收出一个片段，**收尾一律落在歌词行的边界上**。
      *
-     * 行块本身通常短于目标下限（一段副歌的时长取决于演唱速度），故以块起点为锚向前铺到下限；
-     * 副歌靠近曲末、剩余不足下限时改为向前回退，保证片段时长仍然落在目标区间。
+     * 先纳入整个重复块（副歌要整段听完，而不是掐头去尾），再逐行向后补到时长下限；
+     * 上限用「再补一行就会超出」判定，于是收尾总停在某一行唱完之后，而不是被上限硬切在半句上 ——
+     * 这就是「把歌词行播完再切下一曲」。
+     *
+     * 曲末不足下限时接受较短的收尾片段：把最后几句唱完比凑满时长更贴合听感。但仍不接受
+     * 短到没有意义的长短（低于下限一半即判不可定位）。
      */
-    private fun clampToSegment(blockStartMs: Long, blockEndMs: Long, durationMs: Long): Highlight? {
-        val targetEnd = (blockStartMs + MIN_SEGMENT_MS).coerceAtMost(durationMs)
-        var end = maxOf(blockEndMs, targetEnd).coerceAtMost(blockStartMs + MAX_SEGMENT_MS)
-        var start = blockStartMs
-        if (end - start < MIN_SEGMENT_MS) {
-            start = (end - MIN_SEGMENT_MS).coerceAtLeast(0L)
+    private fun buildSegment(timed: List<LyricLine>, block: Block, durationMs: Long): Highlight? {
+        val startMs = timed[block.firstStart].timeMs
+        var lastLine = block.firstStart + block.width - 1
+        var endMs = lineEndMs(timed, lastLine, durationMs)
+        while (endMs - startMs < MIN_SEGMENT_MS && lastLine + 1 < timed.size) {
+            val nextEnd = lineEndMs(timed, lastLine + 1, durationMs)
+            if (nextEnd - startMs > MAX_SEGMENT_MS) break
+            lastLine++
+            endMs = nextEnd
         }
-        if (end - start < MIN_SEGMENT_MS) return null
-        return Highlight(start, end)
+        if (endMs - startMs < MIN_SEGMENT_MS / 2) return null
+        return Highlight(startMs, endMs)
     }
+
+    // 某一行的结束点：取后继行的起点，即本行唱完的那一刻；已是末行时以曲末为界
+    private fun lineEndMs(timed: List<LyricLine>, lineIndex: Int, durationMs: Long): Long =
+        timed.getOrNull(lineIndex + 1)?.timeMs ?: durationMs
 
     private val WHITESPACE = Regex("\\s+")
 

@@ -67,7 +67,7 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 │       │   │   │   ├── blacklist/       #     Blacklist store
 │       │   │   │   ├── clip/            #     Sharing, default ringtone / alarm installer, readable URIs, spectrum image export
 │       │   │   │   ├── download/        #     Online track download & cache
-│       │   │   │   ├── highlight/       #     Chorus (highlight) location & segment cache, drives chorus-only playback
+│       │   │   │   ├── highlight/       #     Chorus (highlight) location & whole-library segment table (background scan + persist), drives chorus-only playback
 │       │   │   │   ├── metadata/        #     Cover management, metadata & lyric read/write (ranged streaming tag I/O), metadata cache, gallery image writes
 │       │   │   │   ├── model/           #     Track & search data models (platform key as identity)
 │       │   │   │   ├── panel/           #     Panel state holder, search logic & lyric alignment entry

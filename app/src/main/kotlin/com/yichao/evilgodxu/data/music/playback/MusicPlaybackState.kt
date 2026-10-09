@@ -35,6 +35,8 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.model.PlayMode
 import com.yichao.evilgodxu.data.music.model.RecentCover
+import com.yichao.evilgodxu.data.music.highlight.HighlightScanner
+import com.yichao.evilgodxu.data.music.highlight.HighlightStore
 import com.yichao.evilgodxu.data.music.recommend.MemoryRecommender
 import com.yichao.evilgodxu.data.music.trackIdentityKey
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
@@ -380,19 +382,27 @@ class MusicPlaybackState(
         get() = mediaController?.currentPosition?.takeIf { it >= 0L } ?: currentPosition
 
     /**
-     * 心动模式下当前片段起点相对整曲的偏移（毫秒），非心动模式恒为 0。
+     * 当前项的片段起点相对整曲的偏移（毫秒），未裁剪时恒为 0。
      *
      * 裁剪生效后控制器回报的进度以**片段起点**为原点，而歌词时间轴用的是曲目内的绝对时间。
      * 二者只在这里换算一次：下游的歌词面板、悬浮窗与逐字对齐都按绝对时间工作，无需各改一处。
      * 进度条反其道而行 —— 它要的正是片段内的相对进度，故不参与本偏移。
+     *
+     * 判据取「播放器里那一项」而非 [playMode]：切换模式的瞬间模式标志已经变了而队列还没换，
+     * 按标志判断会算错坐标系。
      */
     val highlightPositionOffsetMs: Long
-        get() {
-            if (playMode != PlayMode.Highlight) return 0L
-            val clip = mediaController?.currentMediaItem?.clippingConfiguration ?: return 0L
-            // 未设裁剪时起点为非法负值，一并归零
-            return clip.startPositionMs.takeIf { it > 0L } ?: 0L
-        }
+        get() = mediaController?.currentMediaItem?.clippingConfiguration
+            ?.startPositionMs?.takeIf { it > 0L } ?: 0L
+
+    /**
+     * 可落盘的播放位置。
+     *
+     * 心动模式下控制器回报的是片段内进度，落盘须换算回整曲的绝对位置 ——
+     * 恢复时 [playTrackAt] 会按同一套换算还原到片段坐标系，两个方向对称。
+     */
+    private val persistablePositionMs: Long
+        get() = currentPosition + highlightPositionOffsetMs
 
     private val _playlist = mutableStateOf<List<MusicTrack>>(emptyList())
     var playlist: List<MusicTrack>
@@ -400,24 +410,9 @@ class MusicPlaybackState(
         set(value) {
             _playlist.value = value
             cachedMediaItems = null
-            // 队列更替后在途的片段补齐已对不上新队列，按代次令其自行退出
-            highlightSyncGeneration++
         }
     /** 缓存 playlist 对应的 MediaItem 列表，避免切歌时重复构建 */
     var cachedMediaItems by mutableStateOf<List<androidx.media3.common.MediaItem>?>(null)
-
-    /**
-     * 就地更新缓存队列中的某一项。
-     *
-     * 心动模式会逐项替换播放器队列里的 MediaItem（补上裁剪区间），缓存必须跟着更新：
-     * 缓存代表「播放器里当前是什么」，它与播放器不一致时，装载路径会拿旧项比对而得出
-     * 「队列没变」的结论，于是新补上的片段被连同旧项一起保留，这次切歌就不带片段。
-     */
-    internal fun patchCachedMediaItem(index: Int, item: androidx.media3.common.MediaItem) {
-        val cached = cachedMediaItems ?: return
-        if (index !in cached.indices) return
-        cachedMediaItems = cached.toMutableList().also { it[index] = item }
-    }
     var currentIndex by mutableIntStateOf(-1)
     var currentTrack by mutableStateOf<MusicTrack?>(null)
 
@@ -508,12 +503,12 @@ class MusicPlaybackState(
         get() = MemoryRecommender.isUnlocked(PlayCountStore.trackedCount, likedIds.size)
 
     // ===== 心动模式 =====
-    // 片段补齐代次：模式切换与队列更替时递增，令在途的补齐任务自行退出，不把旧模式的片段写回新队列
-    internal var highlightSyncGeneration = 0
     // 连续跳过计数：整队列都无可定位副歌时防止回绕空转
     private var highlightSkipStreak = 0
     // 因整队列都无可定位副歌而退出心动模式的一次性提示，由界面消费后复位
     var highlightExitNotice by mutableStateOf(false)
+    // 全库片段扫描任务：同一时刻只跑一个，重复触发直接返回
+    private var highlightScanJob: Job? = null
 
     private fun hasUriAccess(context: Context, audioUri: String): Boolean {
         val uri = audioUri.toUri()
@@ -1070,6 +1065,8 @@ class MusicPlaybackState(
         // 累计播放次数在启动时载入：回忆模式的启用门槛与排名都读它，
         // 等到进入入口时才载入会让门槛先按「零计数」判一次，把入口误判为未解锁
         PlayCountStore.ensureLoaded(context)
+        // 副歌片段表在启动时补齐：心动模式要在播放时零解析，就得先把全库算完落盘
+        ensureHighlightScan(context)
         // 曲库与收藏至此可见：回忆模式的排序据此放行
         isRestoreSettled = true
     }
@@ -1367,8 +1364,9 @@ class MusicPlaybackState(
     fun persistState() {
         val context = appContext ?: return
         val track = currentTrack ?: return
-        // 调用时刻立即快照：release/softRelease 随后会清空播放状态，异步写入不能再回读内存态
-        pendingStateSnapshot = SavedPlaybackState(track.audioUri, currentPosition, playMode.ordinal)
+        // 调用时刻立即快照：release/softRelease 随后会清空播放状态，异步写入不能再回读内存态。
+        // 位置取整曲的绝对位置：心动模式下控制器回报的是片段内进度，直接落盘会让恢复时对不上
+        pendingStateSnapshot = SavedPlaybackState(track.audioUri, persistablePositionMs, playMode.ordinal)
         persistBootMirror()
         // 写入在途时仅更新快照，由在途任务以最新快照收尾，不再取消旧任务
         if (stateWriteJob?.isActive == true) return
@@ -1463,7 +1461,7 @@ class MusicPlaybackState(
     private fun persistBootMirror() {
         val context = appContext ?: return
         val track = currentTrack ?: return
-        val position = currentPosition
+        val position = persistablePositionMs
         val mode = playMode.ordinal
         val colorUri = savedBackgroundColorUri.orEmpty()
         val color = savedBackgroundColor
@@ -1490,7 +1488,7 @@ class MusicPlaybackState(
         persistState()
         currentTrack?.let { track ->
             pendingSavedUri = track.audioUri
-            pendingResumePosition = currentPosition
+            pendingResumePosition = persistablePositionMs
         }
         // 清掉未消费的续播锚点，避免释放后残留锚点被后续非续播的过渡回调误用
         resumeAnchorPosition = -1L
@@ -1513,7 +1511,7 @@ class MusicPlaybackState(
         persistState()
         currentTrack?.let { track ->
             pendingSavedUri = track.audioUri
-            pendingResumePosition = currentPosition
+            pendingResumePosition = persistablePositionMs
         }
         // 清掉未消费的续播锚点，避免释放后残留锚点被后续非续播的过渡回调误用
         resumeAnchorPosition = -1L
@@ -1874,19 +1872,38 @@ class MusicPlaybackState(
     fun setPlayMode(mode: PlayMode) {
         if (playMode == mode) return
         playMode = mode
-        // 模式决定队列项是否带裁剪，缓存的 MediaItem 必须作废，否则下一轮装载仍会复用旧模式的项
-        cachedMediaItems = null
-        highlightSyncGeneration++
         highlightSkipStreak = 0
-        // 心动模式改变的是「每首放哪一段」，不是「正在放哪一首」：当前曲目不受影响，
-        // 只重写其余各项。replaceMediaItem 对非当前项不触发重新准备，正在播放的音频不被打断
-        appContext?.let { context ->
-            playbackScope.launch {
-                if (mode == PlayMode.Highlight) {
-                    syncHighlightQueue(context, this@MusicPlaybackState)
-                } else {
-                    clearHighlightFromQueue(this@MusicPlaybackState)
+        // 队列项随模式变化，缓存一律作废
+        cachedMediaItems = null
+        val context = appContext ?: return
+        // 片段取自持久化表，切换只做查表与重建队列、不含任何解析，故切换不会卡顿；
+        // 当前曲目一并生效：进入自片段起点起播，退出还原到整曲的绝对位置
+        applyHighlightModeChange(context, this)
+        // 表可能尚未扫完（首次启用、曲库刚变化）：后台补齐，已扫到的先按现有结果播放
+        if (mode == PlayMode.Highlight) ensureHighlightScan(context)
+    }
+
+    /**
+     * 后台扫描全库副歌片段并落盘。
+     *
+     * 播放路径只查表：扫描在这里一次做完，切模式与切歌都不再解析，既不卡顿也不重复计算。
+     * 只处理未扫过或歌词已变的曲目，重复调用无代价。启动恢复完成、曲库变化、启用心动模式三处触发。
+     */
+    fun ensureHighlightScan(context: Context) {
+        if (highlightScanJob?.isActive == true) return
+        val tracks = libraryTracks
+        if (tracks.isEmpty()) return
+        highlightScanJob = playbackScope.launch {
+            try {
+                val updated = HighlightScanner.scan(context, tracks)
+                // 表变了就把新片段补进已装载的队列：队列可能先于扫描装载，那一版还是整曲项
+                if (updated && playMode == PlayMode.Highlight) {
+                    applyNewClipsToLoadedQueue(this@MusicPlaybackState)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                CrashLogManager.logException("MusicPlaybackState", "扫描副歌片段失败", e)
             }
         }
     }
@@ -2028,6 +2045,8 @@ class MusicPlaybackState(
         playbackScope.launch {
             PlayCountStore.prune(context, libraryTracks.mapTo(HashSet()) { it.id })
         }
+        // 新入库的歌还没有片段，补一次扫描（只处理指纹过期的曲目）
+        ensureHighlightScan(context)
     }
 
     /** 本地曲库的身份快照：曲目增删都会改变它 */
@@ -2071,13 +2090,13 @@ class MusicPlaybackState(
     }
 
     /**
-     * 心动模式下曲目落定后的收尾：不可定位副歌的曲目直接跳过，否则为下一首预备片段。
+     * 心动模式下曲目落定后的收尾：不可定位副歌的曲目直接跳过。
      *
      * 跳过带回绕保护：整队列都定位不到时（纯音乐歌单、歌词全无），连续跳过会绕回原点空转，
      * 故连续跳过数超过队列长度即退出该模式交回普通播放，并置一次性提示供界面说明原因。
      *
-     * 只有「已解析且判定无副歌」才跳过。歌词尚未解析不等于没有副歌 —— 据此跳过会在冷启动时
-     * 把整库都跳过，故未解析时照常整曲播放，等歌词补全后由 [syncHighlightQueue] 补上片段。
+     * 只有「已扫描、有歌词、且判定无副歌」才跳过。歌词尚未就绪不等于没有副歌 ——
+     * 据此跳过会在冷启动时把整库都跳过，故未就绪时照常整曲播放，等扫描补齐后即是片段。
      */
     private fun settleHighlightOnTrackChange() {
         if (playMode != PlayMode.Highlight) {
@@ -2088,7 +2107,6 @@ class MusicPlaybackState(
         val track = currentTrack ?: return
         if (!isKnownHighlightMiss(track)) {
             highlightSkipStreak = 0
-            prepareNextHighlight(context, this)
             return
         }
         if (highlightSkipStreak >= playlist.size) {
