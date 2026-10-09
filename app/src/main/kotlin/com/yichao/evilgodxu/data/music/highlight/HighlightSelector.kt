@@ -35,6 +35,14 @@ internal object HighlightSelector {
     // 端点吸附在目标位置附近搜索的范围（约 ±2 秒）
     private const val SNAP_RADIUS_FRAMES = 20
 
+    // 歌词候选收尾后向响度谷吸附的搜索半径（约 ±1.5 秒）：足以跨到乐句之间的安静处，
+    // 又不至于把片段挪离副歌本身
+    private const val BOUNDARY_SNAP_MS = 1_500L
+
+    // 判定「同一处安静」的响度容差：窗口内最低响度附近这一带宽里的帧都算谷底，
+    // 其间取离原端点最近的一帧，使端点尽量少移动
+    private const val VALLEY_TOLERANCE = 0.02f
+
     /**
      * 选出最终片段。
      *
@@ -49,7 +57,8 @@ internal object HighlightSelector {
         lines: List<LyricLine>,
     ): Highlight? {
         if (candidates.isEmpty()) {
-            // 歌词给不出候选：音频能量兜底。有歌词时间轴就吸附到行边界，保证首句完整、末句唱完
+            // 歌词给不出候选：音频能量兜底。有歌词时间轴就吸附到行边界，保证首句完整、末句唱完。
+            // 兜底本身已把端点落在响度谷上，无需再走一次谷吸附
             val available = envelope ?: return null
             val raw = audioFallback(available) ?: return null
             return HighlightLocator.segmentAt(lines, raw.startMs, available.durationMs) ?: raw
@@ -64,7 +73,75 @@ internal object HighlightSelector {
             val audio = meanLoudness(envelope, candidate.startMs, candidate.endMs) / loudest
             LYRIC_WEIGHT * lyric + AUDIO_WEIGHT * audio
         } ?: return candidates.first().toHighlight()
-        return best.toHighlight()
+        // 歌词给的是行边界（副歌语义上的起止），音频再把端点微调到附近的安静处：
+        // 切点落在乐句之间，配合首尾的音量斜坡，进出才不会突兀
+        return snapBoundaries(envelope, best.toHighlight())
+    }
+
+    /**
+     * 把片段首尾吸附到邻近的响度谷。
+     *
+     * 硬切最刺耳的情形是切在乐句中间的全响处。片段首尾各有一段音量淡入淡出（见播放状态层），
+     * 若切点本就落在乐句之间的安静处，进出会自然得多，故把端点向左右各 [BOUNDARY_SNAP_MS]
+     * 内最低响度的一带微调，其间取离原端点最近的一帧以尽量少移动。
+     *
+     * 移动后仍须落在 30–45 秒的时长约束内，越界则保持原端点不动。
+     */
+    private fun snapBoundaries(envelope: EnergyEnvelope, highlight: Highlight): Highlight {
+        val frameMs = envelope.frameMs
+        val loudness = envelope.loudness
+        if (frameMs <= 0L || loudness.isEmpty()) return highlight
+        val radius = (BOUNDARY_SNAP_MS / frameMs).toInt()
+        val minFrames = (HighlightLocator.MIN_SEGMENT_MS / frameMs).toInt()
+        val maxFrames = (HighlightLocator.MAX_SEGMENT_MS / frameMs).toInt()
+        if (radius <= 0 || minFrames <= 0 || maxFrames <= minFrames) return highlight
+
+        val startFrame = envelope.frameAt(highlight.startMs)
+        val endFrame = envelope.frameAt(highlight.endMs)
+        // 起点先定：左右各可移，但移动后整体时长仍须落在 [MIN, MAX]
+        val startLow = maxOf(0, startFrame - radius, endFrame - maxFrames)
+        val startHigh = minOf(startFrame + radius, endFrame - minFrames)
+        val newStart = if (startLow <= startHigh) {
+            valleyNear(loudness, startFrame, startLow, startHigh)
+        } else {
+            startFrame
+        }
+        // 终点在起点定下之后同法处理，区间按新起点重算
+        val endLow = maxOf(newStart + minFrames, endFrame - radius)
+        val endHigh = minOf(endFrame + radius, newStart + maxFrames, loudness.size - 1)
+        val newEnd = if (endLow <= endHigh) {
+            valleyNear(loudness, endFrame, endLow, endHigh)
+        } else {
+            endFrame
+        }
+
+        val startMs = newStart.toLong() * frameMs
+        val endMs = newEnd.toLong() * frameMs
+        return if (endMs - startMs >= HighlightLocator.MIN_SEGMENT_MS) {
+            Highlight(startMs, endMs)
+        } else {
+            highlight
+        }
+    }
+
+    // 窗口内最低响度那一带里，离原端点最近的一帧
+    private fun valleyNear(values: FloatArray, center: Int, from: Int, to: Int): Int {
+        val low = from.coerceAtLeast(0)
+        val high = to.coerceAtMost(values.size - 1)
+        if (low > high) return center
+        var floor = Float.MAX_VALUE
+        for (i in low..high) if (values[i] < floor) floor = values[i]
+        var best = center.coerceIn(low, high)
+        var bestDistance = Int.MAX_VALUE
+        for (i in low..high) {
+            if (values[i] > floor + VALLEY_TOLERANCE) continue
+            val distance = kotlin.math.abs(i - center)
+            if (distance < bestDistance) {
+                bestDistance = distance
+                best = i
+            }
+        }
+        return best
     }
 
     /**

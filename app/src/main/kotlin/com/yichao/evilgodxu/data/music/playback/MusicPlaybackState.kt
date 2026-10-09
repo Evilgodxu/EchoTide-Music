@@ -77,6 +77,13 @@ class MusicPlaybackState(
         private const val RECENT_MIN_PLAYS = 2
         // 播放期间周期性持久化间隔：保证冷启动/异常退出也能恢复当前曲目与进度
         private const val STATE_PERSIST_INTERVAL_MS = 3000L
+        // 常规进度轮询周期：位置只喂进度条与持久化，200ms 足够
+        private const val POSITION_TICK_MS = 200L
+        // 片段播放期间的进度轮询周期：首尾的音量淡入淡出要逐格推进，
+        // 沿用 200ms 的台阶会让斜坡听成几次跳变
+        private const val HIGHLIGHT_TICK_MS = 40L
+        // 片段首尾的音量斜坡时长：淡入与淡出各占一段，靠降低音量掩掉硬切
+        private const val HIGHLIGHT_FADE_MS = 800L
         // 单曲循环回卷判定：位置回退超过该值且曾越过曲目中部，视为一次完整播放
         private const val LOOP_RESTART_MIN_JUMP_MS = 3000L
         // 回卷检测与过渡回调记录的去重冷却：同一次循环只计入一次完整播放
@@ -494,8 +501,9 @@ class MusicPlaybackState(
     // ===== 心动模式 =====
     // 连续跳过计数：整队列都无可定位副歌时防止回绕空转
     private var highlightSkipStreak = 0
-    // 因整队列都无可定位副歌而退出心动模式的一次性提示，由界面消费后复位
-    var highlightExitNotice by mutableStateOf(false)
+    // 心动模式自行退出的一次性原因，由界面消费后清空。退出有多种缘由（定位不到副歌、进入直出），
+    // 界面据此说明模式为何自己变了 —— 否则用户会当成失灵
+    var highlightExitNotice by mutableStateOf<HighlightExitReason?>(null)
     // 全库片段扫描任务：同一时刻只跑一个，重复触发直接返回
     private var highlightScanJob: Job? = null
 
@@ -881,8 +889,12 @@ class MusicPlaybackState(
         if (positionTickerJob?.isActive == true) return
         positionTickerJob = playbackScope.launch {
             while (isActive) {
-                if (isPlaying) updatePosition()
-                delay(200)
+                if (isPlaying) {
+                    updatePosition()
+                    syncHighlightFadeVolume()
+                }
+                // 片段播放期间步进要细：首尾的音量斜坡靠它逐格推进
+                delay(if (isHighlightClipActive) HIGHLIGHT_TICK_MS else POSITION_TICK_MS)
             }
         }
     }
@@ -890,6 +902,38 @@ class MusicPlaybackState(
     fun stopPositionTicker() {
         positionTickerJob?.cancel()
         positionTickerJob = null
+    }
+
+    // 当前播放项是否为心动模式的裁剪片段：只有它有「首尾」，因而才需要音量淡入淡出
+    private val isHighlightClipActive: Boolean
+        get() = playMode == PlayMode.Highlight &&
+            currentTrack?.let { HighlightStore.segmentOf(it.id) } != null
+
+    /**
+     * 把片段首尾的音量斜坡写进播放器音量。
+     *
+     * 片段是靠裁剪切开的，首尾都是硬切；这里在片段开头把音量由 0 升到 1、在结尾前由 1 降到 0，
+     * 用降低音量做出淡入淡出，进出不再是突兀的一下。
+     *
+     * 位置与时长都取控制器对**当前项**的回报：裁剪生效后它们本就以片段为原点，正是斜坡要的坐标系。
+     * 仅对确有片段的曲目生效 —— 心动模式下没有片段的曲目照常整曲播放，不该被从头淡入到尾。
+     */
+    private fun syncHighlightFadeVolume() {
+        val controller = mediaController ?: return
+        val target = if (isHighlightClipActive) {
+            val duration = controller.duration
+            val position = controller.currentPosition
+            if (duration <= 0L || position < 0L) {
+                1f
+            } else {
+                val fadeIn = position.toFloat() / HIGHLIGHT_FADE_MS
+                val fadeOut = (duration - position).toFloat() / HIGHLIGHT_FADE_MS
+                minOf(fadeIn, fadeOut).coerceIn(0f, 1f)
+            }
+        } else {
+            1f
+        }
+        if (controller.volume != target) controller.volume = target
     }
 
     // ===== 歌词进度时间轴 =====
@@ -1848,6 +1892,12 @@ class MusicPlaybackState(
     @JvmName("updatePlayMode")
     fun setPlayMode(mode: PlayMode) {
         if (playMode == mode) return
+        // 直出期间不接受心动模式：位完美一档绕过系统混音，音量与音效都不生效，
+        // 片段首尾的淡入淡出在其上无从实施。界面据此说明缘由而不是静默不响应
+        if (mode == PlayMode.Highlight && directOutputMode != AudioOutputMode.MIXER) {
+            highlightExitNotice = HighlightExitReason.DirectOutput
+            return
+        }
         val previous = playMode
         playMode = mode
         highlightSkipStreak = 0
@@ -1855,6 +1905,8 @@ class MusicPlaybackState(
         // 非心动各模式互切不动队列（repeatMode/shuffleMode 由调用方同步），此时不得重建 ——
         // 重建会被判成「队列已变」而重载整条时间线，表现为切模式时当前曲目卡顿
         if (previous != PlayMode.Highlight && mode != PlayMode.Highlight) return
+        // 退出片段播放即刻撤下音量斜坡：淡出末尾的低音量会随整曲播放一直延续到下一次轮询
+        if (mode != PlayMode.Highlight) mediaController?.volume = 1f
         // 队列项随模式变化，缓存作废；下面重建后会写回
         cachedMediaItems = null
         val context = appContext ?: return
@@ -1863,6 +1915,23 @@ class MusicPlaybackState(
         applyHighlightModeChange(context, this)
         // 表可能尚未扫完（首次启用、曲库刚变化）：后台补齐，已扫到的先按现有结果播放
         if (mode == PlayMode.Highlight) ensureHighlightScan(context)
+    }
+
+    /**
+     * 输出成色变化的收尾：成立直出即退出心动模式。
+     *
+     * 直出与片段播放的取向相斥：位完美直出绕过系统混音，音量与音效都不生效，片段首尾的
+     * 淡入淡出在其上无从实施；直出本身也是为整曲保真聆听服务，无需把每首裁成 30–45 秒的片段。
+     *
+     * 成色回调来自播放线程与主线程两处，故统一切到主线程再改播放模式。
+     */
+    fun onDirectOutputModeChanged(mode: AudioOutputMode) {
+        if (mode == AudioOutputMode.MIXER || playMode != PlayMode.Highlight) return
+        playbackScope.launch {
+            if (playMode != PlayMode.Highlight) return@launch
+            highlightExitNotice = HighlightExitReason.DirectOutput
+            setPlayMode(PlayMode.RepeatAll)
+        }
     }
 
     /**
@@ -1971,7 +2040,7 @@ class MusicPlaybackState(
         }
         if (highlightSkipStreak >= playlist.size) {
             highlightSkipStreak = 0
-            highlightExitNotice = true
+            highlightExitNotice = HighlightExitReason.NoChorus
             setPlayMode(PlayMode.RepeatAll)
             return
         }
@@ -1989,6 +2058,19 @@ class MusicPlaybackState(
             }
         }
     }
+}
+
+/**
+ * 心动模式自行退出的原因：界面据此说明模式为何自己变了，而非让用户以为失灵。
+ *
+ * 与「用户主动切换」区分开 —— 只有自行退出才需要解释缘由。
+ */
+enum class HighlightExitReason {
+    /** 整队列都定位不到副歌，继续跳过只会回绕空转 */
+    NoChorus,
+
+    /** 音频直出成立：位完美一档绕过音量，片段首尾的淡入淡出无从实施 */
+    DirectOutput,
 }
 
 // 播放状态持久化快照：调用时刻即采集，避免写入协程回读时状态已被后续流程（如 release）清空

@@ -50,7 +50,8 @@ internal object HighlightStore {
     private const val CURRENT_VERSION = 1
 
     // 定位算法版本：参与指纹，算法改动后旧结果自动作废重算
-    private const val ALGORITHM_VERSION = "v2"
+    // v3：片段首尾增加了向响度谷的吸附，旧结果的端点不再有效
+    private const val ALGORITHM_VERSION = "v3"
 
     // 条目类型落盘标识
     private const val KIND_SEGMENT = "segment"

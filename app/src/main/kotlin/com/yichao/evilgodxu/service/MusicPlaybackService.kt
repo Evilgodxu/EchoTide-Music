@@ -275,6 +275,8 @@ class MusicPlaybackService : MediaSessionService() {
         // 不能以设置开关代替——开关打开而设备不支撑时播放仍走系统混音
         usbDirectOutput.onRoutingChanged = { mode ->
             stateHolder.state.directOutputMode = mode
+            // 直出成立即交回整曲播放：片段首尾的音量淡入淡出在直出链路上无从实施
+            stateHolder.state.onDirectOutputModeChanged(mode)
             // 成色回调来自播放线程与主线程两处，投递主线程使 holding 与还原档位这对状态同处一条线
             serviceScope.launch { directOutputDoNotDisturb.onModeChanged(mode) }
         }

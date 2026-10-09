@@ -74,6 +74,7 @@
     <string name="music_panel_search_source_kugou">Kugou</string>
     <string name="music_panel_search_source_kuwo">Kuwo</string>
     <string name="music_panel_highlight_exit_notice">No locatable chorus here — chorus mode turned off</string>
+    <string name="music_panel_highlight_exit_direct_output">Chorus mode is unavailable while USB direct output is on</string>
     <string name="music_panel_quality_title">Select quality</string>
     <string name="music_panel_quality_failed">This quality is unavailable, try another</string>
     <string name="music_quality_lossless">Lossless</string>

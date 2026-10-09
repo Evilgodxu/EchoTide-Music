@@ -65,7 +65,24 @@ class HighlightSelectorTest {
         )
         val envelope = envelope(1_200, loud = 600 until 900)
         val highlight = HighlightSelector.select(candidates, envelope, emptyList())
-        assertEquals("应选中音频更响的候选", 60_000L, highlight!!.startMs)
+        // 端点会被吸附到邻近的响度谷，故只校验落在更响的那个候选区间内
+        assertTrue("应选中音频更响的候选", highlight!!.startMs in 58_000L..61_000L)
+    }
+
+    @Test
+    fun selectSnapsBoundariesToLoudnessValley() {
+        // 副歌 60–90 秒，其前一带有更安静的间隙：起点应吸到间隙里，而非留在骤响的边缘
+        val loudness = FloatArray(1_200) { 0.15f }
+        for (i in 600 until 900) loudness[i] = 0.9f
+        for (i in 570 until 595) loudness[i] = 0.02f
+        val envelope = EnergyEnvelope(loudness, FloatArray(1_200) { 0.5f }, frameMs)
+        val highlight = HighlightSelector.select(
+            listOf(candidate(60_000L, 90_000L, repeats = 2, score = 10.0)),
+            envelope,
+            emptyList(),
+        )
+        assertEquals("起点应吸附到安静间隙", 59_400L, highlight!!.startMs)
+        assertTrue("时长仍须落在 30–45 秒", highlight.durationMs in 30_000L..45_000L)
     }
 
     @Test

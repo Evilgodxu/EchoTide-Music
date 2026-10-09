@@ -67,6 +67,7 @@ import com.yichao.evilgodxu.data.music.api.MusicQuality
 import com.yichao.evilgodxu.data.music.panel.performSearch
 import com.yichao.evilgodxu.data.music.panel.playSearchResultWithQuality
 import com.yichao.evilgodxu.data.music.panel.tryPlayLocalMatch
+import com.yichao.evilgodxu.data.music.playback.HighlightExitReason
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalMetadataEnricher
@@ -121,17 +122,16 @@ internal fun OnlineSearchPanel(
                 .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
         ) {
             PanelHeader()
-            // 心动模式整队列都定位不到副歌时会自行退出，这里说明原因 ——
-            // 否则用户只看到模式自己变了，会当成失灵
+            // 心动模式自行退出时说明原因 —— 否则用户只看到模式自己变了，会当成失灵
             LaunchedEffect(playbackState.highlightExitNotice) {
-                if (playbackState.highlightExitNotice) {
-                    playbackState.highlightExitNotice = false
-                    Toast.makeText(
-                        context,
-                        R.string.music_panel_highlight_exit_notice,
-                        Toast.LENGTH_LONG,
-                    ).show()
+                val reason = playbackState.highlightExitNotice ?: return@LaunchedEffect
+                playbackState.highlightExitNotice = null
+                val message = when (reason) {
+                    HighlightExitReason.NoChorus -> R.string.music_panel_highlight_exit_notice
+                    HighlightExitReason.DirectOutput ->
+                        R.string.music_panel_highlight_exit_direct_output
                 }
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             }
             SearchInput(
                 playbackState = playbackState,

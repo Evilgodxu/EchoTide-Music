@@ -73,6 +73,7 @@
     <string name="music_panel_search_source_kugou">酷狗</string>
     <string name="music_panel_search_source_kuwo">酷我</string>
     <string name="music_panel_highlight_exit_notice">歌单里没有可定位的高潮片段，已退出心动模式</string>
+    <string name="music_panel_highlight_exit_direct_output">USB 直出开启时不支持心动模式</string>
     <string name="music_panel_quality_title">选择音质</string>
     <string name="music_panel_quality_failed">该音质无法播放，请选择其它音质</string>
     <string name="music_quality_lossless">无损</string>
