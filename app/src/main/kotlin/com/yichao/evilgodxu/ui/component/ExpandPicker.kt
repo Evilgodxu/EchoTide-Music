@@ -68,7 +68,9 @@ fun <T> ExpandPicker(
     expandDirection: ExpandDirection = ExpandDirection.Up,
     horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
     verticalAlignment: Alignment.Vertical = Alignment.CenterVertically,
-    containerColor: Color = MaterialTheme.colorScheme.surface,
+    // 菜单容器默认用抬升色阶：对话框与面板容器均为 surface，若菜单同色会与之融为一片难以分辨；
+    // surfaceContainerHigh 在浅色下比 surface 更灰、深色下比 surface 更亮，两个主题都能拉开层次
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
     containerShape: Shape = RoundedCornerShape(10.dp),
     itemShape: Shape = RoundedCornerShape(6.dp),
     itemHighlightColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
