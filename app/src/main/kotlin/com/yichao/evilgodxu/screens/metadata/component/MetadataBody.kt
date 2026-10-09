@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -84,22 +85,33 @@ internal fun MetadataSection(
 }
 
 /**
- * 字段行容器：整行弱化底色 + 行内边距，可选整行点击。
+ * 字段行容器：整行弱化底色 + 行内边距，可选整行点击与长按。
  *
  * 底色取「播放列表当前曲目」同款——主题色淡染，页内条目与列表选中项保持同一套视觉语言。
  * 单独抽出使展示行与输入控件在各分组里保持同一外观与内缩。
+ *
+ * @param onLongClick 长按入口（如翻译行的操作菜单）；为 null 时该行只响应点击
  */
 @Composable
 internal fun MetadataRowContainer(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     content: @Composable RowScope.() -> Unit,
 ) {
     val base = modifier
         .fillMaxWidth()
         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f), ROW_SHAPE)
-    val interactive = if (onClick != null) base.clickable(enabled = enabled, onClick = onClick) else base
+    val interactive = when {
+        onLongClick != null -> base.combinedClickable(
+            enabled = enabled,
+            onClick = { onClick?.invoke() },
+            onLongClick = onLongClick,
+        )
+        onClick != null -> base.clickable(enabled = enabled, onClick = onClick)
+        else -> base
+    }
     Row(
         modifier = interactive.padding(horizontal = ROW_HORIZONTAL_PADDING, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,

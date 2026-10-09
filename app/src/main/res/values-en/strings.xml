@@ -329,6 +329,9 @@
     <string name="metadata_lyrics_empty">No lyrics</string>
     <string name="metadata_lyrics_invalid">Lyrics cannot be parsed; check the timestamp format</string>
     <string name="metadata_lyrics_translation_hint">Translation (leave empty to clear)</string>
+    <string name="metadata_lyrics_translating">Translating…</string>
+    <string name="metadata_lyrics_translate_done">Translation added for this line</string>
+    <string name="metadata_lyrics_translate_nothing">Nothing to translate in this line</string>
     <string name="metadata_lyrics_whole_edit">Edit all</string>
     <string name="metadata_lyrics_line_edit">Edit lines</string>
     <string name="metadata_save_done">Metadata written to the audio file</string>

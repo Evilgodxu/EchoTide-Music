@@ -9,6 +9,8 @@ import com.yichao.evilgodxu.data.music.metadata.TrackMetadataEditor
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
+import com.yichao.evilgodxu.data.music.panel.TranslateLineOutcome
+import com.yichao.evilgodxu.data.music.panel.autoTranslateLyricLine
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,6 +52,8 @@ class MetadataViewModel(
     // 待落盘的条目改动：同一字段的连续输入只保留最后一次，避免排队重写多遍文件
     private var pending: PendingChanges? = null
     private var saveJob: Job? = null
+    // 单行补译的进行中任务：重新读盘会作废它，避免结果落到已刷新的歌词列表上
+    private var translateJob: Job? = null
     // 写入互斥：同一时刻只允许一遍文件重写，并发重写同一文件会相互覆盖
     private val writeMutex = Mutex()
 
@@ -95,6 +99,7 @@ class MetadataViewModel(
                 editing = null,
                 lyricLineDraft = null,
                 lyricsWholeMode = false,
+                translatingLine = null,
             )
         }
         loadTags(target)
@@ -104,6 +109,8 @@ class MetadataViewModel(
     private fun resetEditingState() {
         saveJob?.cancel()
         saveJob = null
+        translateJob?.cancel()
+        translateJob = null
         pending = null
         pendingCover = null
         coverChanged = false
@@ -235,6 +242,54 @@ class MetadataViewModel(
         if (lines[index].translation == text) return
         val updated = lines.toMutableList().also { it[index] = it[index].copy(translation = text) }
         _uiState.update { it.copy(lyricLines = updated, message = null) }
+        scheduleLyricsSave(updated)
+    }
+
+    /**
+     * 单行补译：为该行的原文请求译文并并入其翻译行，随后照常自动落盘。
+     *
+     * 目标行由用户在翻译行的长按菜单中显式指定，故不套用整篇补译的「歌词正文行」规则。
+     * 译文回来时按发起时的原文校验目标行 —— 请求期间用户可能改写或增删了歌词，
+     * 下标所指的行已不是发起时那一行，此时丢弃结果，避免把译文写到别的行上。
+     */
+    fun onLyricLineTranslate(index: Int) {
+        val state = _uiState.value
+        if (state.saving || state.loading || state.translatingLine != null) return
+        val source = state.lyricLines.getOrNull(index)?.text?.trim() ?: return
+        if (source.isEmpty()) {
+            _uiState.update {
+                it.copy(messageIsError = false, message = message(R.string.metadata_lyrics_translate_nothing))
+            }
+            return
+        }
+        _uiState.update { it.copy(translatingLine = index, message = null) }
+        translateJob = viewModelScope.launch {
+            when (val outcome = autoTranslateLyricLine(source)) {
+                is TranslateLineOutcome.Applied -> applyLineTranslation(index, source, outcome.translation)
+                // 原文已是中文、或译文与原文相同：都是正常结果，用普通提示而非报错
+                TranslateLineOutcome.SameLanguage -> _uiState.update {
+                    it.copy(messageIsError = false, message = message(R.string.music_panel_auto_translate_same_language))
+                }
+                TranslateLineOutcome.NothingToDo -> _uiState.update {
+                    it.copy(messageIsError = false, message = message(R.string.metadata_lyrics_translate_nothing))
+                }
+                TranslateLineOutcome.Failed -> _uiState.update {
+                    it.copy(messageIsError = true, message = message(R.string.music_panel_auto_translate_failed))
+                }
+            }
+            _uiState.update { it.copy(translatingLine = null) }
+        }
+    }
+
+    // 把译文并入指定行：仅当该行原文仍是发起补译时的文本才写入，否则视为行已错位而丢弃
+    private fun applyLineTranslation(index: Int, source: String, translation: String) {
+        val lines = _uiState.value.lyricLines
+        val current = lines.getOrNull(index) ?: return
+        if (current.text.trim() != source) return
+        val updated = lines.toMutableList().also { it[index] = current.copy(translation = translation) }
+        _uiState.update {
+            it.copy(lyricLines = updated, messageIsError = false, message = message(R.string.metadata_lyrics_translate_done))
+        }
         scheduleLyricsSave(updated)
     }
 

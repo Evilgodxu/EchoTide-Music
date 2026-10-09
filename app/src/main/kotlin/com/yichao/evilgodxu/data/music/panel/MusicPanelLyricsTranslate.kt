@@ -43,6 +43,47 @@ internal sealed interface TranslateOutcome {
     data object Failed : TranslateOutcome
 }
 
+/** 单行补译的结局：沿用整篇补译的分类，使「没做」的原因在界面上仍有准确提示 */
+internal sealed interface TranslateLineOutcome {
+    /** 补译完成，[translation] 为该行译文 */
+    data class Applied(val translation: String) : TranslateLineOutcome
+
+    /** 该行没有可补译的内容：原文为空，或译文与原文相同（专有名词、感叹词等） */
+    data object NothingToDo : TranslateLineOutcome
+
+    /** 原文主体已是中文，再译一遍只会得到与原文相同的文本 */
+    data object SameLanguage : TranslateLineOutcome
+
+    /** 请求失败（限流未恢复或网络异常） */
+    data object Failed : TranslateLineOutcome
+}
+
+/**
+ * 补译单行歌词：为用户显式指定的一行请求译文。
+ *
+ * 与整篇补译不同，此处不按「是否歌词正文行」过滤 —— 目标行由用户长按指定，意图已经明确，
+ * 即便该行是署名或曲首标题也按其选择翻译。
+ *
+ * 只返回译文，既不写歌词缓存也不改动内存态：调用方把译文并入该行的翻译后照常落盘，
+ * 写入的是音频文件的内嵌歌词，与播放端的整篇补译互不干扰。
+ */
+internal suspend fun autoTranslateLyricLine(text: String): TranslateLineOutcome {
+    val source = text.trim()
+    if (source.isEmpty()) return TranslateLineOutcome.NothingToDo
+    if (isMostlyChinese(listOf(source))) return TranslateLineOutcome.SameLanguage
+    return when (val result = TranslationApi.translate(listOf(source))) {
+        is TranslateResult.Success -> {
+            val translation = result.texts.firstOrNull()?.trim().orEmpty()
+            if (translation.isEmpty() || translation == source) {
+                TranslateLineOutcome.NothingToDo
+            } else {
+                TranslateLineOutcome.Applied(translation)
+            }
+        }
+        else -> TranslateLineOutcome.Failed
+    }
+}
+
 /**
  * 为尚无译文块的歌词行自动补译。
  *

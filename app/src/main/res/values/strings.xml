@@ -324,6 +324,9 @@
     <string name="metadata_lyrics_empty">暂无歌词</string>
     <string name="metadata_lyrics_invalid">歌词格式无法解析，请检查时间戳格式</string>
     <string name="metadata_lyrics_translation_hint">翻译（留空则清除）</string>
+    <string name="metadata_lyrics_translating">正在补译…</string>
+    <string name="metadata_lyrics_translate_done">已补译本行翻译</string>
+    <string name="metadata_lyrics_translate_nothing">本行没有可补译的内容</string>
     <string name="metadata_lyrics_whole_edit">全文编辑</string>
     <string name="metadata_lyrics_line_edit">逐行编辑</string>
     <string name="metadata_save_done">元数据已写入音频文件</string>

@@ -55,6 +55,9 @@ data class MetadataUiState(
     // 歌词是否处于全文编辑模式。模式与编辑态分开：模式决定展示形态（整篇卡片），编辑态
     // 只在用户点击卡片后建立，退出编辑（点击别处）只回到整篇卡片，不会退回逐行
     val lyricsWholeMode: Boolean = false,
+    // 正在单行补译的行下标：非空时该行显示补译中占位，其余行不再接受新的补译请求
+    // （翻译接口按 IP 限流，同一时刻只允许一个补译任务）
+    val translatingLine: Int? = null,
     // 自动保存结果提示：成功或失败原因，显示后可被下次保存覆盖
     val message: String? = null,
     val messageIsError: Boolean = false,
