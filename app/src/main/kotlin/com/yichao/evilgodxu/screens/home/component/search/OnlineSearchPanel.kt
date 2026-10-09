@@ -34,8 +34,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -77,6 +75,8 @@ import com.yichao.evilgodxu.LocalPlaylistRefresher
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.AppDialog
 import com.yichao.evilgodxu.ui.component.DialogOption
+import com.yichao.evilgodxu.ui.component.ExpandDirection
+import com.yichao.evilgodxu.ui.component.ExpandPicker
 import com.yichao.evilgodxu.ui.component.qualityLabelRes
 import com.yichao.evilgodxu.ui.component.rememberOnlinePlatformOptions
 import com.yichao.evilgodxu.ui.component.dialog.SearchResultsLazyList
@@ -213,11 +213,12 @@ private fun SearchInput(
     onFocusChanged: (Boolean) -> Unit,
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
-    var sourceMenuExpanded by remember { mutableStateOf(false) }
     val platformOptions = rememberOnlinePlatformOptions()
     // 平台展示名：候选里查不到当前平台时（平台已随音源移除）回退平台键
     val currentPlatformName = platformOptions.firstOrNull { it.source == playbackState.searchSource }?.name
         ?: playbackState.searchSource.key
+    // 当前选中平台：菜单高亮以完整候选为准
+    val currentPlatform = platformOptions.firstOrNull { it.source == playbackState.searchSource }
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -236,64 +237,64 @@ private fun SearchInput(
             modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 平台切换触发器
-            Box {
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { sourceMenuExpanded = true }
-                        .padding(start = 14.dp, end = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = AppIcons.Search,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text(
-                        text = currentPlatformName,
-                        color = Color.White.copy(alpha = 0.75f),
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-                    Icon(
-                        imageVector = AppIcons.ArrowDropDown,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.75f),
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-                DropdownMenu(
-                    expanded = sourceMenuExpanded,
-                    onDismissRequest = { sourceMenuExpanded = false },
-                    containerColor = menuBackgroundColor,
-                ) {
-                    platformOptions.forEach { platform ->
-                        DropdownMenuItem(
-                            text = { Text(platform.name, color = Color.White) },
-                            onClick = {
-                                sourceMenuExpanded = false
-                                playbackState.setSearchSource(platform.source)
-                                val query = playbackState.searchQuery.trim()
-                                if (query.isNotBlank()) {
-                                    scope.launch { performSearch(playbackState, context) }
-                                }
-                            },
-                            trailingIcon = {
-                                if (platform.source == playbackState.searchSource) {
-                                    Icon(
-                                        imageVector = AppIcons.Check,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            },
+            // 平台切换触发器：向下展开的动画选择器，替换原先的下拉菜单与方向角标
+            ExpandPicker(
+                options = platformOptions,
+                selected = currentPlatform,
+                expandDirection = ExpandDirection.Down,
+                horizontalAlignment = Alignment.Start,
+                containerColor = menuBackgroundColor,
+                itemHighlightColor = Color.White.copy(alpha = 0.10f),
+                trigger = {
+                    Row(
+                        modifier = Modifier.padding(start = 14.dp, end = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = AppIcons.Search,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = currentPlatformName,
+                            color = Color.White.copy(alpha = 0.75f),
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(start = 4.dp)
                         )
                     }
-                }
-            }
+                },
+                itemContent = { platform, selected ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = platform.name,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                        // 勾选位常驻，未选中时透明：选项等宽后选中项右对齐
+                        Icon(
+                            imageVector = AppIcons.Check,
+                            contentDescription = null,
+                            tint = if (selected) Color.White else Color.Transparent,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                },
+                onItemClick = { platform ->
+                    playbackState.setSearchSource(platform.source)
+                    val query = playbackState.searchQuery.trim()
+                    if (query.isNotBlank()) {
+                        scope.launch { performSearch(playbackState, context) }
+                    }
+                },
+            )
             BasicTextField(
                 value = playbackState.searchQuery,
                 onValueChange = { playbackState.searchQuery = it },

@@ -137,6 +137,11 @@
     <string name="music_panel_rename_cancel">Cancel</string>
     <string name="music_panel_lyrics_short">Lyrics</string>
     <string name="music_panel_play_mode">Play mode</string>
+    <string name="music_panel_play_mode_repeat_all">Repeat all</string>
+    <string name="music_panel_play_mode_repeat_one">Repeat one</string>
+    <string name="music_panel_play_mode_shuffle">Shuffle</string>
+    <string name="music_panel_play_mode_highlight">Highlight</string>
+    <string name="music_panel_sort_direction">Direction</string>
     <string name="music_panel_previous_track">Previous</string>
     <string name="music_panel_next_track">Next</string>
     <string name="music_panel_playlist">Playlist</string>
@@ -146,7 +151,6 @@
     <string name="music_panel_play_next">Play next</string>
     <string name="music_panel_cancel_play_next">Cancel play next</string>
     <string name="music_panel_sort">Sort</string>
-    <string name="music_panel_sort_title">Sort by</string>
     <string name="music_panel_sort_descending">Descending</string>
     <string name="music_panel_sort_ascending">Ascending</string>
     <string name="music_panel_sort_default">Default order</string>

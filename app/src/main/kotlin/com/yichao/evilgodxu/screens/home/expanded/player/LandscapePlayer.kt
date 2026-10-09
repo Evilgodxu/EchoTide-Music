@@ -49,6 +49,7 @@ import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
 import com.yichao.evilgodxu.screens.home.component.player.HomeBlendedCover
 import com.yichao.evilgodxu.screens.home.component.player.PlayerControls
 import com.yichao.evilgodxu.screens.home.component.queue.PlaylistSheet
+import com.yichao.evilgodxu.ui.component.ExpandDirection
 import com.yichao.evilgodxu.ui.component.player.currentTrackNeedsLosslessUpgrade
 import com.yichao.evilgodxu.ui.component.player.TrackFormatInfoSection
 import com.yichao.evilgodxu.ui.component.player.CoverCarouselOverlay
@@ -170,6 +171,8 @@ fun LandscapePlayer(
                     onPlaylistClick = { onPlaylistVisibilityChange(true) },
                     // 播放列表按钮上滑同样打开面板：与竖屏控制栏手势一致
                     onPlaylistSwipeUp = { onPlaylistVisibilityChange(true) },
+                    // 横屏控制栏贴右侧，播放模式菜单向右展开
+                    playModeExpandDirection = ExpandDirection.Right,
                 )
             }
         }

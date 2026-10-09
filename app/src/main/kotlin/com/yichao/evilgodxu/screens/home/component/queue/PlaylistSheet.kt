@@ -81,11 +81,11 @@ import com.yichao.evilgodxu.data.playlist.isViewSourceValid
 import com.yichao.evilgodxu.data.playlist.resolveSourceTracks
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
-import com.yichao.evilgodxu.ui.component.AppDialog
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
-import com.yichao.evilgodxu.ui.component.DIALOG_LIST_HEIGHT_FRACTION
 import com.yichao.evilgodxu.ui.component.DialogOption
+import com.yichao.evilgodxu.ui.component.ExpandDirection
+import com.yichao.evilgodxu.ui.component.ExpandPicker
 import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
 import com.yichao.evilgodxu.ui.component.player.PlaylistRow
 import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
@@ -162,8 +162,8 @@ internal fun PlaylistSheet(
             playbackState.viewPlaylist(null)
         }
     }
-    // 排序对话框显隐
-    var showSortDialog by remember { mutableStateOf(false) }
+    // 排序规则只作用于默认全量播放队列，浏览其它歌单或队列为歌单来源时不可用
+    val sortEnabled = followsQueue && playbackState.playlistSource == null && !playbackState.isScanning
     // 长按删除目标：非空时显示确认弹窗
     var deleteTrack by remember { mutableStateOf<MusicTrack?>(null) }
     // 右滑高级菜单目标：非空时显示菜单对话框
@@ -283,15 +283,82 @@ internal fun PlaylistSheet(
                             modifier = Modifier.size(28.dp),
                             enabled = !playbackState.isScanning,
                         )
-                        HeaderIconButton(
-                            icon = AppIcons.Sort,
-                            contentDescription = stringResource(R.string.music_panel_sort),
-                            onClick = { showSortDialog = true },
-                            modifier = Modifier.size(28.dp),
-                            // 排序规则只作用于默认全量播放队列，浏览其它歌单或队列为歌单来源时不可用
-                            enabled = followsQueue &&
-                                playbackState.playlistSource == null &&
-                                !playbackState.isScanning,
+                        ExpandPicker(
+                            options = PlaylistSortField.entries,
+                            selected = playbackState.playlistSortField,
+                            enabled = sortEnabled,
+                            expandDirection = ExpandDirection.Down,
+                            // 排序按钮靠面板右缘，菜单右对齐避免溢出屏幕
+                            horizontalAlignment = Alignment.End,
+                            header = {
+                                // 方向切换：点击即时生效且不收起，便于连续调整字段与方向
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            playbackState.setPlaylistSort(
+                                                playbackState.playlistSortField,
+                                                !playbackState.playlistSortDescending,
+                                            )
+                                        }
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.music_panel_sort_direction),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 13.sp,
+                                    )
+                                    Text(
+                                        text = stringResource(
+                                            if (playbackState.playlistSortDescending) R.string.music_panel_sort_descending
+                                            else R.string.music_panel_sort_ascending
+                                        ),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontSize = 13.sp,
+                                    )
+                                }
+                            },
+                            trigger = {
+                                Box(
+                                    modifier = Modifier.size(32.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = AppIcons.Sort,
+                                        contentDescription = stringResource(R.string.music_panel_sort),
+                                        modifier = Modifier.size(21.dp),
+                                        tint = if (sortEnabled) MaterialTheme.colorScheme.onSurfaceVariant
+                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                    )
+                                }
+                            },
+                            itemContent = { field, selected ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Text(
+                                        text = stringResource(sortFieldLabelRes(field)),
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Icon(
+                                        imageVector = AppIcons.Check,
+                                        contentDescription = null,
+                                        tint = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            },
+                            onItemClick = { field ->
+                                playbackState.setPlaylistSort(field, playbackState.playlistSortDescending)
+                            },
                         )
                         IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
                             Icon(
@@ -580,13 +647,6 @@ internal fun PlaylistSheet(
             },
             onDismiss = { showSwitcher = false },
         )
-        PlaylistSortDialog(
-            visible = showSortDialog,
-            currentField = playbackState.playlistSortField,
-            descending = playbackState.playlistSortDescending,
-            onApply = { field, descending -> playbackState.setPlaylistSort(field, descending) },
-            onDismiss = { showSortDialog = false },
-        )
         RemoveTrackDialog(
             track = deleteTrack,
             titleRes = R.string.music_panel_delete_title,
@@ -736,56 +796,6 @@ private fun BlacklistConfirmDialog(
         onConfirm = { onConfirm(it, deleteFile) },
         onDismiss = onDismiss,
     )
-}
-
-// 排序对话框：外壳与切换歌单面板一致（全宽圆角、同高），标题居中、右侧小字「逆序/正序」切换方向，字段列表居中高亮
-@Composable
-private fun PlaylistSortDialog(
-    visible: Boolean,
-    currentField: PlaylistSortField,
-    descending: Boolean,
-    onApply: (PlaylistSortField, Boolean) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    if (!visible) return
-    // 方向本地态：点击标题右侧文案即时切换生效但不关闭对话框，便于连续调整字段与方向
-    var reverse by remember(visible) { mutableStateOf(descending) }
-    AppDialog(
-        onDismiss = onDismiss,
-        title = stringResource(R.string.music_panel_sort_title),
-        // 标题右侧小字：文案为可切换到的目标方向（当前正序显示「逆序」）
-        trailing = {
-            Text(
-                text = stringResource(
-                    if (reverse) R.string.music_panel_sort_ascending
-                    else R.string.music_panel_sort_descending
-                ),
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 13.sp,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable {
-                        reverse = !reverse
-                        onApply(currentField, reverse)
-                    }
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            )
-        },
-        // 标题左对齐：标题区右侧带文字按钮（逆序/正序）时，左对齐标题视觉更均衡、更美观
-        titleAlignment = TextAlign.Start,
-        contentHeightFraction = DIALOG_LIST_HEIGHT_FRACTION,
-    ) {
-        PlaylistSortField.entries.forEach { field ->
-            DialogOption(
-                label = stringResource(sortFieldLabelRes(field)),
-                selected = currentField == field,
-                onClick = {
-                    onApply(field, reverse)
-                    onDismiss()
-                },
-            )
-        }
-    }
 }
 
 // 排序字段对应的文案资源

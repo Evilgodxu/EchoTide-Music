@@ -20,13 +20,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.yichao.evilgodxu.data.music.model.PlayMode
-import com.yichao.evilgodxu.data.music.playback.applyPlaybackMode
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.ui.component.ExpandPicker
+import com.yichao.evilgodxu.ui.component.playModeIcon
+import com.yichao.evilgodxu.ui.component.playModeLabelRes
+import com.yichao.evilgodxu.ui.component.playModeMenuOrder
+import com.yichao.evilgodxu.ui.component.selectPlayMode
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.launch
 
@@ -47,29 +50,38 @@ internal fun ControlBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-        val modeIcon = when (playbackState.playMode) {
-            PlayMode.RepeatAll -> AppIcons.Repeat
-            PlayMode.RepeatOne -> AppIcons.RepeatOne
-            PlayMode.Shuffle -> AppIcons.Shuffle
-            PlayMode.Highlight -> AppIcons.Bolt
-        }
-        ControlIconButton(
-            icon = modeIcon,
-            contentDescription = stringResource(R.string.music_panel_play_mode),
-            onClick = {
-                playbackState.setPlayMode(when (playbackState.playMode) {
-                    PlayMode.RepeatAll -> PlayMode.RepeatOne
-                    PlayMode.RepeatOne -> PlayMode.Shuffle
-                    PlayMode.Shuffle -> PlayMode.Highlight
-                    PlayMode.Highlight -> PlayMode.RepeatAll
-                })
-                playbackState.mediaController?.let { controller ->
-                    applyPlaybackMode(controller, playbackState.playMode)
+        ExpandPicker(
+            options = playModeMenuOrder,
+            selected = playbackState.playMode,
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            trigger = {
+                Box(
+                    modifier = Modifier.size(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = playModeIcon(playbackState.playMode),
+                        contentDescription = stringResource(R.string.music_panel_play_mode),
+                        modifier = Modifier.size(21.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                playbackState.persistState()
             },
-            size = 32.dp,
-            iconSize = 21.dp
+            itemContent = { mode, selected ->
+                Box(
+                    modifier = Modifier.size(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = playModeIcon(mode),
+                        contentDescription = stringResource(playModeLabelRes(mode)),
+                        modifier = Modifier.size(21.dp),
+                        tint = if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            onItemClick = { mode -> selectPlayMode(playbackState, mode) }
         )
 
         ControlIconButton(

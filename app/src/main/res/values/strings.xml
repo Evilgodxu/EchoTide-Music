@@ -135,6 +135,11 @@
     <string name="music_panel_rename_cancel">取消</string>
     <string name="music_panel_lyrics_short">词</string>
     <string name="music_panel_play_mode">播放模式</string>
+    <string name="music_panel_play_mode_repeat_all">列表循环</string>
+    <string name="music_panel_play_mode_repeat_one">单曲循环</string>
+    <string name="music_panel_play_mode_shuffle">随机播放</string>
+    <string name="music_panel_play_mode_highlight">心动模式</string>
+    <string name="music_panel_sort_direction">方向</string>
     <string name="music_panel_previous_track">上一首</string>
     <string name="music_panel_next_track">下一首</string>
     <string name="music_panel_playlist">播放列表</string>
@@ -144,7 +149,6 @@
     <string name="music_panel_play_next">下一首播放</string>
     <string name="music_panel_cancel_play_next">取消下一首播放</string>
     <string name="music_panel_sort">排序</string>
-    <string name="music_panel_sort_title">排序方式</string>
     <string name="music_panel_sort_descending">逆序</string>
     <string name="music_panel_sort_ascending">正序</string>
     <string name="music_panel_sort_default">默认顺序</string>

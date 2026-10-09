@@ -53,16 +53,20 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yichao.evilgodxu.data.music.model.PlayMode
 import com.yichao.evilgodxu.data.settings.wordByWordRenderingFlow
-import com.yichao.evilgodxu.data.music.playback.applyPlaybackMode
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
+import com.yichao.evilgodxu.ui.component.ExpandDirection
+import com.yichao.evilgodxu.ui.component.ExpandPicker
 import com.yichao.evilgodxu.ui.component.MarqueeText
+import com.yichao.evilgodxu.ui.component.playModeIcon
+import com.yichao.evilgodxu.ui.component.playModeLabelRes
+import com.yichao.evilgodxu.ui.component.playModeMenuOrder
+import com.yichao.evilgodxu.ui.component.selectPlayMode
 import com.yichao.evilgodxu.ui.component.TrackSwitchStyle
 import com.yichao.evilgodxu.ui.component.TrackSwitchTransition
 import com.yichao.evilgodxu.ui.component.rememberTrackSwitchAnchor
@@ -245,29 +249,42 @@ internal fun MiniPlayerBar(
         }
 
         if (controlsVisible) {
-            // 循环模式
-            MiniControlButton(
-                icon = when (playbackState.playMode) {
-                    PlayMode.RepeatAll -> AppIcons.Repeat
-                    PlayMode.RepeatOne -> AppIcons.RepeatOne
-                    PlayMode.Shuffle -> AppIcons.Shuffle
-                    PlayMode.Highlight -> AppIcons.Bolt
-                },
-                contentDescription = stringResource(R.string.music_panel_play_mode),
-                onClick = {
-                    playbackState.setPlayMode(
-                        when (playbackState.playMode) {
-                            PlayMode.RepeatAll -> PlayMode.RepeatOne
-                            PlayMode.RepeatOne -> PlayMode.Shuffle
-                            PlayMode.Shuffle -> PlayMode.Highlight
-                            PlayMode.Highlight -> PlayMode.RepeatAll
-                        }
-                    )
-                    playbackState.mediaController?.let { controller ->
-                        applyPlaybackMode(controller, playbackState.playMode)
+            // 循环模式：改为展开式菜单逐项选择，替换原先的循环切换；悬浮窗条内向右展开
+            ExpandPicker(
+                options = playModeMenuOrder,
+                selected = playbackState.playMode,
+                expandDirection = ExpandDirection.Right,
+                // 悬浮窗是独立小窗口，窗口尺寸不等于屏幕，关闭按窗口夹取避免菜单被裁进条内
+                clampToWindow = false,
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                trigger = {
+                    Box(
+                        modifier = Modifier.size(MINI_BUTTON_DP.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = playModeIcon(playbackState.playMode),
+                            contentDescription = stringResource(R.string.music_panel_play_mode),
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                    playbackState.persistState()
-                }
+                },
+                itemContent = { mode, selected ->
+                    Box(
+                        modifier = Modifier.size(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = playModeIcon(mode),
+                            contentDescription = stringResource(playModeLabelRes(mode)),
+                            modifier = Modifier.size(20.dp),
+                            tint = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                onItemClick = { mode -> selectPlayMode(playbackState, mode) }
             )
             // 上一曲
             MiniControlButton(

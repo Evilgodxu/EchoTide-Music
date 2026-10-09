@@ -24,13 +24,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.yichao.evilgodxu.data.music.model.PlayMode
-import com.yichao.evilgodxu.data.music.playback.applyPlaybackMode
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.theme.md_theme_dark_surfaceVariant
+import com.yichao.evilgodxu.ui.component.ExpandDirection
+import com.yichao.evilgodxu.ui.component.ExpandPicker
+import com.yichao.evilgodxu.ui.component.playModeIcon
+import com.yichao.evilgodxu.ui.component.playModeLabelRes
+import com.yichao.evilgodxu.ui.component.playModeMenuOrder
+import com.yichao.evilgodxu.ui.component.selectPlayMode
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlin.math.abs
 import kotlinx.coroutines.launch
@@ -45,6 +50,8 @@ internal fun PlayerControls(
     onPlayPauseSwipeUp: (() -> Unit)? = null,
     // 从播放列表按钮向上滑动：打开播放列表面板；为 null 时该按钮保持普通点击行为
     onPlaylistSwipeUp: (() -> Unit)? = null,
+    // 播放模式选择菜单的展开方向：竖屏向上、横屏向右
+    playModeExpandDirection: ExpandDirection = ExpandDirection.Up,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -53,28 +60,39 @@ internal fun PlayerControls(
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        PlayerControlButton(
-            icon = when (playbackState.playMode) {
-                PlayMode.RepeatAll -> AppIcons.Repeat
-                PlayMode.RepeatOne -> AppIcons.RepeatOne
-                PlayMode.Shuffle -> AppIcons.Shuffle
-                PlayMode.Highlight -> AppIcons.Bolt
-            },
-            contentDescription = stringResource(R.string.music_panel_play_mode),
-            onClick = {
-                playbackState.setPlayMode(
-                    when (playbackState.playMode) {
-                        PlayMode.RepeatAll -> PlayMode.RepeatOne
-                        PlayMode.RepeatOne -> PlayMode.Shuffle
-                        PlayMode.Shuffle -> PlayMode.Highlight
-                        PlayMode.Highlight -> PlayMode.RepeatAll
-                    }
-                )
-                playbackState.mediaController?.let { controller ->
-                    applyPlaybackMode(controller, playbackState.playMode)
+        ExpandPicker(
+            options = playModeMenuOrder,
+            selected = playbackState.playMode,
+            expandDirection = playModeExpandDirection,
+            containerColor = md_theme_dark_surfaceVariant,
+            itemHighlightColor = Color.White.copy(alpha = 0.14f),
+            trigger = {
+                Box(
+                    modifier = Modifier.size(48.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = playModeIcon(playbackState.playMode),
+                        contentDescription = stringResource(R.string.music_panel_play_mode),
+                        modifier = Modifier.size(32.dp),
+                        tint = Color.White,
+                    )
                 }
-                playbackState.persistState()
             },
+            itemContent = { mode, selected ->
+                Box(
+                    modifier = Modifier.size(40.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = playModeIcon(mode),
+                        contentDescription = stringResource(playModeLabelRes(mode)),
+                        modifier = Modifier.size(24.dp),
+                        tint = if (selected) Color.White else Color.White.copy(alpha = 0.55f),
+                    )
+                }
+            },
+            onItemClick = { mode -> selectPlayMode(playbackState, mode) },
         )
         PlayerControlButton(
             icon = AppIcons.SkipPrevious,

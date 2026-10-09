@@ -16,8 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +48,8 @@ import com.yichao.evilgodxu.data.music.panel.searchLosslessUpgradeCandidates
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.DialogCard
+import com.yichao.evilgodxu.ui.component.ExpandDirection
+import com.yichao.evilgodxu.ui.component.ExpandPicker
 import com.yichao.evilgodxu.ui.component.rememberOnlinePlatformOptions
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.launch
@@ -85,61 +85,56 @@ internal fun LosslessUpgradeDialog(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // 标题行：居中显示当前来源名，点击弹出来源下拉列表，右侧独立刷新按钮
+            // 标题行：居中显示当前来源名，点击向下展开平台选择（不再使用方向角标），右侧独立刷新按钮
             Box(Modifier.fillMaxWidth()) {
-                var sourceMenuExpanded by remember { mutableStateOf(false) }
                 val platformOptions = rememberOnlinePlatformOptions()
                 // 平台展示名：候选里查不到当前平台时（平台已随音源移除）回退平台键
                 val currentPlatformName = platformOptions.firstOrNull { it.source == playbackState.losslessUpgradeSource }?.name
                     ?: playbackState.losslessUpgradeSource.key
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable(enabled = !playbackState.isLosslessUpgradeSearching && !playbackState.losslessUpgradeBusy) {
-                            sourceMenuExpanded = true
-                        }
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                val currentPlatform = platformOptions.firstOrNull { it.source == playbackState.losslessUpgradeSource }
+                ExpandPicker(
+                    options = platformOptions,
+                    selected = currentPlatform,
+                    enabled = !playbackState.isLosslessUpgradeSearching && !playbackState.losslessUpgradeBusy,
+                    expandDirection = ExpandDirection.Down,
+                    modifier = Modifier.align(Alignment.Center),
+                    trigger = {
                         Text(
                             text = currentPlatformName,
                             color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 16.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                         )
-                        Icon(
-                            imageVector = AppIcons.ArrowDropDown,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = sourceMenuExpanded,
-                        onDismissRequest = { sourceMenuExpanded = false },
-                    ) {
-                        platformOptions.forEach { platform ->
-                            DropdownMenuItem(
-                                text = { Text(platform.name) },
-                                onClick = {
-                                    sourceMenuExpanded = false
-                                    if (platform.source != playbackState.losslessUpgradeSource) {
-                                        playbackState.losslessUpgradeSource = platform.source
-                                    }
-                                },
-                                trailingIcon = {
-                                    if (platform.source == playbackState.losslessUpgradeSource) {
-                                        Icon(
-                                            imageVector = AppIcons.Check,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
-                                },
+                    },
+                    itemContent = { platform, selected ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                text = platform.name,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 13.sp,
+                                modifier = Modifier.weight(1f),
+                            )
+                            // 勾选位常驻，未选中时透明：选项等宽后选中项右对齐
+                            Icon(
+                                imageVector = AppIcons.Check,
+                                contentDescription = null,
+                                tint = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                modifier = Modifier.size(18.dp),
                             )
                         }
-                    }
-                }
+                    },
+                    onItemClick = { platform ->
+                        if (platform.source != playbackState.losslessUpgradeSource) {
+                            playbackState.losslessUpgradeSource = platform.source
+                        }
+                    },
+                )
                 IconButton(
                     onClick = {
                         selectedCandidate = null
