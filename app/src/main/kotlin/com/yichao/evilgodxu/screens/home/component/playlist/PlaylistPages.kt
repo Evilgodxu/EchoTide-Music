@@ -266,11 +266,19 @@ internal fun PlaylistTracksPage(
         playbackState = playbackState,
         scope = scope,
         trailingAction = {
-            TextButton(onClick = { showPicker = true }) {
-                Text(
-                    text = stringResource(R.string.playlist_add_songs),
-                    color = Color.White,
-                    fontWeight = FontWeight.Medium,
+            // 用紧凑点击区承载图标：Material 图标按钮的固定触控高度会把操作栏撑高
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { showPicker = true },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = AppIcons.PostAdd,
+                    contentDescription = stringResource(R.string.playlist_add_songs),
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         },
