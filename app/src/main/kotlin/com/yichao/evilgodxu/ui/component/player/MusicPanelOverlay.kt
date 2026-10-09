@@ -133,6 +133,8 @@ fun MusicPanelOverlay(
 
     var showPlaylist by remember { mutableStateOf(false) }
     var showTimer by remember { mutableStateOf(false) }
+    // 播放模式选择展开态：展开时控制栏让位给四种播放模式。点击面板其他区域由下方根点击兜底收起
+    var playModeSelectorExpanded by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showSoundEffects by remember { mutableStateOf(false) }
     val currentTrackId = playbackState.currentTrack?.id
@@ -175,6 +177,8 @@ fun MusicPanelOverlay(
                     indication = null,
                     onClick = {
                             when {
+                                // 播放模式选择展开时，优先级最高：点击面板其他区域先收起选择，不关闭面板
+                                playModeSelectorExpanded -> playModeSelectorExpanded = false
                                 showDeleteConfirm -> {
                                     showDeleteConfirm = false
                                     deleteTargetTrack = null
@@ -364,6 +368,8 @@ fun MusicPanelOverlay(
 
                                 ControlBar(
                                     playbackState = playbackState,
+                                    modeSelectorExpanded = playModeSelectorExpanded,
+                                    onModeSelectorExpandedChange = { playModeSelectorExpanded = it },
                                     onPlaylistClick = { showPlaylist = true },
                                     onLyricsRefreshClick = {
                                         lyricsTargetId = playbackState.currentTrack?.id

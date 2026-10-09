@@ -25,10 +25,9 @@ import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.ui.component.ExpandPicker
-import com.yichao.evilgodxu.ui.component.playModeIcon
-import com.yichao.evilgodxu.ui.component.playModeLabelRes
 import com.yichao.evilgodxu.ui.component.playModeMenuOrder
+import com.yichao.evilgodxu.ui.component.PlayModeOptionButton
+import com.yichao.evilgodxu.ui.component.PlayModeToggleButton
 import com.yichao.evilgodxu.ui.component.selectPlayMode
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.launch
@@ -36,6 +35,9 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun ControlBar(
     playbackState: MusicPlaybackState,
+    // 播放模式选择展开态：由音乐面板持有，展开时四个控制按钮让位于四种播放模式
+    modeSelectorExpanded: Boolean,
+    onModeSelectorExpandedChange: (Boolean) -> Unit,
     onPlaylistClick: () -> Unit,
     onLyricsRefreshClick: () -> Unit,
 ) {
@@ -50,40 +52,32 @@ internal fun ControlBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-        ExpandPicker(
-            options = playModeMenuOrder,
-            selected = playbackState.playMode,
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            trigger = {
-                Box(
-                    modifier = Modifier.size(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = playModeIcon(playbackState.playMode),
-                        contentDescription = stringResource(R.string.music_panel_play_mode),
-                        modifier = Modifier.size(21.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            itemContent = { mode, selected ->
-                Box(
-                    modifier = Modifier.size(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = playModeIcon(mode),
-                        contentDescription = stringResource(playModeLabelRes(mode)),
-                        modifier = Modifier.size(21.dp),
-                        tint = if (selected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            onItemClick = { mode -> selectPlayMode(playbackState, mode) }
+        PlayModeToggleButton(
+            playMode = playbackState.playMode,
+            expanded = modeSelectorExpanded,
+            onExpandedChange = onModeSelectorExpandedChange,
+            size = 32.dp,
+            iconSize = 21.dp,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
+        if (modeSelectorExpanded) {
+            // 展开期间四个控制按钮让位给四种播放模式：选中即切换模式并收起，原按钮随后复位
+            playModeMenuOrder.forEach { mode ->
+                PlayModeOptionButton(
+                    mode = mode,
+                    selected = mode == playbackState.playMode,
+                    onClick = {
+                        selectPlayMode(playbackState, mode)
+                        onModeSelectorExpandedChange(false)
+                    },
+                    size = 32.dp,
+                    iconSize = 21.dp,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    selectedTint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        } else {
         ControlIconButton(
             icon = AppIcons.SkipPrevious,
             contentDescription = stringResource(R.string.music_panel_previous_track),
@@ -144,6 +138,7 @@ internal fun ControlBar(
             size = 32.dp,
             iconSize = 21.dp
         )
+        }
         }
 
         if (playbackState.isLyricsVisible) {

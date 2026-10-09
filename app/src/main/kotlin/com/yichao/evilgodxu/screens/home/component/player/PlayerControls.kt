@@ -29,12 +29,9 @@ import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.theme.md_theme_dark_surfaceVariant
-import com.yichao.evilgodxu.ui.component.ExpandDirection
-import com.yichao.evilgodxu.ui.component.ExpandPicker
-import com.yichao.evilgodxu.ui.component.playModeIcon
-import com.yichao.evilgodxu.ui.component.playModeLabelRes
 import com.yichao.evilgodxu.ui.component.playModeMenuOrder
+import com.yichao.evilgodxu.ui.component.PlayModeOptionButton
+import com.yichao.evilgodxu.ui.component.PlayModeToggleButton
 import com.yichao.evilgodxu.ui.component.selectPlayMode
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlin.math.abs
@@ -44,14 +41,15 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun PlayerControls(
     playbackState: MusicPlaybackState,
+    // 播放模式选择展开态：由所在播放器页持有，展开时四个控制按钮让位于四种播放模式
+    modeSelectorExpanded: Boolean,
+    onModeSelectorExpandedChange: (Boolean) -> Unit,
     onPlaylistClick: () -> Unit,
     onPlaylistLongClick: () -> Unit = {},
     // 从播放/暂停按钮向上滑动：唤出音频信息弹窗；为 null 时该按钮保持普通点击行为
     onPlayPauseSwipeUp: (() -> Unit)? = null,
     // 从播放列表按钮向上滑动：打开播放列表面板；为 null 时该按钮保持普通点击行为
     onPlaylistSwipeUp: (() -> Unit)? = null,
-    // 播放模式选择菜单的展开方向：竖屏向上、横屏向右
-    playModeExpandDirection: ExpandDirection = ExpandDirection.Up,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -60,82 +58,74 @@ internal fun PlayerControls(
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ExpandPicker(
-            options = playModeMenuOrder,
-            selected = playbackState.playMode,
-            expandDirection = playModeExpandDirection,
-            containerColor = md_theme_dark_surfaceVariant,
-            itemHighlightColor = Color.White.copy(alpha = 0.14f),
-            trigger = {
-                Box(
-                    modifier = Modifier.size(48.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = playModeIcon(playbackState.playMode),
-                        contentDescription = stringResource(R.string.music_panel_play_mode),
-                        modifier = Modifier.size(32.dp),
-                        tint = Color.White,
-                    )
-                }
-            },
-            itemContent = { mode, selected ->
-                Box(
-                    modifier = Modifier.size(40.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = playModeIcon(mode),
-                        contentDescription = stringResource(playModeLabelRes(mode)),
-                        modifier = Modifier.size(24.dp),
-                        tint = if (selected) Color.White else Color.White.copy(alpha = 0.55f),
-                    )
-                }
-            },
-            onItemClick = { mode -> selectPlayMode(playbackState, mode) },
+        PlayModeToggleButton(
+            playMode = playbackState.playMode,
+            expanded = modeSelectorExpanded,
+            onExpandedChange = onModeSelectorExpandedChange,
+            size = 48.dp,
+            iconSize = 32.dp,
+            tint = Color.White,
         )
-        PlayerControlButton(
-            icon = AppIcons.SkipPrevious,
-            contentDescription = stringResource(R.string.home_player_previous),
-            enabled = playbackState.playlist.isNotEmpty(),
-            onClick = {
-                val prev = playbackState.previousIndex()
-                if (prev >= 0) {
-                    scope.launch {
-                        playTrackAt(context, playbackState, prev, switchKind = TrackSwitchKind.Previous)
+        if (modeSelectorExpanded) {
+            // 展开期间四个控制按钮让位给四种播放模式：选中即切换模式并收起，原按钮随后复位
+            playModeMenuOrder.forEach { mode ->
+                PlayModeOptionButton(
+                    mode = mode,
+                    selected = mode == playbackState.playMode,
+                    onClick = {
+                        selectPlayMode(playbackState, mode)
+                        onModeSelectorExpandedChange(false)
+                    },
+                    size = 48.dp,
+                    iconSize = 32.dp,
+                    tint = Color.White.copy(alpha = 0.55f),
+                    selectedTint = Color.White,
+                )
+            }
+        } else {
+            PlayerControlButton(
+                icon = AppIcons.SkipPrevious,
+                contentDescription = stringResource(R.string.home_player_previous),
+                enabled = playbackState.playlist.isNotEmpty(),
+                onClick = {
+                    val prev = playbackState.previousIndex()
+                    if (prev >= 0) {
+                        scope.launch {
+                            playTrackAt(context, playbackState, prev, switchKind = TrackSwitchKind.Previous)
+                        }
                     }
-                }
-            },
-        )
-        PlayerControlButton(
-            icon = if (playbackState.isPlaying) AppIcons.Pause else AppIcons.PlayArrow,
-            contentDescription = stringResource(
-                if (playbackState.isPlaying) R.string.home_player_pause else R.string.home_player_play
-            ),
-            enabled = playbackState.playlist.isNotEmpty(),
-            onClick = { togglePlayPause(playbackState) },
-            onSwipeUp = onPlayPauseSwipeUp,
-        )
-        PlayerControlButton(
-            icon = AppIcons.SkipNext,
-            contentDescription = stringResource(R.string.home_player_next),
-            enabled = playbackState.playlist.isNotEmpty(),
-            onClick = {
-                val next = playbackState.nextIndex()
-                if (next >= 0) {
-                    scope.launch {
-                        playTrackAt(context, playbackState, next, switchKind = TrackSwitchKind.Next)
+                },
+            )
+            PlayerControlButton(
+                icon = if (playbackState.isPlaying) AppIcons.Pause else AppIcons.PlayArrow,
+                contentDescription = stringResource(
+                    if (playbackState.isPlaying) R.string.home_player_pause else R.string.home_player_play
+                ),
+                enabled = playbackState.playlist.isNotEmpty(),
+                onClick = { togglePlayPause(playbackState) },
+                onSwipeUp = onPlayPauseSwipeUp,
+            )
+            PlayerControlButton(
+                icon = AppIcons.SkipNext,
+                contentDescription = stringResource(R.string.home_player_next),
+                enabled = playbackState.playlist.isNotEmpty(),
+                onClick = {
+                    val next = playbackState.nextIndex()
+                    if (next >= 0) {
+                        scope.launch {
+                            playTrackAt(context, playbackState, next, switchKind = TrackSwitchKind.Next)
+                        }
                     }
-                }
-            },
-        )
-        PlayerControlButton(
-            icon = AppIcons.QueueMusic,
-            contentDescription = stringResource(R.string.music_panel_playlist),
-            onClick = onPlaylistClick,
-            onLongClick = onPlaylistLongClick,
-            onSwipeUp = onPlaylistSwipeUp,
-        )
+                },
+            )
+            PlayerControlButton(
+                icon = AppIcons.QueueMusic,
+                contentDescription = stringResource(R.string.music_panel_playlist),
+                onClick = onPlaylistClick,
+                onLongClick = onPlaylistLongClick,
+                onSwipeUp = onPlaylistSwipeUp,
+            )
+        }
     }
 }
 

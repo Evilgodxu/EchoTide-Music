@@ -65,18 +65,24 @@ internal fun ExpandedAssembly(
     )
     // 横屏下标题栏与控制栏的统一显隐状态
     var chromeVisible by remember { mutableStateOf(false) }
+    // 播放模式选择展开态：展开期间的点击遮罩铺满全屏，控制栏不能自动收起，否则遮罩会残留挡交互
+    var modeSelectorExpanded by remember { mutableStateOf(false) }
     // 3D 封面轮播显隐：与 chrome 同层持有，进入沉浸覆盖层时联动隐藏标题栏与控制栏
     var coverCarouselVisible by remember { mutableStateOf(false) }
     // 点击标题栏中的艺术家行时待选择的歌手候选：多位歌手时弹出选择对话框。
     // 置于标题栏显隐子树之外，标题栏自动收起不会中断已弹出的选择
     var artistPicker by remember { mutableStateOf<List<String>>(emptyList()) }
 
-    // 横屏下标题栏与控制栏显示 3 秒后自动隐藏
-    LaunchedEffect(chromeVisible) {
-        if (chromeVisible) {
+    // 横屏下标题栏与控制栏显示 3 秒后自动隐藏；播放模式选择展开期间保持常显，供用户完成选择
+    LaunchedEffect(chromeVisible, modeSelectorExpanded) {
+        if (chromeVisible && !modeSelectorExpanded) {
             delay(3000)
             chromeVisible = false
         }
+    }
+    // 控制栏因其它原因收起时同步复位选择，避免全屏遮罩失去宿主后仍拦截交互
+    LaunchedEffect(chromeVisible) {
+        if (!chromeVisible) modeSelectorExpanded = false
     }
     // 播放列表面板展开时自动隐藏标题栏与控制栏，避免遮挡面板内容
     LaunchedEffect(panelState.playlistVisible) {
@@ -105,6 +111,8 @@ internal fun ExpandedAssembly(
                     playbackState = playbackState,
                     chromeVisible = chromeVisible,
                     onToggleChrome = { chromeVisible = !chromeVisible },
+                    modeSelectorExpanded = modeSelectorExpanded,
+                    onModeSelectorExpandedChange = { modeSelectorExpanded = it },
                     playlistVisible = panelState.playlistVisible,
                     onPlaylistVisibilityChange = { panelState.playlistVisible = it },
                     coverCarouselVisible = coverCarouselVisible,

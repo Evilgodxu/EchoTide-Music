@@ -49,7 +49,7 @@ import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
 import com.yichao.evilgodxu.screens.home.component.player.HomeBlendedCover
 import com.yichao.evilgodxu.screens.home.component.player.PlayerControls
 import com.yichao.evilgodxu.screens.home.component.queue.PlaylistSheet
-import com.yichao.evilgodxu.ui.component.ExpandDirection
+import com.yichao.evilgodxu.ui.component.PlayModeSelectionScrim
 import com.yichao.evilgodxu.ui.component.player.currentTrackNeedsLosslessUpgrade
 import com.yichao.evilgodxu.ui.component.player.TrackFormatInfoSection
 import com.yichao.evilgodxu.ui.component.player.CoverCarouselOverlay
@@ -62,6 +62,9 @@ fun LandscapePlayer(
     playbackState: MusicPlaybackState,
     chromeVisible: Boolean,
     onToggleChrome: () -> Unit,
+    // 播放模式选择展开态：由首页层持有，展开期间的点击遮罩铺满全屏，故随控制栏显隐一并管理
+    modeSelectorExpanded: Boolean,
+    onModeSelectorExpandedChange: (Boolean) -> Unit,
     // 播放列表面板显隐：由首页层持有，显示期间禁用上下滑动切歌
     playlistVisible: Boolean,
     onPlaylistVisibilityChange: (Boolean) -> Unit,
@@ -142,6 +145,12 @@ fun LandscapePlayer(
                 },
         )
 
+        // 播放模式选择展开期间的全屏点击遮罩：控制栏在其上层仍可点，其余区域点击即收起并复位
+        PlayModeSelectionScrim(
+            visible = modeSelectorExpanded,
+            onDismiss = { onModeSelectorExpandedChange(false) },
+        )
+
         // 底部控制栏
         AnimatedVisibility(
             visible = chromeVisible,
@@ -168,11 +177,11 @@ fun LandscapePlayer(
                 )
                 PlayerControls(
                     playbackState = playbackState,
+                    modeSelectorExpanded = modeSelectorExpanded,
+                    onModeSelectorExpandedChange = onModeSelectorExpandedChange,
                     onPlaylistClick = { onPlaylistVisibilityChange(true) },
                     // 播放列表按钮上滑同样打开面板：与竖屏控制栏手势一致
                     onPlaylistSwipeUp = { onPlaylistVisibilityChange(true) },
-                    // 横屏控制栏贴右侧，播放模式菜单向右展开
-                    playModeExpandDirection = ExpandDirection.Right,
                 )
             }
         }

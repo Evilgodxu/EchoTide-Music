@@ -45,6 +45,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -109,6 +110,7 @@ import com.yichao.evilgodxu.ui.component.player.LyricsTranslateDialog
 import com.yichao.evilgodxu.ui.component.player.LyricsPanel
 import com.yichao.evilgodxu.ui.component.player.LyricsRefreshDialog
 import com.yichao.evilgodxu.ui.component.menuEdgePositionProvider
+import com.yichao.evilgodxu.ui.component.PlayModeSelectionScrim
 import com.yichao.evilgodxu.ui.component.rememberTrackSwitchAnchor
 import com.yichao.evilgodxu.ui.component.TrackSwitchTransition
 import com.yichao.evilgodxu.ui.copyToClipboard
@@ -248,6 +250,10 @@ internal fun PortraitPlayer(
     var lyricTuneVisible by remember { mutableStateOf(false) }
     // 微调操作计数：每次调整自增以重置自动隐藏计时
     var tuneVersion by remember { mutableIntStateOf(0) }
+    // 播放模式选择展开态：展开时控制栏让位给四种播放模式，点击其他区域或选定模式后收起
+    var playModeSelectorExpanded by remember { mutableStateOf(false) }
+    // 控制栏实测高度：展开遮罩据此剔出底部控制栏所占区域，保证四个模式按钮仍可点击
+    var controlsHeightPx by remember { mutableIntStateOf(0) }
     // 浮动提示：显示当前微调的毫秒数
     var tuneHintText by remember { mutableStateOf("") }
     var tuneHintVersion by remember { mutableIntStateOf(0) }
@@ -658,15 +664,29 @@ internal fun PortraitPlayer(
                 }
                 // 进度条与控制栏间距
                 Spacer(Modifier.height(8.dp))
-                PlayerControls(
-                    playbackState = playbackState,
-                    onPlaylistClick = { onPlaylistVisibilityChange(!playlistVisible) },
-                    onPlaylistLongClick = { libraryAnalysis.open() },
-                    onPlayPauseSwipeUp = { onAudioInfoVisibilityChange(true) },
-                    onPlaylistSwipeUp = { onPlaylistVisibilityChange(true) },
-                )
+                Box(modifier = Modifier.onGloballyPositioned { controlsHeightPx = it.size.height }) {
+                    PlayerControls(
+                        playbackState = playbackState,
+                        modeSelectorExpanded = playModeSelectorExpanded,
+                        onModeSelectorExpandedChange = { playModeSelectorExpanded = it },
+                        onPlaylistClick = { onPlaylistVisibilityChange(!playlistVisible) },
+                        onPlaylistLongClick = { libraryAnalysis.open() },
+                        onPlayPauseSwipeUp = { onAudioInfoVisibilityChange(true) },
+                        onPlaylistSwipeUp = { onPlaylistVisibilityChange(true) },
+                    )
+                }
             }
         }
+
+        // 播放模式选择展开期间的点击遮罩：盖住控制栏以上的区域，控制栏本身留出，
+        // 使四个模式按钮独占交互，其余位置点击即收起并复位控制按钮
+        PlayModeSelectionScrim(
+            visible = playModeSelectorExpanded,
+            onDismiss = { playModeSelectorExpanded = false },
+            modifier = Modifier.padding(
+                bottom = bottomClearance + with(LocalDensity.current) { controlsHeightPx.toDp() },
+            ),
+        )
 
         PlaylistSheet(
             visible = playlistVisible,

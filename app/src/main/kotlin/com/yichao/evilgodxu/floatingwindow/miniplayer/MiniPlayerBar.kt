@@ -60,12 +60,10 @@ import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
-import com.yichao.evilgodxu.ui.component.ExpandDirection
-import com.yichao.evilgodxu.ui.component.ExpandPicker
 import com.yichao.evilgodxu.ui.component.MarqueeText
-import com.yichao.evilgodxu.ui.component.playModeIcon
-import com.yichao.evilgodxu.ui.component.playModeLabelRes
 import com.yichao.evilgodxu.ui.component.playModeMenuOrder
+import com.yichao.evilgodxu.ui.component.PlayModeOptionButton
+import com.yichao.evilgodxu.ui.component.PlayModeToggleButton
 import com.yichao.evilgodxu.ui.component.selectPlayMode
 import com.yichao.evilgodxu.ui.component.TrackSwitchStyle
 import com.yichao.evilgodxu.ui.component.TrackSwitchTransition
@@ -103,12 +101,15 @@ internal fun MiniPlayerBar(
     // 控件自动隐藏：3 秒无操作后隐藏控制按钮，改为显示歌曲名与歌词；任意触摸即可还原
     var controlsVisible by remember { mutableStateOf(true) }
     var interactionTick by remember { mutableIntStateOf(0) }
+    // 播放模式选择展开态：展开时四个控制按钮让位给四种播放模式，点击其他区域或选定模式后收起
+    var playModeSelectorExpanded by remember { mutableStateOf(false) }
     fun resetAutoHide() {
         controlsVisible = true
         interactionTick++
     }
-    LaunchedEffect(interactionTick, playlistExpanded) {
-        if (playlistExpanded) {
+    LaunchedEffect(interactionTick, playlistExpanded, playModeSelectorExpanded) {
+        // 选择展开期间不自动隐藏：否则控件连同展开态一起被收起，选择过程被打断
+        if (playlistExpanded || playModeSelectorExpanded) {
             controlsVisible = true
             return@LaunchedEffect
         }
@@ -161,6 +162,21 @@ internal fun MiniPlayerBar(
 
     // 手势交互：左右滑动切歌（右滑上一曲、左滑下一曲）；下滑隐藏播放器
     val verticalSwipeThresholdPx = with(LocalDensity.current) { MINI_SWIPE_VERTICAL_THRESHOLD_DP.dp.toPx() }
+
+    // 播放模式选择展开时才挂上的兜底点击：轻点条内非控件区域即收起选择。控件自身消费点击，
+    // 故只在点到空隙时生效，不会与切换按钮/模式选项的点击相互抵消；收起后即摘除，
+    // 不改变常态下本条目的无障碍语义
+    val dismissSelectorModifier = if (playModeSelectorExpanded) {
+        Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+        ) {
+            playModeSelectorExpanded = false
+            resetAutoHide()
+        }
+    } else {
+        Modifier
+    }
 
     Row(
         modifier = Modifier
@@ -224,6 +240,7 @@ internal fun MiniPlayerBar(
                     totalDy = 0f
                 }
             }
+            .then(dismissSelectorModifier)
             .padding(horizontal = MINI_PADDING_H_DP.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(0.dp, Alignment.CenterHorizontally)
@@ -236,7 +253,10 @@ internal fun MiniPlayerBar(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = onExpandPanel
+                    // 播放模式选择展开时，点封面视为点击其他区域：只收起选择，不进入面板
+                    onClick = {
+                        if (playModeSelectorExpanded) playModeSelectorExpanded = false else onExpandPanel()
+                    }
                 ),
             contentAlignment = Alignment.Center,
         ) {
@@ -249,85 +269,78 @@ internal fun MiniPlayerBar(
         }
 
         if (controlsVisible) {
-            // 循环模式：改为展开式菜单逐项选择，替换原先的循环切换；悬浮窗条内向右展开
-            ExpandPicker(
-                options = playModeMenuOrder,
-                selected = playbackState.playMode,
-                expandDirection = ExpandDirection.Right,
-                // 悬浮窗是独立小窗口，窗口尺寸不等于屏幕，关闭按窗口夹取避免菜单被裁进条内
-                clampToWindow = false,
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                trigger = {
-                    Box(
-                        modifier = Modifier.size(MINI_BUTTON_DP.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = playModeIcon(playbackState.playMode),
-                            contentDescription = stringResource(R.string.music_panel_play_mode),
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+            // 播放模式：按下后图标旋为右向「>」，同时四个控制按钮让位给四种播放模式
+            PlayModeToggleButton(
+                playMode = playbackState.playMode,
+                expanded = playModeSelectorExpanded,
+                onExpandedChange = { expanded ->
+                    playModeSelectorExpanded = expanded
+                    resetAutoHide()
                 },
-                itemContent = { mode, selected ->
-                    Box(
-                        modifier = Modifier.size(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = playModeIcon(mode),
-                            contentDescription = stringResource(playModeLabelRes(mode)),
-                            modifier = Modifier.size(20.dp),
-                            tint = if (selected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                onItemClick = { mode -> selectPlayMode(playbackState, mode) }
+                size = MINI_BUTTON_DP.dp,
+                iconSize = 20.dp,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            // 上一曲
-            MiniControlButton(
-                icon = AppIcons.SkipPrevious,
-                contentDescription = stringResource(R.string.mini_player_previous),
-                enabled = playbackState.playlist.isNotEmpty(),
-                onClick = {
-                    val prev = playbackState.previousIndex()
-                    if (prev >= 0) {
-                        scope.launch {
-                            playTrackAt(context, playbackState, prev, switchKind = TrackSwitchKind.Previous)
+            if (playModeSelectorExpanded) {
+                // 展开期间四个控制按钮让位给四种播放模式：选中即切换模式并收起，原按钮随后复位
+                playModeMenuOrder.forEach { mode ->
+                    PlayModeOptionButton(
+                        mode = mode,
+                        selected = mode == playbackState.playMode,
+                        onClick = {
+                            selectPlayMode(playbackState, mode)
+                            playModeSelectorExpanded = false
+                        },
+                        size = MINI_BUTTON_DP.dp,
+                        iconSize = 20.dp,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        selectedTint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            } else {
+                // 上一曲
+                MiniControlButton(
+                    icon = AppIcons.SkipPrevious,
+                    contentDescription = stringResource(R.string.mini_player_previous),
+                    enabled = playbackState.playlist.isNotEmpty(),
+                    onClick = {
+                        val prev = playbackState.previousIndex()
+                        if (prev >= 0) {
+                            scope.launch {
+                                playTrackAt(context, playbackState, prev, switchKind = TrackSwitchKind.Previous)
+                            }
                         }
                     }
-                }
-            )
-            // 暂停 / 播放
-            MiniControlButton(
-                icon = if (playbackState.isPlaying) AppIcons.Pause else AppIcons.PlayArrow,
-                contentDescription = stringResource(
-                    if (playbackState.isPlaying) R.string.music_panel_pause else R.string.music_panel_play
-                ),
-                onClick = { togglePlayPause(playbackState) }
-            )
-            // 下一曲
-            MiniControlButton(
-                icon = AppIcons.SkipNext,
-                contentDescription = stringResource(R.string.mini_player_next),
-                enabled = playbackState.playlist.isNotEmpty(),
-                onClick = {
-                    val next = playbackState.nextIndex()
-                    if (next >= 0) {
-                        scope.launch {
-                            playTrackAt(context, playbackState, next, switchKind = TrackSwitchKind.Next)
+                )
+                // 暂停 / 播放
+                MiniControlButton(
+                    icon = if (playbackState.isPlaying) AppIcons.Pause else AppIcons.PlayArrow,
+                    contentDescription = stringResource(
+                        if (playbackState.isPlaying) R.string.music_panel_pause else R.string.music_panel_play
+                    ),
+                    onClick = { togglePlayPause(playbackState) }
+                )
+                // 下一曲
+                MiniControlButton(
+                    icon = AppIcons.SkipNext,
+                    contentDescription = stringResource(R.string.mini_player_next),
+                    enabled = playbackState.playlist.isNotEmpty(),
+                    onClick = {
+                        val next = playbackState.nextIndex()
+                        if (next >= 0) {
+                            scope.launch {
+                                playTrackAt(context, playbackState, next, switchKind = TrackSwitchKind.Next)
+                            }
                         }
                     }
-                }
-            )
-            // 播放列表
-            MiniControlButton(
-                icon = AppIcons.QueueMusic,
-                contentDescription = stringResource(R.string.mini_player_playlist),
-                onClick = { onPlaylistExpandedChange(!playlistExpanded) }
-            )
+                )
+                // 播放列表
+                MiniControlButton(
+                    icon = AppIcons.QueueMusic,
+                    contentDescription = stringResource(R.string.mini_player_playlist),
+                    onClick = { onPlaylistExpandedChange(!playlistExpanded) }
+                )
+            }
         } else {
             // 隐藏控件：展示歌曲名与当前歌词
             val lyricLines = current?.lyricLines.orEmpty()
