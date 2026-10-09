@@ -1,10 +1,9 @@
 package com.yichao.evilgodxu.ui.component
 
 import androidx.compose.animation.core.MutableTransitionState
-import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -143,7 +142,11 @@ fun <T> ExpandPicker(
 }
 
 /**
- * 菜单主体：外层容器整体缩放并淡入淡出，内部选项按呈现位错峰淡入淡出。
+ * 菜单主体：容器整体缩放并淡入淡出，内部选项按「距锚点远近」逐项浮现/隐去。
+ *
+ * 容器与选项共用同一条进度时间轴（[progress]，0 收起 / 1 展开）：选项的浮现窗口映射在进度轴上，
+ * 容器展开到该项所在位置时它即开始浮现，收起时又随进度回落逐项隐去，二者天然同步，
+ * 不会出现等容器完全展开后内容才弹出、或容器收完内容还残留的脱节。
  *
  * 选项始终参与组合与布局，仅以 [graphicsLayer] 调整透明度，容器尺寸在动画期间恒定——
  * 弹窗定位依赖内容尺寸，若动画改变尺寸会导致定位逐帧重算（抖动/闪烁的来源），
@@ -164,16 +167,15 @@ private fun <T> ExpandMenuContent(
     itemContent: @Composable (T, Boolean) -> Unit,
     onItemClick: (T) -> Unit,
 ) {
-    val transition = updateTransition(visibleState, label = "ExpandPicker")
-    // 容器整体：按展开方向自锚点一侧缩放并淡入/淡出
-    val containerScale by transition.animateFloat(
-        transitionSpec = { tween(CONTAINER_SCALE_MS) },
-        label = "containerScale",
-    ) { expanded -> if (expanded) 1f else CONTAINER_CLOSED_SCALE }
-    val containerAlpha by transition.animateFloat(
-        transitionSpec = { tween(CONTAINER_FADE_MS) },
-        label = "containerAlpha",
+    val transition = rememberTransition(visibleState, label = "ExpandPicker")
+    // 唯一进度源：容器与选项都从它取值，保证展开/收起过程中二者节奏一致
+    val progress by transition.animateFloat(
+        transitionSpec = { tween(MENU_REVEAL_MS) },
+        label = "revealProgress",
     ) { expanded -> if (expanded) 1f else 0f }
+    // 容器：自锚点一侧缩放展开，并在展开初期快速显形
+    val containerScale = CONTAINER_CLOSED_SCALE + (1f - CONTAINER_CLOSED_SCALE) * progress
+    val containerAlpha = (progress / CONTAINER_FADE_PROGRESS).coerceIn(0f, 1f)
     // 缩放原点落在触发区域一侧，使菜单自触发处向外展开
     val transformOrigin = when (direction) {
         ExpandDirection.Up -> TransformOrigin(0.5f, 1f)
@@ -183,6 +185,7 @@ private fun <T> ExpandMenuContent(
 
     // header 占第一个呈现位，其后选项顺延
     val headerCount = if (header != null) 1 else 0
+    val itemCount = options.size + headerCount
 
     Surface(
         modifier = Modifier.graphicsLayer {
@@ -203,15 +206,20 @@ private fun <T> ExpandMenuContent(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             if (header != null) {
-                ExpandMenuRow(transition = transition, staggerIndex = 0) {
+                ExpandMenuRow(
+                    progress = progress,
+                    order = anchorOrder(direction, position = 0, itemCount = itemCount),
+                    itemCount = itemCount,
+                ) {
                     header()
                 }
             }
             options.forEachIndexed { index, option ->
                 val isSelected = option == selected
                 ExpandMenuRow(
-                    transition = transition,
-                    staggerIndex = index + headerCount,
+                    progress = progress,
+                    order = anchorOrder(direction, position = index + headerCount, itemCount = itemCount),
+                    itemCount = itemCount,
                     shape = itemShape,
                     background = if (isSelected) itemHighlightColor else Color.Transparent,
                     onClick = { onItemClick(option) },
@@ -223,22 +231,35 @@ private fun <T> ExpandMenuContent(
     }
 }
 
-// 单个选项行：按呈现位错峰淡入/淡出，始终参与布局（仅透明度变化），
+// 呈现位到「距锚点远近」的换算：0 表示最靠近锚点、最先浮现。
+// Up 的锚点在下，呈现位自上而下与锚点远近相反，故需倒置；Down / Right 的锚点在正序一侧，保持原序
+private fun anchorOrder(direction: ExpandDirection, position: Int, itemCount: Int): Int =
+    if (direction == ExpandDirection.Up) itemCount - 1 - position else position
+
+// 由共享进度换算单项透明度：距锚点越近，浮现起点越早（收起时隐去越晚），
+// 末项的浮现终点对齐进度 1，与容器完全展开同步
+private fun itemRevealAlpha(progress: Float, order: Int, itemCount: Int): Float {
+    val firstStart = ITEM_REVEAL_LEAD_IN
+    val lastStart = (1f - ITEM_REVEAL_SPAN).coerceAtLeast(firstStart)
+    val start = if (itemCount <= 1) firstStart
+    else firstStart + (lastStart - firstStart) * order / (itemCount - 1)
+    return ((progress - start) / ITEM_REVEAL_SPAN).coerceIn(0f, 1f)
+}
+
+// 单个选项行：透明度由共享进度换算而来，始终参与布局（仅透明度变化），
 // 避免因显隐进出组合树导致容器尺寸逐帧变化
 @Composable
 private fun ExpandMenuRow(
-    transition: Transition<Boolean>,
-    staggerIndex: Int,
+    progress: Float,
+    order: Int,
+    itemCount: Int,
     modifier: Modifier = Modifier,
     shape: Shape? = null,
     background: Color = Color.Transparent,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    val itemAlpha by transition.animateFloat(
-        transitionSpec = { tween(ITEM_ANIM_MS, delayMillis = staggerIndex * ITEM_STAGGER_MS) },
-        label = "itemAlpha$staggerIndex",
-    ) { expanded -> if (expanded) 1f else 0f }
+    val itemAlpha = itemRevealAlpha(progress, order, itemCount)
     var rowModifier = Modifier
         .fillMaxWidth()
         .clip(shape ?: RoundedCornerShape(0.dp))
@@ -384,16 +405,16 @@ private suspend fun PointerInputScope.detectSwipe(
     }
 }
 
-// 相邻两项呈现/隐藏的错峰间隔
-private const val ITEM_STAGGER_MS = 40
-// 单项淡入/淡出时长
-private const val ITEM_ANIM_MS = 140
-// 容器整体缩放时长
-private const val CONTAINER_SCALE_MS = 180
-// 容器整体淡入/淡出时长
-private const val CONTAINER_FADE_MS = 120
+// 容器展开/收起总时长：容器与选项的浮现/隐去共用此时间轴
+private const val MENU_REVEAL_MS = 220
+// 容器不透明度到达 1 所需的进度比例：容器先快速显形，随后继续完成缩放展开
+private const val CONTAINER_FADE_PROGRESS = 0.3f
+// 首项开始浮现前容器的展开进度：先让容器露出，再逐项带出内容
+private const val ITEM_REVEAL_LEAD_IN = 0.12f
+// 单项浮现占用的进度窗口：末项据此收束在进度 1，与容器完全展开同步
+private const val ITEM_REVEAL_SPAN = 0.3f
 // 收起态容器缩放：自锚点一侧略小，展开时放大到 1
-private const val CONTAINER_CLOSED_SCALE = 0.9f
+private const val CONTAINER_CLOSED_SCALE = 0.85f
 // 菜单容器阴影
 private val MENU_SHADOW_ELEVATION = 8.dp
 // 菜单容器内边距
