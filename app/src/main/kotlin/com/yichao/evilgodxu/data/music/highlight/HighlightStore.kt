@@ -14,18 +14,18 @@ import org.json.JSONObject
 /**
  * 单曲的片段判定结果。
  *
- * 「没有歌词」与「有歌词但没有副歌」必须是两个不同的结论：前者只是数据尚未就绪，
- * 据此跳过该曲会让整库在歌词补齐前被跳过；后者才是真的没有副歌。
+ * 「无法定位」与「确认没有副歌」必须是两个不同的结论：前者只是数据不足（没有歌词、歌词无时间轴、
+ * 音频暂不可读），据此跳过会让整库在数据就绪前被跳过；后者才是真的没有高潮段，只有它可以跳过该曲。
  */
 internal sealed interface HighlightEntry {
 
     /** 已定位出片段 */
     data class Segment(val highlight: Highlight) : HighlightEntry
 
-    /** 没有任何歌词可用。不是「没有副歌」，调用方据此按整曲播放 */
-    data object NoLyrics : HighlightEntry
+    /** 无法定位：数据不足，调用方据此按整曲播放，**不得跳过** */
+    data object Unresolved : HighlightEntry
 
-    /** 有歌词但定位不出重复段：确实是「没有副歌」，调用方据此跳过该曲 */
+    /** 有可用歌词与音频且确认没有高潮段：调用方据此跳过该曲 */
     data object NoChorus : HighlightEntry
 }
 
@@ -37,10 +37,11 @@ internal sealed interface HighlightEntry {
  * 切换模式要逐项替换队列，队列长时可见卡顿。改为「扫描一次、查表使用」后这三项同时消失 ——
  * 播放路径只剩一次内存查表，切模式与切歌都不再触解析。
  *
- * 表按「歌词指纹」判定新鲜度：指纹未变即不重算，歌词被补全或手动刷新后指纹改变，重新扫描。
- * 所以 [NoLyrics] 只表示「扫描时没歌词」，后续歌词到位后会被重扫覆盖，不会永久卡在整曲播放。
+ * 表按「歌词指纹 + 算法版本」判定新鲜度：任一变化即重算。指纹并入算法版本是有意的 ——
+ * 定位算法升级后，旧结果必须整体作废重算，而这一步靠版本号触发，不靠人去清缓存。
  *
- * 落盘规模与曲库同阶（每曲一条），写入按批进行（见 [com.yichao.evilgodxu.data.music.highlight.HighlightScanner]）。
+ * 条目另记「是否已精修」（[Stored.refined]）：粗扫只用歌词、不碰音频，廉价；精修才按需解码音频
+ * 补足歌词判不了的曲子。于是「从不心动模式的用户」永远只付粗扫的代价，进入模式后才做精修。
  */
 internal object HighlightStore {
 
@@ -48,12 +49,22 @@ internal object HighlightStore {
     private const val KEY_VERSION = "version"
     private const val CURRENT_VERSION = 1
 
+    // 定位算法版本：参与指纹，算法改动后旧结果自动作废重算
+    private const val ALGORITHM_VERSION = "v2"
+
     // 条目类型落盘标识
     private const val KIND_SEGMENT = "segment"
-    private const val KIND_NO_LYRICS = "no_lyrics"
+    private const val KIND_UNRESOLVED = "unresolved"
     private const val KIND_NO_CHORUS = "no_chorus"
+    // 旧版「无歌词」标识：语义等同 Unresolved，读取时一并归一
+    private const val KIND_LEGACY_NO_LYRICS = "no_lyrics"
 
-    private class Stored(val fingerprint: String, val entry: HighlightEntry)
+    private class Stored(
+        val fingerprint: String,
+        /** 是否已在「可解码音频」的前提下判定过，见 [isUpToDate] */
+        val refined: Boolean,
+        val entry: HighlightEntry,
+    )
 
     @Volatile
     private var table: Map<Long, Stored> = emptyMap()
@@ -65,25 +76,41 @@ internal object HighlightStore {
     private val loadMutex = Mutex()
     private val writeMutex = Mutex()
 
-    /** 歌词指纹：行数与首末时间戳足以识别歌词是否被替换 */
+    /**
+     * 歌词与曲目属性指纹：行数、首末时间戳与时长足以识别歌词或时间轴是否被替换。
+     *
+     * 时长参与指纹是因为片段边界以它为上限：时长先缺后补时，片段区间可能随之变化，须重算。
+     */
     fun fingerprintOf(track: MusicTrack): String {
         val lines = track.lyricLines
-        if (lines.isEmpty()) return "none:${track.lyricCachePath}"
-        return "${lines.size}:${lines.first().timeMs}:${lines.last().timeMs}"
+        val base = if (lines.isEmpty()) {
+            "none:${track.lyricCachePath}"
+        } else {
+            "${lines.size}:${lines.first().timeMs}:${lines.last().timeMs}"
+        }
+        return "$ALGORITHM_VERSION:${track.duration}:$base"
     }
 
-    /** 该曲是否已按当前歌词扫描过。歌词一变即为过期，须重算 */
-    fun isUpToDate(track: MusicTrack): Boolean =
-        table[track.id]?.fingerprint == fingerprintOf(track)
+    /**
+     * 该曲是否已按当前口径扫描过。
+     *
+     * 粗扫（[audioRefinement] 为 false）只认「指纹未变」；精修扫描额外要求该条已精修过，
+     * 于是粗扫留下的未精修条目会在进入心动模式后被重算，而已精修条目不会被反复重算。
+     */
+    fun isUpToDate(track: MusicTrack, audioRefinement: Boolean): Boolean {
+        val stored = table[track.id] ?: return false
+        if (stored.fingerprint != fingerprintOf(track)) return false
+        return stored.refined || !audioRefinement
+    }
 
-    /** 该曲应播放的片段；未扫描、无歌词或判定无副歌时返回 null（调用方据此整曲播放） */
+    /** 该曲应播放的片段；未扫描、无法定位或判定无副歌时返回 null（调用方据此整曲播放） */
     fun segmentOf(trackId: Long): Highlight? =
         (table[trackId]?.entry as? HighlightEntry.Segment)?.highlight
 
     /**
-     * 该曲是否「有歌词但确实没有副歌」。
+     * 该曲是否「有歌词与音频却确实没有高潮段」。
      *
-     * 只有这一种情况才跳过该曲；未扫描与无歌词都不能据此跳过，
+     * 只有这一种情况才跳过该曲；无法定位与未扫描都不能据此跳过，
      * 否则歌词尚未补齐的曲库会被整库跳过。
      */
     fun isKnownChorusMiss(trackId: Long): Boolean =
@@ -99,17 +126,24 @@ internal object HighlightStore {
     }
 
     /** 合并一批扫描结果并落盘。批写而非逐条写：整库扫描会产生成百上千条更新 */
-    suspend fun commit(context: Context, updates: Map<Long, Pair<String, HighlightEntry>>) {
+    suspend fun commit(context: Context, updates: Map<Long, ScanResult>) {
         if (updates.isEmpty()) return
         writeMutex.withLock {
             val merged = table.toMutableMap()
-            updates.forEach { (trackId, value) ->
-                merged[trackId] = Stored(value.first, value.second)
+            updates.forEach { (trackId, result) ->
+                merged[trackId] = Stored(result.fingerprint, result.refined, result.entry)
             }
             table = merged
             write(context, merged)
         }
     }
+
+    /** 单曲扫描结果：指纹、是否已精修、判定条目三者一并落盘 */
+    class ScanResult(
+        val fingerprint: String,
+        val refined: Boolean,
+        val entry: HighlightEntry,
+    )
 
     private suspend fun read(context: Context): Map<Long, Stored> = withContext(Dispatchers.IO) {
         try {
@@ -125,7 +159,7 @@ internal object HighlightStore {
                     val id = item.optLong("id")
                     val fingerprint = item.optString("fp")
                     val entry = entryFrom(item) ?: continue
-                    put(id, Stored(fingerprint, entry))
+                    put(id, Stored(fingerprint, item.optBoolean("refined", false), entry))
                 }
             }
         } catch (e: Exception) {
@@ -157,13 +191,14 @@ internal object HighlightStore {
     private fun itemTo(trackId: Long, stored: Stored): JSONObject = JSONObject().apply {
         put("id", trackId)
         put("fp", stored.fingerprint)
+        put("refined", stored.refined)
         when (val entry = stored.entry) {
             is HighlightEntry.Segment -> {
                 put("kind", KIND_SEGMENT)
                 put("start", entry.highlight.startMs)
                 put("end", entry.highlight.endMs)
             }
-            HighlightEntry.NoLyrics -> put("kind", KIND_NO_LYRICS)
+            HighlightEntry.Unresolved -> put("kind", KIND_UNRESOLVED)
             HighlightEntry.NoChorus -> put("kind", KIND_NO_CHORUS)
         }
     }
@@ -174,7 +209,7 @@ internal object HighlightStore {
             val end = item.optLong("end", -1L)
             if (start in 0L until end) HighlightEntry.Segment(Highlight(start, end)) else null
         }
-        KIND_NO_LYRICS -> HighlightEntry.NoLyrics
+        KIND_UNRESOLVED, KIND_LEGACY_NO_LYRICS -> HighlightEntry.Unresolved
         KIND_NO_CHORUS -> HighlightEntry.NoChorus
         else -> null
     }
