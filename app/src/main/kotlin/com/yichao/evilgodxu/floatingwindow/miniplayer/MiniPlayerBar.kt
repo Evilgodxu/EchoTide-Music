@@ -125,8 +125,9 @@ internal fun MiniPlayerBar(
         var lastSyncMs = 0L
         while (isActive) {
             // 与首页歌词同源：锚点取控制器的即时位置（连续外推，不会一顿一顿），
-            // 重建时的相位由状态层时间轴接上，故两块界面既平滑又不会各推各的
-            val candidate = playbackState.livePositionMs
+            // 重建时的相位由状态层时间轴接上，故两块界面既平滑又不会各推各的。
+            // 取换算到整曲绝对时间后的值（见 lyricPositionMs）：心动模式下控制器回报的是片段内进度
+            val candidate = playbackState.lyricPositionMs
             val now = System.currentTimeMillis()
             if (playbackState.isPlaying) {
                 val elapsed = if (lastSyncMs == 0L) 0L else (now - lastSyncMs).coerceAtLeast(0L)

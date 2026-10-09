@@ -123,8 +123,10 @@ internal fun LyricsPanel(
         while (isActive) {
             // 锚点取控制器的即时位置：它按时间连续外推，读取时每轮都在前进；状态层的
             // currentPosition 是回报的峰值包络，只在其超过历史最大值时才前进，跟着它走会一顿一顿。
-            // 锚点的回锚回退由下面的容差分支兜住——不超过容差就不把本地已推进的进度拉回
-            val candidate = playbackState.livePositionMs
+            // 锚点的回锚回退由下面的容差分支兜住——不超过容差就不把本地已推进的进度拉回。
+            // 取的是换算到整曲绝对时间后的值（见 lyricPositionMs）：心动模式下控制器回报的是
+            // 片段内进度，直接用会让整段歌词落后一个片段起点
+            val candidate = playbackState.lyricPositionMs
             val now = System.currentTimeMillis()
             val guarding = now < seekGuardUntilMs
             if (playbackState.isPlaying) {
@@ -338,7 +340,9 @@ internal fun LyricsPanel(
                         val targetMs = currentLines[candidate].timeMs
                         lyricPosition = targetMs
                         seekGuardUntilMs = System.currentTimeMillis() + LYRIC_SCRUB_SEEK_GUARD_MS
-                        seekToAndPlay(playbackState, targetMs)
+                        // 歌词行给的是整曲绝对时间，跳转前换算到播放器当前项的坐标系
+                        // （心动模式下以片段起点为原点），否则会落到片段外被钳到边界
+                        seekToAndPlay(playbackState, playbackState.toPlayerPosition(targetMs))
                         settleTo(candidate.toFloat(), tween(LYRIC_SCRUB_SNAP_MS))
                     } else {
                         // 未对齐：不跳转进度，弹性回弹到拖拽前位置

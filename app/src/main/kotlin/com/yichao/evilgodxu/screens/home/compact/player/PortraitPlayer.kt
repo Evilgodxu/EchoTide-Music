@@ -393,8 +393,10 @@ internal fun PortraitPlayer(
                                 onClick = { lyricTuneVisible = !lyricTuneVisible },
                                 onLongClick = {
                                     if (playbackState.currentTrack != null) {
-                                        // 长按瞬间定格播放位置，作为歌词编辑的目标行依据
-                                        lyricsMenuPositionMs = playbackState.currentPosition
+                                        // 长按瞬间定格播放位置，作为歌词编辑的目标行依据。
+                                        // 取整曲绝对时间（见 lyricPositionMs）：歌词行的时间戳是绝对时间，
+                                        // 心动模式下 controller 回报的是片段内进度，直接用会定位到错误的行
+                                        lyricsMenuPositionMs = playbackState.lyricPositionMs
                                         showLyricsMenu = true
                                     }
                                 },

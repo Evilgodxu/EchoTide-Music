@@ -396,6 +396,27 @@ class MusicPlaybackState(
             ?.startPositionMs?.takeIf { it > 0L } ?: 0L
 
     /**
+     * 歌词时间轴所用的播放位置：曲目内的**绝对**时间。
+     *
+     * 心动模式下控制器回报的进度以片段起点为原点，而歌词时间轴是整曲的绝对时间。换算只在这里
+     * 做一次，歌词面板与悬浮窗都取本值 —— 它们原先直接读 [livePositionMs]，于是在心动模式下
+     * 整段歌词都落后一个片段起点，表现为「歌词没有跟随片段」。
+     *
+     * 进度条反其道而行：它要的正是片段内的相对进度（[currentPosition] / [duration]），不参与本换算。
+     */
+    val lyricPositionMs: Long
+        get() = livePositionMs + highlightPositionOffsetMs
+
+    /**
+     * 把整曲的绝对时间换算到播放器当前项的坐标系，供以歌词行为目标的跳转使用。
+     *
+     * 心动模式下 seek 的目标以片段起点为原点，而歌词行给出的是整曲绝对时间；不换算就会落到
+     * 片段之外被播放器钳到边界。落在片段之前的行一律起于片段起点。
+     */
+    fun toPlayerPosition(absoluteMs: Long): Long =
+        (absoluteMs - highlightPositionOffsetMs).coerceIn(0L, duration.coerceAtLeast(0L))
+
+    /**
      * 可落盘的播放位置。
      *
      * 心动模式下控制器回报的是片段内进度，落盘须换算回整曲的绝对位置 ——
@@ -926,8 +947,8 @@ class MusicPlaybackState(
     fun seedLyricPosition(trackId: Long?): Long {
         val snapshot = lyricTimelinePositionMs
             .takeIf { trackId != null && trackId == lyricTimelineTrackId } ?: 0L
-        // 心动模式下控制器回报的是片段内进度，换算回整曲的绝对时间后歌词才对得上
-        return maxOf(livePositionMs + highlightPositionOffsetMs, snapshot)
+        // 取绝对时间：心动模式下控制器回报的是片段内进度，换算回整曲时间后歌词才对得上
+        return maxOf(lyricPositionMs, snapshot)
     }
 
     // 面板每轮跟随回写当前进度，供界面重建时接着推进
