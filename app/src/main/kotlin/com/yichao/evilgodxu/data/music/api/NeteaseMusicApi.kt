@@ -17,8 +17,6 @@ import org.json.JSONObject
 
 internal object NeteaseMusicApi : OnlineMusicSource {
 
-    // 默认榜单：飙升榜
-    private const val CHART_ID = "19723756"
     suspend fun loadCoverBytes(url: String): ByteArray? = withContext(Dispatchers.IO) {
         if (url.isBlank()) return@withContext null
         try {
@@ -190,7 +188,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
     }
 
     /**
-     * 曲目字段映射：搜索、详情与榜单的响应同源（`ar`/`al`/`dt` 或旧版 `artists`/`album`/`duration`），
+     * 曲目字段映射：搜索与详情的响应同源（`ar`/`al`/`dt` 或旧版 `artists`/`album`/`duration`），
      * 统一在此收敛，避免同一组字段在各调用点各写一遍。
      */
     private fun songResult(item: JSONObject): NeteaseSongSearchResult {
@@ -209,39 +207,6 @@ internal object NeteaseMusicApi : OnlineMusicSource {
             coverThumbUrl = cover?.let { thumbUrl(it) },
             duration = duration,
         )
-    }
-
-    /**
-     * 内置榜单解析：飙升榜（官方歌单 [CHART_ID]）。
-     *
-     * 走公开的 playlist/detail：带上 n 参数时响应直接给出前 n 首的完整曲目信息（含专辑封面与时长），
-     * 一次请求即可，无需再为每首补 v3/song/detail。
-     */
-    override suspend fun chart(limit: Int): List<NeteaseSongSearchResult> = withContext(Dispatchers.IO) {
-        if (limit <= 0) return@withContext emptyList()
-        try {
-            val root = getJson("https://music.163.com/api/v6/playlist/detail?id=$CHART_ID&n=$limit")
-            val tracks = root.optJSONObject("playlist")?.optJSONArray("tracks") ?: JSONArray()
-            List(tracks.length()) { index -> songResult(tracks.getJSONObject(index)) }
-                .filter { it.title.isNotBlank() }
-        } catch (e: Exception) {
-            CrashLogManager.logException("NeteaseMusicApi", "解析榜单失败", e)
-            emptyList()
-        }
-    }
-
-    // 公开 REST 接口（榜单等只读数据）：与 weapi 同一站点，免加密，参数直接进查询串
-    private fun getJson(url: String): JSONObject {
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", MusicHttpClient.MUSIC_USER_AGENT)
-            .header("Referer", "https://music.163.com")
-            .build()
-        return MusicHttpClient.client.newCall(request).execute().use { resp ->
-            val body = resp.body.string().orEmpty()
-            if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}: $body")
-            JSONObject(body)
-        }
     }
 
     private fun searchMatch(keyword: String): List<NeteaseSongMatch> {

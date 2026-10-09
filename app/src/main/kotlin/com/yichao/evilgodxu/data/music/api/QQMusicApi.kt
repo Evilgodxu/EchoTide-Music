@@ -24,7 +24,6 @@ internal object QQMusicApi : OnlineMusicSource {
 
     private const val ENDPOINT = "https://u.y.qq.com/cgi-bin/musicu.fcg"
     private const val MUSIC_DOMAIN = "https://isure.stream.qqmusic.qq.com/"
-    private const val TOPLIST_ENDPOINT = "https://c.y.qq.com/v8/fcg-bin/fcg_v8_toplist_cp.fcg"
     private const val WEB_SEARCH_ENDPOINT = "https://c.y.qq.com/soso/fcgi-bin/search_for_qq_cp"
     // 网页版搜索接口单页上限，超出会被服务端截断
     private const val WEB_SEARCH_MAX_PAGE_SIZE = 30
@@ -36,8 +35,6 @@ internal object QQMusicApi : OnlineMusicSource {
     private const val VERSION_CODE = 13020508
     private const val UID = "3931641530"
     private const val GUID_CHARS = "abcdef1234567890"
-    // 默认榜单：热歌榜
-    private const val CHART_TOP_ID = 26
 
     // 音质代号 + 扩展名，按从高到低分组：无损 flac / 高品 ogg / 标准 mp3、m4a。
     // 母带、全景声等平台升频代号不参与匹配，故不入表
@@ -109,28 +106,7 @@ internal object QQMusicApi : OnlineMusicSource {
         return List(itemSong.length()) { index -> songResult(itemSong.getJSONObject(index)) }
     }
 
-    /**
-     * 内置榜单解析：热歌榜。榜单条目的字段名与搜索结果同源，统一走 [songResult] 映射。
-     *
-     * 取 fcg_v8_toplist_cp：一条 GET 即返回曲目的 songmid/专辑/歌手/时长，
-     * songmid 是播放与歌词接口的入参，musicu 的 GetDetail 只给 songId，无法直接使用。
-     */
-    override suspend fun chart(limit: Int): List<NeteaseSongSearchResult> = withContext(Dispatchers.IO) {
-        if (limit <= 0) return@withContext emptyList()
-        try {
-            val url = "$TOPLIST_ENDPOINT?topid=$CHART_TOP_ID&format=json&page=detail" +
-                    "&num=$limit&song_begin=0&tpl=3&notice=0&need_new_cover=1"
-            val songlist = JSONObject(get(url)).optJSONArray("songlist") ?: JSONArray()
-            List(minOf(songlist.length(), limit)) { index ->
-                songResult(songlist.optJSONObject(index)?.optJSONObject("data") ?: JSONObject())
-            }.filter { it.title.isNotBlank() }
-        } catch (e: Exception) {
-            CrashLogManager.logException("QQMusicApi", "解析榜单失败", e)
-            emptyList()
-        }
-    }
-
-    // 榜单与搜索的歌曲字段同源，统一映射为搜索结果模型
+    // 搜索条目字段名在不同接口间有差异，统一映射为搜索结果模型
     private fun songResult(item: JSONObject): NeteaseSongSearchResult {
         val mid = item.optString("mid").ifBlank { item.optString("songmid") }
         val singer = item.optJSONArray("singer") ?: JSONArray()
@@ -146,7 +122,7 @@ internal object QQMusicApi : OnlineMusicSource {
             ?.let { "https://y.gtimg.cn/music/photo_new/T002R150x150M000$it.jpg" }
         return NeteaseSongSearchResult(
             id = stableIdFromString(mid),
-            // 搜索接口给 title/name，榜单接口给 songname，逐级回退
+            // 字段名因接口而异（title/name/songname），逐级回退
             title = item.optString("title").ifBlank { item.optString("name") }
                 .ifBlank { item.optString("songname") },
             artist = artist,

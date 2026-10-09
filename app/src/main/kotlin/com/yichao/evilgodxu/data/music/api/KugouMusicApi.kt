@@ -19,9 +19,6 @@ import org.json.JSONObject
  */
 internal object KugouMusicApi : OnlineMusicSource {
 
-    // 默认榜单：酷狗音乐 TOP500 热门榜
-    private const val CHART_RANK_ID = "8888"
-
     // 列表缩略图尺寸段：封面 CDN 的 {size} 占位符支持 64/120/400/480
     private const val COVER_THUMB_SIZE = "120"
 
@@ -50,49 +47,7 @@ internal object KugouMusicApi : OnlineMusicSource {
         }
     }
 
-    /**
-     * 内置榜单解析：TOP500 热门榜。
-     *
-     * 该 CDN 的证书不含本站域名（mobilecdnbj.kugou.com），走 https 会因证书校验直接断连，
-     * 只能按明文 http 请求 —— 应用已全局放行明文，接口本身也只提供 http 站点。
-     */
-    override suspend fun chart(limit: Int): List<NeteaseSongSearchResult> = withContext(Dispatchers.IO) {
-        if (limit <= 0) return@withContext emptyList()
-        try {
-            val url = "http://mobilecdnbj.kugou.com/api/v3/rank/song?rankid=$CHART_RANK_ID" +
-                    "&page=1&pagesize=$limit&version=9108"
-            val info = JSONObject(get(url)).optJSONObject("data")?.optJSONArray("info") ?: JSONArray()
-            List(minOf(info.length(), limit)) { index -> rankSong(info.getJSONObject(index)) }
-                .filter { it.title.isNotBlank() }
-        } catch (e: Exception) {
-            CrashLogManager.logException("KugouMusicApi", "解析榜单失败", e)
-            emptyList()
-        }
-    }
-
-    /** 榜单条目映射：歌手在 `authors`、封面在 `album_sizable_cover`，均与搜索结果的字段名不同 */
-    private fun rankSong(item: JSONObject): NeteaseSongSearchResult {
-        val hash = item.optString("hash").ifBlank { item.optString("320hash") }
-        val authors = item.optJSONArray("authors") ?: JSONArray()
-        val artist = List(authors.length()) { authors.getJSONObject(it).optString("author_name") }
-            .filter { it.isNotBlank() }
-            .joinToString(" / ")
-        // 封面地址带 {size} 尺寸段：原图去除该段，缩略图按值替换
-        val rawCover = item.optString("album_sizable_cover").takeIf { it.isNotBlank() }
-        return NeteaseSongSearchResult(
-            id = stableIdFromString(hash),
-            title = item.optString("songname").ifBlank { titleFromFilename(item.optString("filename")) },
-            artist = artist,
-            coverUrl = originalCover(rawCover),
-            coverThumbUrl = sizedCover(rawCover, COVER_THUMB_SIZE),
-            // duration 为秒
-            duration = item.optLong("duration", 0L) * 1000L,
-            source = MusicSearchSource.KUGOU,
-            sourceId = hash,
-        )
-    }
-
-    // 榜单与搜索的歌曲字段同源，统一映射为搜索结果模型
+    // 搜索条目字段名在不同接口间有差异，统一映射为搜索结果模型
     private fun songResult(item: JSONObject): NeteaseSongSearchResult {
         val hash = item.optString("hash").ifBlank { item.optString("FileHash") }
         val filename = item.optString("filename").ifBlank { item.optString("FileName") }

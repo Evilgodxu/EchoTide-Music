@@ -22,16 +22,10 @@ internal object KuwoMusicApi : OnlineMusicSource {
     private const val SEARCH_ENDPOINT = "https://www.kuwo.cn/search/searchMusicBykeyWord"
     private const val MOBI_ENDPOINT = "https://mobi.kuwo.cn/mobi.s"
     private const val LYRIC_ENDPOINT = "https://newlyric.kuwo.cn/newlyric.lrc"
-    private const val BANG_ENDPOINT = "http://kbangserver.kuwo.cn/ksong.s"
-    private const val PIC_ENDPOINT = "https://artistpicserver.kuwo.cn/pic.web"
     // 封面 CDN：直链形如 {COVER_CDN}/{size}/{path}，size 取 ori 为原图、数字为对应尺寸缩略图
     private const val COVER_CDN = "https://img1.kuwo.cn/star/albumcover"
     private const val COVER_ORIGINAL_SIZE = "ori"
     private const val COVER_THUMB_SIZE = "120"
-    // 自 pic.web 返回的封面直链中提取尺寸段之后的路径，如 /albumcover/120/xx/xx.jpg -> xx/xx.jpg
-    private val COVER_PATH_REGEX = Regex("""/albumcover/\d+/(.+)$""")
-    // 默认榜单：飙升榜
-    private const val CHART_BANG_ID = "93"
 
     // 播放参数加密密钥与歌词加密密钥
     private val SONG_KEY = "ylzsxkwm".toByteArray()
@@ -77,51 +71,6 @@ internal object KuwoMusicApi : OnlineMusicSource {
             emptyList()
         }
     }
-
-    /**
-     * 内置榜单解析：飙升榜。
-     *
-     * 走 kbangserver 的老版接口：新版 m.kuwo.cn / www.kuwo.cn 的同一数据需要 kw_token 与 csrf 头，
-     * 无凭据直接返回 404 CSRF Token Not Found，且站点已不再下发该 cookie。此处仅提供明文 http 站点。
-     */
-    override suspend fun chart(limit: Int): List<NeteaseSongSearchResult> = withContext(Dispatchers.IO) {
-        if (limit <= 0) return@withContext emptyList()
-        try {
-            val url = "$BANG_ENDPOINT?from=pc&fmt=json&pn=0&rn=$limit&type=bang&data=content" +
-                    "&id=$CHART_BANG_ID&show_copyright_off=0&pcmp4=1&isbang=1"
-            val list = JSONObject(get(url)).optJSONArray("musiclist") ?: JSONArray()
-            List(minOf(list.length(), limit)) { index -> bangSong(list.getJSONObject(index)) }
-                .filter { it.title.isNotBlank() }
-        } catch (e: Exception) {
-            CrashLogManager.logException("KuwoMusicApi", "解析榜单失败", e)
-            emptyList()
-        }
-    }
-
-    /** 榜单条目映射：字段命名与搜索接口不同，且只给 rid，封面需另取 */
-    private fun bangSong(item: JSONObject): NeteaseSongSearchResult {
-        val rid = item.optString("id").ifBlank { item.optString("rid") }.removePrefix("MUSIC_")
-        val coverPath = rid.takeIf { it.isNotBlank() }?.let { fetchCoverPath(it) }
-        return NeteaseSongSearchResult(
-            id = stableIdFromString(rid),
-            title = item.optString("name").ifBlank { item.optString("songName") },
-            artist = item.optString("artist").ifBlank { item.optString("artistName") },
-            coverUrl = coverPath?.let { coverAt(it, COVER_ORIGINAL_SIZE) },
-            coverThumbUrl = coverPath?.let { coverAt(it, COVER_THUMB_SIZE) },
-            // song_duration 为秒；同条目的 duration 字段不是时长
-            duration = item.optString("song_duration").toLongOrNull()?.times(1000L) ?: 0L,
-            source = MusicSearchSource.KUWO,
-            sourceId = rid.ifBlank { null },
-        )
-    }
-
-    // 榜单接口不含封面地址，仅给 rid；该接口按 rid 返回封面直链（形如 .../albumcover/120/xx/xx.jpg），
-    // 自其中提取路径供按尺寸拼接原图与缩略图；格式不符或取不到时返回 null，由占位图兜底
-    private fun fetchCoverPath(rid: String): String? = runCatching {
-        get("$PIC_ENDPOINT?type=rid_pic&pictype=$COVER_THUMB_SIZE&size=$COVER_THUMB_SIZE&rid=$rid").trim()
-            .takeIf { it.startsWith("http") }
-            ?.let { COVER_PATH_REGEX.find(it)?.groupValues?.get(1) }
-    }.getOrNull()
 
     private fun coverAt(path: String, size: String): String = "$COVER_CDN/$size/$path"
 
