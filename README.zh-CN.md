@@ -96,7 +96,7 @@
 │       │   │   └── metadata/            #   元数据编辑页(compact / expanded / component)
 │       │   ├── service/                 # MediaSessionService 播放引擎
 │       │   ├── theme/                   # Material 3 配色与字体
-│       │   ├── ui/                      # 全局共享 UI(component → 含封面渐隐 CoverFade 与统一对话框骨架 AppDialog / component/dialog / component/player → 含音频信息覆盖层与内容区 / component/section / icons)
+│       │   ├── ui/                      # 全局共享 UI(component:封面渐隐 CoverFade、对话框骨架 AppDialog;另含 component/dialog、component/player、component/section、icons)
 │       │   ├── update/                  # 检查更新、应用内更新与 APK 校验
 │       │   ├── utils/                   # 通用工具
 │       │   ├── windowsize/              # 窗口尺寸类与横屏形态判定
@@ -119,7 +119,7 @@
 
 ## 架构
 
-应用遵循 **MVVM + 单向数据流**:状态由 `ViewModel` → `UiState` → UI 自上而下流动,事件由 UI 自下而上传递;共享数据逻辑位于 `data/` 层并通过 Repository 暴露,全部由**手动依赖注入**组装——每一个应用级单例挂在 `Application` 上,并通过具名组合局部(CompositionLocal)暴露给界面树。
+应用遵循 **MVVM + 单向数据流**:状态由 `ViewModel` 经 `UiState` 流向界面,事件则由界面回传;共享数据逻辑位于 `data/` 层并通过 Repository 暴露,对象图由**手动依赖注入**组装——每个应用级单例都在 `Application` 上创建,并通过具名组合局部(CompositionLocal)暴露给界面树。
 
 页面代码采用**分形态组装(per-form assembly)模式**:
 
@@ -128,19 +128,23 @@
 - `compact/`、`expanded/` 下的 `{Screen}Assembly` — 按窗口尺寸类与旋转状态选择对应形态的组装器
 - `component/` — 页面专用可组合项,按语义子目录分组(如 bar/、dialog/、panel/、playlist/、player/、search/、shell/、swipe/)
 
-被两个及以上功能复用的代码上提至顶层(`data/`、`theme/`、`utils/`、`ui/`),仅单页使用的代码保留在页面模块内。播放逻辑位于 `data/music`(播放 / 下载 / 分析 / 面板 / 推荐),通过窗口级 `MusicPanelStateHolder` 暴露给 UI;悬浮 UI 拆分为 `floatingwindow/`(视图管理,以及迷你播放器自身的可组合项)与 `ui/component/player`(完整音乐面板及其子部件),实际播放由 `service/MusicPlaybackService`(Media3 ExoPlayer + `MediaSessionService`)驱动。
+被两个及以上功能复用的代码上提至顶层(`data/`、`theme/`、`utils/`、`ui/`),仅单页使用的代码留在页面模块内。播放逻辑位于 `data/music`,经窗口级 `MusicPanelStateHolder` 暴露给界面;实际播放由 `service/MusicPlaybackService`(Media3 ExoPlayer + `MediaSessionService`)驱动。
 
-除页面自身状态外,有两类逻辑刻意置于界面树之外,以便跨重组与旋转存活:首页 **面板状态**(`HomePanelState`,持有播放列表显隐、对话框、滑动控制器与曲库格式分析面板)与共享**播放状态持有者**。每日推荐的榜单候选池与播放启动镜像同理:候选池由 `App` 在后台预热,最近一次播放状态镜像落盘,使冷启动后的首帧即为完整内容。每日推荐同样过 `MusicBlacklist`:被用户明确拉黑的曲目在粗排阶段直接跳过,而候选集中过代表的特征与被跳过曲目的特征只做降权,故一次拉黑不会退化成逐曲过滤。
+以下几处决策决定了整个代码库的形态:
 
-频谱分析是独立页面:分析会话按曲目挂在 `SpectrumViewModel` 中,解码跑在 `Dispatchers.Default` 上,离开页面即随作用域取消;解码本体(`SpectrogramDecoder`)置于 `data/music/analysis`,把整曲解码为可直接渲染的时频矩阵。分析按流水线并行:解码线程只做搬运与切块,切片按暂存块分段并行解交织,变换线程组摊到各核做加窗变换,收尾归一化按列并行,位图重采样按行带并行——跨并行边界的帧序仍单点按时间序合并,故并行只换取吞吐,结果口径与串行处理逐位一致。页面只承担频谱查看与导出:长按频谱图可分享或保存到相册。曲库分析面板保留按格式统计占比与按格式定位歌单。
+- **需跨重组与旋转存活的状态置于界面树之外**——首页面板状态与共享播放状态持有者都因此得以保留,最近一次播放状态还会镜像落盘,使冷启动首帧即为完整内容。
 
-歌词解析同样收在一处:`data/music/api/LyricCodec` 把各平台的歌词原文(普通 LRC、增强 LRC 的行内字标签、QQ 的 QRC、酷狗的 KRC、酷我的 lrcx)统一解析为同一份 `LyricLine` 列表,逐字时间轴一律归一为绝对毫秒,因此各平台的解析结果可直接互换比较,「逐字优先、无字标签则退化为逐行」的选取策略也只需实现一次。取词、解析、缓存写入与自动补译分别落在 `OnlineLyrics`、`LyricCodec`、`MusicMetadataCache` 与 `data/music/panel/MusicPanelLyricsTranslate`,后者的进度对话框与逐字对齐共用同一组件。酷狗 KRC 是唯一自带译文的来源:`[language]` 元信息块(base64 编码的 JSON,取 `type=1` 段)内的译文按歌词行顺序 1:1 对齐,这类曲目无需调用翻译接口即带译文;只有字标签全零的翻译行仍按时间戳并入。
+- **推荐在粗排阶段过滤,而非逐曲筛选**——被拉黑的曲目直接在粗排中跳过,其相关特征只做降权,因此一次拉黑不会退化成逐曲过滤。
 
-音频信息面板读的是播放链路本身,不与任何播放器布局耦合:`AudioInfoCollector` 从共享播放状态组装出一份 `AudioInfoSnapshot`,Compose 侧则靠一个版本号触发重算——播放器自身回调(播放状态、起播意愿、音频会话 ID)、`AudioDeviceCallback`(设备插拔)与 `ON_RESUME`(刚授予的权限当即体现)各自使其自增。所有字段均可为空,读不到的字段不产出该行,因此同一个面板覆盖扬声器、USB 解码器与蓝牙链路时,UI 侧无需分支。它打印的链路取值——浮点输出、实际写出的 PCM 编码、位完美直出——由按设备音频输出与 USB 直出模块向上回填到共享状态,面板读到的正是播放路径写入的同一份来源,而非从源格式推断。面板同时给出实测延迟与音频轨缓冲,两者都不能按设备查询:`OutputLatency` 拿 `AudioTrack.getTimestamp` 分别与播放头、写入帧位比对,把链路在音频轨处切成「轨之后」与「轨自身驻留」两段,相加得出全链路,`OutputLatencySampler` 再对抖动的读数取滑动平均;`PlaybackBufferPolicy` 以 512 帧 PCM 申请缓冲(取代媒体3 固定的 500ms 口径),压住的正是这段驻留。USB 直出期间,`DirectOutputDoNotDisturb` 把输出成色映射到系统免打扰——位完美或源格式直出成立即进入「仅闹钟」,成色消失即还原先前档位,通知与铃声因此不再打扰,而媒体流本身不受压制。
+- **分析在页面级会话中运行**——频谱分析在页面作用域内把整曲解码为可直接渲染的时频矩阵,离开页面即取消;页面只负责查看与导出。
 
-无损与线性 PCM 容器的标签重写走 `TagSource`,它只暴露区间读取与区间搬运:标签布局由文件头部与尾部窗口定位算出,音频体按原偏移流式复制,因此数百 MB 的高解析单文件在改写标签时不再整文件驻留内存。各类容器布局——ID3v2、M4A/MP4 盒子表、FLAC Vorbis 注释、Ogg 页序列,以及 AIFF、DSDIFF、DSF、APE、WAV 的 IFF/RIFF 式块结构——只需给出「头部字面字节 + 音频体区间 + 尾部字面字节」交给写入方。
+- **各平台歌词统一收口**——`LyricCodec` 把 LRC、QRC、KRC、lrcx 归一为同一份 `LyricLine` 列表,逐字时间轴一律为绝对毫秒,跨平台比较与「逐字优先、无字标签则退化为逐行」的策略只需实现一次。
 
-元数据编辑是搭在这条路径之上的页面:编辑会话挂在按曲目区分的 `MetadataViewModel` 中,每次页面回到前台都重读一次文件标签(导航栈缓存的 ViewModel 会把上次的快照当作当前值),离开页面时补写未到自动保存窗口的改动——因此该页没有保存入口。逐行与全文两种歌词编辑形态的差别只在草稿如何还原为歌词文本,最终都落到同一处增强 LRC 编码写入。
+- **音频信息面板读的是播放链路**——`AudioInfoCollector` 从共享播放状态组装快照,同一面板覆盖扬声器、USB 解码器与蓝牙链路,界面侧无需分支。
+
+- **标签改写走区间 I/O**——`TagSource` 只暴露区间读取与区间搬运,数百 MB 的高解析文件改标签时不再整文件驻留内存。
+
+- **元数据编辑是搭在该路径上的页面**——编辑会话按曲目区分,每次回到前台重读文件标签,未到自动保存窗口的改动在离开时补写,因此该页没有保存入口。
 
 ## 权限
 
@@ -208,13 +212,13 @@ python tools/make_promo_hero.py
 
 ## 免责声明
 
-搜索服务依赖公共网络接口。内置搜索服务仅用于基础的歌曲、封面与歌词搜索,不承诺播放能力,应用仅在音源返回可播放直链时理论上支持试听与免费歌曲;音质升级依赖代理音源。歌词自动补译依赖有道公开的免鉴权翻译接口,其可用性、限流策略与译文质量均由该服务决定。接口可用性随地区与歌曲而异。应用仅供个人学习交流使用,请支持正版版权方。
+搜索服务依赖公共网络接口。内置搜索服务仅覆盖基础的歌曲、封面与歌词搜索,并不承诺播放能力——只有当音源返回可播放直链时,应用才谈得上试听与免费歌曲;音质升级依赖代理音源。歌词自动补译依赖有道公开的免鉴权翻译接口,其可用性、限流策略与译文质量均由该服务决定。接口可用性随地区与歌曲而异。应用仅供个人学习交流使用,请支持正版版权方。
 
 ## 致谢
 
 - 网易云音乐解析早期参考 [Qplayer](https://github.com/TIMER-err/qplayer)
-- 列表拖拽排序 [Reorderable](https://github.com/Calvin-LL/Reorderable),现已在应用内自行实现(算法等价)
-- 基于 [musicdl](https://github.com/CharlesPikachu/musicdl) 实现 网易云音乐 酷狗 酷我 QQ 的 Kotlin 原生音源解析
+- 列表拖拽排序取自 [Reorderable](https://github.com/Calvin-LL/Reorderable),现已在应用内自行实现(算法等价)
+- 基于 [musicdl](https://github.com/CharlesPikachu/musicdl) 实现网易云音乐、酷狗、酷我、QQ 的 Kotlin 原生音源解析
 
 ## License
 
