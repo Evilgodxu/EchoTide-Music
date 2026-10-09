@@ -422,7 +422,8 @@ private suspend fun PointerInputScope.detectSwipe(
 }
 
 // 容器展开/收起总时长：容器与选项的浮现/隐去共用此时间轴
-private const val MENU_REVEAL_MS = 220
+// 取较长时长让裁切推进与逐项浮现都能看清；过快会显得生硬
+private const val MENU_REVEAL_MS = 560
 // 容器不透明度到达 1 所需的进度比例：容器先快速显形以柔化裁切前沿，随后裁切继续推进完成展开
 private const val CONTAINER_FADE_PROGRESS = 0.3f
 // 首项开始浮现前容器的展开进度：先让容器露出，再逐项带出内容
