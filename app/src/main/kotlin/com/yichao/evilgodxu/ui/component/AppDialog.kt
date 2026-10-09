@@ -214,8 +214,12 @@ internal fun DialogOption(
     // 紧凑尺寸：纵向留白减半，用于确认框内高度受限的附加选项；选中样式与常规尺寸一致
     compact: Boolean = false,
 ) {
-    val background = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
-    else MaterialTheme.colorScheme.surface
+    // 选项底色统一抬升到 surfaceContainerHigh：对话框卡片取 surface，选项若同色会在深色下与卡片融为一片，
+    // 抬升一档后浅色更灰、深色更亮，两个主题都能拉开层次（与展开式选择器菜单容器同色阶）
+    val background = MaterialTheme.colorScheme.surfaceContainerHigh
+    // 选中高亮叠在抬升后的底色之上：直接以半透明 primary 覆盖卡片，其混色结果与抬升后的未选中底色几乎一致
+    val selectionTint =
+        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent
     val contentColor = if (enabled) MaterialTheme.colorScheme.onSurface
     else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
     Row(
@@ -224,6 +228,7 @@ internal fun DialogOption(
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(background)
+            .background(selectionTint)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(
                 horizontal = if (icon != null) 12.dp else 0.dp,
