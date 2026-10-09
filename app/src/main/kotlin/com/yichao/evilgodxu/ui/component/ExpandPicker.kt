@@ -7,8 +7,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,9 +30,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.PointerInputScope
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -44,17 +39,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
-import kotlin.math.abs
 
 // 选择器菜单的展开方向：决定菜单相对触发区域的位置与逐项展开的进入方向
 enum class ExpandDirection { Up, Down, Right }
 
 /**
- * 展开式选择器：点击、沿展开方向滑动展开，反向滑动收起，选中选项或点击其他区域自动收回。
+ * 展开式选择器：点击展开，选中选项或点击其他区域自动收回。
  *
  * 触发区域由 [trigger] 槽位承载，其大小决定触控热区；展开后菜单自触发一侧向外长出，
  * 选项自锚点侧起逐项浮现，收起时逐项隐去。选项内容由 [itemContent] 注入，选中态（背景高亮）
  * 由本组件统一处理，前景配色由注入内容按 selected 自行决定。跨页面复用，故上提至 ui/component/。
+ *
+ * 本组件只认点击，不识别滑动手势：滑动的判定与让位（如与切歌、翻页手势共存）由触发区域自身的
+ * 实现负责，避免在触发区里抢走本应交给上层的手势。
  *
  * [horizontalAlignment] 在 [ExpandDirection.Up] / [ExpandDirection.Down] 下控制菜单相对触发区域
  * 的水平落位；[verticalAlignment] 在 [ExpandDirection.Right] 下控制垂直落位。
@@ -88,26 +85,12 @@ fun <T> ExpandPicker(
     val visibleState = remember { MutableTransitionState(false) }
     visibleState.targetState = expanded
 
-    val density = LocalDensity.current
-    // 滑动主轴与展开方向一致：Right 用左右滑动，Up/Down 用上下滑动；展开沿主轴的正/负向
-    val horizontal = expandDirection == ExpandDirection.Right
-    val expandPositive = expandDirection != ExpandDirection.Up
     Box(
         modifier = modifier
             .combinedClickable(
                 enabled = enabled,
                 onClick = { expanded = !expanded },
-            )
-            .pointerInput(enabled, expandDirection) {
-                if (!enabled) return@pointerInput
-                detectSwipe(
-                    thresholdPx = with(density) { SWIPE_TRIGGER_DISTANCE.toPx() },
-                    horizontal = horizontal,
-                    expandPositive = expandPositive,
-                    onSwipeExpand = { expanded = true },
-                    onSwipeCollapse = { expanded = false },
-                )
-            },
+            ),
     ) {
         trigger()
 
@@ -368,65 +351,6 @@ private fun expandPositionProvider(
     }
 }
 
-/**
- * 触发区域滑动手势判定：主轴（与展开方向一致）主导且累计位移越过 [thresholdPx] 时按方向触发。
- *
- * 越过触摸阈值前不消费任何事件：主轴上的反向让给上层手势（纵向反向让给切歌、横向反向让给翻页），
- * 判为主轴即接管本次手势（消费位移与抬手），上层手势据此让出，一次滑动不会触发两个动作。
- * 未构成滑动的手势不被消费，点击照常由 [combinedClickable] 处理。
- */
-private suspend fun PointerInputScope.detectSwipe(
-    thresholdPx: Float,
-    horizontal: Boolean,
-    expandPositive: Boolean,
-    onSwipeExpand: () -> Unit,
-    onSwipeCollapse: () -> Unit,
-) {
-    awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false)
-        var accX = 0f
-        var accY = 0f
-        // 是否已判定为主轴滑动并接管本次手势
-        var claimed = false
-        // 是否已触发：一次手势只触发一次
-        var fired = false
-        while (true) {
-            val event = awaitPointerEvent()
-            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-            if (change.isConsumed) break
-            accX += change.positionChange().x
-            accY += change.positionChange().y
-            val mainAcc = if (horizontal) accX else accY
-            val crossAcc = if (horizontal) accY else accX
-            if (!claimed) {
-                val slop = viewConfiguration.touchSlop
-                if (abs(mainAcc) >= slop || abs(crossAcc) >= slop) {
-                    // 仅在主轴主导时接管，其余方向原样放行
-                    if (abs(mainAcc) > abs(crossAcc)) claimed = true else break
-                }
-            }
-            if (claimed) {
-                change.consume()
-                if (!fired) {
-                    val exceedExpand = if (expandPositive) mainAcc >= thresholdPx else mainAcc <= -thresholdPx
-                    val exceedCollapse = if (expandPositive) mainAcc <= -thresholdPx else mainAcc >= thresholdPx
-                    when {
-                        exceedExpand -> {
-                            fired = true
-                            onSwipeExpand()
-                        }
-                        exceedCollapse -> {
-                            fired = true
-                            onSwipeCollapse()
-                        }
-                    }
-                }
-            }
-            if (!change.pressed) break
-        }
-    }
-}
-
 // 容器展开/收起总时长：容器与选项的浮现/隐去共用此时间轴
 // 取较长时长让裁切推进与逐项浮现都能看清；过快会显得生硬
 private const val MENU_REVEAL_MS = 560
@@ -442,5 +366,3 @@ private val MENU_PADDING = 4.dp
 private val MENU_GAP_DP = 4.dp
 // 菜单距屏幕边缘的最小边距
 private val HORIZONTAL_MARGIN_DP = 8.dp
-// 触发区域沿展开方向滑动唤起菜单所需的最小位移：方向判定已由系统触摸阈值把关，此处取两倍量级排除抖动
-private val SWIPE_TRIGGER_DISTANCE = 32.dp

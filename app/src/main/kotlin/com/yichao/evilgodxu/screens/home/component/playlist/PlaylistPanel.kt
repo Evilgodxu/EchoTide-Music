@@ -19,8 +19,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -59,6 +57,8 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
+import com.yichao.evilgodxu.ui.component.ExpandDirection
+import com.yichao.evilgodxu.ui.component.ExpandPicker
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 
@@ -385,6 +385,12 @@ private fun SmartPlaylistCard(
     }
 }
 
+// 自定义歌单行的操作项：重命名 / 删除
+private enum class PlaylistRowAction(val labelRes: Int) {
+    Rename(R.string.playlist_rename),
+    Delete(R.string.playlist_delete),
+}
+
 // 自定义歌单行：无背景 + 小圆角 + 封面或图标与主次文字，对齐在线搜索结果行
 @Composable
 private fun PlaylistListRow(
@@ -396,7 +402,6 @@ private fun PlaylistListRow(
     menuBackgroundColor: Color,
     coverTrack: MusicTrack? = null,
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -438,35 +443,42 @@ private fun PlaylistListRow(
                 fontSize = 10.sp,
             )
         }
-        Box {
-            IconButton(onClick = { menuExpanded = true }) {
-                Icon(
-                    imageVector = AppIcons.MoreVert,
-                    contentDescription = stringResource(R.string.playlist_more),
-                    tint = Color.White,
+        ExpandPicker(
+            options = PlaylistRowAction.entries,
+            selected = null,
+            expandDirection = ExpandDirection.Down,
+            // 面板靠右缘，菜单右对齐避免溢出屏幕
+            horizontalAlignment = Alignment.End,
+            containerColor = menuBackgroundColor,
+            trigger = {
+                Box(
+                    modifier = Modifier.size(40.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = AppIcons.MoreVert,
+                        contentDescription = stringResource(R.string.playlist_more),
+                        tint = Color.White,
+                    )
+                }
+            },
+            itemContent = { action, _ ->
+                Text(
+                    text = stringResource(action.labelRes),
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                 )
-            }
-            DropdownMenu(
-                expanded = menuExpanded,
-                onDismissRequest = { menuExpanded = false },
-                containerColor = menuBackgroundColor,
-            ) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.playlist_rename), color = Color.White) },
-                    onClick = {
-                        menuExpanded = false
-                        onRename()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.playlist_delete), color = Color.White) },
-                    onClick = {
-                        menuExpanded = false
-                        onDelete()
-                    },
-                )
-            }
-        }
+            },
+            onItemClick = { action ->
+                when (action) {
+                    PlaylistRowAction.Rename -> onRename()
+                    PlaylistRowAction.Delete -> onDelete()
+                }
+            },
+        )
     }
 }
 
