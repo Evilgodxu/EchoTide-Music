@@ -314,14 +314,36 @@ fun togglePlayPause(state: MusicPlaybackState) {
  * 暂停状态下拖拽进度条或歌词跳转定位后需要直接起播；seek 与 play 分开派发时会互相竞争
  * （play 可能先于 seek 生效，出现从旧位置起播的瞬间），故合并到同一协程内顺序执行。
  * 播放中调用 play 不改变播放状态，因此本接口对「播放中跳转」同样适用。
+ *
+ * 控制器尚未连接时（冷启动还原后未起播）没有 seek 的接收方，定位改由装载时的起始位置完成：
+ * 不做这一步时本次跳转会被整体丢弃 —— 既不起播，随后点播放也仍从落盘的旧位置开始。
  */
 fun seekToAndPlay(state: MusicPlaybackState, positionMs: Long) {
-    state.mediaController?.let { controller ->
-        state.playbackScope.launch {
-            controller.seekTo(positionMs)
-            controller.play()
-        }
+    val controller = state.mediaController
+    if (controller == null) {
+        playTrackAtPosition(state, positionMs)
+        return
     }
+    state.playbackScope.launch {
+        controller.seekTo(positionMs)
+        controller.play()
+    }
+}
+
+/**
+ * 无控制器时以指定位置装载播放。
+ *
+ * 续播锚点存的是整曲绝对时间，而无控制器期间进度条读的正是整曲时间（没有控制器回报，
+ * 片段偏移为 0，时长取自曲目元数据），故目标位置可直接充当锚点。
+ * 不清空插队队列，与 [togglePlayPause] 的续播路径一致。
+ */
+private fun playTrackAtPosition(state: MusicPlaybackState, positionMs: Long) {
+    val context = state.appContext ?: return
+    val index = state.currentIndex
+    val track = state.playlist.getOrNull(index) ?: return
+    state.pendingSavedUri = track.audioUri
+    state.pendingResumePosition = positionMs
+    state.playbackScope.launch { playTrackAt(context, state, index, clearQueue = false) }
 }
 
 /**
