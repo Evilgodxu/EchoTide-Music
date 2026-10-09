@@ -1892,12 +1892,17 @@ class MusicPlaybackState(
     @JvmName("updatePlayMode")
     fun setPlayMode(mode: PlayMode) {
         if (playMode == mode) return
+        val previous = playMode
         playMode = mode
         highlightSkipStreak = 0
-        // 队列项随模式变化，缓存一律作废
+        // 只有跨越心动模式边界的切换才改变队列项：进入时整队列补上裁剪区间，退出时整队列去掉。
+        // 非心动各模式互切不动队列（repeatMode/shuffleMode 由调用方同步），此时不得重建 ——
+        // 重建会被判成「队列已变」而重载整条时间线，表现为切模式时当前曲目卡顿
+        if (previous != PlayMode.Highlight && mode != PlayMode.Highlight) return
+        // 队列项随模式变化，缓存作废；下面重建后会写回
         cachedMediaItems = null
         val context = appContext ?: return
-        // 片段取自持久化表，切换只做查表与重建队列、不含任何解析，故切换不会卡顿；
+        // 片段取自持久化表，切换只做查表与重建队列、不含任何解析；
         // 当前曲目一并生效：进入自片段起点起播，退出还原到整曲的绝对位置
         applyHighlightModeChange(context, this)
         // 表可能尚未扫完（首次启用、曲库刚变化）：后台补齐，已扫到的先按现有结果播放
