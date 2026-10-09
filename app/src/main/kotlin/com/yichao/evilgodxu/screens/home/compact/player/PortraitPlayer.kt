@@ -14,10 +14,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
@@ -274,17 +276,25 @@ internal fun PortraitPlayer(
     }
     val bottomClearance = maxOf(BottomBarClearance, navigationBarBottom)
 
-    // 外层容器：沉浸封面置顶，其余模块从封面下方按序排列。
-    // 封面与底部内容同处一列：内容先按自身高度测量，封面再取走剩余空间，
-    // 底部留白由内容区的固定间距决定，不再随屏幕尺寸与高宽比漂移
-    Box(modifier = modifier) {
-        Column(modifier = Modifier.fillMaxSize()) {
+    // 外层容器：沉浸封面置顶，下方依次为歌词组与歌曲信息/控制组。
+    // 三组之间由 SpaceBetween 分配高度：封面保持全宽正方形（窗口过矮时按可用高度收缩），
+    // 富余空间只落入封面↔歌词、歌词↔歌曲信息两处，把歌词组夹在中间均分，
+    // 既不拉伸封面，也不在屏幕底部堆成一条随屏幕尺寸忽高忽低的空带
+    BoxWithConstraints(modifier = modifier) {
+        // 封面正方形边长：全宽
+        val coverSquare = maxWidth
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
             // 沉浸式专辑封面：全宽置顶（含状态栏后方），仅下边缘渐隐融入封面衍生背景。
-            // 高度取底部内容之外的剩余空间：窗口变矮时随之收缩，优先保证底部内容完整
+            // 不强制填充：剩余高度留给外层 SpaceBetween 分给两侧留白；高度上限为全宽正方形，
+            // 窗口过矮时按可用高度收缩，优先保证下方内容完整
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
+                    .weight(1f, fill = false)
+                    .heightIn(max = coverSquare)
                     .combinedClickable(
                         onClick = {},
                         onLongClick = { if (playbackState.currentTrack != null) showCoverMenu = true },
@@ -360,14 +370,9 @@ internal fun PortraitPlayer(
                     }
                 }
             }
-            // 歌词/标题/进度/控制栏：封面之下按序排列，底部留出固定避让间距
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = bottomClearance),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                // 封面与歌词间距
+            // 歌词组：上下各留一处固定间距作为下限，富余空间由外层 SpaceBetween 均分到这两侧
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // 封面与歌词间距（下限）
                 Spacer(Modifier.height(8.dp))
                 // 歌词：高度随设置的可见行数自适应（默认 5 行），点击歌词区切换微调按钮显隐
                 Box(
@@ -538,8 +543,16 @@ internal fun PortraitPlayer(
                         }
                     }
                 }
-                // 歌词与标题间距
+                // 歌词与歌曲信息间距（下限）
                 Spacer(Modifier.height(8.dp))
+            }
+            // 歌曲信息、进度条与控制栏：作为最后一组贴底排列，底部留出固定避让间距
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = bottomClearance),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
                 // 标题与艺术家：切歌时随封面与背景同一节拍整幅横移，方向一致。
                 // 文本取自锚点而非当前曲目：退场的那一层要显示上一首的文本，读实时状态会显示成新曲目
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
