@@ -50,7 +50,7 @@ import kotlin.math.abs
 enum class ExpandDirection { Up, Down, Right }
 
 /**
- * 展开式选择器：点击、沿展开方向滑动展开，反向滑动收起，点击其他区域自动收回。
+ * 展开式选择器：点击、沿展开方向滑动展开，反向滑动收起，选中选项或点击其他区域自动收回。
  *
  * 触发区域由 [trigger] 槽位承载，其大小决定触控热区；展开后菜单自触发一侧向外长出，
  * 选项自锚点侧起逐项浮现，收起时逐项隐去。选项内容由 [itemContent] 注入，选中态（背景高亮）
@@ -136,6 +136,7 @@ fun <T> ExpandPicker(
                     itemHighlightColor = itemHighlightColor,
                     itemContent = itemContent,
                     onItemClick = onItemClick,
+                    onCollapse = { expanded = false },
                 )
             }
         }
@@ -168,6 +169,7 @@ private fun <T> ExpandMenuContent(
     itemHighlightColor: Color,
     itemContent: @Composable (T, Boolean) -> Unit,
     onItemClick: (T) -> Unit,
+    onCollapse: () -> Unit,
 ) {
     val transition = rememberTransition(visibleState, label = "ExpandPicker")
     // 唯一进度源：容器与选项都从它取值，保证展开/收起过程中二者节奏一致
@@ -217,7 +219,7 @@ private fun <T> ExpandMenuContent(
         Column(
             modifier = Modifier
                 .padding(MENU_PADDING)
-                // 以最宽选项为公共宽度：让各选项勾选位右对齐到同一竖直边，而非随文字长度错落
+                // 以最宽选项为公共宽度：各选项等宽，避免随文字长度错落
                 .width(IntrinsicSize.Max),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
@@ -238,7 +240,10 @@ private fun <T> ExpandMenuContent(
                     itemCount = itemCount,
                     shape = itemShape,
                     background = if (isSelected) itemHighlightColor else Color.Transparent,
-                    onClick = { onItemClick(option) },
+                    onClick = {
+                        onItemClick(option)
+                        onCollapse()
+                    },
                 ) {
                     itemContent(option, isSelected)
                 }

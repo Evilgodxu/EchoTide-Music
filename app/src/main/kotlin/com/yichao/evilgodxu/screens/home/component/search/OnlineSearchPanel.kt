@@ -264,28 +264,15 @@ private fun SearchInput(
                         )
                     }
                 },
-                itemContent = { platform, selected ->
-                    Row(
+                itemContent = { platform, _ ->
+                    Text(
+                        text = platform.name,
+                        color = Color.White,
+                        fontSize = 13.sp,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(
-                            text = platform.name,
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            modifier = Modifier.weight(1f),
-                        )
-                        // 勾选位常驻，未选中时透明：选项等宽后选中项右对齐
-                        Icon(
-                            imageVector = AppIcons.Check,
-                            contentDescription = null,
-                            tint = if (selected) Color.White else Color.Transparent,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                    )
                 },
                 onItemClick = { platform ->
                     playbackState.setSearchSource(platform.source)

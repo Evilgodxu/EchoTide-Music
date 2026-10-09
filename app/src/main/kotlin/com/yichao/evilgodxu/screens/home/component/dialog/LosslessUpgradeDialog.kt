@@ -106,28 +106,15 @@ internal fun LosslessUpgradeDialog(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                         )
                     },
-                    itemContent = { platform, selected ->
-                        Row(
+                    itemContent = { platform, _ ->
+                        Text(
+                            text = platform.name,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 13.sp,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Text(
-                                text = platform.name,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 13.sp,
-                                modifier = Modifier.weight(1f),
-                            )
-                            // 勾选位常驻，未选中时透明：选项等宽后选中项右对齐
-                            Icon(
-                                imageVector = AppIcons.Check,
-                                contentDescription = null,
-                                tint = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
+                        )
                     },
                     onItemClick = { platform ->
                         if (platform.source != playbackState.losslessUpgradeSource) {

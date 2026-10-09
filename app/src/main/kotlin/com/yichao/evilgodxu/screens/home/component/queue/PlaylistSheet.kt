@@ -303,13 +303,8 @@ internal fun PlaylistSheet(
                                         }
                                         .padding(horizontal = 14.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    horizontalArrangement = Arrangement.Center,
                                 ) {
-                                    Text(
-                                        text = stringResource(R.string.music_panel_sort_direction),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 13.sp,
-                                    )
                                     Text(
                                         text = stringResource(
                                             if (playbackState.playlistSortDescending) R.string.music_panel_sort_descending
@@ -334,27 +329,15 @@ internal fun PlaylistSheet(
                                     )
                                 }
                             },
-                            itemContent = { field, selected ->
-                                Row(
+                            itemContent = { field, _ ->
+                                Text(
+                                    text = stringResource(sortFieldLabelRes(field)),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 13.sp,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                ) {
-                                    Text(
-                                        text = stringResource(sortFieldLabelRes(field)),
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 13.sp,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Icon(
-                                        imageVector = AppIcons.Check,
-                                        contentDescription = null,
-                                        tint = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
+                                )
                             },
                             onItemClick = { field ->
                                 playbackState.setPlaylistSort(field, playbackState.playlistSortDescending)

@@ -141,7 +141,6 @@
     <string name="music_panel_play_mode_repeat_one">Repeat one</string>
     <string name="music_panel_play_mode_shuffle">Shuffle</string>
     <string name="music_panel_play_mode_highlight">Highlight</string>
-    <string name="music_panel_sort_direction">Direction</string>
     <string name="music_panel_previous_track">Previous</string>
     <string name="music_panel_next_track">Next</string>
     <string name="music_panel_playlist">Playlist</string>

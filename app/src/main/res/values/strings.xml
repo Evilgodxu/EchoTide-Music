@@ -68,8 +68,8 @@
     <string name="music_panel_search_loading_more">加载中…</string>
     <string name="music_panel_search_release_load">松开加载更多</string>
     <string name="music_panel_search_load_all">已显示全部结果</string>
-    <string name="music_panel_search_source">网易云</string>
-    <string name="music_panel_search_source_qq">QQ音乐</string>
+    <string name="music_panel_search_source">网易</string>
+    <string name="music_panel_search_source_qq">QQ</string>
     <string name="music_panel_search_source_kugou">酷狗</string>
     <string name="music_panel_search_source_kuwo">酷我</string>
     <string name="music_panel_memory_mode_title">回忆模式</string>
@@ -139,7 +139,6 @@
     <string name="music_panel_play_mode_repeat_one">单曲循环</string>
     <string name="music_panel_play_mode_shuffle">随机播放</string>
     <string name="music_panel_play_mode_highlight">心动模式</string>
-    <string name="music_panel_sort_direction">方向</string>
     <string name="music_panel_previous_track">上一首</string>
     <string name="music_panel_next_track">下一首</string>
     <string name="music_panel_playlist">播放列表</string>
@@ -151,7 +150,7 @@
     <string name="music_panel_sort">排序</string>
     <string name="music_panel_sort_descending">逆序</string>
     <string name="music_panel_sort_ascending">正序</string>
-    <string name="music_panel_sort_default">默认顺序</string>
+    <string name="music_panel_sort_default">默认</string>
     <string name="music_panel_sort_by_favorite">收藏</string>
     <string name="music_panel_sort_modified">新旧</string>
     <string name="music_panel_sort_by_title">标题</string>
