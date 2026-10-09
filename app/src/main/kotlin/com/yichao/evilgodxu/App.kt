@@ -16,6 +16,7 @@ import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
+import com.yichao.evilgodxu.data.music.playback.PlayCountStore
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.repository.SettingsRepository
 import com.yichao.evilgodxu.data.settings.bootstrapAppLanguage
@@ -108,10 +109,9 @@ class App : Application() {
             runCatching { CacheInventory.reclaimOnColdStart(this@App) }
         }
 
-        // 候选池换期（北京时间每日 11:00）后按需预热：晚于换期时刻启动应用也能用上当日榜单，
-        // 打开每日推荐时不必再等整池歌词拉完。未换期或本机还没有候选池（未用过每日推荐）
-        // 时直接返回，不产生任何网络请求。更新在状态层独立进行，面板据此把手动刷新置灰
-        stateHolder.state.warmChartPool(applicationContext)
+        // 累计播放次数随冷启动一并载入：回忆模式的启用门槛与排名都读它，
+        // 留到进入入口时才载入会让门槛先按「零计数」判一次，把已解锁的入口误判为未解锁
+        appScope.launch { PlayCountStore.ensureLoaded(this@App) }
     }
 
     private fun readAppVersion(): String =

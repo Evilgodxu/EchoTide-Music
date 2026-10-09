@@ -73,10 +73,12 @@
     <string name="music_panel_search_source_qq">QQ Music</string>
     <string name="music_panel_search_source_kugou">Kugou</string>
     <string name="music_panel_search_source_kuwo">Kuwo</string>
-    <string name="music_panel_daily_recommend_title">Daily Mix</string>
-    <string name="music_panel_daily_recommend_loading">Building your daily mix…</string>
-    <string name="music_panel_daily_recommend_empty">No new songs to recommend</string>
-    <string name="music_panel_daily_recommend_blacklist">Don\'t recommend again</string>
+    <string name="music_panel_memory_mode_title">Memory</string>
+    <string name="music_panel_memory_mode_subtitle">Songs you forgot you loved</string>
+    <string name="music_panel_memory_mode_loading">Digging…</string>
+    <string name="music_panel_memory_mode_refresh">Another batch</string>
+    <string name="music_panel_memory_mode_poem">Old songs lie buried long in sand,\nDust-veiled, unheard.\nWait till the tide laps the shore —\nThen I\'ll bring them, one by one.</string>
+    <string name="music_panel_highlight_exit_notice">No locatable chorus here — chorus mode turned off</string>
     <string name="music_panel_quality_title">Select quality</string>
     <string name="music_panel_quality_failed">This quality is unavailable, try another</string>
     <string name="music_quality_lossless">Lossless</string>

@@ -225,7 +225,7 @@ class SettingsViewModel(
         _uiState.update { it.copy(proxyImportMessage = null, proxyImportFailed = false) }
     }
 
-    // 重置黑名单：条目清空后，已拉黑曲目重新参与播放列表展示与每日推荐候选
+    // 重置黑名单：条目清空后，已拉黑曲目重新参与播放列表展示与回忆推荐候选
     fun resetBlacklist() {
         viewModelScope.launch {
             BlacklistStore.reset(context)

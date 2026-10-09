@@ -72,10 +72,12 @@
     <string name="music_panel_search_source_qq">QQ音乐</string>
     <string name="music_panel_search_source_kugou">酷狗</string>
     <string name="music_panel_search_source_kuwo">酷我</string>
-    <string name="music_panel_daily_recommend_title">每日推荐</string>
-    <string name="music_panel_daily_recommend_loading">正在生成每日推荐…</string>
-    <string name="music_panel_daily_recommend_empty">暂无可推荐的新歌</string>
-    <string name="music_panel_daily_recommend_blacklist">不再推荐</string>
+    <string name="music_panel_memory_mode_title">回忆模式</string>
+    <string name="music_panel_memory_mode_subtitle">替你翻出尘封的歌</string>
+    <string name="music_panel_memory_mode_loading">正在翻找…</string>
+    <string name="music_panel_memory_mode_refresh">换一批</string>
+    <string name="music_panel_memory_mode_poem">故曲沉沙久，\n蒙尘未可闻。\n待潮生浅岸，\n一一为君陈。</string>
+    <string name="music_panel_highlight_exit_notice">歌单里没有可定位的高潮片段，已退出心动模式</string>
     <string name="music_panel_quality_title">选择音质</string>
     <string name="music_panel_quality_failed">该音质无法播放，请选择其它音质</string>
     <string name="music_quality_lossless">无损</string>

@@ -35,10 +35,7 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.model.PlayMode
 import com.yichao.evilgodxu.data.music.model.RecentCover
-import com.yichao.evilgodxu.data.music.recommend.ChartPool
-import com.yichao.evilgodxu.data.music.recommend.MusicRecommender
-import com.yichao.evilgodxu.data.music.recommend.RecommendationResult
-import com.yichao.evilgodxu.data.music.recommend.RecommendedSong
+import com.yichao.evilgodxu.data.music.recommend.MemoryRecommender
 import com.yichao.evilgodxu.data.music.trackIdentityKey
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.settings.settingsDataStore
@@ -135,11 +132,11 @@ class MusicPlaybackState(
     // 避免界面、悬浮窗与授权扫描各自触发重复的读盘与解析
     private val restoreMutex = Mutex()
     private var restoreJob: Deferred<Unit>? = null
-    // 冷启动恢复（曲库、收藏、面板态）是否已了结：每日推荐的画像与排除集合都取自恢复结果，
-    // 在它了结前生成只能得到空样本，故需据此等待。失败也算了结 —— 否则等待分支会永久拦下生成
-    private var restoreSettled = false
-    // 等待恢复完成后再生成推荐的等待任务：恢复失败时不重复叠加
-    private var awaitRestoreJob: Job? = null
+    // 冷启动恢复（曲库、收藏、面板态）是否已了结：回忆模式的画像与候选池都取自恢复结果，
+    // 在它了结前排序只能得到空名次，故据此拦住入口。失败也算了结 —— 否则入口会被永久拦下。
+    // 作为 Compose 状态：入口的重排副作用以它为键，未了结时触发的那次会在了结后自动补跑
+    var isRestoreSettled by mutableStateOf(false)
+        private set
     var appContext: Context? = null
     var mediaController: MediaController? by mutableStateOf(null)
     var player: Player? by mutableStateOf(null)
@@ -159,8 +156,11 @@ class MusicPlaybackState(
             // AUTO=自动续播/单曲结束切下一首；REPEAT=单曲循环重播当前曲目。
             // 手动切歌(SEEK)、列表变更(PLAYLIST_CHANGED)非自然结束，不计入。
             // 需在更新 currentTrack 前记录，此处 currentTrack 仍为刚播完的上一首。
-            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
-                reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+            // 心动模式播的是 30–45 秒的副歌片段，不是一次完整播放：计入会把每首都刷成「听过的」，
+            // 既污染常听歌单，也毁掉回忆模式赖以判定「尘封」的累计计数
+            if (playMode != PlayMode.Highlight &&
+                (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                    reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)
             ) {
                 currentTrack?.id?.let { recordPlayed(it) }
             }
@@ -261,6 +261,8 @@ class MusicPlaybackState(
             cleanupIdleOnlineTracks()
             // 再次从控制器校正当前曲目，确保 UI 与真实音频一致（在线曲目切换时尤其关键）
             syncPlaybackState()
+            // 心动模式：当前曲目定位不到副歌就跳过，否则为下一首预备片段
+            settleHighlightOnTrackChange()
         }
 
         override fun onPositionDiscontinuity(
@@ -307,8 +309,9 @@ class MusicPlaybackState(
                     isPlaying = false
                     currentPosition = duration
                     // REPEAT_MODE_OFF 播完整个时间线末尾（无切歌回调）时兜底计入完整播放；
-                    // 常规自然播完/单曲循环已在 onMediaItemTransition 中记录，此处不会重复
-                    currentTrack?.id?.let { recordPlayed(it) }
+                    // 常规自然播完/单曲循环已在 onMediaItemTransition 中记录，此处不会重复。
+                    // 心动模式同理不计入：片段播完不构成完整播放
+                    if (playMode != PlayMode.Highlight) currentTrack?.id?.let { recordPlayed(it) }
                     if (suppressAutoNext) {
                         suppressAutoNext = false
                         return
@@ -376,15 +379,45 @@ class MusicPlaybackState(
     val livePositionMs: Long
         get() = mediaController?.currentPosition?.takeIf { it >= 0L } ?: currentPosition
 
+    /**
+     * 心动模式下当前片段起点相对整曲的偏移（毫秒），非心动模式恒为 0。
+     *
+     * 裁剪生效后控制器回报的进度以**片段起点**为原点，而歌词时间轴用的是曲目内的绝对时间。
+     * 二者只在这里换算一次：下游的歌词面板、悬浮窗与逐字对齐都按绝对时间工作，无需各改一处。
+     * 进度条反其道而行 —— 它要的正是片段内的相对进度，故不参与本偏移。
+     */
+    val highlightPositionOffsetMs: Long
+        get() {
+            if (playMode != PlayMode.Highlight) return 0L
+            val clip = mediaController?.currentMediaItem?.clippingConfiguration ?: return 0L
+            // 未设裁剪时起点为非法负值，一并归零
+            return clip.startPositionMs.takeIf { it > 0L } ?: 0L
+        }
+
     private val _playlist = mutableStateOf<List<MusicTrack>>(emptyList())
     var playlist: List<MusicTrack>
         get() = _playlist.value
         set(value) {
             _playlist.value = value
             cachedMediaItems = null
+            // 队列更替后在途的片段补齐已对不上新队列，按代次令其自行退出
+            highlightSyncGeneration++
         }
     /** 缓存 playlist 对应的 MediaItem 列表，避免切歌时重复构建 */
     var cachedMediaItems by mutableStateOf<List<androidx.media3.common.MediaItem>?>(null)
+
+    /**
+     * 就地更新缓存队列中的某一项。
+     *
+     * 心动模式会逐项替换播放器队列里的 MediaItem（补上裁剪区间），缓存必须跟着更新：
+     * 缓存代表「播放器里当前是什么」，它与播放器不一致时，装载路径会拿旧项比对而得出
+     * 「队列没变」的结论，于是新补上的片段被连同旧项一起保留，这次切歌就不带片段。
+     */
+    internal fun patchCachedMediaItem(index: Int, item: androidx.media3.common.MediaItem) {
+        val cached = cachedMediaItems ?: return
+        if (index !in cached.indices) return
+        cachedMediaItems = cached.toMutableList().also { it[index] = item }
+    }
     var currentIndex by mutableIntStateOf(-1)
     var currentTrack by mutableStateOf<MusicTrack?>(null)
 
@@ -454,36 +487,33 @@ class MusicPlaybackState(
     var lyricsRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
     var coverRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
 
-    // 每日推荐：榜单候选经黑名单算法与偏好打分后的当日结果
-    var dailyRecommendations by mutableStateOf<List<RecommendedSong>>(emptyList())
-    var isDailyRecommendLoading by mutableStateOf(false)
-    // 轮播展示用：推荐结果中的曲目信息
-    val dailyRecommendedTracks: List<NeteaseSongSearchResult>
-        get() = dailyRecommendations.map { it.result }
-    // 已生成过推荐结果：避免每次进入搜索页重复联网计算
-    var isDailyRecommendReady by mutableStateOf(false)
-    // 当日结果所依据的候选池抓取时刻：与换期刻度比较即可判定结果是否仍属当期
-    private var dailyPoolEpochMs = 0L
-    // 上次生成推荐所用的黑名单快照：与之不一致说明结果已过期
-    private var generatedBlacklist: Set<String> = emptySet()
-    // 上次生成推荐所用的收藏快照：画像取收藏曲目，收藏一变即需重算
-    private var generatedLiked: Set<Long> = emptySet()
-    // 上次生成推荐所用的本地曲库快照：缓存/下载入库会改变候选排除集合，
-    // 与之不一致说明排序里还留着已拥有的歌
-    private var generatedLibrary: Set<Long> = emptySet()
-    // 本地重算未能产出排序（候选池快照缺失等）：置位后下次进入搜索页按完整路径重算
-    private var dailyPreferencesDirty = false
-    // 生成任务代次：用于丢弃被新任务取代的旧结果
-    private var dailyRecommendToken = 0
-    private var dailyRecommendJob: Job? = null
-    // 候选池联网更新：独立于排序计算，筛选操作与重新进面板都不会取消它
-    private var chartPoolJob: Job? = null
-    // 在途排序计算是否正等待候选池更新结束：等待者越过等待点后读到的必是新池，
-    // 更新完成时的补算据此跳过，不做无谓的第二次计算
-    private var dailyRecommendJobAwaitsPool = false
-    // 候选池正在联网更新：期间手动刷新置为禁用，避免白等一轮
-    var isChartPoolRefreshing by mutableStateOf(false)
+    // ===== 回忆模式 =====
+    // 本次展示的一页：由完整名次按页切出，翻页不重算
+    var memoryPageTracks by mutableStateOf<List<MusicTrack>>(emptyList())
         private set
+    var isMemoryLoading by mutableStateOf(false)
+        private set
+    // 完整名次：进入时算一次，翻页只在它上面切窗口；重复进入会重排（反映最新的常听与计数）
+    private var memoryRanked by mutableStateOf<List<MemoryRecommender.Pick>>(emptyList())
+    private var memoryPageIndex = 0
+    private var memoryRankJob: Job? = null
+
+    /**
+     * 回忆模式是否已达启用门槛。
+     *
+     * 计数覆盖的曲目太少时，「从没听过」与「数据还没攒够」无从区分，强行启用会把用户
+     * 当下在听的歌也当成尘封曲推出来，故门槛未到时入口只作说明、不进入。
+     */
+    val isMemoryUnlocked: Boolean
+        get() = MemoryRecommender.isUnlocked(PlayCountStore.trackedCount, likedIds.size)
+
+    // ===== 心动模式 =====
+    // 片段补齐代次：模式切换与队列更替时递增，令在途的补齐任务自行退出，不把旧模式的片段写回新队列
+    internal var highlightSyncGeneration = 0
+    // 连续跳过计数：整队列都无可定位副歌时防止回绕空转
+    private var highlightSkipStreak = 0
+    // 因整队列都无可定位副歌而退出心动模式的一次性提示，由界面消费后复位
+    var highlightExitNotice by mutableStateOf(false)
 
     private fun hasUriAccess(context: Context, audioUri: String): Boolean {
         val uri = audioUri.toUri()
@@ -782,6 +812,11 @@ class MusicPlaybackState(
         recentPlayEvents = listOf(PlayEvent(trackId, now)) +
             recentPlayEvents.filter { it.timestamp >= now - recentWindowMs }
         persistRecentPlayed()
+        // 累计计数与常听在同一时刻递增：两者都只由本函数写入，收录时机天然一致。
+        // 调用方已保证心动模式的片段播放不进入这里，故计数不会把「听了 40 秒」当成一次完整播放
+        appContext?.let { context ->
+            playbackScope.launch { PlayCountStore.increment(context, trackId) }
+        }
     }
 
     // 从常听手动移除：清除该曲目的播放记录，期间不再自动收录
@@ -896,7 +931,8 @@ class MusicPlaybackState(
     fun seedLyricPosition(trackId: Long?): Long {
         val snapshot = lyricTimelinePositionMs
             .takeIf { trackId != null && trackId == lyricTimelineTrackId } ?: 0L
-        return maxOf(livePositionMs, snapshot)
+        // 心动模式下控制器回报的是片段内进度，换算回整曲的绝对时间后歌词才对得上
+        return maxOf(livePositionMs + highlightPositionOffsetMs, snapshot)
     }
 
     // 面板每轮跟随回写当前进度，供界面重建时接着推进
@@ -1031,8 +1067,11 @@ class MusicPlaybackState(
         }
         // 冷启动预读上次曲目的落盘封面：驻留内存后首帧可同步取用，不阻塞本次恢复
         savedUri?.let { uri -> playbackScope.launch { CurrentCoverCache.load(context, uri) } }
-        // 曲库与收藏至此可见：等待恢复的每日推荐生成据此放行
-        restoreSettled = true
+        // 累计播放次数在启动时载入：回忆模式的启用门槛与排名都读它，
+        // 等到进入入口时才载入会让门槛先按「零计数」判一次，把入口误判为未解锁
+        PlayCountStore.ensureLoaded(context)
+        // 曲库与收藏至此可见：回忆模式的排序据此放行
+        isRestoreSettled = true
     }
 
     // 冷启动未播放时预读当前曲目格式信息，供音频信息条展示；开始播放后由解码头覆盖
@@ -1611,7 +1650,8 @@ class MusicPlaybackState(
 
     // 切换指定曲目的收藏状态：仅就地更新收藏标记，不改变列表顺序。
     // 全量库备份须一并更新：面板浏览非播放队列的歌单时曲目取自备份，只改队列会让收藏图标不刷新。
-    // 收藏是偏好画像的唯一输入，变更后立即在后台重算推荐排序
+    // 收藏是回忆模式画像的补足来源，但**不在此处预排**：排序只在进入回忆模式时算一次，
+    // 收藏时提前算既没有展示位，也会白烧一轮全库歌词特征提取
     fun toggleFavorite(trackId: Long) {
         val newLiked = if (likedIds.contains(trackId)) likedIds - trackId else likedIds + trackId
         likedIds = newLiked
@@ -1621,7 +1661,6 @@ class MusicPlaybackState(
         playlist = replace(playlist)
         defaultPlaylistBackup = defaultPlaylistBackup?.let(replace)
         persistPlaylist()
-        refreshDailyPreferences()
     }
 
     // 按新顺序重排当前播放队列，保持当前曲目与播放索引同步
@@ -1832,7 +1871,25 @@ class MusicPlaybackState(
     // ===== UI 层状态写入口：悬浮窗 UI 统一通过这些方法写入状态，避免直接对 public var 赋值 =====
     // 方法与属性 setter 同名会冲突，故用 @JvmName 指定不同 JVM 名
     @JvmName("updatePlayMode")
-    fun setPlayMode(mode: PlayMode) { playMode = mode }
+    fun setPlayMode(mode: PlayMode) {
+        if (playMode == mode) return
+        playMode = mode
+        // 模式决定队列项是否带裁剪，缓存的 MediaItem 必须作废，否则下一轮装载仍会复用旧模式的项
+        cachedMediaItems = null
+        highlightSyncGeneration++
+        highlightSkipStreak = 0
+        // 心动模式改变的是「每首放哪一段」，不是「正在放哪一首」：当前曲目不受影响，
+        // 只重写其余各项。replaceMediaItem 对非当前项不触发重新准备，正在播放的音频不被打断
+        appContext?.let { context ->
+            playbackScope.launch {
+                if (mode == PlayMode.Highlight) {
+                    syncHighlightQueue(context, this@MusicPlaybackState)
+                } else {
+                    clearHighlightFromQueue(this@MusicPlaybackState)
+                }
+            }
+        }
+    }
     @JvmName("updateSearchMode")
     fun setSearchMode(enabled: Boolean) { isSearchMode = enabled }
     @JvmName("updateSearchResultsVisible")
@@ -1870,210 +1927,118 @@ class MusicPlaybackState(
         invalidateLyricTimeline()
     }
 
-    // ===== 每日推荐 =====
+    // ===== 回忆模式 =====
+
+    // 曲目特征只用于跳过反馈（用户切走推荐曲目时对同类内容降权），随本次名次一并留存
+    private var memoryRecommendedFeatures: Map<Long, Set<String>> = emptyMap()
+
+    // 上次回收播放计数所依据的曲库签名：批量下载会逐首触发曲库变更，据此去重，不为每首各写一次盘
+    private var generatedLibrary: Set<Long> = emptySet()
 
     /**
-     * 生成每日推荐。偏好基线取收藏曲目，候选取榜单候选池（日更落盘），黑名单在粗排阶段过滤。
+     * 生成回忆模式的一页推荐。
      *
-     * 计算只读本地候选池，联网更新由 [startChartPoolRefresh] 独立进行，本方法只负责在计算前
-     * 确保当期候选池就位。
-     * 黑名单或收藏列表与上次生成不一致、或结果所依据的候选池已换期时视为过期，重新计算；
-     * 手动刷新通过 force 强制重算。
+     * 与已归档的每日推荐最大的不同是整条链路离线：候选取自本地全库，画像取自本机常听与收藏，
+     * 没有候选池要联网刷新，也没有换期刻度 —— 每次进入重排一次，翻页只在本次名次上切窗口。
      *
-     * 冷启动时曲库与收藏由磁盘异步恢复（见 [restoreSavedState]），而搜索面板与恢复流程并行启动 ——
-     * 恢复完成前生成，画像与排除集合都取到空值，算出的空结果又会被当作「已生成」，
-     * 此后自动路径全被早返回跳过，只剩手动刷新能重算。故此处先等恢复完成再走同一入口。
+     * 不在收藏/曲库变更时预热排序：那两条路径每次变动都重排一遍全库歌词特征，而结果只在进入
+     * 回忆模式时才有展示位，提前算纯属白烧。进入时算一次即可。
+     *
+     * @param force 手动刷新：重排一次并回到第一页
      */
-    fun loadDailyRecommendations(context: Context, force: Boolean = false) {
-        if (!restoreSettled) {
-            awaitRestoreJob = awaitRestoreJob?.takeIf { it.isActive } ?: playbackScope.launch {
-                try {
-                    restoreSavedState(context)
+    fun loadMemoryRecommendations(context: Context, force: Boolean = false) {
+        // 冷启动恢复完成前曲库与收藏尚为空，此时排出来的名次基于空输入，会被误当成有效结果
+        if (!isRestoreSettled) return
+        if (!force && (memoryRanked.isNotEmpty() || isMemoryLoading)) return
+        if (!isMemoryUnlocked) {
+            memoryRanked = emptyList()
+            memoryPageTracks = emptyList()
+            return
+        }
+        memoryRankJob?.cancel()
+        isMemoryLoading = true
+        memoryRankJob = playbackScope.launch {
+            try {
+                val ranked = try {
+                    MemoryRecommender.rank(
+                        context = context,
+                        library = libraryTracks,
+                        recentPlayedIds = recentPlayedIds,
+                        likedIds = likedIds,
+                        playCounts = PlayCountStore.counts,
+                    )
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    CrashLogManager.logException("MusicPlaybackState", "等待曲库恢复失败", e)
+                    CrashLogManager.logException("MusicPlaybackState", "生成回忆推荐失败", e)
+                    emptyList()
                 }
-                // 失败同样置位：等不到输入时就按当前可见状态生成，不让等待分支永久拦下
-                restoreSettled = true
-                loadDailyRecommendations(context, force)
+                memoryRanked = ranked
+                memoryRecommendedFeatures = ranked.associate { it.track.id to it.features }
+                memoryPageIndex = 0
+                memoryPageTracks = pageSlice(ranked, 0)
+            } finally {
+                // 取消路径同样复位：否则入口会一直显示进行中，后续生成也会因「已在载入」被跳开
+                isMemoryLoading = false
             }
-            return
         }
-        val blacklist = BlacklistStore.keys
-        val liked = likedIds
-        // 候选池跨过换期刻度后即便偏好与黑名单未变也要重算：已有结果依据的是上一期候选，
-        // 不重算就会在跨期的进程上一直用旧榜单。
-        // 结果为空时不作此判定 —— 此时没有被换期影响的内容，判定恒真只会每次进面板都重抓整池
-        val poolOutdated = dailyRecommendations.isNotEmpty() && ChartPool.isOutdated(dailyPoolEpochMs)
-        // 输入与候选池均未变：已有结果即为当期结果，无需重算。
-        // 反之（黑名单或收藏已变、候选池已换期、或强制刷新）取消在途任务后按新快照重算，
-        // 避免旧快照的结果写回
-        val upToDate = blacklist == generatedBlacklist && liked == generatedLiked && !poolOutdated
-        if (!force && upToDate && !dailyPreferencesDirty && (isDailyRecommendLoading || isDailyRecommendReady)) {
-            return
-        }
-        startDailyRecommendJob(context, liked, blacklist, showLoading = true, ensurePool = true)
+    }
+
+    /** 翻到下一页；已到末页则绕回第一页，保证刷新始终有内容可展示 */
+    fun nextMemoryPage() {
+        if (memoryRanked.isEmpty()) return
+        val pageCount = (memoryRanked.size + MemoryRecommender.PAGE_SIZE - 1) / MemoryRecommender.PAGE_SIZE
+        memoryPageIndex = if (memoryPageIndex + 1 >= pageCount) 0 else memoryPageIndex + 1
+        memoryPageTracks = pageSlice(memoryRanked, memoryPageIndex)
     }
 
     /**
-     * 收藏变更后立即重算推荐排序。
+     * 播放回忆模式当前页。
      *
-     * 只读本地落盘候选池（`ensurePool = false`），不联网 —— 点一次收藏就重拉整池歌词
-     * 既不是用户预期，也会把一次轻量操作变成分钟级等待。
-     *
-     * 不置加载态：面板可能正开着展示上一版结果，重算在后台完成后整体替换，
-     * 否则点一次收藏就把已展示的推荐清成占位。首次尚未生成时无需预热，等进入搜索页再算。
+     * 队列整段换成当前页的曲目并自首曲起播：回忆模式给出的是「想不起来但会喜欢」的一批歌，
+     * 逐首点选反而失去「让它替你翻箱底」的意味。
      */
-    private fun refreshDailyPreferences() {
-        if (!isDailyRecommendReady && !isDailyRecommendLoading) return
-        val context = appContext ?: return
-        startDailyRecommendJob(
-            context,
-            likedIds,
-            BlacklistStore.keys,
-            showLoading = false,
-            ensurePool = false,
-        )
+    fun playMemoryQueue(context: Context) {
+        val tracks = memoryPageTracks
+        if (tracks.isEmpty()) return
+        // 名次本身就是队列顺序，不能走「按排序规则重排」那条路：那条路属于默认全量库，
+        // 会按用户的列表排序规则把推荐名次打散
+        if (playlistSource == null && defaultPlaylistBackup == null) {
+            defaultPlaylistBackup = playlist
+        }
+        playlist = tracks
+        playlistSource = null
+        currentIndex = 0
+        persistPlaylist()
+        playbackScope.launch { playTrackAt(context, this@MusicPlaybackState, 0) }
     }
 
     /**
-     * 本地曲库变化（缓存 / 下载入库）后重算推荐排序。
+     * 本地曲库变化（缓存 / 下载入库）后同步派生数据。
      *
-     * 入库改变的是候选排除集合，不是偏好画像 —— 故只读本地候选池重算（`ensurePool = false`），
-     * 不因一次缓存动作触发整池歌词的联网重拉（与收藏变更同一条路径）。
-     *
-     * 曲库未变时直接返回：批量下载会逐首登记入库，不去重就会为每首歌各排一次重算。
-     * 首次尚未生成过时不预热，等进入搜索页按完整路径算（那时曲库已含新入库的歌）。
+     * 曲目增删会改变回忆模式的候选池，并留下已无引用的播放计数，故作废本次名次并回收计数。
+     * 批量下载会逐首触发本方法，故以曲库签名去重。不在此处预排回忆结果。
      */
     internal fun onLibraryChanged() {
-        if (!isDailyRecommendReady && !isDailyRecommendLoading) return
         if (librarySignature() == generatedLibrary) return
-        val context = appContext ?: return
-        startDailyRecommendJob(
-            context,
-            likedIds,
-            BlacklistStore.keys,
-            showLoading = false,
-            ensurePool = false,
-        )
-    }
-
-    /** 本地曲库的身份快照：曲目增删都会改变它，用于判断候选排除集合是否需要重算 */
-    private fun librarySignature(): Set<Long> = libraryTracks.mapTo(HashSet()) { it.id }
-
-    /**
-     * 启动预热候选池：已跨换期刻度且本机已有候选池时联网更新。
-     *
-     * 晚于换期时刻启动应用也能用上新一期榜单，打开每日推荐时不必再等整池歌词拉完。
-     * 未用过每日推荐（本机没有候选池）的用户不预热 —— 不为一次启动付整池抓取的代价。
-     */
-    fun warmChartPool(context: Context) {
-        startChartPoolRefresh(context, onlyIfExisting = true)
-    }
-
-    /**
-     * 联网更新候选池，返回可等待的任务；已在更新中时返回同一个任务，不重复抓取。
-     *
-     * @param onlyIfExisting 仅在本机已有候选池时更新。生成推荐传 false：候选池缺失即抓。
-     *
-     * 更新任务独立于排序计算：整池抓取是分钟级的网络工作，而收藏变更、曲库入库、手动刷新、
-     * 重新进面板都会取消在途的排序计算 —— 抓取若挂在计算任务内，会被这些操作一并作废。
-     */
-    private fun startChartPoolRefresh(context: Context, onlyIfExisting: Boolean): Job {
-        chartPoolJob?.takeIf { it.isActive }?.let { return it }
-        isChartPoolRefreshing = true
-        return playbackScope.launch {
-            try {
-                val refreshed = if (onlyIfExisting) {
-                    ChartPool.refreshIfOutdated(context)
-                } else {
-                    ChartPool.snapshot(context, refresh = true)
-                }
-                // 新池落盘后补一次只读重算：更新期间的收藏变更与曲库入库都只按旧池算过
-                refreshed?.let { catchUpRecommendation(context, it.fetchedAt) }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                CrashLogManager.logException("MusicPlaybackState", "更新候选池失败", e)
-            } finally {
-                isChartPoolRefreshing = false
-            }
-        }.also { chartPoolJob = it }
-    }
-
-    /**
-     * 候选池更新完成后补一次只读本地池的重算。
-     *
-     * 更新期间发生的收藏变更与曲库入库只按旧池算过（那两条路径刻意不联网），新池落盘后补算一次
-     * 即可把偏好画像与排除集合同步到新池 —— 故无需在更新期间打断它们。
-     *
-     * 已有计算正等待本次更新结束时不补：那条计算越过等待点后读到的就是新池，本就算在新池上。
-     * 排序尚无内容时也不补：没有会被换期影响的次序，等进入搜索页按完整路径算。
-     * 抓取失败沿用旧池时池起点未变，此处自然跳过。
-     */
-    private fun catchUpRecommendation(context: Context, poolEpochMs: Long) {
-        if (!isDailyRecommendReady && !isDailyRecommendLoading) return
-        if (dailyRecommendJobAwaitsPool) return
-        if (poolEpochMs == dailyPoolEpochMs) return
-        startDailyRecommendJob(
-            context,
-            likedIds,
-            BlacklistStore.keys,
-            showLoading = false,
-            ensurePool = false,
-        )
-    }
-
-    private fun startDailyRecommendJob(
-        context: Context,
-        liked: Set<Long>,
-        blacklist: Set<String>,
-        showLoading: Boolean,
-        ensurePool: Boolean,
-    ) {
-        dailyRecommendJob?.cancel()
-        // 偏好画像取收藏，候选排除取全量曲库：缓存/下载入库的歌大多未被收藏，
-        // 只按收藏排除会让用户已经拥有的歌继续占着推荐位
-        val preferred = libraryTracks.filter { it.id in liked }
-        val library = libraryTracks
-        generatedBlacklist = blacklist
-        generatedLiked = liked
         generatedLibrary = librarySignature()
-        dailyPreferencesDirty = false
-        if (showLoading) isDailyRecommendLoading = true
-        dailyRecommendJobAwaitsPool = ensurePool
-        // 代次标记：被取代的旧任务即使已越过取消点也会正常返回，按代次丢弃其结果
-        val token = ++dailyRecommendToken
-        dailyRecommendJob = playbackScope.launch {
-            // 换期更新在独立任务里进行：本任务被取消（收藏变更、曲库入库、重新进面板）时
-            // 更新照常继续，这里只是等它结束再读池 —— 等待不构成打断
-            if (ensurePool) {
-                startChartPoolRefresh(context, onlyIfExisting = false).join()
-                // 已越过等待点：此后读到的必是新池，更新完成时的补算无需为本任务让路
-                dailyRecommendJobAwaitsPool = false
-            }
-            val result = try {
-                MusicRecommender.recommend(context, preferred, library)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                CrashLogManager.logException("MusicPlaybackState", "生成每日推荐失败", e)
-                RecommendationResult(emptyList(), 0L)
-            }
-            if (token != dailyRecommendToken) return@launch
-            // 本地重算只做增量更新：候选池缺失等原因导致算不出结果时保持原样，不把已展示的推荐清空，
-            // 并标记为待重算，下次进入搜索页按完整路径（可联网）重来
-            if (!ensurePool && result.recommendations.isEmpty()) {
-                dailyPreferencesDirty = true
-                return@launch
-            }
-            dailyPoolEpochMs = result.poolFetchedAt
-            dailyRecommendations = result.recommendations
-            isDailyRecommendReady = true
-            isDailyRecommendLoading = false
+        memoryRanked = emptyList()
+        memoryPageTracks = emptyList()
+        val context = appContext ?: return
+        playbackScope.launch {
+            PlayCountStore.prune(context, libraryTracks.mapTo(HashSet()) { it.id })
         }
     }
+
+    /** 本地曲库的身份快照：曲目增删都会改变它 */
+    private fun librarySignature(): Set<Long> = libraryTracks.mapTo(HashSet()) { it.id }
+
+    private fun pageSlice(ranked: List<MemoryRecommender.Pick>, page: Int): List<MusicTrack> {
+        val from = page * MemoryRecommender.PAGE_SIZE
+        if (from >= ranked.size) return emptyList()
+        return ranked.subList(from, minOf(from + MemoryRecommender.PAGE_SIZE, ranked.size)).map { it.track }
+    }
+
 
     // ===== 黑名单 =====
 
@@ -2083,17 +2048,12 @@ class MusicPlaybackState(
         playbackScope.launch { BlacklistStore.add(context, track) }
     }
 
-    // 推荐项来自在线搜索，没有本地曲目对象，按歌名与歌手拉黑；
-    // 黑名单以归一化文本键存储，两条入口写入的是同一份名单，推荐应用户操作即时重算
-    fun blacklistTrack(context: Context, title: String, artist: String) {
-        playbackScope.launch { BlacklistStore.add(context, title, artist) }
-    }
-
     /**
-     * 逆向反馈：切歌即视为对推荐结果不满意，把该曲目的特征计入黑名单（落盘，重启后仍生效）。
+     * 逆向反馈：切歌即视为对回忆模式推荐结果不满意，把该曲目的概念特征计入黑名单
+     * （落盘，重启后仍生效）。
      *
-     * 只对推荐曲目计数，且要求未被听过大半 —— 自然播完、单曲循环、列表增删导致的原地回调
-     * 都不构成跳过信号，否则会把正常播放误判为负反馈。
+     * 只对回忆模式推荐出的曲目计数，且要求未被听过大半 —— 自然播完、单曲循环、列表增删导致的
+     * 原地回调都不构成跳过信号，否则会把正常播放误判为负反馈。
      */
     private fun recordRecommendationSkip(nextMediaId: Long?, reason: Int) {
         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
@@ -2105,9 +2065,51 @@ class MusicPlaybackState(
         // 曲目未变（列表增删触发的回调）不算切歌
         if (nextMediaId == track.id) return
         if (duration > 0L && currentPosition * 100 >= duration * SKIP_POSITION_PERCENT) return
-        val skipped = dailyRecommendations.firstOrNull { it.trackId == track.id } ?: return
+        val features = memoryRecommendedFeatures[track.id] ?: return
         val context = appContext ?: return
-        playbackScope.launch { BlacklistStore.recordSkip(context, skipped.features) }
+        playbackScope.launch { BlacklistStore.recordSkip(context, features) }
+    }
+
+    /**
+     * 心动模式下曲目落定后的收尾：不可定位副歌的曲目直接跳过，否则为下一首预备片段。
+     *
+     * 跳过带回绕保护：整队列都定位不到时（纯音乐歌单、歌词全无），连续跳过会绕回原点空转，
+     * 故连续跳过数超过队列长度即退出该模式交回普通播放，并置一次性提示供界面说明原因。
+     *
+     * 只有「已解析且判定无副歌」才跳过。歌词尚未解析不等于没有副歌 —— 据此跳过会在冷启动时
+     * 把整库都跳过，故未解析时照常整曲播放，等歌词补全后由 [syncHighlightQueue] 补上片段。
+     */
+    private fun settleHighlightOnTrackChange() {
+        if (playMode != PlayMode.Highlight) {
+            highlightSkipStreak = 0
+            return
+        }
+        val context = appContext ?: return
+        val track = currentTrack ?: return
+        if (!isKnownHighlightMiss(track)) {
+            highlightSkipStreak = 0
+            prepareNextHighlight(context, this)
+            return
+        }
+        if (highlightSkipStreak >= playlist.size) {
+            highlightSkipStreak = 0
+            highlightExitNotice = true
+            setPlayMode(PlayMode.RepeatAll)
+            return
+        }
+        highlightSkipStreak++
+        val next = nextIndex()
+        if (next in playlist.indices && next != currentIndex) {
+            playbackScope.launch {
+                playTrackAt(
+                    context,
+                    this@MusicPlaybackState,
+                    next,
+                    clearQueue = false,
+                    switchKind = TrackSwitchKind.Next,
+                )
+            }
+        }
     }
 }
 

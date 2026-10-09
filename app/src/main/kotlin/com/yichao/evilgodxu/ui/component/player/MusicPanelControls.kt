@@ -51,6 +51,7 @@ internal fun ControlBar(
             PlayMode.RepeatAll -> AppIcons.Repeat
             PlayMode.RepeatOne -> AppIcons.RepeatOne
             PlayMode.Shuffle -> AppIcons.Shuffle
+            PlayMode.Highlight -> AppIcons.Bolt
         }
         ControlIconButton(
             icon = modeIcon,
@@ -59,7 +60,8 @@ internal fun ControlBar(
                 playbackState.setPlayMode(when (playbackState.playMode) {
                     PlayMode.RepeatAll -> PlayMode.RepeatOne
                     PlayMode.RepeatOne -> PlayMode.Shuffle
-                    PlayMode.Shuffle -> PlayMode.RepeatAll
+                    PlayMode.Shuffle -> PlayMode.Highlight
+                    PlayMode.Highlight -> PlayMode.RepeatAll
                 })
                 playbackState.mediaController?.let { controller ->
                     applyPlaybackMode(controller, playbackState.playMode)

@@ -31,7 +31,7 @@ import com.yichao.evilgodxu.ui.component.DialogCard
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 黑名单设置：展示已拉黑数量，重置后曲目重新参与播放列表展示与每日推荐
+// 黑名单设置：展示已拉黑数量，重置后曲目重新参与播放列表展示与回忆推荐
 @Composable
 fun Blacklist(
     blockedCount: Int,

@@ -250,6 +250,7 @@ internal fun MiniPlayerBar(
                     PlayMode.RepeatAll -> AppIcons.Repeat
                     PlayMode.RepeatOne -> AppIcons.RepeatOne
                     PlayMode.Shuffle -> AppIcons.Shuffle
+                    PlayMode.Highlight -> AppIcons.Bolt
                 },
                 contentDescription = stringResource(R.string.music_panel_play_mode),
                 onClick = {
@@ -257,7 +258,8 @@ internal fun MiniPlayerBar(
                         when (playbackState.playMode) {
                             PlayMode.RepeatAll -> PlayMode.RepeatOne
                             PlayMode.RepeatOne -> PlayMode.Shuffle
-                            PlayMode.Shuffle -> PlayMode.RepeatAll
+                            PlayMode.Shuffle -> PlayMode.Highlight
+                            PlayMode.Highlight -> PlayMode.RepeatAll
                         }
                     )
                     playbackState.mediaController?.let { controller ->

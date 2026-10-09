@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.screens.home.component.search
 
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -87,12 +88,11 @@ import kotlinx.coroutines.launch
 internal fun OnlineSearchPanel(
     playbackState: MusicPlaybackState,
     menuBackgroundColor: Color,
-    // 本页是否在前台可见：自动轮播等持续动效据此决定是否推进
-    visible: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val metadataEnricher = LocalMetadataEnricher.current
     val focusManager = LocalFocusManager.current
     // 搜索输入框聚焦状态：键盘展开期间显示拦截层，点击面板空白处仅收起键盘并阻断透传
     var searchInputFocused by remember { mutableStateOf(false) }
@@ -123,25 +123,42 @@ internal fun OnlineSearchPanel(
                 .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
         ) {
             PanelHeader()
-            // 黑名单快照在推荐生成前载入：候选过滤与偏好基线都依赖它，未载入会误判为「无黑名单」
+            // 黑名单快照在回忆推荐前载入：候选过滤与偏好基线都依赖它，未载入会误判为「无黑名单」
             LaunchedEffect(Unit) { BlacklistStore.ensureLoaded(context) }
-            // 载入完成或黑名单变更时生成：以真实快照为准，避免先按空黑名单算出一版无效结果
-            LaunchedEffect(BlacklistStore.isLoaded, BlacklistStore.keys) {
-                if (BlacklistStore.isLoaded) playbackState.loadDailyRecommendations(context)
+            // 载入完成、黑名单变更或解锁状态变化时重排：以真实快照为准，
+            // 避免先按空黑名单算出一版无效结果。已排出名次时不重算（生成入口内部判定）
+            LaunchedEffect(
+                BlacklistStore.isLoaded,
+                BlacklistStore.keys,
+                playbackState.isMemoryUnlocked,
+                playbackState.isRestoreSettled,
+            ) {
+                if (BlacklistStore.isLoaded) playbackState.loadMemoryRecommendations(context)
             }
-            DailyRecommendCarousel(
-                songs = playbackState.dailyRecommendedTracks,
-                loading = playbackState.isDailyRecommendLoading,
-                refreshing = playbackState.isChartPoolRefreshing,
-                visible = visible,
-                onSongClick = { song ->
-                    // 推荐项与搜索结果同属在线歌曲，同样先由用户选定音质再解析播放地址
-                    playbackState.qualityPickTrack = song
-                    playbackState.qualityBusy = false
-                    playbackState.qualityError = null
+            // 心动模式整队列都定位不到副歌时会自行退出，这里说明原因 ——
+            // 否则用户只看到模式自己变了，会当成失灵
+            LaunchedEffect(playbackState.highlightExitNotice) {
+                if (playbackState.highlightExitNotice) {
+                    playbackState.highlightExitNotice = false
+                    Toast.makeText(
+                        context,
+                        R.string.music_panel_highlight_exit_notice,
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+            MemoryEntryCard(
+                unlocked = playbackState.isMemoryUnlocked,
+                loading = playbackState.isMemoryLoading,
+                songCount = playbackState.memoryPageTracks.size,
+                onEnter = {
+                    // 整页曲目一次成为播放队列并起播；顺带补全本页歌词，
+                    // 心动模式要靠它定位副歌片段
+                    playbackState.playMemoryQueue(context)
+                    val enricher = metadataEnricher
+                    scope.launch { enricher.enrichAndCleanup(context, playbackState) }
                 },
-                onBlacklist = { song -> playbackState.blacklistTrack(context, song.title, song.artist) },
-                onRefresh = { playbackState.loadDailyRecommendations(context, force = true) },
+                onRefresh = { playbackState.nextMemoryPage() },
             )
             Spacer(modifier = Modifier.height(8.dp))
             SearchInput(

@@ -33,5 +33,12 @@ data class MusicTrack(
     fun isUpgradableToLossless(): Boolean = isLocalAudioSource
 }
 
-// 播放模式
-enum class PlayMode { RepeatOne, RepeatAll, Shuffle }
+// 播放模式。
+//
+// Highlight（心动）与前三种不是同一类语义：前三种决定「按什么顺序放」，
+// 它决定「每首放哪一段」。之所以并入同一枚举而非另立一个维度，是因为本枚举的持久化
+// 与界面切换循环都已成型（见 MusicPlaybackState 的 mode 落盘、PlayerControls 的循环切换），
+// 并入即可免费获得跨冷启动的记忆；代价是 calculateIndex 与 applyPlaybackMode 各需一条分支。
+//
+// 新值一律**追加在末尾**：mode 以 ordinal 落盘，插在中间会让已装机用户保存的序号整体错位。
+enum class PlayMode { RepeatOne, RepeatAll, Shuffle, Highlight }
