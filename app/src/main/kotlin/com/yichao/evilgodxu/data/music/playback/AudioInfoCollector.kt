@@ -3,7 +3,6 @@ package com.yichao.evilgodxu.data.music.playback
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
-import android.media.AudioFormat
 import android.media.AudioManager
 import androidx.annotation.OptIn
 import androidx.media3.common.Player
@@ -98,6 +97,7 @@ internal object AudioInfoCollector {
                     ?.takeIf { it.isNotBlank() }
                     ?.let(::isLosslessFormatName),
                 outputMode = outputMode(state),
+                decodedOutput = decodedOutput(state),
                 audioSessionId = playback.audioSessionId,
                 floatOutput = floatOutputState(state),
                 outputEncoding = outputEncoding(state),
@@ -161,6 +161,19 @@ internal object AudioInfoCollector {
     }
 
     /**
+     * 解码输出格式。
+     *
+     * 取解码头在重配那一刻上报的格式，不按源格式推算：解码器按需求改采样率与声道，编码更是要到
+     * 解码头出格式才知道。未装载曲目时无从谈起，与 [outputMode] 同口径不展示；
+     * 位深归不到线性 PCM（直通输出）时该行无位深可言，同样不产出条目。
+     */
+    private fun decodedOutput(state: MusicPlaybackState): DecodedOutputFormat? {
+        if (state.currentTrack == null) return null
+        val format = state.audioSinkDecodedFormat ?: return null
+        return format.takeIf { outputEncodingOf(it.pcmEncoding) != null }
+    }
+
+    /**
      * 浮点写出状态。
      *
      * 未装载曲目时输出链路的取向无意义，与 [outputMode] 同口径不展示；已装载而输出未建立时保留为
@@ -184,15 +197,8 @@ internal object AudioInfoCollector {
      */
     private fun outputEncoding(state: MusicPlaybackState): OutputEncoding? {
         if (state.currentTrack == null) return null
-        return when (state.audioSinkOutputEncoding) {
-            AudioFormat.ENCODING_PCM_8BIT -> OutputEncoding.PCM_8BIT
-            AudioFormat.ENCODING_PCM_16BIT -> OutputEncoding.PCM_16BIT
-            AudioFormat.ENCODING_PCM_24BIT_PACKED -> OutputEncoding.PCM_24BIT
-            AudioFormat.ENCODING_PCM_32BIT -> OutputEncoding.PCM_32BIT
-            AudioFormat.ENCODING_PCM_FLOAT -> OutputEncoding.PCM_FLOAT
-            null -> OutputEncoding.NOT_ESTABLISHED
-            else -> null
-        }
+        val raw = state.audioSinkOutputEncoding ?: return OutputEncoding.NOT_ESTABLISHED
+        return outputEncodingOf(raw)
     }
 
     /**

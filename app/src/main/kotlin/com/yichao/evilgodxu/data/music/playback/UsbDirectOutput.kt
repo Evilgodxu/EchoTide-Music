@@ -51,8 +51,9 @@ private const val LOG_TAG = "UsbDirectOutput"
  * - 格式不符：写出格式与偏好混音器不一致时，AudioFlinger 不会失败，而是把该轨静默混音输出，
  *   因此输出格式必须与偏好对齐，才不会以「已直出」之名走混音路径。
  *
- * 直出能否成立取决于设备接入与厂商声明，判定依据只在设备现场可得，故开关状态、解码格式与每次路由重算
- * 的结论都写入诊断日志（设置页可分享），使「设备已识别而直出未生效」能在日志中定位到具体环节。
+ * 直出能否成立取决于设备接入与厂商声明，判定依据只在设备现场可得，故开关状态与每次路由重算
+ * 的结论都写入诊断日志（设置页可分享），使「设备已识别而直出未生效」能在日志中定位到具体环节；
+ * 当前解码格式另由音频信息面板的「解码输出」一行直接展示，不在日志中重复记录。
  *
  * 线程：直出配置必须在音频轨建立之前下发，而解码格式只有播放线程在音频输出重配那一刻才拿得到，
  * 故 [onTrackFormatChanged] 由播放线程调用；[setEnabled] 与 [release] 由主线程调用——两处的重算
@@ -166,7 +167,7 @@ class UsbDirectOutput(
         decodedSampleRate = sampleRate
         decodedChannelCount = channelCount
         this.decodedPcmEncoding = decodedPcmEncoding
-        logDiagnostic("解码格式变更：${describeDecodedFormat()}")
+        // 解码格式改由音频信息面板的「解码输出」一行展示，日志不再重复记录
         refreshOutputRouting()
     }
 

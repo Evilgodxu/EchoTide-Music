@@ -182,6 +182,8 @@
     <string name="audio_info_quality">Quality</string>
     <string name="audio_info_output_mode">Output mode</string>
     <string name="audio_info_session_id">Audio session ID</string>
+    <!-- The format the decoder actually emits; may differ from the source format shown by "Source sample rate" -->
+    <string name="audio_info_decoded_output">Decoded output</string>
     <string name="audio_info_float_output">Float output</string>
     <string name="audio_info_output_encoding">Output encoding</string>
     <!-- The parentheses state where this reading starts; the audio track's own part is reported by the "incl. track" row -->
@@ -227,6 +229,8 @@
     <string name="audio_info_value_bit" tools:ignore="PluralsCandidate">%d bit</string>
     <string name="audio_info_value_kbps">%d kbps</string>
     <string name="audio_info_value_file_size">%1$s / %2$s</string>
+    <!-- Sample rate / channels / bit depth, each segment already localized -->
+    <string name="audio_info_value_decoded_output">%1$s / %2$s / %3$s</string>
     <string name="audio_info_value_ms">%.1f ms</string>
     <plurals name="audio_info_value_channels">
         <item quantity="one">%d channel</item>

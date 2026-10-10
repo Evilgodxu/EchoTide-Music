@@ -180,6 +180,8 @@
     <string name="audio_info_quality">品质</string>
     <string name="audio_info_output_mode">音频输出模式</string>
     <string name="audio_info_session_id">音频会话 ID</string>
+    <!-- 解码头实际输出的格式，与「原始采样率」给出的源格式可能不同 -->
+    <string name="audio_info_decoded_output">解码输出</string>
     <string name="audio_info_float_output">浮点输出</string>
     <string name="audio_info_output_encoding">输出编码</string>
     <!-- 括号内是这段读数的起算点：音频轨自身那一段另由「含音频轨」一行给出 -->
@@ -225,6 +227,8 @@
     <string name="audio_info_value_bit" tools:ignore="PluralsCandidate">%d 位</string>
     <string name="audio_info_value_kbps">%d kbps</string>
     <string name="audio_info_value_file_size">%1$s / %2$s</string>
+    <!-- 采样率 / 声道 / 位深，三段各自已本地化 -->
+    <string name="audio_info_value_decoded_output">%1$s / %2$s / %3$s</string>
     <string name="audio_info_value_ms">%.1f ms</string>
     <plurals name="audio_info_value_channels">
         <item quantity="other">%d 声道</item>

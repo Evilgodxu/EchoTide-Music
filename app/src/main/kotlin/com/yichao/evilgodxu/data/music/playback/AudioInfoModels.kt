@@ -1,5 +1,7 @@
 package com.yichao.evilgodxu.data.music.playback
 
+import android.media.AudioFormat
+
 // 输出设备类别：区分外接 USB 解码器、蓝牙音频、内置扬声器、有线耳机与其它通路
 enum class OutputDeviceKind { USB, BLUETOOTH, SPEAKER, WIRED, OTHER }
 
@@ -89,6 +91,36 @@ enum class OutputEncoding {
 }
 
 /**
+ * 平台 PCM 编码 → 展示用编码枚举。
+ *
+ * 只认线性 PCM：位完美流与直通输出给出的编码可能不属任何位深，归不了类即返回 null，
+ * 由调用方决定是跳过该行还是跳过该片段。
+ */
+internal fun outputEncodingOf(pcmEncoding: Int): OutputEncoding? = when (pcmEncoding) {
+    AudioFormat.ENCODING_PCM_8BIT -> OutputEncoding.PCM_8BIT
+    AudioFormat.ENCODING_PCM_16BIT -> OutputEncoding.PCM_16BIT
+    AudioFormat.ENCODING_PCM_24BIT_PACKED -> OutputEncoding.PCM_24BIT
+    AudioFormat.ENCODING_PCM_32BIT -> OutputEncoding.PCM_32BIT
+    AudioFormat.ENCODING_PCM_FLOAT -> OutputEncoding.PCM_FLOAT
+    else -> null
+}
+
+/**
+ * 解码头实际输出的格式。
+ *
+ * 与源格式是两回事：解码器会按需求改采样率与声道，编码更是要到解码头出格式才知道——容器格式对压缩源
+ * 只给采样率与声道，pcmEncoding 仍是 NO_VALUE。这一项也是直出能否挂上专用输出流的直接依据：
+ * 该流只接纳与解码输出逐字段一致的目标格式。
+ *
+ * [pcmEncoding] 为平台编码值，非 PCM 输出（直通）无位深可言。
+ */
+data class DecodedOutputFormat(
+    val sampleRate: Int,
+    val channelCount: Int,
+    val pcmEncoding: Int,
+)
+
+/**
  * 当前播放音频的信息快照。
  *
  * 每个可选项为 null 均表示该项在本次播放链路中不可获取（平台或设备未上报、尚未起播、权限不足），
@@ -113,6 +145,8 @@ data class AudioInfoSnapshot(
     val lossless: Boolean?,
     // 播放链路
     val outputMode: AudioOutputMode?,
+    /** 解码头实际输出的格式；未装载曲目、格式尚未上报或位深不明时均为 null */
+    val decodedOutput: DecodedOutputFormat?,
     val audioSessionId: Int?,
     val floatOutput: FloatOutputState?,
     val outputEncoding: OutputEncoding?,

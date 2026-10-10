@@ -24,6 +24,7 @@ import com.yichao.evilgodxu.App
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.playback.AudioSignalPathFormat
+import com.yichao.evilgodxu.data.music.playback.DecodedOutputFormat
 import com.yichao.evilgodxu.data.music.playback.DirectOutputDoNotDisturb
 import com.yichao.evilgodxu.data.music.playback.PerDeviceAudioSink
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
@@ -108,6 +109,9 @@ class MusicPlaybackService : MediaSessionService() {
             // 容器格式（轨道回调）对压缩源只给采样率与声道，pcmEncoding 仍是 NO_VALUE，
             // 用它挑出的条目与实际写出的编码未必一致，故改由音频输出在重配时上报
             onDecodedFormatChanged = { sampleRate, channelCount, pcmEncoding ->
+                // 同一处落地两份用途：直出据此挑条目，音频信息面板据此展示解码输出
+                stateHolder.state.audioSinkDecodedFormat =
+                    DecodedOutputFormat(sampleRate, channelCount, pcmEncoding)
                 // 直出在播放器之后装配，尚未装配时无从下发；格式未变时内部会跳过重复下发
                 if (::usbDirectOutput.isInitialized) {
                     usbDirectOutput.onTrackFormatChanged(sampleRate, channelCount, pcmEncoding)

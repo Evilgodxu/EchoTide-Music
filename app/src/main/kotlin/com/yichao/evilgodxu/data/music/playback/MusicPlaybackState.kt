@@ -712,6 +712,15 @@ class MusicPlaybackState(
 
     // 音频输出链路实际写出的 PCM 编码（AudioFormat 编码值）：null 表示输出尚未建立（未起播或已停止）
     var audioSinkOutputEncoding by mutableStateOf<Int?>(null)
+
+    /**
+     * 解码头实际输出的格式，null 表示尚未取得。
+     *
+     * 由音频输出在重配那一刻上报——容器格式对压缩源只给采样率与声道，编码要等解码头出格式才知道，
+     * 故这一项是全链路最早拿到的解码输出真值（直出据此挑选混音器属性，音频信息面板据此展示）。
+     */
+    var audioSinkDecodedFormat by mutableStateOf<DecodedOutputFormat?>(null)
+
     /**
      * 输出链路当前使用的音频轨，null 表示输出尚未建立。
      *

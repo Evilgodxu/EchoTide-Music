@@ -55,6 +55,7 @@ import com.yichao.evilgodxu.data.music.playback.AudioOutputMode
 import com.yichao.evilgodxu.data.music.playback.AudioTransportState
 import com.yichao.evilgodxu.data.music.playback.BluetoothChannelMode
 import com.yichao.evilgodxu.data.music.playback.BluetoothLinkType
+import com.yichao.evilgodxu.data.music.playback.DecodedOutputFormat
 import com.yichao.evilgodxu.data.music.playback.FloatOutputState
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.OutputDeviceInfo
@@ -62,6 +63,7 @@ import com.yichao.evilgodxu.data.music.playback.OutputDeviceKind
 import com.yichao.evilgodxu.data.music.playback.OutputEncoding
 import com.yichao.evilgodxu.data.music.playback.OutputLatencyReading
 import com.yichao.evilgodxu.data.music.playback.OutputLatencySampler
+import com.yichao.evilgodxu.data.music.playback.outputEncodingOf
 import com.yichao.evilgodxu.permission.PermissionMonitor
 import com.yichao.evilgodxu.permission.bluetoothConnectPermission
 import com.yichao.evilgodxu.utils.formatMebibytes
@@ -256,6 +258,7 @@ private fun audioInfoGroups(
             snapshot.audioSessionId?.let {
                 AudioInfoRow(stringResource(R.string.audio_info_session_id), it.toString())
             },
+            decodedOutputRow(snapshot.decodedOutput),
             snapshot.floatOutput?.let {
                 AudioInfoRow(
                     stringResource(R.string.audio_info_float_output),
@@ -468,6 +471,26 @@ private fun floatOutputLabel(state: FloatOutputState): String = stringResource(
     }
 )
 
+/**
+ * 解码输出行：采样率 / 声道 / 位深三合一。
+ *
+ * 取解码头在重配那一刻上报的格式，与源格式可能不同；位深归不到线性 PCM（直通输出）时该行无位深可言，
+ * 整行不产出。
+ */
+@Composable
+private fun decodedOutputRow(format: DecodedOutputFormat?): AudioInfoRow? {
+    val encoding = format?.let { outputEncodingOf(it.pcmEncoding) } ?: return null
+    return AudioInfoRow(
+        stringResource(R.string.audio_info_decoded_output),
+        stringResource(
+            R.string.audio_info_value_decoded_output,
+            stringResource(R.string.audio_info_value_hz, format.sampleRate),
+            channelLayoutLabel(format.channelCount),
+            outputEncodingLabel(encoding),
+        ),
+    )
+}
+
 // 输出编码：音频轨实际写出的 PCM 编码，位深与整型/浮点一并给出，与链路的浮点取向相互独立
 @Composable
 private fun outputEncodingLabel(encoding: OutputEncoding): String = stringResource(
@@ -548,6 +571,7 @@ private fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<
         playbackState.audioDecoderName,
         playbackState.audioSinkFloatOutput,
         playbackState.audioSinkOutputEncoding,
+        playbackState.audioSinkDecodedFormat,
         playbackState.directOutputMode,
         playerEventVersion,
         deviceEventVersion,
