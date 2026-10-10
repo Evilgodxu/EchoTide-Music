@@ -70,13 +70,12 @@ class UsbDirectOutput(
     private var callbackRegistered = false
     /** 已钉定的 USB 输出设备，null 表示当前未钉定路由 */
     private var targetDevice: AudioDeviceInfo? = null
-    /** 已尝试下发的混音器属性：重复下发会让框架重开输出流，故仅在取值变化时调用 */
-    private var appliedMixerAttributes: AudioMixerAttributes? = null
     /**
      * 已被系统受理的混音器属性，null 表示未建立专用输出流。
      *
-     * 与 [appliedMixerAttributes] 分开记录：后者含被拒的取值，仅用于抑制重复下发；本项才是输出成色的
-     * 依据——取值被拒时播放仍走系统混音，据此判定才不会以「已直出」之名走混音路径。
+     * 一处状态管两件事：既是输出成色的依据（取值被拒时播放仍走系统混音，据此判定才不会以「已直出」
+     * 之名走混音路径），也是抑制重复下发的判据（重复下发会让框架重开输出流，故已受理的取值在变化前
+     * 不再下发）。两者必须同一份——把「下发过」与「已受理」分开记，被拒的取值就会挡住下次重试。
      */
     private var acceptedMixerAttributes: AudioMixerAttributes? = null
     /** 已对外上报的输出成色，与 [onRoutingChanged] 的出参同处一处，避免内部状态与上报值脱节 */
@@ -215,19 +214,21 @@ class UsbDirectOutput(
             }
             return
         }
-        if (mixerAttributes != appliedMixerAttributes) {
-            val accepted = applyMixerAttributes(device, mixerAttributes)
-            updateRouting(device, mixerAttributes.takeIf { accepted })
-            if (!accepted) {
-                logDiagnostic(
-                    "解码格式变化，但重下发的混音器属性未被系统受理，播放仍走系统混音：" +
-                        describeMixer(mixerAttributes)
-                )
-            }
-        }
+        // 已钉定同一设备时，只有「本条已被系统受理」才不再下发：未受理、专用输出流已被撤销、换了格式，
+        // 三者都表现为与本条不等，据此判定才不会把「上次被拒」当成「正在直出」
+        if (mixerAttributes == acceptedMixerAttributes) return
+        val accepted = applyMixerAttributes(device, mixerAttributes)
+        updateRouting(device, mixerAttributes.takeIf { accepted })
     }
 
-    /** 下发首选混音器属性，返回系统是否受理；未受理时不会建立专用输出流，播放走默认混音 */
+    /**
+     * 下发首选混音器属性，返回系统是否受理；未受理时不会建立专用输出流，播放走默认混音。
+     *
+     * 本函数不改受理状态，由调用方按返回值经 [updateRouting] 落定：未受理的取值不进
+     * [acceptedMixerAttributes]。被拒可能只是当时的现场使然（设备正被别的输出占着、上一条属性留下的
+     * 专用流尚未释放），记成「已下发」会让同一条属性在之后的换曲里再不被重试，直出因此再也回不来；
+     * 重试的代价只是重复下发一次，重复的结论由 [logDiagnostic] 去重。
+     */
     private fun applyMixerAttributes(
         device: AudioDeviceInfo,
         mixerAttributes: AudioMixerAttributes,
@@ -238,14 +239,10 @@ class UsbDirectOutput(
             mixerAttributes,
         )
         if (!accepted) {
-            // 未受理即属性不合法或设备/配置不受支持，不会建立专用输出流，播放走默认混音；
-            // 属性本身已记录，避免每次换曲重试
-            CrashLogManager.logException(
-                LOG_TAG,
-                "USB 输出拒绝首选混音器属性: ${deviceLabel(device)}，${describeMixer(mixerAttributes)}",
+            logDiagnostic(
+                "USB 输出拒绝首选混音器属性：${deviceLabel(device)}，${describeMixer(mixerAttributes)}"
             )
         }
-        appliedMixerAttributes = mixerAttributes
         return accepted
     }
 
@@ -256,7 +253,6 @@ class UsbDirectOutput(
         // 属性归属 uid 不符时返回 PERMISSION_DENIED。两者都无需处理
         runCatching { audioManager.clearPreferredMixerAttributes(playbackAttributes, device) }
         pinPreferredDevice(null)
-        appliedMixerAttributes = null
         logDiagnostic("已解除 USB 直出（$reason）：${deviceLabel(device)}")
         updateRouting(null, null)
     }
@@ -446,8 +442,12 @@ internal fun selectDirectMixer(
  * 本机在给定解码格式下能写出的打包整型编码。
  *
  * 打包整型只能由自研输出实现写出，且平台是否受理该位深随机型与音频策略而变，没有能力查询接口，
- * 故逐个实测建轨（结论由 [IntPcmOutputSupport] 缓存）。只探测 [supported] 里被设备声明过的编码：
- * 未声明的编码不会成为候选，探测它只会让诊断日志多一条与本次播放无关的「建不起来」。
+ * 故逐个实测建轨（成功结论由 [IntPcmOutputSupport] 长期缓存）。
+ *
+ * 只探测设备在**该采样率与声道数上确实声明过**的编码：探测不是查询，它真的会建起一条该档位的轨道，
+ * 而候选要求采样率、声道、编码三者逐字段相符——设备没声明这个档位时，探测结果永远进不了候选，
+ * 白白建轨只会把设备拖进它并不支持的档位。USB 音频尤其经不起这一下：在设备不支持的采样率上建轨，
+ * 会让它之后连受支持档位的直出都建不起来（曲目源采样率不支时直出退不回来的成因）。
  *
  * 直出侧与音频输出都经本函数取值，两处由此自动取同一口径——一旦一处的可写集合更宽，
  * 挑出的条目就会与另一处写出的编码不符，而 AudioFlinger 不报错只是静默混音输出。
@@ -458,7 +458,9 @@ internal fun packedIntWritableEncodings(
     channelCount: Int,
 ): Set<Int> {
     if (sampleRate <= 0 || channelCount <= 0) return emptySet()
-    val declared = supported.mapTo(mutableSetOf()) { it.format.encoding }
+    val declared = supported
+        .filter { it.format.sampleRate == sampleRate && it.format.channelCount == channelCount }
+        .mapTo(mutableSetOf()) { it.format.encoding }
     return PACKED_INT_ENCODINGS.filterTo(mutableSetOf()) { encoding ->
         encoding in declared &&
             IntPcmOutputSupport.isSupported(sampleRate, channelCount, encoding)

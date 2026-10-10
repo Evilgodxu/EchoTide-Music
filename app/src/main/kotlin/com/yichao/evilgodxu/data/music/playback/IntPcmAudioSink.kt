@@ -737,13 +737,25 @@ internal fun packIntPcm(
  * 判据——它只按编码名换算字节数，不校验该编码能否真正建起轨道；故此处实际建一次轨道再释放，以建轨
  * 结果为准。探测轨道不播放、建后即释放，不影响播放，也不改变路由。
  *
- * 结论按「采样率 + 声道数 + 编码」缓存：判定发生在每次配置音频输出之前，不缓存会把建轨前的这一步拖成
- * 可感的停顿。调用方都在同一条播放线程上，加锁是为免于依赖这一前提。
+ * 成功的结论按「采样率 + 声道数 + 编码」长期缓存：判定发生在每次配置音频输出之前，每次都建轨会把
+ * 这一步拖成可感的停顿。调用方都在同一条播放线程上，加锁是为免于依赖这一前提。
  */
 internal object IntPcmOutputSupport {
 
-    private val cache = mutableMapOf<Int, Boolean>()
+    /** 已确认能建起轨道的档位：成功即长期成立，可长期复用 */
+    private val writable = mutableSetOf<Int>()
 
+    /** 已留痕过的失败档位：失败按需重试，但同一条结论只写一次日志 */
+    private val reportedFailures = mutableSetOf<Int>()
+
+    /**
+     * 该档位能否建起轨道。
+     *
+     * 只长期记成功的结论，失败每次重问一次：失败可能只是当时的现场使然——设备正被别的输出占着、
+     * 上一次试探留下的输出尚未释放——一次失败若被长期记住，直出就再也回不来（曲目源采样率不受支持后、
+     * 受支持采样率也拿不回直出的成因）。而建不起来时不会留下任何东西，重问没有副作用，代价只是重试时
+     * 多建一次轨。
+     */
     @OptIn(UnstableApi::class)
     @Synchronized
     fun isSupported(sampleRate: Int, channelCount: Int, encoding: Int): Boolean {
@@ -751,9 +763,12 @@ internal object IntPcmOutputSupport {
         val channelMask = Util.getAudioTrackChannelConfig(channelCount)
         if (channelMask == AudioFormat.CHANNEL_INVALID) return false
         val key = (sampleRate * CHANNEL_KEY_SCALE + channelCount) * ENCODING_KEY_SCALE + encoding
-        cache[key]?.let { return it }
-        val supported = canCreateTrack(sampleRate, channelMask, channelCount, encoding)
-        if (!supported) {
+        if (key in writable) return true
+        if (canCreateTrack(sampleRate, channelMask, channelCount, encoding)) {
+            writable += key
+            return true
+        }
+        if (reportedFailures.add(key)) {
             // 建不起来即该编码在本机不可用：直出退回系统混音，此处留下依据，不必再靠试听排查
             CrashLogManager.logInfo(
                 LOG_TAG,
@@ -761,8 +776,7 @@ internal object IntPcmOutputSupport {
                     "${sampleRate}Hz/${channelCount}ch",
             )
         }
-        cache[key] = supported
-        return supported
+        return false
     }
 
     @OptIn(UnstableApi::class)
