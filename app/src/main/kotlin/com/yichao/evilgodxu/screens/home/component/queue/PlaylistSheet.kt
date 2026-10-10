@@ -59,6 +59,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -115,6 +116,10 @@ internal fun PlaylistSheet(
     // 竖屏播放列表高度减半，横屏全高显示
     val isPortrait = !rememberWindowLandscape()
     val sheetHeightFraction = if (isPortrait) 0.5f else 1f
+    // 排序菜单高度上限：面板高度（窗口高度 × 展开比例）的 80%，超出部分在菜单内滚动，
+    // 使朝下展开的菜单不会盖过整块面板
+    val sortMenuMaxHeight =
+        LocalWindowInfo.current.containerDpSize.height * sheetHeightFraction * 0.8f
     // 歌单副标题点击后的快捷切换弹层
     var showSwitcher by remember { mutableStateOf(false) }
     // 面板展示的曲目：跟随播放队列时取播放队列，浏览态按来源歌单从全量库解析。
@@ -288,6 +293,7 @@ internal fun PlaylistSheet(
                             expandDirection = ExpandDirection.Down,
                             // 排序按钮靠面板右缘，菜单右对齐避免溢出屏幕
                             horizontalAlignment = Alignment.End,
+                            maxMenuHeight = sortMenuMaxHeight,
                             header = {
                                 // 方向切换：点击即时生效且不收起，便于连续调整字段与方向
                                 Row(

@@ -12,9 +12,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -31,6 +34,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -55,6 +59,9 @@ enum class ExpandDirection { Up, Down, Right }
  *
  * [horizontalAlignment] 在 [ExpandDirection.Up] / [ExpandDirection.Down] 下控制菜单相对触发区域
  * 的水平落位；[verticalAlignment] 在 [ExpandDirection.Right] 下控制垂直落位。
+ *
+ * [maxMenuHeight] 限制菜单容器的高度上限（null 表示不限制）：锚定在高度有限的面板内时，
+ * 传入按面板高度换算出的上限可避免菜单盖过整块面板；超出上限的选项改为在菜单内滚动查看。
  */
 @Composable
 fun <T> ExpandPicker(
@@ -65,6 +72,7 @@ fun <T> ExpandPicker(
     expandDirection: ExpandDirection = ExpandDirection.Up,
     horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
     verticalAlignment: Alignment.Vertical = Alignment.CenterVertically,
+    maxMenuHeight: Dp? = null,
     // 菜单容器默认用抬升色阶：对话框与面板容器均为 surface，若菜单同色会与之融为一片难以分辨；
     // surfaceContainerHigh 在浅色下比 surface 更灰、深色下比 surface 更亮，两个主题都能拉开层次
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -115,6 +123,7 @@ fun <T> ExpandPicker(
                     options = options,
                     selected = selected,
                     header = header,
+                    maxMenuHeight = maxMenuHeight,
                     containerColor = containerColor,
                     containerShape = containerShape,
                     itemShape = itemShape,
@@ -148,6 +157,7 @@ private fun <T> ExpandMenuContent(
     options: List<T>,
     selected: T?,
     header: (@Composable () -> Unit)?,
+    maxMenuHeight: Dp?,
     containerColor: Color,
     containerShape: Shape,
     itemShape: Shape,
@@ -168,6 +178,12 @@ private fun <T> ExpandMenuContent(
     // header 占第一个呈现位，其后选项顺延
     val headerCount = if (header != null) 1 else 0
     val itemCount = options.size + headerCount
+    // 菜单仅在展开期间挂载，滚动位置随重开复位。
+    // 起始位置取锚点一侧：Down / Right 的锚点在上，从顶部看起；Up 的锚点在下，
+    // 初始值取最大整数由滚动状态在测量后夹到末尾，与「靠锚点一侧先露出」保持一致
+    val scrollState = rememberScrollState(
+        initial = if (direction == ExpandDirection.Up) Int.MAX_VALUE else 0,
+    )
 
     Surface(
         modifier = Modifier
@@ -202,9 +218,13 @@ private fun <T> ExpandMenuContent(
     ) {
         Column(
             modifier = Modifier
+                // 高度上限放在最外层，使上限涵盖容器内边距；受限时接入滚动，超出部分滚动查看。
+                // 未限制高度的菜单保持原样：接入滚动会让容器高度被窗口裁剪，与原先随内容自适应不同
+                .then(if (maxMenuHeight != null) Modifier.heightIn(max = maxMenuHeight) else Modifier)
                 .padding(MENU_PADDING)
                 // 以最宽选项为公共宽度：各选项等宽，避免随文字长度错落
-                .width(IntrinsicSize.Max),
+                .width(IntrinsicSize.Max)
+                .then(if (maxMenuHeight != null) Modifier.verticalScroll(scrollState) else Modifier),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             if (header != null) {
