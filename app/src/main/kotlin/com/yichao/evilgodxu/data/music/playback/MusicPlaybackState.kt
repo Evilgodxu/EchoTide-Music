@@ -1940,18 +1940,15 @@ class MusicPlaybackState(
      * 播放路径只查表：扫描在这里一次做完，切模式与切歌都不再解析，既不卡顿也不重复计算。
      * 只处理未扫过或歌词已变的曲目，重复调用无代价。启动恢复完成、曲库变化、启用心动模式三处触发。
      *
-     * 是否精修取决于当前模式：处于心动模式时允许解码音频补足歌词判不了的曲子，其余时候只做
-     * 不碰音频的粗扫 —— 于是从不使用该模式的用户永远不付解码代价。
+     * 定位为纯歌词分析（不解码音频），故扫描与当前模式无关：无论是否处于心动模式都只读歌词。
      */
     fun ensureHighlightScan(context: Context) {
         if (highlightScanJob?.isActive == true) return
         val tracks = libraryTracks
         if (tracks.isEmpty()) return
-        // 启动时若恢复出的模式就是心动模式，则直接以精修口径扫描，省掉一次重扫
-        val audioRefinement = playMode == PlayMode.Highlight
         highlightScanJob = playbackScope.launch {
             try {
-                val updated = HighlightScanner.scan(context, tracks, audioRefinement)
+                val updated = HighlightScanner.scan(context, tracks)
                 // 表变了就把新片段补进已装载的队列：队列可能先于扫描装载，那一版还是整曲项
                 if (updated && playMode == PlayMode.Highlight) {
                     applyNewClipsToLoadedQueue(this@MusicPlaybackState)

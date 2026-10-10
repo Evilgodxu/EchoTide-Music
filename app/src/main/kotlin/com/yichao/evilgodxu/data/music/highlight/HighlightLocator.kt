@@ -2,8 +2,6 @@ package com.yichao.evilgodxu.data.music.highlight
 
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.recommend.LyricFeatures
-import kotlin.math.abs
-import kotlin.math.sqrt
 
 /**
  * 副歌（高潮）片段：播放裁剪所用的绝对时间区间，半开区间 [startMs, endMs)。
@@ -16,15 +14,18 @@ data class Highlight(val startMs: Long, val endMs: Long) {
 }
 
 /**
- * 副歌定位：从带时间轴的歌词里找出「反复出现的连续行块」，作为高潮候选。
+ * 副歌定位：**纯歌词分析**，不依赖音频、不解码，只用歌词文本与时间戳定出高潮片段。
  *
- * 判据的取舍：副歌在歌词上表现为「同一批行反复出现」，这是与歌词重复结构同源的结构判据，
- * 也是 RefraiD、pychorus 一类副歌检测的共同前提（副歌是整曲重复次数最多的段落）。
- * 逐曲解码全曲做能量峰值检测在扫描路径上代价偏大，故歌词侧的重复结构作为**第一判据**在此独立成立，
- * 音频能量只作补充（见 [HighlightSelector]）—— 于是有清晰重复副歌的曲子不必解码音频即可判定。
+ * 四步：
  *
- * 与旧版只返回单一区间不同，这里返回**候选列表并附可信度**：一个重复块可能是主歌而非副歌，
- * 与其武断地取最高分，不如把并列的候选交给上层，由音频能量在必要时择一。
+ * 1. **重复结构**筛出副歌候选 —— 副歌是整曲重复次数最多的段落，在歌词上表现为同一批行反复出现。
+ *    只出现一次的行块不成候选。
+ * 2. **位置、时长、密度、停顿、结尾权重**给候选打分 —— 首现越晚、时长越贴合 30–45 秒、行越密、
+ *    行间停顿越短、越靠近曲末的块越像副歌。
+ * 3. **取最后一遍完整副歌** —— 每个候选只收其最后一次出现：末遍副歌通常是全曲落点所在，
+ *    且收尾落在歌词行边界上，末句能完整唱完；末遍短到收不出片段时退回上一遍。
+ * 4. **不取歌词行数少的片段** —— 候选按片段内行数降序排列，行数相同再比得分，于是「高潮一定是
+ *    30–45 秒内歌词行数最多的那一段」这一判据直接落在排序首位上，稀疏段落自然落选。
  *
  * 定位是**纯函数**：同一份歌词与时长必得同一结果。仅在后台扫描时调用（见 [HighlightScanner]），
  * 结果由 [HighlightStore] 落盘；播放路径只查表，从不调用本函数。
@@ -46,25 +47,44 @@ internal object HighlightLocator {
     // 带时间轴歌词的最少行数：不足时视为「歌词不足以定位」，不强行给出候选
     private const val MIN_TIMED_LINES = 6
 
-    // 候选列表上限：并列的重复块最多保留这么多个交给音频择优
+    // 候选列表上限：并列的重复块最多保留这么多个
     private const val MAX_CANDIDATES = 4
 
     // 候选之间重叠超过此比例即视为同一段落的重复列举，只留高分者
     private const val OVERLAP_REJECT_RATIO = 0.5
 
-    // 音频兜底片段吸附到歌词行的容差：超出即认为该处没有对应的歌词行，保持原时间
-    private const val ALIGN_TOLERANCE_MS = 4_000L
+    // 打分权重（五项之和为 1）
+    private const val POSITION_WEIGHT = 0.15
+    private const val DURATION_WEIGHT = 0.20
+    private const val DENSITY_WEIGHT = 0.30
+    private const val PAUSE_WEIGHT = 0.15
+    private const val ENDING_WEIGHT = 0.20
+
+    // 密度参考：每秒 0.6 行记满分，0.15 行/秒及以下记 0（流行歌副歌大致落在每 2–5 秒一行）
+    private const val DENSITY_FULL_PER_SEC = 0.6
+    private const val DENSITY_ZERO_PER_SEC = 0.15
+
+    // 停顿参考：行间最大间隔 2 秒及以内记满分，10 秒及以上记 0
+    private const val PAUSE_FULL_MS = 2_000.0
+    private const val PAUSE_ZERO_MS = 10_000.0
+
+    // 排序：先按片段内行数降序（「歌词段落最多」），行数相同再按得分降序，仍相同取更靠后者
+    private val CANDIDATE_ORDER: Comparator<Candidate> =
+        compareByDescending<Candidate> { it.lineCount }
+            .thenByDescending { it.score }
+            .thenByDescending { it.startMs }
 
     /**
-     * 副歌候选：一个重复行块收成的片段，附重复次数与可信度得分。
+     * 副歌候选：一段重复出现的行块收成的片段，附重复次数、片段内歌词行数与可信度得分。
      *
-     * [repeats] 单独留出是因为它承担「证据强度」的语义：重复三次以上的块几乎必然是副歌，
-     * 只重复两次的块要与其它段落竞争（见 [HighlightScanner] 是否再走音频）。
+     * [repeats] 与 [lineCount] 分开保留：[repeats] 是「这是不是副歌」的重复证据，
+     * [lineCount] 是「这段够不够密」的排他判据（见 [CANDIDATE_ORDER]）。
      */
     data class Candidate(
         val startMs: Long,
         val endMs: Long,
         val repeats: Int,
+        val lineCount: Int,
         val score: Double,
     ) {
         val durationMs: Long get() = endMs - startMs
@@ -81,10 +101,10 @@ internal object HighlightLocator {
     fun hasUsableTimeline(lines: List<LyricLine>): Boolean = timedLyricLines(lines).size >= MIN_WINDOW_LINES
 
     /**
-     * 找出全部副歌候选，按可信度降序。
+     * 找出全部副歌候选，按 [CANDIDATE_ORDER] 降序 —— 首位即「30–45 秒内歌词行数最多」的片段。
      *
      * @param lines 曲目歌词（含时间轴）。时间轴无效时返回空列表
-     * @param durationMs 曲目总时长，用于片段边界约束
+     * @param durationMs 曲目总时长，用于片段边界约束与结尾权重
      */
     fun candidates(lines: List<LyricLine>, durationMs: Long): List<Candidate> {
         // 整曲不足片段下限的一半：无论取哪一段都短到没有意义，直接判无候选
@@ -98,7 +118,7 @@ internal object HighlightLocator {
 
         val raw = ArrayList<Candidate>()
         for (width in MIN_WINDOW_LINES..maxWidth) {
-            // 键 = 窗口内各行的拼接；同键的起始下标即该行块的各次出现
+            // 键 = 窗口内各行拼接；同键的起始下标即该行块的各次出现
             val occurrences = HashMap<String, MutableList<Int>>()
             for (start in 0..texts.size - width) {
                 occurrences.getOrPut(buildKey(texts, start, width)) { mutableListOf() } += start
@@ -110,37 +130,22 @@ internal object HighlightLocator {
         }
         if (raw.isEmpty()) return emptyList()
 
-        // 宽窗口会把窄窗口的子块一并覆盖，同一段落因而被列举多次：按得分降序保留，重叠过多的丢弃
+        // 宽窗口会把窄窗口的子块一并覆盖，同一段落因而被列举多次：按密度降序保留，重叠过多的丢弃
         val kept = ArrayList<Candidate>()
-        raw.sortedByDescending { it.score }.forEach { candidate ->
+        raw.sortedWith(CANDIDATE_ORDER).forEach { candidate ->
             if (kept.none { overlapRatio(it, candidate) >= OVERLAP_REJECT_RATIO }) kept += candidate
         }
         return kept.take(MAX_CANDIDATES)
     }
 
     /**
-     * 以 [anchorMs] 附近的一条歌词行为起点收出一个片段，供音频兜底片段吸附到歌词边界。
+     * 把某个重复行块收成片段，**只取其最后一次能成段的出现** —— 这就是「最后一遍完整副歌」。
      *
-     * 音频给的是能量意义上的高潮区间，起点未必落在歌词行上；于是找最近的行再按同一套规则收段，
-     * 收尾因而同样落在歌词行边界上。附近没有可对齐的行（或歌词不足以定位）时返回 null，
-     * 调用方据此保留音频原始区间。
-     */
-    fun segmentAt(lines: List<LyricLine>, anchorMs: Long, durationMs: Long): Highlight? {
-        val timed = timedLyricLines(lines)
-        if (timed.size < MIN_WINDOW_LINES) return null
-        val index = timed.indices.minByOrNull { abs(timed[it].timeMs - anchorMs) } ?: return null
-        if (abs(timed[index].timeMs - anchorMs) > ALIGN_TOLERANCE_MS) return null
-        return buildSegment(timed, index, durationMs)
-    }
-
-    /**
-     * 把某个重复行块收成片段，**收尾一律落在歌词行的边界上**。
+     * 起点取该次出现的首行（副歌从第一句听起）；结束行先取块末行，块本身越过上限时向回缩，
+     * 再逐行向后补到时长下限，上限用「再补一行就会超出」判定 —— 收尾因而总停在某一行唱完之后，
+     * 而不是被上限硬切在半句上。
      *
-     * 起点取块首行（副歌从第一句听起）；结束行先取块末行，块本身越过上限时向回缩到能容纳的行，
-     * 再逐行向后补到时长下限，上限用「再补一行就会超出」判定 —— 于是收尾总停在某一行唱完之后，
-     * 而不是被上限硬切在半句上，这就是「把歌词行播完再切下一曲」。
-     *
-     * 块本身连同补足都无法凑到下限一半时返回 null（连一个像样的片段都收不出）。
+     * 末遍短到收不出片段（如曲末只剩半段副歌）时退回上一遍；都收不出则返回 null。
      */
     private fun buildCandidate(
         timed: List<LyricLine>,
@@ -148,11 +153,48 @@ internal object HighlightLocator {
         width: Int,
         durationMs: Long,
     ): Candidate? {
-        val firstStart = starts.first()
-        val startMs = timed[firstStart].timeMs
-        var lastLine = firstStart + width - 1
-        // 块自身越过上限：向回收缩，保证整个块落在 45 秒以内
-        while (lastLine > firstStart &&
+        for (index in starts.indices.reversed()) {
+            val startIndex = starts[index]
+            val endIndex = endLineIndex(timed, startIndex, width, durationMs) ?: continue
+            val startMs = timed[startIndex].timeMs
+            val endMs = lineEndMs(timed, endIndex, durationMs)
+                .coerceAtMost(durationMs)
+                .coerceAtMost(startMs + MAX_SEGMENT_MS)
+            if (endMs - startMs < MIN_SEGMENT_MS / 2) continue
+            return Candidate(
+                startMs = startMs,
+                endMs = endMs,
+                repeats = starts.size,
+                lineCount = endIndex - startIndex + 1,
+                score = scoreOf(
+                    timed = timed,
+                    startIndex = startIndex,
+                    endIndex = endIndex,
+                    firstOccurrenceStart = starts.first(),
+                    totalLines = timed.size,
+                    durationMs = durationMs,
+                    startMs = startMs,
+                    endMs = endMs,
+                ),
+            )
+        }
+        return null
+    }
+
+    /**
+     * 从 [startIndex] 起收尾：先纳入 width 行的整块，块越过上限时向回缩到能容纳的行，
+     * 再逐行向后补到时长下限，上限用「再补一行就会超出」判定。块超出歌词末尾时返回 null。
+     */
+    private fun endLineIndex(
+        timed: List<LyricLine>,
+        startIndex: Int,
+        width: Int,
+        durationMs: Long,
+    ): Int? {
+        var lastLine = startIndex + width - 1
+        if (lastLine >= timed.size) return null
+        val startMs = timed[startIndex].timeMs
+        while (lastLine > startIndex &&
             lineEndMs(timed, lastLine, durationMs) - startMs > MAX_SEGMENT_MS
         ) {
             lastLine--
@@ -160,75 +202,71 @@ internal object HighlightLocator {
         while (lineEndMs(timed, lastLine, durationMs) - startMs < MIN_SEGMENT_MS &&
             lastLine + 1 < timed.size
         ) {
-            val nextEnd = lineEndMs(timed, lastLine + 1, durationMs)
-            if (nextEnd - startMs > MAX_SEGMENT_MS) break
+            if (lineEndMs(timed, lastLine + 1, durationMs) - startMs > MAX_SEGMENT_MS) break
             lastLine++
         }
-        // 兜底钳制：单行歌词长过上限时仍要满足 30–45 秒（此时收尾不落在行边界，属极端情况）
-        val endMs = lineEndMs(timed, lastLine, durationMs)
-            .coerceAtMost(durationMs)
-            .coerceAtMost(startMs + MAX_SEGMENT_MS)
-        if (endMs - startMs < MIN_SEGMENT_MS / 2) return null
-        return Candidate(
-            startMs = startMs,
-            endMs = endMs,
-            repeats = starts.size,
-            score = scoreOf(starts, width, firstStart, timed.size, startMs, endMs),
-        )
-    }
-
-    // 从某个起始行按同一套规则收段，供音频兜底对齐使用
-    private fun buildSegment(timed: List<LyricLine>, startIndex: Int, durationMs: Long): Highlight? {
-        val startMs = timed[startIndex].timeMs
-        var lastLine = startIndex
-        while (lineEndMs(timed, lastLine, durationMs) - startMs < MIN_SEGMENT_MS &&
-            lastLine + 1 < timed.size
-        ) {
-            val nextEnd = lineEndMs(timed, lastLine + 1, durationMs)
-            if (nextEnd - startMs > MAX_SEGMENT_MS) break
-            lastLine++
-        }
-        val endMs = lineEndMs(timed, lastLine, durationMs)
-            .coerceAtMost(durationMs)
-            .coerceAtMost(startMs + MAX_SEGMENT_MS)
-        if (endMs - startMs < MIN_SEGMENT_MS / 2) return null
-        return Highlight(startMs, endMs)
+        return lastLine
     }
 
     /**
-     * 候选得分：重复次数 × 块宽，再按三个修正因子缩放。
+     * 候选得分：位置、时长、密度、停顿、结尾权重五项归一后加权求和，落在 0..1。
      *
-     * - **间隔规律**：多次出现等距分布比零星重合更像副歌的循环结构；
-     * - **出现位置**：首次出现越靠后越可能是副歌（先听到主歌是流行歌的常态）；
-     * - **时长适配**：能直接收进 30–45 秒的块优先，需要大幅补足或压缩的降权。
+     * - **位置**：块首现得越晚越像副歌（先听到主歌是流行歌的常态）；
+     * - **时长**：越贴合 30–45 秒越好，凑不进下限的降权；
+     * - **密度**：片段内每秒唱出的行数越多越好（「高潮是歌词段落最多的一段」）；
+     * - **停顿**：行间最大间隔越短越好（长间隔多是纯器乐段，不宜当副歌）；
+     * - **结尾**：片段收在越靠近曲末处越好（末遍副歌是整曲落点）。
      */
     private fun scoreOf(
-        starts: List<Int>,
-        width: Int,
-        firstStart: Int,
+        timed: List<LyricLine>,
+        startIndex: Int,
+        endIndex: Int,
+        firstOccurrenceStart: Int,
         totalLines: Int,
+        durationMs: Long,
         startMs: Long,
         endMs: Long,
     ): Double {
         val duration = endMs - startMs
-        val fit = when {
+        val position = if (totalLines <= 0) 0.0 else firstOccurrenceStart.toDouble() / totalLines
+        val durationFit = when {
             duration in MIN_SEGMENT_MS..MAX_SEGMENT_MS -> 1.0
             duration >= MIN_SEGMENT_MS / 2 -> 0.6
             else -> 0.2
         }
-        val regularity = spacingRegularity(starts)
-        val lateness = if (totalLines <= 0) 0.0 else firstStart.toDouble() / totalLines
-        return starts.size * width * (0.7 + 0.3 * regularity) * (0.85 + 0.3 * lateness) * fit
+        val seconds = (duration / 1000.0).coerceAtLeast(1.0)
+        val density = normalize(
+            (endIndex - startIndex + 1) / seconds,
+            DENSITY_ZERO_PER_SEC,
+            DENSITY_FULL_PER_SEC,
+        )
+        val pause = 1.0 - normalize(
+            maxGapMs(timed, startIndex, endIndex).toDouble(),
+            PAUSE_FULL_MS,
+            PAUSE_ZERO_MS,
+        )
+        val ending = if (durationMs <= 0L) 0.0 else (endMs.toDouble() / durationMs).coerceIn(0.0, 1.0)
+        return position * POSITION_WEIGHT +
+            durationFit * DURATION_WEIGHT +
+            density * DENSITY_WEIGHT +
+            pause * PAUSE_WEIGHT +
+            ending * ENDING_WEIGHT
     }
 
-    // 出现间隔的规律度：间隔越均匀越接近 1；只有两次出现时无从判断，取中间值
-    private fun spacingRegularity(starts: List<Int>): Double {
-        if (starts.size < 3) return 0.5
-        val gaps = starts.zipWithNext { a, b -> (b - a).toDouble() }
-        val mean = gaps.average()
-        if (mean <= 0.0) return 0.0
-        val variance = gaps.sumOf { (it - mean) * (it - mean) } / gaps.size
-        return (1.0 - sqrt(variance) / mean).coerceIn(0.0, 1.0)
+    // 片段内相邻歌词行的最大间隔
+    private fun maxGapMs(timed: List<LyricLine>, from: Int, to: Int): Long {
+        var maxGap = 0L
+        for (i in from until to) {
+            val gap = timed[i + 1].timeMs - timed[i].timeMs
+            if (gap > maxGap) maxGap = gap
+        }
+        return maxGap
+    }
+
+    // 把值从 [zero, full] 线性映射到 0..1
+    private fun normalize(value: Double, zero: Double, full: Double): Double {
+        if (full <= zero) return 0.0
+        return ((value - zero) / (full - zero)).coerceIn(0.0, 1.0)
     }
 
     // 两候选的重叠占较短者的比例，用于把同一段落的重复列举收敛成一个

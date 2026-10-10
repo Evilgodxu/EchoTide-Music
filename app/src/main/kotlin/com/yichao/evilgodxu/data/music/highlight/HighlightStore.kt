@@ -14,8 +14,8 @@ import org.json.JSONObject
 /**
  * 单曲的片段判定结果。
  *
- * 「无法定位」与「确认没有副歌」必须是两个不同的结论：前者只是数据不足（没有歌词、歌词无时间轴、
- * 音频暂不可读），据此跳过会让整库在数据就绪前被跳过；后者才是真的没有高潮段，只有它可以跳过该曲。
+ * 「无法定位」与「确认没有副歌」必须是两个不同的结论：前者只是数据不足（没有歌词、歌词无时间轴），
+ * 据此跳过会让整库在数据就绪前被跳过；后者才是真的没有高潮段，只有它可以跳过该曲。
  */
 internal sealed interface HighlightEntry {
 
@@ -25,7 +25,7 @@ internal sealed interface HighlightEntry {
     /** 无法定位：数据不足，调用方据此按整曲播放，**不得跳过** */
     data object Unresolved : HighlightEntry
 
-    /** 有可用歌词与音频且确认没有高潮段：调用方据此跳过该曲 */
+    /** 有可用歌词时间轴且确认没有高潮段：调用方据此跳过该曲 */
     data object NoChorus : HighlightEntry
 }
 
@@ -40,8 +40,7 @@ internal sealed interface HighlightEntry {
  * 表按「歌词指纹 + 算法版本」判定新鲜度：任一变化即重算。指纹并入算法版本是有意的 ——
  * 定位算法升级后，旧结果必须整体作废重算，而这一步靠版本号触发，不靠人去清缓存。
  *
- * 条目另记「是否已精修」（[Stored.refined]）：粗扫只用歌词、不碰音频，廉价；精修才按需解码音频
- * 补足歌词判不了的曲子。于是「从不心动模式的用户」永远只付粗扫的代价，进入模式后才做精修。
+ * 定位为纯歌词分析（不解码音频），故扫描没有「粗扫 / 精修」两档之分，条目也不再记录精修状态。
  */
 internal object HighlightStore {
 
@@ -50,8 +49,9 @@ internal object HighlightStore {
     private const val CURRENT_VERSION = 1
 
     // 定位算法版本：参与指纹，算法改动后旧结果自动作废重算
-    // v3：片段首尾增加了向响度谷的吸附，旧结果的端点不再有效
-    private const val ALGORITHM_VERSION = "v3"
+    // v4：改为纯歌词分析（重复段落 + 位置/时长/密度/停顿/结尾权重，取最后一遍完整副歌），
+    //     解码音频的精修与响度谷吸附一并移除，旧结果的端点不再有效
+    private const val ALGORITHM_VERSION = "v4"
 
     // 条目类型落盘标识
     private const val KIND_SEGMENT = "segment"
@@ -62,8 +62,6 @@ internal object HighlightStore {
 
     private class Stored(
         val fingerprint: String,
-        /** 是否已在「可解码音频」的前提下判定过，见 [isUpToDate] */
-        val refined: Boolean,
         val entry: HighlightEntry,
     )
 
@@ -93,15 +91,11 @@ internal object HighlightStore {
     }
 
     /**
-     * 该曲是否已按当前口径扫描过。
-     *
-     * 粗扫（[audioRefinement] 为 false）只认「指纹未变」；精修扫描额外要求该条已精修过，
-     * 于是粗扫留下的未精修条目会在进入心动模式后被重算，而已精修条目不会被反复重算。
+     * 该曲是否已按当前口径扫描过：指纹未变即为最新。
      */
-    fun isUpToDate(track: MusicTrack, audioRefinement: Boolean): Boolean {
+    fun isUpToDate(track: MusicTrack): Boolean {
         val stored = table[track.id] ?: return false
-        if (stored.fingerprint != fingerprintOf(track)) return false
-        return stored.refined || !audioRefinement
+        return stored.fingerprint == fingerprintOf(track)
     }
 
     /** 该曲应播放的片段；未扫描、无法定位或判定无副歌时返回 null（调用方据此整曲播放） */
@@ -132,17 +126,16 @@ internal object HighlightStore {
         writeMutex.withLock {
             val merged = table.toMutableMap()
             updates.forEach { (trackId, result) ->
-                merged[trackId] = Stored(result.fingerprint, result.refined, result.entry)
+                merged[trackId] = Stored(result.fingerprint, result.entry)
             }
             table = merged
             write(context, merged)
         }
     }
 
-    /** 单曲扫描结果：指纹、是否已精修、判定条目三者一并落盘 */
+    /** 单曲扫描结果：指纹与判定条目一并落盘 */
     class ScanResult(
         val fingerprint: String,
-        val refined: Boolean,
         val entry: HighlightEntry,
     )
 
@@ -160,7 +153,7 @@ internal object HighlightStore {
                     val id = item.optLong("id")
                     val fingerprint = item.optString("fp")
                     val entry = entryFrom(item) ?: continue
-                    put(id, Stored(fingerprint, item.optBoolean("refined", false), entry))
+                    put(id, Stored(fingerprint, entry))
                 }
             }
         } catch (e: Exception) {
@@ -192,7 +185,6 @@ internal object HighlightStore {
     private fun itemTo(trackId: Long, stored: Stored): JSONObject = JSONObject().apply {
         put("id", trackId)
         put("fp", stored.fingerprint)
-        put("refined", stored.refined)
         when (val entry = stored.entry) {
             is HighlightEntry.Segment -> {
                 put("kind", KIND_SEGMENT)

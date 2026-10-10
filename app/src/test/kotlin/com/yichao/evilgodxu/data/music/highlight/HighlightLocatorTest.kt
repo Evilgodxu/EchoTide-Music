@@ -9,10 +9,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 副歌候选定位复核。
+ * 副歌候选定位复核（纯歌词）。
  *
  * 定位是纯函数，冷启动还原片段内进度依赖它的确定性，故除结果正确外还须验证「同输入同输出」，
- * 以及全部候选都落在 30–45 秒 —— 这是心动模式对片段时长的硬约束。
+ * 以及候选落在 30–45 秒、取最后一遍完整副歌、收尾落在歌词行边界三条主干。
  */
 class HighlightLocatorTest {
 
@@ -22,37 +22,24 @@ class HighlightLocatorTest {
     private fun List<HighlightLocator.Candidate>.top(): HighlightLocator.Candidate? = firstOrNull()
 
     @Test
-    fun candidatesFindRepeatedChorusBlock() {
+    fun candidatesTakeLastCompleteChorus() {
+        // 同一副歌出现三遍，末遍之后还有一小段尾声：应取末遍，而非首遍
         val lines = timed(
-            5_000L to "主歌第一行",
-            9_000L to "主歌第二行",
-            13_000L to "主歌第三行",
-            17_000L to "主歌第四行",
-            22_000L to "副歌甲",
-            26_000L to "副歌乙",
-            30_000L to "副歌丙",
-            34_000L to "副歌丁",
-            39_000L to "桥段第一行",
-            43_000L to "桥段第二行",
-            48_000L to "副歌甲",
-            52_000L to "副歌乙",
-            56_000L to "副歌丙",
-            60_000L to "副歌丁",
-            66_000L to "副歌甲",
-            70_000L to "副歌乙",
-            74_000L to "副歌丙",
-            78_000L to "副歌丁",
-            85_000L to "尾声",
-            90_000L to "尾声二",
+            5_000L to "主歌一", 9_000L to "主歌二", 13_000L to "主歌三", 17_000L to "主歌四",
+            22_000L to "副歌甲", 26_000L to "副歌乙", 30_000L to "副歌丙", 34_000L to "副歌丁",
+            39_000L to "桥段一", 43_000L to "桥段二",
+            48_000L to "副歌甲", 52_000L to "副歌乙", 56_000L to "副歌丙", 60_000L to "副歌丁",
+            66_000L to "副歌甲", 70_000L to "副歌乙", 74_000L to "副歌丙", 78_000L to "副歌丁",
+            84_000L to "尾声一", 88_000L to "尾声二", 92_000L to "尾声三", 96_000L to "尾声四",
         )
 
         val candidates = HighlightLocator.candidates(lines, 120_000L)
         val top = candidates.top()
         assertNotNull("重复三次的副歌段应产出候选", top)
         top!!
-        assertTrue("候选应自副歌首次出现处开始", top.startMs in 18_000L..22_000L)
+        assertEquals("应取最后一遍完整副歌", 66_000L, top.startMs)
         assertTrue("候选时长应落在 30–45 秒", top.durationMs in 30_000L..45_000L)
-        assertTrue("副歌反复三次应达强证据阈值", top.repeats >= 3)
+        assertTrue("副歌反复三次的重复证据应被记录", top.repeats >= 3)
     }
 
     @Test
@@ -61,7 +48,7 @@ class HighlightLocatorTest {
             4_000L to "甲一", 8_000L to "甲二", 12_000L to "乙一", 16_000L to "乙二",
             21_000L to "副歌一", 25_000L to "副歌二", 30_000L to "丙一", 34_000L to "丙二",
             40_000L to "副歌一", 44_000L to "副歌二", 50_000L to "副歌一", 54_000L to "副歌二",
-            60_000L to "戊一", 65_000L to "戊二",
+            64_000L to "戊一", 68_000L to "戊二", 72_000L to "戊三",
         )
         val first = HighlightLocator.candidates(lines, 100_000L)
         val second = HighlightLocator.candidates(lines, 100_000L)
@@ -156,30 +143,41 @@ class HighlightLocatorTest {
 
     @Test
     fun candidateEndCoversLastWordThatOutlastsNextLine() {
-        // 末字演唱终点越过后继行起点：收尾应取字终点，保证末句完整唱完，而不是在字中间截断
+        // 末字演唱终点越过后继行起点：收尾应取字终点，保证末句完整唱完，而不是在字中间截断。
+        // 各遍副歌之间夹一段互不重复的桥段，避免跨段落的假重复干扰定位。
         val lines = listOf(
-            LyricLine(timeMs = 50_000L, text = "高潮一"),
-            LyricLine(timeMs = 58_000L, text = "高潮二"),
-            LyricLine(timeMs = 66_000L, text = "高潮三"),
-            LyricLine(timeMs = 74_000L, text = "高潮四"),
+            LyricLine(timeMs = 0L, text = "主歌一"),
+            LyricLine(timeMs = 10_000L, text = "主歌二"),
+            LyricLine(timeMs = 20_000L, text = "主歌三"),
+            LyricLine(timeMs = 30_000L, text = "主歌四"),
+            LyricLine(timeMs = 40_000L, text = "主歌五"),
+            LyricLine(timeMs = 50_000L, text = "主歌六"),
+            LyricLine(timeMs = 60_000L, text = "副歌一"),
+            LyricLine(timeMs = 68_000L, text = "副歌二"),
+            LyricLine(timeMs = 76_000L, text = "副歌三"),
+            LyricLine(timeMs = 84_000L, text = "副歌四"),
+            LyricLine(timeMs = 92_000L, text = "桥段一"),
+            LyricLine(timeMs = 100_000L, text = "副歌一"),
+            LyricLine(timeMs = 108_000L, text = "副歌二"),
+            LyricLine(timeMs = 116_000L, text = "副歌三"),
+            LyricLine(timeMs = 124_000L, text = "副歌四"),
+            LyricLine(timeMs = 132_000L, text = "桥段二"),
+            LyricLine(timeMs = 140_000L, text = "副歌一"),
+            LyricLine(timeMs = 148_000L, text = "副歌二"),
+            LyricLine(timeMs = 156_000L, text = "副歌三"),
             LyricLine(
-                timeMs = 82_000L,
-                text = "高潮五",
-                // 末字延后到 94 秒，晚于后继行起点（92 秒）
-                words = listOf(LyricWord(82_000L, 12_000L, "高潮五")),
+                timeMs = 164_000L,
+                text = "副歌四",
+                // 末字延后到 180 秒，晚于后继行起点（176 秒）
+                words = listOf(LyricWord(164_000L, 16_000L, "副歌四")),
             ),
-            LyricLine(timeMs = 92_000L, text = "间奏一"),
-            LyricLine(timeMs = 96_000L, text = "间奏二"),
-            LyricLine(timeMs = 120_000L, text = "高潮一"),
-            LyricLine(timeMs = 128_000L, text = "高潮二"),
-            LyricLine(timeMs = 136_000L, text = "高潮三"),
-            LyricLine(timeMs = 144_000L, text = "高潮四"),
-            LyricLine(timeMs = 152_000L, text = "高潮五"),
-            LyricLine(timeMs = 160_000L, text = "尾声"),
+            LyricLine(timeMs = 176_000L, text = "尾声一"),
+            LyricLine(timeMs = 180_000L, text = "尾声二"),
         )
-        val top = HighlightLocator.candidates(lines, 180_000L).top()
+        val top = HighlightLocator.candidates(lines, 200_000L).top()
         assertNotNull(top)
-        assertEquals("收尾应覆盖末字终点 94 秒", 94_000L, top!!.endMs)
+        assertEquals("收尾应覆盖末字终点 180 秒", 180_000L, top!!.endMs)
+        assertTrue("候选起点应为最后一遍副歌", top.startMs >= 140_000L)
         assertTrue("候选时长应在目标区间", top.durationMs in 30_000L..45_000L)
     }
 
@@ -199,26 +197,23 @@ class HighlightLocatorTest {
     }
 
     @Test
-    fun segmentAtSnapsToNearestLyricLine() {
+    fun sparseCandidateLosesToDenseChorus() {
+        // 重复但稀松的段落（行间长间隔、收不出几行）不得胜过一个密集的副歌段
         val lines = timed(
-            10_000L to "甲", 20_000L to "乙", 30_000L to "丙", 40_000L to "丁",
-            50_000L to "戊", 60_000L to "己", 70_000L to "庚", 80_000L to "辛",
+            0L to "密一", 2_000L to "密二", 4_000L to "密三", 6_000L to "密四",
+            8_000L to "密五", 10_000L to "密六",
+            30_000L to "密一", 32_000L to "密二", 34_000L to "密三", 36_000L to "密四",
+            38_000L to "密五", 40_000L to "密六",
+            60_000L to "密一", 62_000L to "密二", 64_000L to "密三", 66_000L to "密四",
+            68_000L to "密五", 70_000L to "密六",
+            100_000L to "稀一", 130_000L to "稀二",
+            160_000L to "稀一", 190_000L to "稀二",
         )
-        val highlight = HighlightLocator.segmentAt(lines, 51_000L, 120_000L)
-        assertNotNull("锚点附近有歌词行时应收出片段", highlight)
-        assertEquals("起点应吸附到最近的行", 50_000L, highlight!!.startMs)
-    }
-
-    @Test
-    fun segmentAtReturnsNullWhenNoLyricLineNearby() {
-        val lines = timed(
-            10_000L to "甲", 20_000L to "乙", 30_000L to "丙", 40_000L to "丁",
-            50_000L to "戊", 60_000L to "己",
-        )
-        assertEquals(
-            "锚点越出容差时不好对齐，应返回 null 由调用方保留音频原始区间",
-            null,
-            HighlightLocator.segmentAt(lines, 100_000L, 120_000L),
-        )
+        val candidates = HighlightLocator.candidates(lines, 220_000L)
+        val top = candidates.top()
+        assertNotNull(top)
+        assertEquals("应选中密集段的最后一遍", 60_000L, top!!.startMs)
+        assertTrue("首位候选必是歌词行数最多者", top.lineCount == candidates.maxOf { it.lineCount })
+        assertTrue("稀松段落应落选在首位之后", candidates.drop(1).any { it.startMs >= 100_000L })
     }
 }
