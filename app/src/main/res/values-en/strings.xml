@@ -202,6 +202,9 @@
     <string name="audio_info_device_name">Device name</string>
     <string name="audio_info_device_address">Device address</string>
     <string name="audio_info_device_sample_rates">Supported sample rates</string>
+    <!-- The rate list is rendered in kHz, without trailing zeros -->
+    <string name="audio_info_value_khz_list">%s kHz</string>
+    <string name="audio_info_device_encodings">Supported encodings</string>
     <string name="audio_info_device_channels">Supported channel counts</string>
     <string name="audio_info_bluetooth_type">Bluetooth type</string>
     <string name="audio_info_bluetooth_type_classic">Classic Bluetooth</string>
@@ -224,7 +227,6 @@
     <string name="audio_info_bluetooth_class_phone">Phone</string>
     <string name="audio_info_bluetooth_class_wearable">Wearable device</string>
     <string name="audio_info_value_hz">%d Hz</string>
-    <string name="audio_info_value_hz_list">%s Hz</string>
     <!-- Bit depth is a unit ("24 bit"), not a countable noun; no plural form applies -->
     <string name="audio_info_value_bit" tools:ignore="PluralsCandidate">%d bit</string>
     <string name="audio_info_value_kbps">%d kbps</string>

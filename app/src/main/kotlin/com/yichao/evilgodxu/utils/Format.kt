@@ -26,3 +26,13 @@ internal fun formatTime(ms: Long): String {
     val seconds = totalSeconds % 60
     return "$minutes:${seconds.toString().padStart(2, '0')}"
 }
+
+/**
+ * 采样率按 kHz 呈现，去掉无意义的尾零。
+ *
+ * 采样率列表动辄七八项五位六位的数字，按 Hz 全写既挤满一行又触发无意义换行，且尾零不携带信息；
+ * 取 kHz 后一位小数足以表达全部常见档位（44.1kHz、88.2kHz）。
+ * 小数点按运行地域呈现，故尾零与小数点的裁剪要同时认「.」与「,」。
+ */
+internal fun formatSampleRateKHz(hertz: Int): String =
+    "%.1f".format(hertz / 1000.0).trimEnd('0').trimEnd('.', ',')

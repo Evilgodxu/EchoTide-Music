@@ -200,6 +200,9 @@
     <string name="audio_info_device_name">设备名称</string>
     <string name="audio_info_device_address">设备地址</string>
     <string name="audio_info_device_sample_rates">支持采样率</string>
+    <!-- 档位列表按 kHz 紧凑呈现，尾零不展示 -->
+    <string name="audio_info_value_khz_list">%s kHz</string>
+    <string name="audio_info_device_encodings">支持编码</string>
     <string name="audio_info_device_channels">支持通道数</string>
     <string name="audio_info_bluetooth_type">蓝牙类型</string>
     <string name="audio_info_bluetooth_type_classic">经典蓝牙</string>
@@ -222,7 +225,6 @@
     <string name="audio_info_bluetooth_class_phone">手机</string>
     <string name="audio_info_bluetooth_class_wearable">可穿戴设备</string>
     <string name="audio_info_value_hz">%d Hz</string>
-    <string name="audio_info_value_hz_list">%s Hz</string>
     <!-- 位深是无量纲单位（「24 位」），不是可数名词，不适用复数形式 -->
     <string name="audio_info_value_bit" tools:ignore="PluralsCandidate">%d 位</string>
     <string name="audio_info_value_kbps">%d kbps</string>

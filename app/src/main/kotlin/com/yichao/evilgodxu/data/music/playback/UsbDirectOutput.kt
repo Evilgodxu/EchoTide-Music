@@ -53,7 +53,7 @@ private const val LOG_TAG = "UsbDirectOutput"
  *
  * 直出能否成立取决于设备接入与厂商声明，判定依据只在设备现场可得，故开关状态与每次路由重算
  * 的结论都写入诊断日志（设置页可分享），使「设备已识别而直出未生效」能在日志中定位到具体环节；
- * 当前解码格式另由音频信息面板的「解码输出」一行直接展示，不在日志中重复记录。
+ * 解码格式与设备声明的档位（采样率、编码）另由音频信息面板直接展示，日志不再重复罗列。
  *
  * 线程：直出配置必须在音频轨建立之前下发，而解码格式只有播放线程在音频输出重配那一刻才拿得到，
  * 故 [onTrackFormatChanged] 由播放线程调用；[setEnabled] 与 [release] 由主线程调用——两处的重算
@@ -180,7 +180,7 @@ class UsbDirectOutput(
     private fun refreshOutputRouting() {
         if (!enabled) return
         val device = findUsbOutputDevice()
-        // 设备支持的混音器属性条目本身即诊断依据：条目缺位或格式对不上时直出无从成立，原因全在这一项里
+        // 设备支持的混音器属性条目即候选全集：条目缺位或格式对不上时直出无从成立，成败全由这一项决定
         val supported = device?.let { supportedMixerAttributes(it) }.orEmpty()
         val mixerAttributes = device?.let { pickMixerAttributes(supported) }
         // 无解码器接入，或设备未提供可承载当前格式的动态混音端口：撤销直出配置，交回系统默认混音输出
@@ -196,8 +196,7 @@ class UsbDirectOutput(
                             "解码格式 ${describeDecodedFormat()}"
                     else ->
                         "USB 设备 ${deviceLabel(device)} 的动态混音端口无可承载当前格式的条目，直出未生效，" +
-                            "播放走系统混音；本条曲目解码输出 ${describeDecodedFormat()}，" +
-                            "设备支持 ${describeSupported(supported)}"
+                            "播放走系统混音；本条曲目解码输出 ${describeDecodedFormat()}"
                 }
             )
             return
@@ -324,15 +323,6 @@ class UsbDirectOutput(
         "${behaviorName(attributes.mixerBehavior)} " +
             "${attributes.format.sampleRate}Hz/${attributes.format.channelCount}ch/" +
             encodingName(attributes.format.encoding)
-
-    // 条目按动态输出端口逐条上报，同一格式会被多个端口重复声明；去重后只留格式差异，
-    // 否则日志里同一行能力项要重复十几次，真正要看的「卡在哪一项」反而被淹没
-    private fun describeSupported(supported: List<AudioMixerAttributes>): String =
-        if (supported.isEmpty()) {
-            "无条目"
-        } else {
-            supported.map(::describeMixer).distinct().joinToString("；")
-        }
 
     private fun behaviorName(behavior: Int): String = when (behavior) {
         AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT -> "位完美"

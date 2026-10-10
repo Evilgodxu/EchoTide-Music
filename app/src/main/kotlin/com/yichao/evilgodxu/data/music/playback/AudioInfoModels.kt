@@ -36,8 +36,16 @@ data class OutputDeviceInfo(
     val kind: OutputDeviceKind,
     val name: String?,
     val address: String?,
+    /** 设备支持的全部采样率，升序：设备自报的档位与动态混音端口声明的档位取并集 */
     val supportedSampleRates: List<Int>,
     val channelCount: Int?,
+    /**
+     * 设备动态混音端口声明的 PCM 编码。
+     *
+     * 该端口是直出唯一能挂上的输出流，故它声明的编码即设备可直出的位深；未声明该端口的设备（非 USB 通路、
+     * 厂商未开放端口）为空，由展示层跳过该行。
+     */
+    val supportedEncodings: List<OutputEncoding>,
     /** 蓝牙链路的附加信息；非蓝牙设备为 null */
     val bluetooth: BluetoothLinkInfo?,
 )

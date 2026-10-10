@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.AudioMixerAttributes
 import androidx.annotation.OptIn
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -46,9 +47,6 @@ private val PLAYBACK_ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
     .setUsage(AudioAttributes.USAGE_MEDIA)
     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
     .build()
-
-// 设备支持的采样率最多列出前几项：该行过长时会被展示层截断，取全量只会白占版面
-private const val MAX_LISTED_SAMPLE_RATES = 4
 
 /**
  * 当前播放链路的信息采集。
@@ -248,6 +246,7 @@ internal object AudioInfoCollector {
         } else {
             null
         }
+        val mixerAttributes = supportedMixerAttributes(audioManager, device)
         return OutputDeviceInfo(
             kind = kind,
             name = if (kind == OutputDeviceKind.BLUETOOTH) {
@@ -256,13 +255,43 @@ internal object AudioInfoCollector {
                 device.productName?.toString()?.takeIf { it.isNotBlank() }
             },
             address = address,
-            supportedSampleRates = device.sampleRates.take(MAX_LISTED_SAMPLE_RATES).toList(),
+            supportedSampleRates = supportedSampleRates(device, mixerAttributes),
             channelCount = device.channelCounts.firstOrNull()?.takeIf { it > 0 },
+            supportedEncodings = mixerAttributes
+                .mapNotNull { outputEncodingOf(it.format.encoding) }
+                .distinct(),
             bluetooth = bluetooth?.let {
                 BluetoothLinkInfo(linkType = it.linkType, deviceClass = it.deviceClass, codec = it.codec)
             },
         )
     }
+
+    /**
+     * 设备的动态混音端口条目。
+     *
+     * 直出的专用输出流只能挂在该端口上，故它声明的采样率与编码即设备可直出的档位；设备未开放该端口
+     * （非 USB 通路、厂商未声明）时为空——接口读不到不是异常，按空处理，由展示层跳过对应行。
+     */
+    private fun supportedMixerAttributes(
+        audioManager: AudioManager?,
+        device: AudioDeviceInfo,
+    ): List<AudioMixerAttributes> =
+        runCatching { audioManager?.getSupportedMixerAttributes(device) }.getOrNull().orEmpty()
+
+    /**
+     * 设备支持的全部采样率，升序。
+     *
+     * 取设备自报档位与动态混音端口声明档位的并集：前者是设备广告的能力，后者是直出实际可用的档位，
+     * 只看其一都会漏掉对方独有的取值，展示出来也就短于实际支持范围。
+     */
+    private fun supportedSampleRates(
+        device: AudioDeviceInfo,
+        mixerAttributes: List<AudioMixerAttributes>,
+    ): List<Int> =
+        (device.sampleRates.toList() + mixerAttributes.map { it.format.sampleRate })
+            .filter { it > 0 }
+            .distinct()
+            .sorted()
 
     /**
      * 系统策略判定的当前播放输出设备。

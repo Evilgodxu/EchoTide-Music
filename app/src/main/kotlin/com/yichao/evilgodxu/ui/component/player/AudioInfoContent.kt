@@ -68,6 +68,7 @@ import com.yichao.evilgodxu.permission.PermissionMonitor
 import com.yichao.evilgodxu.permission.bluetoothConnectPermission
 import com.yichao.evilgodxu.utils.formatMebibytes
 import com.yichao.evilgodxu.utils.formatMegabytes
+import com.yichao.evilgodxu.utils.formatSampleRateKHz
 import kotlinx.coroutines.delay
 import com.yichao.evilgodxu.R
 
@@ -343,7 +344,18 @@ private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
             ?.let {
                 AudioInfoRow(
                     stringResource(R.string.audio_info_device_sample_rates),
-                    stringResource(R.string.audio_info_value_hz_list, it.joinToString("/")),
+                    stringResource(
+                        R.string.audio_info_value_khz_list,
+                        it.joinToString("/", transform = ::formatSampleRateKHz),
+                    ),
+                )
+            },
+        device.supportedEncodings
+            .takeIf { it.isNotEmpty() }
+            ?.let {
+                AudioInfoRow(
+                    stringResource(R.string.audio_info_device_encodings),
+                    it.map { encoding -> outputEncodingLabel(encoding) }.joinToString("/"),
                 )
             },
         device.channelCount?.let {
