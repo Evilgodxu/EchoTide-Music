@@ -494,6 +494,8 @@ internal fun PlaylistSheet(
                                             track = track,
                                             // 歌词命中项以匹配片段替代歌手，标出该曲因何出现在结果中
                                             subtitle = lyricSnippets[index] ?: track.artist,
+                                            // 片段内高亮命中的关键词；非歌词命中项无片段，不高亮
+                                            subtitleHighlight = lyricSnippets[index]?.let { searchQuery.trim() },
                                             isActive = isActive,
                                             isPlaying = isActive && playbackState.isPlaying,
                                             isQueued = playbackState.isInPlayNext(track.id),

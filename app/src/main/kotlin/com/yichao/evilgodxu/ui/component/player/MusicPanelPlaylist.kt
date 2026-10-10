@@ -45,8 +45,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.model.MusicTrack
@@ -193,7 +197,15 @@ internal fun PlaylistRow(
     onPlayNextClick: () -> Unit,
     // 副标题默认显示歌手；搜索命中歌词时改传匹配到的歌词片段
     subtitle: String = track.artist,
+    // 副标题内需强调的关键词（不区分大小写）：歌词片段据此标出命中位置，为空即整段同色
+    subtitleHighlight: String? = null,
 ) {
+    // 命中部分以强调色加粗，未命中的部分沿用行内暗色
+    val subtitleColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val subtitleHighlightColor = MaterialTheme.colorScheme.primary
+    val subtitleText = remember(subtitle, subtitleHighlight, subtitleHighlightColor) {
+        highlightedText(subtitle, subtitleHighlight, subtitleHighlightColor)
+    }
     val bg by animateColorAsState(
         targetValue = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
         else Color.Transparent,
@@ -262,8 +274,8 @@ internal fun PlaylistRow(
                 modifier = if (track.title.length > 12) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier
             )
             Text(
-                text = subtitle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = subtitleText,
+                color = subtitleColor,
                 fontSize = 10.sp,
                 lineHeight = 12.sp,
                 maxLines = 1,
@@ -287,6 +299,27 @@ internal fun PlaylistRow(
             tint = if (track.isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(22.dp)
         )
+    }
+}
+
+// 把文本中每一处关键词（不区分大小写）标为强调色加粗；关键词为空即返回原文本。
+// 逐段追加而非替换整串：强调样式只落在命中区间，其余区间沿用行内颜色
+private fun highlightedText(text: String, keyword: String?, highlightColor: Color): AnnotatedString {
+    if (keyword.isNullOrEmpty()) return AnnotatedString(text)
+    return buildAnnotatedString {
+        var cursor = 0
+        while (true) {
+            val hit = text.indexOf(keyword, startIndex = cursor, ignoreCase = true)
+            if (hit < 0) {
+                append(text.substring(cursor))
+                break
+            }
+            append(text.substring(cursor, hit))
+            withStyle(SpanStyle(color = highlightColor, fontWeight = FontWeight.SemiBold)) {
+                append(text.substring(hit, hit + keyword.length))
+            }
+            cursor = hit + keyword.length
+        }
     }
 }
 
