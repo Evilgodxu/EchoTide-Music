@@ -1,8 +1,8 @@
-# APK 体检报告：EchoTideMusic-4.7.0-arm64-v8a.apk
+# APK 体检报告：EchoTideMusic-4.7.1-arm64-v8a.apk
 
-- 应用：`com.yichao.evilgodxu` 4.7.0
-- 体积：5.22 MiB（5474659 字节）
-- 条目：40，容器开销 23.9 KiB
+- 应用：`com.yichao.evilgodxu` 4.7.1
+- 体积：5.24 MiB（5491043 字节）
+- 条目：40，容器开销 38.3 KiB
 - 构建工具：build-tools 37.0.0
 - ZIP 对齐：通过
 - 后处理可回收：97 B
@@ -25,7 +25,7 @@
 | `res/` | 17 | 19.0 KiB | 16.8 KiB | 0.3% |
 | `kotlin/` | 8 | 52.7 KiB | 12.1 KiB | 0.2% |
 | `AndroidManifest.xml` | 1 | 13.2 KiB | 3.2 KiB | 0.1% |
-| `META-INF/` | 6 | 350 B | 332 B | 0.0% |
+| `META-INF/` | 6 | 350 B | 333 B | 0.0% |
 
 ## 最大条目
 
@@ -53,7 +53,7 @@
 | --- | ---: | --- |
 | `assets/PublicSuffixDatabase.list` | -28 B | 已 deflate，压缩级别提升至 9 |
 | `META-INF/services/d90` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
-| `META-INF/services/kx2` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
+| `META-INF/services/lx2` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
 | `META-INF/services/q7` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
 | `kotlin/collections/collections.kotlin_builtins` | -18 B | 已 deflate，压缩级别提升至 9 |
 | `kotlin/kotlin.kotlin_builtins` | -36 B | 已 deflate，压缩级别提升至 9 |

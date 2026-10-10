@@ -191,6 +191,8 @@ internal fun PlaylistRow(
     onLongClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     onPlayNextClick: () -> Unit,
+    // 副标题默认显示歌手；搜索命中歌词时改传匹配到的歌词片段
+    subtitle: String = track.artist,
 ) {
     val bg by animateColorAsState(
         targetValue = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
@@ -260,7 +262,7 @@ internal fun PlaylistRow(
                 modifier = if (track.title.length > 12) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier
             )
             Text(
-                text = track.artist,
+                text = subtitle,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 10.sp,
                 lineHeight = 12.sp,

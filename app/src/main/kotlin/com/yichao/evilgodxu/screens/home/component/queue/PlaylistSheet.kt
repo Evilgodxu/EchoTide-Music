@@ -393,18 +393,14 @@ internal fun PlaylistSheet(
                     var searchQuery by remember { mutableStateOf("") }
                     // 搜索框聚焦状态：键盘展开期间用拦截层接住列表点击，仅收起键盘避免误触播放
                     var searchFocused by remember { mutableStateOf(false) }
+                    // 搜索结果：标题/歌手命中在前，歌词命中按相关度排序并附带歌词片段
+                    val searchHits = remember(tracks, searchQuery) { searchPlaylistTracks(tracks, searchQuery) }
                     // 过滤后仍保留原展示列表索引：点击播放与定位需回填真实索引
                     // 索引仅来自当前 tracks 快照；列表收缩后布局期可能读到过期索引，须容忍缺失
-                    val filteredIndices = remember(tracks, searchQuery) {
-                        if (searchQuery.isBlank()) {
-                            tracks.indices.toList()
-                        } else {
-                            tracks.indices.filter { index ->
-                                val track = tracks.getOrNull(index) ?: return@filter false
-                                track.title.contains(searchQuery, ignoreCase = true) ||
-                                    track.artist.contains(searchQuery, ignoreCase = true)
-                            }
-                        }
+                    val filteredIndices = remember(searchHits) { searchHits.map { it.index } }
+                    // 歌词命中项的下标 → 匹配片段：行副标题据此改显示歌词片段
+                    val lyricSnippets = remember(searchHits) {
+                        searchHits.mapNotNull { hit -> hit.lyricSnippet?.let { hit.index to it } }.toMap()
                     }
                     // 曲目行封面：可视区邻域提前取图，滚动进入视口时不再先闪占位符。
                     // 列表项是过滤后的下标，须经 filteredIndices 回填到真实曲目
@@ -496,6 +492,8 @@ internal fun PlaylistSheet(
                                     ) {
                                         PlaylistRow(
                                             track = track,
+                                            // 歌词命中项以匹配片段替代歌手，标出该曲因何出现在结果中
+                                            subtitle = lyricSnippets[index] ?: track.artist,
                                             isActive = isActive,
                                             isPlaying = isActive && playbackState.isPlaying,
                                             isQueued = playbackState.isInPlayNext(track.id),
