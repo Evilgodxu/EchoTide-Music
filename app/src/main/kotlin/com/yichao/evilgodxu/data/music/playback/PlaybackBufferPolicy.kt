@@ -59,7 +59,7 @@ internal object PlaybackBufferPolicy {
      * 交给媒体3 输出提供者的策略：PCM 走 [trackBufferBytes]，其余原样转回默认口径。
      *
      * 媒体3 在本策略的返回值之上还会再抬一次平台下限；此处仍自行取一次下界，一是接口约定要求返回值
-     * 不低于 minBufferSizeInBytes，二是 [Int24PcmAudioSink] 直接复用 [trackBufferBytes]，
+     * 不低于 minBufferSizeInBytes，二是 [IntPcmAudioSink] 直接复用 [trackBufferBytes]，
      * 两处口径一致才不会在同一个目标上给出两种结论。
      */
     val provider: DefaultAudioSink.AudioTrackBufferSizeProvider =

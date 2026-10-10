@@ -380,13 +380,8 @@ class UsbDirectOutput(
             decodedSampleRate,
             decodedChannelCount,
             decodedPcmEncoding,
-            int24OutputAvailable(),
+            packedIntWritableEncodings(supported, decodedSampleRate, decodedChannelCount),
         )
-
-    // 24 位写出由自研输出实现提供，先确认本机在该格式下能建起 24 位整型轨道，能力不具备时不列入候选
-    private fun int24OutputAvailable(): Boolean =
-        decodedSampleRate > 0 && decodedChannelCount > 0 &&
-            Int24OutputSupport.isSupported(decodedSampleRate, decodedChannelCount)
 
     private fun registerCallback() {
         if (callbackRegistered) return
@@ -410,17 +405,21 @@ class UsbDirectOutput(
  *
  * [decodedPcmEncoding] 必须是解码头实际输出的线性 PCM 编码，调用方各自负责把手上的格式换算到这一项。
  * 压缩源在解码前无从得知它——容器格式只给采样率与声道，pcmEncoding 仍是 NO_VALUE——故此处不为未知编码
- * 兜底：以未知编码推出的可写集合里凭空多出 16 位与 24 位，挑出的条目与真正写出的编码未必一致，
+ * 兜底：以未知编码推出的可写集合里凭空多出 16 位与浮点，挑出的条目与真正写出的编码未必一致，
  * 而两处调用点一旦挑出不同条目，AudioFlinger 不报错而是静默混音输出，「已直出」名不副实。
  * 不是线性 PCM（未取得编码、直通等）即无从判定，直接交回系统混音。
+ *
+ * [writablePackedIntEncodings] 是本机能写出的打包整型编码（24 位 / 32 位），由 [packedIntWritableEncodings]
+ * 按设备声明的条目探测后给出——两者都不是媒体3 的默认输出能产出的编码，可用性只能实测。
  *
  * 候选按成色取用：优先厂商声明了 AUDIO_OUTPUT_FLAG_BIT_PERFECT 的条目；无位完美条目时退取同一动态
  * 端口上的默认行为条目。后者是为厂商漏标该标志准备——平台的混音行为枚举对每个动态输出端口恒有一条
  * 默认行为条目，只有声明了标志才额外多出一条位完美条目，故漏标并不等于设备做不到按源格式直出。
  * 两档都不存在时返回 null，由调用方交回系统混音。
  *
- * 同成色内按编码排序：浮点与 16 位整型由媒体3 的默认输出直接产出，优先取用；24 位整型要经自研输出实现
- * 写出，只在无路可走时才落到它——若排在前列，本可在原线路上直出的设备会被无谓地拉进另一套输出实现。
+ * 同成色内按编码排序：浮点与 16 位整型由媒体3 的默认输出直接产出，优先取用；打包整型要经自研输出实现
+ * 写出，只在无路可走时才落到它——若排在前列，本可在原线路上直出的设备会被无谓地拉进另一套输出实现；
+ * 两种打包整型之间取位深更高的 32 位（同为自研实现，32 位能容下更多源位深）。
  *
  * 直出侧据此下发混音器属性，[PerDeviceAudioSink] 据此选择写出变体，两处共用本函数才不会各自跑偏：
  * 一旦写出编码与所下发的条目不符，AudioFlinger 不报错而是静默混音输出，「已直出」名不副实。
@@ -431,11 +430,11 @@ internal fun selectDirectMixer(
     sampleRate: Int,
     channelCount: Int,
     decodedPcmEncoding: Int,
-    int24Available: Boolean,
+    writablePackedIntEncodings: Set<Int>,
 ): AudioMixerAttributes? {
     if (sampleRate <= 0) return null
     if (!Util.isEncodingLinearPcm(decodedPcmEncoding)) return null
-    val writable = writablePcmEncodings(decodedPcmEncoding, int24Available)
+    val writable = writablePcmEncodings(decodedPcmEncoding, writablePackedIntEncodings)
     val candidates = supported.filter {
         it.format.sampleRate == sampleRate &&
             it.format.encoding in writable &&
@@ -453,33 +452,68 @@ internal fun selectDirectMixer(
 }
 
 /**
+ * 本机在给定解码格式下能写出的打包整型编码。
+ *
+ * 打包整型只能由自研输出实现写出，且平台是否受理该位深随机型与音频策略而变，没有能力查询接口，
+ * 故逐个实测建轨（结论由 [IntPcmOutputSupport] 缓存）。只探测 [supported] 里被设备声明过的编码：
+ * 未声明的编码不会成为候选，探测它只会让诊断日志多一条与本次播放无关的「建不起来」。
+ *
+ * 直出侧与音频输出都经本函数取值，两处由此自动取同一口径——一旦一处的可写集合更宽，
+ * 挑出的条目就会与另一处写出的编码不符，而 AudioFlinger 不报错只是静默混音输出。
+ */
+internal fun packedIntWritableEncodings(
+    supported: List<AudioMixerAttributes>,
+    sampleRate: Int,
+    channelCount: Int,
+): Set<Int> {
+    if (sampleRate <= 0 || channelCount <= 0) return emptySet()
+    val declared = supported.mapTo(mutableSetOf()) { it.format.encoding }
+    return PACKED_INT_ENCODINGS.filterTo(mutableSetOf()) { encoding ->
+        encoding in declared &&
+            IntPcmOutputSupport.isSupported(sampleRate, channelCount, encoding)
+    }
+}
+
+// 自研输出实现能写出的打包整型：设备动态混音端口上出现过的取值只有这两种
+private val PACKED_INT_ENCODINGS = setOf(
+    AudioFormat.ENCODING_PCM_24BIT_PACKED,
+    AudioFormat.ENCODING_PCM_32BIT,
+)
+
+/**
  * 播放器能写出的 PCM 编码。
  *
  * 浮点与 16 位整型由媒体3 的默认输出产出：浮点变体下写浮点，非浮点变体上经 `ToInt16PcmAudioProcessor`
  * 转成 16 位整型。浮点因此不由源位深决定——渲染器配置解码器时已按接收器的能力基准索取浮点输出，
  * [decodedPcmEncoding] 通常就是浮点；保留 [Util.isEncodingHighResolutionPcm] 这一关，是为解码器未照做、
  * 仍按 16 位整型输出时不再放宽可写集合。
- * 24 位整型由 [Int24PcmAudioSink] 写出，需先确认本机在该格式下能建起 24 位整型轨道；
- * 该实现逐样本转换，24 位及以下源不失真，32 位源会丢低位因而不列入。
+ * 打包整型由 [IntPcmAudioSink] 写出，需先确认本机在该位深下能建起轨道（由 [packedIntWritableEncodings]
+ * 实测后传入）。其中 32 位容得下任意线性源——32 位及以下源左移补零后逐位无损，浮点源按中间态取整；
+ * 24 位则丢 32 位源的低八位，故源本就是 32 位时不列入。
  *
  * [decodedPcmEncoding] 取解码头实际输出的线性 PCM 编码：未取得编码时的取值会让「高分辨率」与
  * 「32 位」两项判定都失去依据，凭空放宽可写集合，故调用方须先换算到真实 PCM。
  */
 @OptIn(UnstableApi::class)
-internal fun writablePcmEncodings(decodedPcmEncoding: Int, int24Available: Boolean): Set<Int> {
-    val writable = mutableSetOf(AudioFormat.ENCODING_PCM_16BIT)
+internal fun writablePcmEncodings(
+    decodedPcmEncoding: Int,
+    writablePackedIntEncodings: Set<Int>,
+): Set<Int> {
+    val writable = writablePackedIntEncodings.toMutableSet()
+    writable += AudioFormat.ENCODING_PCM_16BIT
     if (Util.isEncodingHighResolutionPcm(decodedPcmEncoding)) {
         writable += AudioFormat.ENCODING_PCM_FLOAT
     }
-    if (int24Available && decodedPcmEncoding != AudioFormat.ENCODING_PCM_32BIT) {
-        writable += AudioFormat.ENCODING_PCM_24BIT_PACKED
+    if (decodedPcmEncoding == AudioFormat.ENCODING_PCM_32BIT) {
+        writable -= AudioFormat.ENCODING_PCM_24BIT_PACKED
     }
     return writable
 }
 
-// 排序取值：浮点优先于 16 位整型，两者都优先于须经自研输出实现写出的 24 位整型
+// 排序取值：浮点优先于 16 位整型，两者都优先于须经自研输出实现写出的打包整型；打包整型内 32 位高于 24 位
 private fun encodingPreference(encoding: Int): Int = when (encoding) {
-    AudioFormat.ENCODING_PCM_FLOAT -> 3
-    AudioFormat.ENCODING_PCM_16BIT -> 2
+    AudioFormat.ENCODING_PCM_FLOAT -> 4
+    AudioFormat.ENCODING_PCM_16BIT -> 3
+    AudioFormat.ENCODING_PCM_32BIT -> 2
     else -> 1
 }

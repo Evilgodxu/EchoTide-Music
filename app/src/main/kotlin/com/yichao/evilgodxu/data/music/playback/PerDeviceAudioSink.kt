@@ -8,6 +8,7 @@ import android.media.AudioTrack
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.AuxEffectInfo
+import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.util.Clock
@@ -35,14 +36,15 @@ private const val MILLIS_PER_SECOND = 1000
  * 按目标设备重建的音频输出。
  *
  * 写出编码是 [DefaultAudioSink] 的构造期取向，实例内不可更改：浮点变体把高分辨率 PCM 源写成 32 位浮点，
- * 整型变体把高分辨率源降回 16 位整型，24 位变体则由 [Int24PcmAudioSink] 自行写出 24 位整型——设备只声明
- * 该编码时，媒体3 的默认输出无从产出它，只能另起一个输出实现。而 USB 直出建立的专用输出流只接纳与混音器
- * 属性逐字段一致的播放，设备声明哪些格式随机型而变，因此这里持有三个变体，在每次 [configure] 时按目标设备
- * 决策，决策变化即切换变体——即按设备重建输出，使该设备上能挂上的格式成为当前写出格式。
+ * 整型变体把高分辨率源降回 16 位整型，24 位与 32 位两个变体则由 [IntPcmAudioSink] 各自写出对应位深的
+ * 打包整型——设备只声明该编码时，媒体3 的默认输出无从产出它，只能另起一个输出实现。而 USB 直出建立的
+ * 专用输出流只接纳与混音器属性逐字段一致的播放，设备声明哪些格式随机型而变，因此这里持有四个变体，
+ * 在每次 [configure] 时按目标设备决策，决策变化即切换变体——即按设备重建输出，使该设备上能挂上的格式
+ * 成为当前写出格式。
  *
  * 平台与 media3 都不对线性 PCM 做设备级能力探测，故非直出时一律保持浮点输出；
  * 决策只在 [configure] 处落地——切换需要重开 AudioTrack，只能发生在渲染器重配点。
- * 变体切换不需要回放历史配置：所有设置类调用同时下发到三个变体。播放与暂停不属设置类——退出使用的变体
+ * 变体切换不需要回放历史配置：所有设置类调用同时下发到四个变体。播放与暂停不属设置类——退出使用的变体
  * 在切换时被复位，其播放状态随之清零，故切换点按登记的播放意图给进入方单独接续（见 [switchTo]）。
  */
 @OptIn(UnstableApi::class)
@@ -79,12 +81,15 @@ class PerDeviceAudioSink(
     private val intSink: AudioSink = buildSink(OutputVariant.INT16, enableFloatOutput = false)
 
     /** 24 位变体：自行写出直出流唯一声明的 24 位整型，供前两个变体都挂不上时使用 */
-    private val int24Sink: Int24PcmAudioSink = Int24PcmAudioSink(context)
+    private val int24Sink: IntPcmAudioSink = IntPcmAudioSink(C.ENCODING_PCM_24BIT)
+
+    /** 32 位变体：同理，供动态混音端口只声明 32 位整型的设备（部分 USB 耳放/解码器）使用 */
+    private val int32Sink: IntPcmAudioSink = IntPcmAudioSink(C.ENCODING_PCM_32BIT)
 
     /**
      * 音频轨的接收回调：先经 [OutputEncodingListener] 截取写出编码，再透传给渲染器。
      *
-     * 三个变体各持一份，编码按变体归属上报；渲染器尚未接管时出口仍为静默实现，事件不外泄但照常截取，
+     * 四个变体各持一份，编码按变体归属上报；渲染器尚未接管时出口仍为静默实现，事件不外泄但照常截取，
      * 避免起播瞬间的编码漏报。
      */
     private val floatListener: AudioSink.Listener = OutputEncodingListener(
@@ -103,6 +108,12 @@ class PerDeviceAudioSink(
         delegate = { delegateFor(OutputVariant.INT24) },
         onOutputEncodingChanged = { reportOutputEncoding(OutputVariant.INT24, it) },
         onOutputReleased = { reportOutputReleased(OutputVariant.INT24) },
+    )
+
+    private val int32Listener: AudioSink.Listener = OutputEncodingListener(
+        delegate = { delegateFor(OutputVariant.INT32) },
+        onOutputEncodingChanged = { reportOutputEncoding(OutputVariant.INT32, it) },
+        onOutputReleased = { reportOutputReleased(OutputVariant.INT32) },
     )
 
     /** 渲染器交给本接收器的回调出口：未接管时为静默实现 */
@@ -147,6 +158,7 @@ class PerDeviceAudioSink(
         floatSink.setListener(floatListener)
         intSink.setListener(intListener)
         int24Sink.setListener(int24Listener)
+        int32Sink.setListener(int32Listener)
     }
 
     /**
@@ -173,12 +185,13 @@ class PerDeviceAudioSink(
     /**
      * 上报当前生效链路的音频轨。
      *
-     * 24 位变体自建轨道因而直接可读，两个默认变体取输出提供者登记的那一个。
+     * 两个打包整型变体自建轨道因而直接可读，两个默认变体取输出提供者登记的那一个。
      */
     private fun reportAudioTrack() {
         onAudioTrackChanged(
             when (activeVariant) {
                 OutputVariant.INT24 -> int24Sink.currentAudioTrack
+                OutputVariant.INT32 -> int32Sink.currentAudioTrack
                 else -> capturedTracks[activeVariant]
             }
         )
@@ -230,12 +243,15 @@ class PerDeviceAudioSink(
     /**
      * 当前生效链路已写入音频轨的帧数，null 表示该变体给不出这一读数。
      *
-     * 只有自研的 24 位输出逐次记账音频轨实际接受的字节；两个默认变体的写入量在媒体3 的输出实现内部，
-     * 外部取不到，且它可能重采样，拿转发字节数推算并不成立。故这一读数只在 24 位变体生效时有值——
+     * 只有自研的打包整型输出逐次记账音频轨实际接受的字节；两个默认变体的写入量在媒体3 的输出实现内部，
+     * 外部取不到，且它可能重采样，拿转发字节数推算并不成立。故这一读数只在打包整型变体生效时有值——
      * 供信息采集算出「写入音频轨 → 发声」的全链路延迟。
      */
-    fun writtenOutputFrames(): Long? =
-        if (activeVariant == OutputVariant.INT24) int24Sink.writtenOutputFrames else null
+    fun writtenOutputFrames(): Long? = when (activeVariant) {
+        OutputVariant.INT24 -> int24Sink.writtenOutputFrames
+        OutputVariant.INT32 -> int32Sink.writtenOutputFrames
+        else -> null
+    }
 
     /**
      * 记录音频轨的实得缓冲容量。
@@ -260,6 +276,7 @@ class PerDeviceAudioSink(
         OutputVariant.FLOAT -> floatSink
         OutputVariant.INT16 -> intSink
         OutputVariant.INT24 -> int24Sink
+        OutputVariant.INT32 -> int32Sink
     }
 
     /**
@@ -269,24 +286,26 @@ class PerDeviceAudioSink(
      * 判定支持），按设备分化的只有专用输出流的格式匹配，因此仅在直出已建立时决策，其余情况保持浮点。
      * 判定与直出侧共用 [selectDirectMixer]：选中的条目即直出侧下发的混音器属性，写出编码须与
      * 之逐字段一致——已核实，格式与偏好不符时 AudioFlinger 不会报错，而是把该轨静默混音输出，
-     * 「已直出」名不副实，故两处必须取同一口径；24 位可写入性也须与直出侧同一个结论，
-     * 否则两处会挑出不同条目，由 [Int24OutputSupport] 缓存后统一给出。
+     * 「已直出」名不副实，故两处必须取同一口径；打包整型的可写入性也须与直出侧同一个结论，
+     * 否则两处会挑出不同条目，由 [IntPcmOutputSupport] 缓存后统一给出。
      *
      * [format] 是解码头输出的格式，其 pcmEncoding 已是真实线性 PCM，正是 [selectDirectMixer]
      * 要的那一项；不是线性 PCM（直通等）时该函数即返回 null，此处随之回落到浮点。
      */
     private fun variantFor(format: Format): OutputVariant {
         val device = directTarget() ?: return OutputVariant.FLOAT
+        val supported = audioManager.getSupportedMixerAttributes(device)
         val attributes = selectDirectMixer(
-            audioManager.getSupportedMixerAttributes(device),
+            supported,
             format.sampleRate,
             format.channelCount,
             format.pcmEncoding,
-            Int24OutputSupport.isSupported(format.sampleRate, format.channelCount),
+            packedIntWritableEncodings(supported, format.sampleRate, format.channelCount),
         ) ?: return OutputVariant.FLOAT
         return when (attributes.format.encoding) {
             AudioFormat.ENCODING_PCM_16BIT -> OutputVariant.INT16
             AudioFormat.ENCODING_PCM_24BIT_PACKED -> OutputVariant.INT24
+            AudioFormat.ENCODING_PCM_32BIT -> OutputVariant.INT32
             else -> OutputVariant.FLOAT
         }
     }
@@ -295,6 +314,7 @@ class PerDeviceAudioSink(
         action(floatSink)
         action(intSink)
         action(int24Sink)
+        action(int32Sink)
     }
 
     private fun switchTo(variant: OutputVariant) {
@@ -486,8 +506,8 @@ private class TrackCapturingOutputProvider(
     }
 }
 
-// 写出变体：三者的写出编码互不相同，且都是构造期取向，故以变体身份而非布尔标记区分当前生效者
-private enum class OutputVariant { FLOAT, INT16, INT24 }
+// 写出变体：四者的写出编码互不相同，且都是构造期取向，故以变体身份而非布尔标记区分当前生效者
+private enum class OutputVariant { FLOAT, INT16, INT24, INT32 }
 
 /**
  * 音频接收回调的转接器：透传渲染器的回调，并截取音频轨被创建与被释放时的写出编码。
