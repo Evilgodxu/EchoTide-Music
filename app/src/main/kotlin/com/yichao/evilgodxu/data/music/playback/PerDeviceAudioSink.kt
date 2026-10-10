@@ -152,11 +152,13 @@ class PerDeviceAudioSink(
     private var activeVariant = OutputVariant.FLOAT
 
     /**
-     * 渲染器最后一次下发的播放意图：为真表示正在播放，为假表示已暂停或已复位。
+     * 渲染器最后一次下发的播放意图：为真表示正在播放，为假表示已暂停。
      *
      * 渲染器只在「停止 → 启动」的转换点上调用 [play]，换曲重配（[configure]）发生在播放中时不会再有
      * 第二次下发；而变体切换会复位退出使用的变体，其播放状态随之清零，新生效的变体因此无从得知当前
      * 是否该播。故意图在此登记，切换时按它接续。
+     *
+     * 只由 [play] / [pause] 改写：[reset] 是资源操作，不代表渲染器停了播（见 [reset]）。
      */
     private var playRequested = false
 
@@ -595,8 +597,10 @@ class PerDeviceAudioSink(
         forEachSink { it.setAudioOutputProvider(audioOutputProvider) }
 
     override fun reset() {
-        // 整体复位即整体停用：此刻起没有输出在播，接续依据随之作废，重新播放须由渲染器再次下发 play
-        playRequested = false
+        // 只作废资源，不动起停意图：媒体3 的 reset 是资源操作，**不代表渲染器停了播**——实测（播放中切轨）
+        // reset 之后渲染器仍处于已启动状态，此后不会再下发 play。把意图一并清掉，退出使用的变体被复位后
+        // 新生效的变体就不会被启动，位置随之冻结，媒体3 的停滞检测满 10 秒即以 ERROR_CODE_TIMEOUT 终止播放。
+        // 起停只由 play/pause 决定——媒体3 的渲染器起停也只经这两个调用下发。
         outputReleaseRequested = true
         forEachSink { it.reset() }
     }

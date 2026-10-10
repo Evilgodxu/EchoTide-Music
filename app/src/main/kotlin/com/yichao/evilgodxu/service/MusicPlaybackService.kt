@@ -282,13 +282,11 @@ class MusicPlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, SkipProxyPlayer(player))
             .setCallback(sessionCallback)
             .build()
-        // 直出不参与媒体会话，在会话建立后单独装配；设置变更即刻生效，无需重启服务
-        // 源位深取自容器（先于解码输出可得，且不受解码器「高分辨率源一律请求浮点」的抹平）：
-        // 直出据此按源格式构造候选，源位深未读到时类内按解码头编码兜底
+        // 直出不参与媒体会话，在会话建立后单独装配；设置变更即刻生效，无需重启服务。
+        // 直出档位一律取自设备声明的动态混音端口条目，故这里不喂源位深：设备声明什么就按什么直出
         usbDirectOutput = UsbDirectOutput(
             player = player,
             audioManager = audioManager,
-            sourceBitDepth = { stateHolder.state.currentSourceBitDepth },
         )
         // 免打扰随输出成色进出：位完美与源格式直出都属于专注聆听，通知与提示音是最直接的打扰源；
         // 未获免打扰访问权时类内自行跳过，不影响播放

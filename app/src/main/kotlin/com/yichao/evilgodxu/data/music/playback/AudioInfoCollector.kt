@@ -202,9 +202,9 @@ internal object AudioInfoCollector {
     /**
      * 输出采样率。
      *
-     * 专用输出流是按源格式打开的，输出即源采样率；未直出时输出采样率由系统混音器决定，
-     * 只认系统上报值——混音器采样率与源采样率不等即发生重采样，故不能用源采样率冒充输出值。
-     * 系统未上报时返回 null，交由展示层跳过该行。
+     * 专用输出流按设备声明的档位打开，而该档位的采样率必须与源一致才会被选中，故直出时输出即源采样率；
+     * 未直出时输出采样率由系统混音器决定，只认系统上报值——混音器采样率与源采样率不等即发生重采样，
+     * 故不能用源采样率冒充输出值。系统未上报时返回 null，交由展示层跳过该行。
      */
     private fun outputSampleRate(audioManager: AudioManager?, state: MusicPlaybackState): Int? {
         if (state.directOutputMode != AudioOutputMode.MIXER) return state.sourceSampleRate()

@@ -32,20 +32,19 @@ private const val LOG_TAG = "UsbDirectOutput"
  * - [ExoPlayer.setPreferredAudioDevice] 把播放器的输出路由固定到同一设备，
  *   使该流成为播放的唯一出口。
  *
- * 专用流只接纳与混音器属性逐字段一致（采样率、声道、编码）的播放，混音器属性因此按源格式构造或挑选，
- * 并在换曲导致格式变化时重新下发。
+ * 专用流只接纳与混音器属性逐字段一致（采样率、声道、编码）的播放，混音器属性因此按当前曲目的解码格式
+ * 从设备声明的档位里挑，并在换曲导致格式变化时重新下发。
  *
  * 混音器属性分两档取用，成色随之不同：
  * - 位完美：端口声明了 AUDIO_OUTPUT_FLAG_BIT_PERFECT，或厂商未声明而平台受理了本应用的位完美请求
  *   ——音频不经混音、不受音量与音效处理，数据原样下发到 HAL；
- * - 源格式直出：位完美请求未被受理时的兼容结果——仍按源格式请求该端口的输出流，播放格式对齐即不发生
- *   重采样，但音轨音量与音效按常规链路处理。
+ * - 源格式直出：位完美请求未被受理时的兼容结果——仍按设备声明的格式请求该端口的输出流，播放格式对齐
+ *   即不发生重采样，但音轨音量与音效按常规链路处理。
  *
- * 候选按优先级取用：先按源格式构造一份混音器属性直接下发，被拒后再退回「从设备声明的动态混音端口条目里
- * 挑选」。USB 设备常只上报自身上限——编码只报最高的 32 位或 24 位、采样率只报高采样率——声明的档位
- * 因而短于设备实际支持范围，本可直出的源格式（典型如 44.1kHz/16 位）在声明里往往找不到对应条目；
- * 先按源格式直接请求，正是为了拿到这批被漏报的档位。两者都未受理才交回系统混音。
- * 源格式候选的编码取源位深对应值（见 [sourceOutputEncoding]）；位深无从取得时按解码头输出编码兜底。
+ * 档位只取自**设备声明的动态混音端口条目**，且本次连接只读取一次（见 [declaredFormatsFor]）；不按源位深
+ * 与源采样率另拼一条去试探未声明的参数——试探只换来一次被拒或一条写不出的轨道，而设备侧真正支持的档位
+ * 恰在声明里。选不出档位（声明里没有与当前解码格式逐字段相符的条目）即交回系统混音；档位建不起或写不出
+ * 再由音频输出逐档降级（见 [reportUnrealizableFormat]）。
  *
  * 原生行为（已核实）：
  * - 受理条件：APM 要求 usage 为 USAGE_MEDIA、设备为已接入的 USB 输出，且存在与目标格式、采样率、
@@ -59,7 +58,7 @@ private const val LOG_TAG = "UsbDirectOutput"
  * - 拔出：APM 在断连的同一路径内直接清除该端口的偏好且不回调，故只能经 AudioDeviceCallback 感知。
  * - 端口查询：getSupportedMixerAttributes 直查音频策略，Java 层把任何非 SUCCESS 一律折成空表，故空表
  *   既可能是厂商没声明端口，也可能是该设备此刻没有输出（平台按输出端口应答）。实测同一台设备无输出时
- *   空表、有输出时 7 条档位，故空表不作终局结论——每次输出建成后都要重问一次（见 [onOutputEstablished]）。
+ *   空表、有输出时 7 条档位，故空表不作终局结论——问到非空为止（见 [declaredFormatsFor]）。
  * - 格式不符：写出格式与偏好混音器不一致时，AudioFlinger 不会失败，而是把该轨静默混音输出，
  *   因此输出格式必须与偏好对齐，才不会以「已直出」之名走混音路径。路由在曲中才成立时，写出变体必须
  *   跟着重配（见 [PerDeviceAudioSink.syncRouting]），否则状态与实际写出会各说一套。
@@ -78,13 +77,6 @@ private const val LOG_TAG = "UsbDirectOutput"
 class UsbDirectOutput(
     private val player: ExoPlayer,
     private val audioManager: AudioManager,
-    /**
-     * 当前曲目的源位深（容器声明），未声明或尚未读到时为 null。
-     *
-     * 取自容器而非解码头：解码器对高分辨率源一律请求浮点输出，浮点给不出 24 位与 32 位之别，
-     * 按它无从选出源位深对应的输出编码（见 [sourceOutputEncoding]）。
-     */
-    private val sourceBitDepth: () -> Int? = { null },
 ) {
     private var enabled = false
     private var callbackRegistered = false
@@ -116,20 +108,20 @@ class UsbDirectOutput(
      */
     private var unrealizableFormatsDeviceId: Int? = null
     /**
-     * 上次问到的设备声明档位，及其所属设备编号。
+     * 本次连接问到的设备声明档位，及其所属设备编号。
      *
-     * 查询的应答取决于本应用此刻在该设备上有没有输出（见 [supportedMixerAttributes]），故空表须按上次的
-     * 声明兜底；声明是设备的固定属性，换设备即作废，故与设备编号一并记。
+     * 声明是设备的固定属性，问到一次即认定本次连接的答案已定（见 [declaredFormatsFor]），故与设备编号一并记。
      */
     private var declaredFormats: List<AudioMixerAttributes> = emptyList()
     private var declaredFormatsDeviceId: Int? = null
     /**
-     * 上一轮构造出的直出候选，按优先级排列（源格式在前、设备声明的条目在后）。
+     * 本次连接位完美请求是否已被拒。
      *
-     * 失败降级要按同一张表续试下一档，而那一刻不能重新查询设备（见 [applyNextDirectCandidate]），
-     * 故留一份备用；每次路由重算都整体替换。
+     * 行为由动态输出 profile 的 AUDIO_OUTPUT_FLAG_BIT_PERFECT 反推，厂商不声明时每个候选都要白试一条下发
+     * （实测同一会话里每个候选都带一条「位完美请求被拒」）。被拒一次即认定本次连接没有可声明的位完美档位，
+     * 此后不再试探；换设备即作废。
      */
-    private var lastCandidates: List<AudioMixerAttributes> = emptyList()
+    private var bitPerfectRejected = false
     /** 已对外上报的输出成色，与 [onRoutingChanged] 的出参同处一处，避免内部状态与上报值脱节 */
     private var reportedMode = AudioOutputMode.MIXER
     /** 当前曲目的解码格式，混音器属性需与之逐字段（采样率、声道、编码）匹配才能被直出流接纳 */
@@ -236,20 +228,24 @@ class UsbDirectOutput(
     }
 
     /**
-     * 按上一轮候选改挂尚未被证伪的下一档，返回是否改挂成功。
+     * 按设备声明的档位重挑一档改挂，返回是否改挂成功。
      *
-     * 不重新查询设备：查询的应答取决于本应用此刻在该设备上有没有输出（见 [supportedMixerAttributes]），
-     * 而此刻刚释放掉那条失败的音频轨，多半问不到。设备声明的档位是设备的固定属性，故按上一轮的候选表续试
-     * 是有效的；改挂不成（无候选、或属性未被系统受理）由调用方交回系统混音。
+     * 被证伪的格式已记入 [unrealizableFormats]，故重挑取到的是设备声明的下一档（位深由
+     * [selectDirectMixer] 的优先序给出）；声明本身取自本次连接的记录，不重新查询设备——查询的应答取决于
+     * 本应用此刻在该设备上有没有输出（见 [declaredFormatsFor]），而此刻刚释放掉那条失败的音频轨。
+     * 无档位可挑（或挑中的也没被受理）时返回 false，由调用方交回系统混音。
      */
     private fun applyNextDirectCandidate(): Boolean {
         val device = findUsbOutputDevice() ?: return false
-        val candidates = lastCandidates.filterNot { it.format in unrealizableFormats }
+        val candidates = directMixerCandidates(declaredFormatsFor(device))
+            .filterNot { it.format in unrealizableFormats }
         if (candidates.isEmpty()) return false
         // 属性先于路由下发：播放改道到该设备时，才按已配置的属性建立专用输出流
         val accepted = applyDirectMixer(device, candidates) ?: return false
         pinPreferredDevice(device)
         updateRouting(device, accepted)
+        // 成色未变时 [updateRouting] 不发声，改挂后的写出格式在此留痕——音频输出的写出编码取的就是它
+        logDiagnostic("直出格式已改挂：${describeMixer(accepted)}")
         return true
     }
 
@@ -299,27 +295,13 @@ class UsbDirectOutput(
         if (device?.id != unrealizableFormatsDeviceId) {
             unrealizableFormats.clear()
             unrealizableFormatsDeviceId = device?.id
+            bitPerfectRejected = false
         }
-        // 设备声明的动态混音端口条目：厂商只报上限时它短于实际支持范围，故声明档位之外还先构造源格式候选，
-        // 两者一并成为候选（见 [directMixerCandidates]）
-        val queried = device?.let { supportedMixerAttributes(it) }.orEmpty()
-        // 空表不作终局。查询的应答取决于本应用此刻在该设备上有没有输出，而厂商声明的档位是设备的固定属性，
-        // 故问不到时沿用上次问到的声明：不沿用就会把「这次问不到」当成「设备没有档位」，而撤销直出会一并
-        // 解除路由钉定、新起的输出不再落在该设备上，此后每次重问都得空表——直出再也回不来（实测）。
-        val remembered = declaredFormats
-            .takeIf { device != null && declaredFormatsDeviceId == device.id }
-            .orEmpty()
-        val supported = queried.ifEmpty { remembered }
-        if (queried.isNotEmpty()) {
-            declaredFormats = queried
-            declaredFormatsDeviceId = device?.id
-        } else if (supported.isNotEmpty()) {
-            logDiagnostic("动态混音端口本次未应答档位，沿用上次问到的声明：${deviceLabel(checkNotNull(device))}")
-        }
+        // 设备声明的动态混音端口条目：直出档位一律取自这里，不再按源格式另拼候选（见 [directMixerCandidates]）
+        val supported = declaredFormatsFor(device)
         val built = directMixerCandidates(supported)
         // 已被实测证伪建不出音频轨的格式不再入选：再选只会再失败一次（见 [reportUnrealizableFormat]）
         val candidates = built.filterNot { it.format in unrealizableFormats }
-        lastCandidates = candidates
         // 直出无从成立：撤销配置，交回系统混音。归因与结论一次取出——撤销说明与日志结论同出此处，
         // 两处才不会各说一套。构造出的候选全被剔除时，原因落在「格式建不出音频轨」而非「设备无条目」
         if (device == null || candidates.isEmpty()) {
@@ -370,28 +352,27 @@ class UsbDirectOutput(
         val label = device?.let(::deviceLabel)
         return when {
             device == null ->
-                "无 USB 输出设备" to "未找到 USB 输出设备，直出未生效，播放走系统混音"
+                "无 USB 输出设备" to "未找到 USB 输出设备，直出未生效"
             supported.isEmpty() ->
                 "设备未取到动态混音端口" to
                     "USB 设备 $label 未取到动态混音端口（厂商未声明，或设备当前没有输出、平台便不作应答），" +
-                    "直出未生效，播放走系统混音；解码格式 ${describeDecodedFormat()}"
+                    "解码格式 ${describeDecodedFormat()}"
             decodedSampleRate <= 0 ->
                 "解码格式尚未取得" to
-                    "USB 设备 $label 已声明动态混音端口，但解码格式尚未取得（尚未起播），暂不挑选直出条目，" +
-                    "播放走系统混音；音频输出上报格式后会重新挑选"
+                    "USB 设备 $label 已声明动态混音端口，但解码格式尚未取得（尚未起播），"
             !Util.isEncodingLinearPcm(decodedPcmEncoding) ->
                 "解码输出不是线性 PCM" to
                     "USB 设备 $label 已声明动态混音端口，但本曲解码输出不是线性 PCM，无位深可对齐，" +
-                    "直出无从成立，播放走系统混音；解码输出 ${describeDecodedFormat()}"
+                    "直出无从成立，解码输出 ${describeDecodedFormat()}"
             // 候选本身构造出来了，只是格式已被实测证伪「建不出音频轨」——与「设备没有可承载条目」是两回事，
             // 归到后者会把排查引向设备能力不足
             allCandidatesUnrealizable ->
                 "直出候选的格式建不起音频轨" to
                     "USB 设备 $label 上构造出的直出候选格式均已实测建不起音频轨（偏好已撤销并记为不可用），" +
-                    "直出未生效，播放走系统混音；本条曲目解码输出 ${describeDecodedFormat()}"
+                    "直出未生效，本条曲目解码输出 ${describeDecodedFormat()}"
             else ->
                 "设备未提供可承载当前格式的混音器条目" to
-                    "USB 设备 $label 的动态混音端口无可承载当前格式的条目，直出未生效，播放走系统混音；" +
+                    "USB 设备 $label 的动态混音端口无可承载当前格式的条目，直出未生效，" +
                     "本条曲目解码输出 ${describeDecodedFormat()}"
         }
     }
@@ -420,6 +401,10 @@ class UsbDirectOutput(
      * 任何东西；一旦受理就是真的位完美（数据不经混音直达 HAL），被拒则退回今天的成色（源格式直出）。
      * 两条路的写出格式相同，音频输出侧不必区分。
      *
+     * 试探**本次连接只做一次**（见 [bitPerfectRejected]）：行为由 profile 的标志反推，被拒一次即说明这台
+     * 设备上没有可声明的位完美档位，此后每个候选都再试一次纯属重复。日志里因此只有一条试探结论，
+     * 而不是每个候选一条。
+     *
      * 绝不用「视为声明了位完美」冒充成色：默认行为的流仍经混音，只是采样率与源一致；
      * 把这种流报成位完美，正是「以已直出之名走混音路径」的翻版。
      */
@@ -430,18 +415,21 @@ class UsbDirectOutput(
         if (mixerAttributes.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT) {
             return mixerAttributes.takeIf { requestMixerAttributes(device, it) }
         }
-        val bitPerfect = AudioMixerAttributes.Builder(mixerAttributes.format)
-            .setMixerBehavior(AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT)
-            .build()
-        // 试探的两种结局都在此表述：被拒是预期结论而非异常，故直接下发而不走 [requestMixerAttributes]
-        // 的通用拒绝留痕，免得日志里只看到「拒绝首选混音器属性：…位完美…」，读起来像连默认条目也没下发成
-        if (postMixerAttributes(device, bitPerfect)) {
-            logDiagnostic("位完美请求已被受理（厂商未在端口声明该行为）：${describeMixer(bitPerfect)}")
-            return bitPerfect
+        if (!bitPerfectRejected) {
+            val bitPerfect = AudioMixerAttributes.Builder(mixerAttributes.format)
+                .setMixerBehavior(AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT)
+                .build()
+            // 试探的两种结局都在此表述：被拒是预期结论而非异常，故直接下发而不走 [requestMixerAttributes]
+            // 的通用拒绝留痕，免得日志里只看到「拒绝首选混音器属性：…位完美…」，读起来像连默认条目也没下发成
+            if (postMixerAttributes(device, bitPerfect)) {
+                logDiagnostic("位完美请求已被受理（厂商未在端口声明该行为）：${describeMixer(bitPerfect)}")
+                return bitPerfect
+            }
+            bitPerfectRejected = true
+            logDiagnostic(
+                "位完美请求被拒（厂商未在端口声明该行为），本次连接不再试探：${describeMixer(bitPerfect)}"
+            )
         }
-        logDiagnostic(
-            "位完美请求被拒（厂商未在端口声明该行为），改按默认行为条目下发：${describeMixer(mixerAttributes)}"
-        )
         return mixerAttributes.takeIf { requestMixerAttributes(device, it) }
     }
 
@@ -495,11 +483,11 @@ class UsbDirectOutput(
         reportedMode = mode
         logDiagnostic(
             when {
-                device == null || attributes == null -> "输出成色：系统混音（无已受理的专用输出）"
+                device == null || attributes == null -> "输出成色：系统混音"
                 mode == AudioOutputMode.BIT_PERFECT ->
                     "输出成色：位完美直出，${deviceLabel(device)}，${describeMixer(attributes)}"
                 else ->
-                    "输出成色：源格式直出（位完美请求未被系统受理，改按源格式请求输出流），" +
+                    "输出成色：源格式直出，" +
                         "${deviceLabel(device)}，${describeMixer(attributes)}"
             }
         )
@@ -568,8 +556,8 @@ class UsbDirectOutput(
      *
      * 读取抛出按「无条目」处理——直出无从成立，播放退回系统混音；异常本身写入日志而不静默吞掉，
      * 否则日志里只剩「未取到动态混音端口」这一句，把读取异常误读成设备能力不足。
-     * 返回空表另有一层含义：设备当前没有输出时平台不作应答（见 [onOutputEstablished]），
-     * 故空表只当「这次问不到」，每次音频轨建成后重问。
+     * 返回空表另有一层含义：设备当前没有输出时平台不作应答，故空表只当「这次问不到」，
+     * 在问到非空结果之前要一直重问（见 [declaredFormatsFor]）。
      */
     private fun supportedMixerAttributes(device: AudioDeviceInfo): List<AudioMixerAttributes> =
         runCatching { audioManager.getSupportedMixerAttributes(device) }
@@ -583,55 +571,38 @@ class UsbDirectOutput(
             .getOrDefault(emptyList())
 
     /**
-     * 直出候选，按优先级排列：先源格式，再设备声明的条目。
+     * 本次连接的设备声明档位：只问一次，问到即止。
      *
-     * 源格式候选排在最前是刻意的：USB 设备常只上报自身上限，声明的档位短于实际支持范围，本可直出的
-     * 源格式在声明里找不到对应条目；先按源格式直接请求，被拒再退取声明条目（[pickMixerAttributes]）。
-     * 两者格式相同时去重只留前者——[applyMixerAttributes] 对默认行为候选本就会先按同格式试一次位完美，
-     * 与声明里的位完美条目等值。
+     * 声明是设备的固定属性，问到之后答案不再变化，重复查问没有意义（实测一次会话里每次路由重算都带着一次
+     * 重量查询）。但**空表不是答案**——平台的应答取决于本应用此刻在该设备上有没有输出，未起播时必得空表
+     * （见 [supportedMixerAttributes]），故在问到之前仍要问；问到一次非空的即认定本次连接的答案已定。
+     * 换设备即作废（按设备编号判归属）。
+     */
+    private fun declaredFormatsFor(device: AudioDeviceInfo?): List<AudioMixerAttributes> {
+        if (device == null) return emptyList()
+        if (declaredFormatsDeviceId == device.id && declaredFormats.isNotEmpty()) return declaredFormats
+        val queried = supportedMixerAttributes(device)
+        if (queried.isEmpty()) return emptyList()
+        declaredFormats = queried
+        declaredFormatsDeviceId = device.id
+        return queried
+    }
+
+    /**
+     * 直出候选：只取设备声明的动态混音端口条目，一条。
      *
-     * 声明条目一空即返回空表：空表说明设备未开放动态混音端口（厂商未声明，或设备当前没有输出，
-     * 见 [supportedMixerAttributes]），此时按源格式直接请求同样挂不上专用输出流，不必白试。
+     * **不构造设备未声明的格式**——不按源位深与源采样率直接拼一条去试探。设备声明哪些档位就按哪些直出：
+     * 声明的档位就是设备确实支持的那几档，未声明的参数（位深、采样率）试探一次只换来一次被拒、或一条
+     * 建得起却写不出的轨道（实测：96000Hz/24 位被受理后写返回 ERROR_INVALID_OPERATION）。真正的判据
+     * 始终在真实链路上（见 [reportUnrealizableFormat]），事前拼格式并不能替代它。
+     *
+     * 声明条目一空即返回空表：空表说明这次问不到（厂商未声明，或设备当前没有输出，见 [declaredFormatsFor]），
+     * 此时没有可用档位，播放交回系统混音。
      */
     private fun directMixerCandidates(
         supported: List<AudioMixerAttributes>,
-    ): List<AudioMixerAttributes> {
-        if (supported.isEmpty()) return emptyList()
-        return listOfNotNull(sourceFormatMixerAttributes(), pickMixerAttributes(supported))
-            .distinctBy { it.format }
-    }
-
-    /**
-     * 按源格式构造的直出候选：采样率与声道取源格式（与解码输出一致），编码取源位深对应值
-     * （见 [sourceOutputEncoding]）。
-     *
-     * 不为「本机是否写得出来」设前置判定：真正的判据只有「系统受理 + 音频轨建得起来」，而事前建轨实测
-     * 既会按声明乱建档位，也会把设备拖进坏状态（见 docs/注意事项.md）。故一律先按源格式请求，被拒即回落
-     * 声明条目；即便受理后音频轨仍建不起来，也由音频输出侧降级兜底，不会拖垮播放。
-     *
-     * 解码格式尚未取得或不是线性 PCM 时位深无对齐依据，返回 null。
-     */
-    private fun sourceFormatMixerAttributes(): AudioMixerAttributes? {
-        if (decodedSampleRate <= 0 || decodedChannelCount <= 0) return null
-        val channelMask = Util.getAudioTrackChannelConfig(decodedChannelCount)
-        if (channelMask == AudioFormat.CHANNEL_INVALID) return null
-        val encoding = sourceOutputEncoding(sourceBitDepth(), decodedPcmEncoding) ?: return null
-        return AudioMixerAttributes.Builder(
-            AudioFormat.Builder()
-                .setSampleRate(decodedSampleRate)
-                .setChannelMask(channelMask)
-                .setEncoding(encoding)
-                .build()
-        ).build()
-    }
-
-    /**
-     * 挑出可承载当前曲目的直出混音器条目，作为源格式候选被拒后的回落档位。
-     * 位完美条目优先，缺失时退取同一动态端口的默认行为条目——厂商漏标位完美标志不等于设备做不到
-     * 按源格式打开输出流。解码格式未知（尚未起播）或不是线性 PCM 时不下发，等音频输出上报后重新触发。
-     */
-    private fun pickMixerAttributes(supported: List<AudioMixerAttributes>): AudioMixerAttributes? =
-        selectDirectMixer(supported, decodedSampleRate, decodedChannelCount, decodedPcmEncoding)
+    ): List<AudioMixerAttributes> =
+        listOfNotNull(selectDirectMixer(supported, decodedSampleRate, decodedChannelCount, decodedPcmEncoding))
 
     private fun registerCallback() {
         if (callbackRegistered) return
@@ -649,6 +620,9 @@ class UsbDirectOutput(
 /**
  * 从设备支持的混音器属性中挑出可承载解码格式的直出条目，无可用条目时返回 null。
  *
+ * 这是直出的**唯一**档位来源：设备声明了什么就按什么直出，不按源位深与源采样率另拼格式（见
+ * [UsbDirectOutput.directMixerCandidates]）。
+ *
  * 专用输出流只接纳与混音器属性逐字段一致的播放——采样率、声道与编码任一不符，播放都不会挂到该流上，
  * 因此候选严格按这三项筛定，不做「挑最接近条目」的退让：挂不上的条目只会让播放静默落回混音路径，
  * 却让调用方以为直出已经成立。编码一侧的候选取自 [writablePcmEncodings]，即播放器确实写得出的编码。
@@ -661,16 +635,15 @@ class UsbDirectOutput(
  *
  * 候选按成色取用：优先厂商声明了 AUDIO_OUTPUT_FLAG_BIT_PERFECT 的条目；无位完美条目时退取同一动态
  * 端口上的默认行为条目。后者是为厂商漏标该标志准备——平台的混音行为枚举对每个动态输出端口恒有一条
- * 默认行为条目，只有声明了标志才额外多出一条位完美条目，故漏标并不等于设备做不到按源格式直出。
+ * 默认行为条目，只有声明了标志才额外多出一条位完美条目，故漏标并不等于设备做不到按该格式直出。
  * 选出默认行为条目只说明声明里没有位完美，下发时仍会按同一格式试一次位完美（见 [applyMixerAttributes]）。
  * 两档都不存在时返回 null，由调用方交回系统混音。
  *
- * 同成色内按编码排序：浮点与 16 位整型由媒体3 的默认输出直接产出，优先取用；打包整型要经自研输出实现
- * 写出，只在无路可走时才落到它——若排在前列，本可在原线路上直出的设备会被无谓地拉进另一套输出实现；
- * 两种打包整型之间取位深更高的 32 位（同为自研实现，32 位能容下更多源位深）。
+ * 同成色内按编码排序，位深优先——见 [encodingPreference]：高分辨率源的解码输出是浮点，落到 16 位档位
+ * 即丢低位，故位深高的档位排在前；16 位及以下的源则优先取同位的整型档位，不白白多走一次补位转换。
  *
- * 本函数产出的是**源格式候选被拒后的回落档位**；音频输出不再自行挑条目，而是直接取已受理的属性格式来选
- * 写出变体（[UsbDirectOutput.directOutputEncoding]）。写出编码与已受理的属性不符时 AudioFlinger 不报错
+ * 本函数产出的是直出档位；音频输出不再自行挑条目，而是直接取已受理的属性格式来选写出变体
+ * （[UsbDirectOutput.directOutputEncoding]）。写出编码与已受理的属性不符时 AudioFlinger 不报错
  * 而是静默混音输出，「已直出」名不副实，故两处只以「系统实际受理的那条属性」为唯一结论。
  */
 @OptIn(UnstableApi::class)
@@ -696,33 +669,8 @@ internal fun selectDirectMixer(
     val pool = bitPerfect.ifEmpty {
         candidates.filter { it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT }
     }
-    return pool.maxByOrNull { encodingPreference(it.format.encoding) }
-}
-
-/**
- * 源位深对应的目标写出编码。
- *
- * 16 位及以下源写成 16 位整型，24 位源写成 24 位打包，32 位及以上写成 32 位整型：设备的动态混音端口
- * 常只声明自身上限（编码只报最高的 32 位或 24 位），源位深才是选出「源格式直出」编码的依据；按声明取用
- * 会让 16 位源也走上最高位深，本可直出的低档位反而无候选。
- *
- * [sourceBitDepth] 为 null（容器未声明源位深，如有损源）时按解码头实际输出编码兜底：解码器对高分辨率源
- * 请求浮点输出（浮点给不出 24 位与 32 位之别，按 32 位请求），其余按 16 位。非线性 PCM 无位深可言，
- * 返回 null，由调用方交回系统混音。
- */
-@OptIn(UnstableApi::class)
-internal fun sourceOutputEncoding(sourceBitDepth: Int?, decodedPcmEncoding: Int): Int? {
-    if (!Util.isEncodingLinearPcm(decodedPcmEncoding)) return null
-    return when {
-        sourceBitDepth == null ->
-            if (Util.isEncodingHighResolutionPcm(decodedPcmEncoding)) {
-                AudioFormat.ENCODING_PCM_32BIT
-            } else {
-                AudioFormat.ENCODING_PCM_16BIT
-            }
-        sourceBitDepth <= 16 -> AudioFormat.ENCODING_PCM_16BIT
-        sourceBitDepth <= 24 -> AudioFormat.ENCODING_PCM_24BIT_PACKED
-        else -> AudioFormat.ENCODING_PCM_32BIT
+    return pool.maxByOrNull {
+        encodingPreference(it.format.encoding, Util.isEncodingHighResolutionPcm(decodedPcmEncoding))
     }
 }
 
@@ -758,10 +706,25 @@ internal fun writablePcmEncodings(decodedPcmEncoding: Int): Set<Int> {
     return writable
 }
 
-// 排序取值：浮点优先于 16 位整型，两者都优先于须经自研输出实现写出的打包整型；打包整型内 32 位高于 24 位
-private fun encodingPreference(encoding: Int): Int = when (encoding) {
-    AudioFormat.ENCODING_PCM_FLOAT -> 4
-    AudioFormat.ENCODING_PCM_16BIT -> 3
-    AudioFormat.ENCODING_PCM_32BIT -> 2
-    else -> 1
+/**
+ * 同为可写编码时的优先序：取容量够的那一档，浮点最优先。
+ *
+ * [highResolutionSource] 由解码头输出编码反推（解码器只在源位深高于 16 位时才被要求浮点输出，
+ * 见 PerDeviceAudioSink.formatSupportWithSourceBitDepth），故它就是「本曲源位深高于 16 位」的等价信号。
+ * 位深直接决定精度，不能像从前那样让 16 位整型无条件排在最前——那是「源格式候选被拒后只剩回落档位」
+ * 时代的取舍；现在档位一律取自设备声明，16 位档位就是写出位深本身，高分辨率源落到它即丢低位。
+ * 打包整型内 32 位高于 24 位：32 位容得下 32 位及以下的一切源，24 位放不下 32 位源的低八位。
+ */
+private fun encodingPreference(encoding: Int, highResolutionSource: Boolean): Int = when {
+    encoding == AudioFormat.ENCODING_PCM_FLOAT -> 4
+    highResolutionSource -> when (encoding) {
+        AudioFormat.ENCODING_PCM_32BIT -> 3
+        AudioFormat.ENCODING_PCM_24BIT_PACKED -> 2
+        else -> 1
+    }
+    else -> when (encoding) {
+        AudioFormat.ENCODING_PCM_16BIT -> 3
+        AudioFormat.ENCODING_PCM_32BIT -> 2
+        else -> 1
+    }
 }
