@@ -101,6 +101,11 @@ class MusicPlaybackService : MediaSessionService() {
             // 音频轨的创建与释放同样在播放线程回调，口径同上
             onOutputEncodingChanged = { encoding ->
                 stateHolder.state.audioSinkOutputEncoding = encoding
+                // 输出建成即重算一次直出路由：平台的动态混音端口查询按输出端口应答，应用没有输出时
+                // 只给空表，据此判定会把直出锁在门外；输出建成后再问一次才对得上
+                if (encoding != null && ::usbDirectOutput.isInitialized) {
+                    usbDirectOutput.onOutputEstablished()
+                }
             },
             onAudioTrackChanged = { track ->
                 stateHolder.state.audioTrack = track
@@ -281,6 +286,9 @@ class MusicPlaybackService : MediaSessionService() {
             stateHolder.state.directOutputMode = mode
             // 直出成立即交回整曲播放：片段首尾的音量淡入淡出在直出链路上无从实施
             stateHolder.state.onDirectOutputModeChanged(mode)
+            // 成色在曲中才变化时（开关打开、设备接入、重算后恢复）写出变体还没跟上，补一次重配；
+            // 变体未变时该方法自行跳过，故这里无须判断成色
+            audioSink.syncRouting()
             // 成色回调来自播放线程与主线程两处，投递主线程使 holding 与还原档位这对状态同处一条线
             serviceScope.launch { directOutputDoNotDisturb.onModeChanged(mode) }
         }

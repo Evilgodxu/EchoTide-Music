@@ -48,8 +48,12 @@ private const val LOG_TAG = "UsbDirectOutput"
  * - 行为枚举：对每个支持该设备的动态输出 profile，恒有一条默认行为条目；只有 profile 声明了位完美标志
  *   才额外多出一条位完美条目（IOProfile::refreshMixerBehaviors）。漏标因此只影响成色，不影响可用性。
  * - 拔出：APM 在断连的同一路径内直接清除该端口的偏好且不回调，故只能经 AudioDeviceCallback 感知。
+ * - 端口查询：getSupportedMixerAttributes 直查音频策略，Java 层把任何非 SUCCESS 一律折成空表，故空表
+ *   既可能是厂商没声明端口，也可能是该设备此刻没有输出（平台按输出端口应答）。实测同一台设备无输出时
+ *   空表、有输出时 7 条档位，故空表不作终局结论——每次输出建成后都要重问一次（见 [onOutputEstablished]）。
  * - 格式不符：写出格式与偏好混音器不一致时，AudioFlinger 不会失败，而是把该轨静默混音输出，
- *   因此输出格式必须与偏好对齐，才不会以「已直出」之名走混音路径。
+ *   因此输出格式必须与偏好对齐，才不会以「已直出」之名走混音路径。路由在曲中才成立时，写出变体必须
+ *   跟着重配（见 [PerDeviceAudioSink.syncRouting]），否则状态与实际写出会各说一套。
  *
  * 直出能否成立取决于设备接入与厂商声明，判定依据只在设备现场可得，故开关状态与每次路由重算
  * 的结论都写入诊断日志（设置页可分享），使「设备已识别而直出未生效」能在日志中定位到具体环节；
@@ -170,6 +174,18 @@ class UsbDirectOutput(
         refreshOutputRouting()
     }
 
+    /**
+     * 音频输出（音频轨）建成后重算路由。
+     *
+     * 平台按**输出端口**报告动态混音端口的档位（getSupportedMixerAttributes 是对音频策略的直接原生查询，
+     * Java 层把任何非 SUCCESS 一律折成空表）：同一台设备在应用没有输出时返回空表、有输出时返回全部档位。
+     * 实测过的现象——开关在未起播时打开，查询得空表，直出被判成「设备未声明端口」；随后起播，
+     * 输出已建成却没有人再问一次，直出就再也没回来。故每次输出建成都在此重问，空表不作终局结论。
+     */
+    fun onOutputEstablished() {
+        refreshOutputRouting()
+    }
+
     fun release() {
         enabled = false
         releaseConfiguration("直出释放")
@@ -191,8 +207,8 @@ class UsbDirectOutput(
                 when {
                     device == null -> "未找到 USB 输出设备，直出未生效，播放走系统混音"
                     supported.isEmpty() ->
-                        "USB 设备 ${deviceLabel(device)} 未声明动态混音端口，直出未生效，播放走系统混音；" +
-                            "解码格式 ${describeDecodedFormat()}"
+                        "USB 设备 ${deviceLabel(device)} 未取到动态混音端口（厂商未声明，或设备当前没有输出、" +
+                            "平台便不作应答），直出未生效，播放走系统混音；解码格式 ${describeDecodedFormat()}"
                     else ->
                         "USB 设备 ${deviceLabel(device)} 的动态混音端口无可承载当前格式的条目，直出未生效，" +
                             "播放走系统混音；本条曲目解码输出 ${describeDecodedFormat()}"

@@ -5,6 +5,8 @@ import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.Handler
+import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.AuxEffectInfo
@@ -118,6 +120,24 @@ class PerDeviceAudioSink(
 
     /** 渲染器交给本接收器的回调出口：未接管时为静默实现 */
     private var rendererListener: AudioSink.Listener = SILENT_LISTENER
+
+    /**
+     * 渲染器最近一次下发的配置。
+     *
+     * 直出路由可能在曲中才成立（开关打开、设备接入、平台重新报告端口），此时必须重跑一次配置才能
+     * 切到对应的写出变体，故留一份备用；变体决策只看它带的解码格式，与配置的其余内容无关。
+     */
+    private var lastConfig: AudioSink.AudioSinkConfig? = null
+
+    /**
+     * 音频线程的 Handler：直出路由从别处变更时，重配只能投回音频线程执行。
+     *
+     * 在音频线程上首次 [configure] 时捕获——构造发生在服务创建期（主线程），此处拿不到音频线程的 Looper。
+     */
+    private var playbackHandler: Handler? = null
+
+    /** 是否已整体释放：释放后投递进来的重配不得再执行，此时音频轨与输出都已作废 */
+    private var released = false
 
     /** 当前生效的变体；初始按浮点输出，与无直出设备时的决策一致 */
     private var activeVariant = OutputVariant.FLOAT
@@ -346,12 +366,37 @@ class PerDeviceAudioSink(
 
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
         val format = audioSinkConfig.format
+        // 留一份最近配置：直出路由在曲中变化时要重跑一次它才能真正生效（见 [syncRouting]）
+        lastConfig = audioSinkConfig
+        if (playbackHandler == null) playbackHandler = Looper.myLooper()?.let(::Handler)
         // 先上报再挑变体：直出侧据此下发混音器属性，属性生效后 directTarget 才给出设备，
         // 变体才能按与属性同一个条目来选；音频轨在下一次数据写入时才建立，属性来得及生效
         onDecodedFormatChanged(format.sampleRate, format.channelCount, format.pcmEncoding)
         switchTo(variantFor(format))
         onOutputVariantChanged(activeVariant == OutputVariant.FLOAT)
         active().configure(audioSinkConfig)
+    }
+
+    /**
+     * 直出路由变化后让生效变体跟上。
+     *
+     * 写出编码是构造期取向，切换必须重开音频轨，而 [configure] 是变体决策的唯一落点，故重跑一次配置。
+     * 变体未变则什么都不做：换曲重配点本就会挑对变体，在此重配只会白开一次音频轨。
+     *
+     * 一律投回音频线程：本方法由直出的成色回调驱动，那处可能来自主线程（开关、设备插拔），
+     * 而配置只能发生在音频线程上。投递同时保证不会在渲染器调用音频输出的栈内重入。
+     */
+    fun syncRouting() {
+        val handler = playbackHandler ?: return
+        handler.post {
+            val config = lastConfig ?: return@post
+            if (released) return@post
+            if (variantFor(config.format) == activeVariant) return@post
+            // 重配由本类自发起，不经渲染器的错误处置，故失败自己吞掉：下次换曲的重配点会照常重来
+            runCatching { configure(config) }.onFailure {
+                CrashLogManager.logException(LOG_TAG, "直出路由变化后的重配失败", it)
+            }
+        }
     }
 
     override fun setListener(listener: AudioSink.Listener) {
@@ -468,7 +513,10 @@ class PerDeviceAudioSink(
         forEachSink { it.reset() }
     }
 
-    override fun release() = forEachSink { it.release() }
+    override fun release() {
+        released = true
+        forEachSink { it.release() }
+    }
 
     private companion object {
         /** 渲染器未接管期间与未生效变体的回调出口，事件不外泄 */
