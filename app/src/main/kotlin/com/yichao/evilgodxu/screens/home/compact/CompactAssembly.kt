@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -109,6 +110,13 @@ internal fun CompactAssembly(
         null
     }
 
+    // 底部弹层（播放列表、音频信息）与曲库分析对话框置顶：展开期间它们占住面板区域，
+    // 标题栏整体让位，避免与面板内容相互遮挡
+    val sheetOnTop = panelState.playlistVisible || panelState.audioInfoVisible || panelState.libraryAnalysis.visible
+    // 触摸唤出需要读到最新的置顶状态：播放页的触摸手势协程只建立一次，
+    // 直接捕获组合期的布尔值会一直读到首次组合的旧值，故经 State 转交
+    val sheetOnTopState = rememberUpdatedState(sheetOnTop)
+
     // 标题栏显隐：仅播放器页自动收起（搜索页与歌单页内容从标题栏下方开始，收起会留下空带），
     // 触摸播放页任意位置或切回播放器页即唤出，两秒无操作后收起
     val autoHideTopBar = panelState.currentPage == HomePage.PLAYER
@@ -116,6 +124,9 @@ internal fun CompactAssembly(
     // 交互计数：每次唤出都自增以重置收起计时，连续触摸期间不会提前收起
     var topBarGeneration by remember { mutableIntStateOf(0) }
     fun revealTopBar() {
+        // 弹层置顶期间不唤出：触摸落在弹层上，若照常唤出，标题栏会随每次触摸闪入、
+        // 两秒后再自动收起，在弹层上方反复进出
+        if (sheetOnTopState.value) return
         topBarVisible = true
         topBarGeneration++
     }
@@ -129,10 +140,8 @@ internal fun CompactAssembly(
         if (panelState.currentPage == HomePage.PLAYER) revealTopBar()
     }
     // 底部弹层与曲库分析展开时收起，避免遮挡面板内容
-    LaunchedEffect(panelState.playlistVisible, panelState.audioInfoVisible, panelState.libraryAnalysis.visible) {
-        if (panelState.playlistVisible || panelState.audioInfoVisible || panelState.libraryAnalysis.visible) {
-            topBarVisible = false
-        }
+    LaunchedEffect(sheetOnTop) {
+        if (sheetOnTop) topBarVisible = false
     }
     val topBarAlpha by animateFloatAsState(
         targetValue = if (topBarVisible || !autoHideTopBar) 1f else 0f,
@@ -172,6 +181,7 @@ internal fun CompactAssembly(
                     .fillMaxSize()
                     .then(trackSwipe.modifier)
                     // 只在 Initial 阶段观察、不消费事件：播放页任意触摸都唤出标题栏
+                    // （弹层置顶期间除外，判定见 revealTopBar）
                     .pointerInput(Unit) {
                         awaitPointerEventScope {
                             while (true) {
