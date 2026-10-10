@@ -12,6 +12,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.ExoPlayer
 import com.yichao.evilgodxu.log.CrashLogManager
+import java.util.concurrent.ConcurrentHashMap
 
 // USB 解码器会以设备、耳机、配件三类上报，三者都是可直接播放的输出目标
 private val USB_OUTPUT_TYPES = setOf(
@@ -31,7 +32,7 @@ private const val LOG_TAG = "UsbDirectOutput"
  * - [ExoPlayer.setPreferredAudioDevice] 把播放器的输出路由固定到同一设备，
  *   使该流成为播放的唯一出口。
  *
- * 专用流只接纳与混音器属性逐字段一致（采样率、声道、编码）的播放，混音器属性因此按当前解码格式挑选，
+ * 专用流只接纳与混音器属性逐字段一致（采样率、声道、编码）的播放，混音器属性因此按源格式构造或挑选，
  * 并在换曲导致格式变化时重新下发。
  *
  * 混音器属性分两档取用，成色随之不同：
@@ -39,6 +40,12 @@ private const val LOG_TAG = "UsbDirectOutput"
  *   ——音频不经混音、不受音量与音效处理，数据原样下发到 HAL；
  * - 源格式直出：位完美请求未被受理时的兼容结果——仍按源格式请求该端口的输出流，播放格式对齐即不发生
  *   重采样，但音轨音量与音效按常规链路处理。
+ *
+ * 候选按优先级取用：先按源格式构造一份混音器属性直接下发，被拒后再退回「从设备声明的动态混音端口条目里
+ * 挑选」。USB 设备常只上报自身上限——编码只报最高的 32 位或 24 位、采样率只报高采样率——声明的档位
+ * 因而短于设备实际支持范围，本可直出的源格式（典型如 44.1kHz/16 位）在声明里往往找不到对应条目；
+ * 先按源格式直接请求，正是为了拿到这批被漏报的档位。两者都未受理才交回系统混音。
+ * 源格式候选的编码取源位深对应值（见 [sourceOutputEncoding]）；位深无从取得时按解码头输出编码兜底。
  *
  * 原生行为（已核实）：
  * - 受理条件：APM 要求 usage 为 USAGE_MEDIA、设备为已接入的 USB 输出，且存在与目标格式、采样率、
@@ -71,6 +78,13 @@ private const val LOG_TAG = "UsbDirectOutput"
 class UsbDirectOutput(
     private val player: ExoPlayer,
     private val audioManager: AudioManager,
+    /**
+     * 当前曲目的源位深（容器声明），未声明或尚未读到时为 null。
+     *
+     * 取自容器而非解码头：解码器对高分辨率源一律请求浮点输出，浮点给不出 24 位与 32 位之别，
+     * 按它无从选出源位深对应的输出编码（见 [sourceOutputEncoding]）。
+     */
+    private val sourceBitDepth: () -> Int? = { null },
 ) {
     private var enabled = false
     private var callbackRegistered = false
@@ -84,6 +98,30 @@ class UsbDirectOutput(
      * 不再下发）。两者必须同一份——把「下发过」与「已受理」分开记，被拒的取值就会挡住下次重试。
      */
     private var acceptedMixerAttributes: AudioMixerAttributes? = null
+    /**
+     * 本会话内已被证实建不起音频轨的直出格式。
+     *
+     * 「属性被系统受理」不等于音频轨建得起来（见 [reportUnrealizableFormat]）：该格式再被选中只会再失败
+     * 一次，故一经实测失败即排除在本轮候选之外。按格式而非设备记：同一台设备上不同档位的可用性互不相干。
+     *
+     * 读写分处播放线程（轨道回调、音频输出上报）与主线程（开关、设备插拔），故用并发集合。
+     */
+    private val unrealizableFormats = ConcurrentHashMap.newKeySet<AudioFormat>()
+
+    /**
+     * [unrealizableFormats] 所归属的 USB 设备编号，null 表示尚无记录。
+     *
+     * 与当前设备不符即整体作废——上一台做不到的档位，新设备未必做不到。以设备编号而非 [targetDevice]
+     * 判归属：撤销配置会把 [targetDevice] 置空，拿它判会把「同一台设备上的失败」误当成「换了设备」。
+     */
+    private var unrealizableFormatsDeviceId: Int? = null
+    /**
+     * 上一轮构造出的直出候选，按优先级排列（源格式在前、设备声明的条目在后）。
+     *
+     * 失败降级要按同一张表续试下一档，而那一刻不能重新查询设备（见 [applyNextDirectCandidate]），
+     * 故留一份备用；每次路由重算都整体替换。
+     */
+    private var lastCandidates: List<AudioMixerAttributes> = emptyList()
     /** 已对外上报的输出成色，与 [onRoutingChanged] 的出参同处一处，避免内部状态与上报值脱节 */
     private var reportedMode = AudioOutputMode.MIXER
     /** 当前曲目的解码格式，混音器属性需与之逐字段（采样率、声道、编码）匹配才能被直出流接纳 */
@@ -157,6 +195,56 @@ class UsbDirectOutput(
         if (acceptedMixerAttributes != null) targetDevice else null
 
     /**
+     * 已受理的专用输出流的写出编码，null 表示当前未直出；供音频输出选择与之逐字段一致的写出变体。
+     *
+     * 与 [directTargetDevice] 同取一份已受理的属性：编码无法由设备声明反推——源格式候选未必在声明之列，
+     * 只有「系统实际受理的那条属性」才是写出必须对齐的目标。
+     */
+    fun directOutputEncoding(): Int? = acceptedMixerAttributes?.format?.encoding
+
+    /**
+     * 音频输出报告：已受理的直出格式在本机不可用（建不起音频轨，或建成后写不出），撤销其配置并记为不可用。
+     *
+     * 受理条件只说明设备侧有一条匹配的动态输出 profile，不说明本应用真的用得上它——实测同一台设备两处都
+     * 失手过：默认行为的 48000Hz/2ch/24 位被受理后建轨抛 UnsupportedOperationException；同一台设备的
+     * 另一档是轨道建成后写返回 ERROR_INVALID_OPERATION。这一步是直出链路上唯一能拦住这两种情形的环节
+     * ——事前实测的结论依赖「设备当时是否已有输出」，预测不了偏好生效后的建轨与写出，故不能代替此处的
+     * 实测结论。
+     *
+     * 撤销后随即按上次挑出的候选改挂下一档（[applyNextDirectCandidate]）：被证伪的格式已记入
+     * [unrealizableFormats]，故取到的正是设备声明的下一档——「先源格式、失败则按设备支持的位深与采样率」
+     * 这条次序由此落实。改挂不成则播放交回系统混音、写出降为浮点变体；输出建起后 [onOutputEstablished]
+     * 还会再重算一次，故系统混音只是暂态而不是终局。
+     */
+    fun reportUnrealizableFormat() {
+        val attributes = acceptedMixerAttributes ?: return
+        targetDevice?.let { unrealizableFormatsDeviceId = it.id }
+        unrealizableFormats += attributes.format
+        logDiagnostic(
+            "直出格式不可用（已受理但建不起轨或写不出），撤销该格式偏好并记为不可用：${describeMixer(attributes)}"
+        )
+        releaseConfiguration("直出格式不可用")
+        applyNextDirectCandidate()
+    }
+
+    /**
+     * 改挂上一轮候选里尚未被证伪的下一档。
+     *
+     * 不重新查询设备：查询按输出端口应答，而此刻本应用刚释放掉那条失败的音频轨，设备上没有本应用的输出，
+     * 重问只会得到空表（空表的两种含义见 [supportedMixerAttributes]）。设备声明的档位与「此刻是否已有
+     * 输出」无关，故按上一轮的候选表续试是有效的；改挂不成（无候选、或属性未被受理）即维持系统混音。
+     */
+    private fun applyNextDirectCandidate() {
+        val device = findUsbOutputDevice() ?: return
+        val candidates = lastCandidates.filterNot { it.format in unrealizableFormats }
+        if (candidates.isEmpty()) return
+        // 属性先于路由下发：播放改道到该设备时，才按已配置的属性建立专用输出流
+        val accepted = applyDirectMixer(device, candidates)
+        pinPreferredDevice(device)
+        updateRouting(device, accepted)
+    }
+
+    /**
      * 解码格式变化（换曲、换源）后记录新格式，直出开启时据此重新挑选混音器属性。
      *
      * [decodedPcmEncoding] 必须是解码头实际输出的线性 PCM 编码：容器格式给不出它（压缩源下为 NO_VALUE），
@@ -197,13 +285,24 @@ class UsbDirectOutput(
     private fun refreshOutputRouting() {
         if (!enabled) return
         val device = findUsbOutputDevice()
-        // 设备支持的混音器属性条目即候选全集：条目缺位或格式对不上时直出无从成立，成败全由这一项决定
+        // 换设备即作废上一台的记录（拔出时 device 为 null 同样作废）：上一台做不到的档位，新设备未必做不到。
+        // 必须先于下面的判定——否则记录会把新设备的格式一并挡掉
+        if (device?.id != unrealizableFormatsDeviceId) {
+            unrealizableFormats.clear()
+            unrealizableFormatsDeviceId = device?.id
+        }
+        // 设备声明的动态混音端口条目：厂商只报上限时它短于实际支持范围，故声明档位之外还先构造源格式候选，
+        // 两者一并成为候选（见 [directMixerCandidates]）
         val supported = device?.let { supportedMixerAttributes(it) }.orEmpty()
-        val mixerAttributes = device?.let { pickMixerAttributes(supported) }
+        val built = device?.let { directMixerCandidates(supported) }.orEmpty()
+        // 已被实测证伪建不出音频轨的格式不再入选：再选只会再失败一次（见 [reportUnrealizableFormat]）
+        val candidates = built.filterNot { it.format in unrealizableFormats }
+        lastCandidates = candidates
         // 直出无从成立：撤销配置，交回系统混音。归因与结论一次取出——撤销说明与日志结论同出此处，
-        // 两处才不会各说一套
-        if (device == null || mixerAttributes == null) {
-            val (releaseReason, conclusion) = noDirectOutputReason(device, supported)
+        // 两处才不会各说一套。构造出的候选全被剔除时，原因落在「格式建不出音频轨」而非「设备无条目」
+        if (device == null || candidates.isEmpty()) {
+            val (releaseReason, conclusion) =
+                noDirectOutputReason(device, supported, built.isNotEmpty())
             releaseConfiguration(releaseReason)
             logDiagnostic(conclusion)
             return
@@ -211,7 +310,7 @@ class UsbDirectOutput(
         if (device != targetDevice) {
             releaseConfiguration("改用其它 USB 输出设备")
             // 属性先于路由下发：播放改道到该设备时，才按已配置的属性建立专用输出流
-            val accepted = applyMixerAttributes(device, mixerAttributes)
+            val accepted = applyDirectMixer(device, candidates)
             pinPreferredDevice(device)
             updateRouting(device, accepted)
             if (accepted == null) {
@@ -222,25 +321,29 @@ class UsbDirectOutput(
             }
             return
         }
-        // 已钉定同一设备时，只有「该格式已被系统受理」才不再下发：未受理、专用输出流已被撤销、换了格式，
-        // 三者都表现为与本条格式不等，据此判定才不会把「上次被拒」当成「正在直出」。
+        // 已钉定同一设备时，只有「当前候选里已有格式被系统受理」才不再下发：未受理、专用输出流已被撤销、
+        // 换了格式，三者都表现为已受理格式不在本轮候选内，据此判定才不会把「上次被拒」当成「正在直出」。
         // 按格式比较而非整体相等：受理的可能是位完美的请求变体（行为不同、格式相同），
-        // 行为不参与「要不要重下发」的判定——已经拿到位完美，再下发只会白开一次输出流
-        if (mixerAttributes.format == acceptedMixerAttributes?.format) return
-        updateRouting(device, applyMixerAttributes(device, mixerAttributes))
+        // 行为不参与「要不要重下发」的判定——已经拿到位完美，再下发只会白开一次输出流。
+        // 以「任一候选」而非「首个候选」为准：源格式候选被拒而声明条目受理时，重下发只会白开一次输出流
+        val acceptedFormat = acceptedMixerAttributes?.format
+        if (acceptedFormat != null && candidates.any { it.format == acceptedFormat }) return
+        updateRouting(device, applyDirectMixer(device, candidates))
     }
 
     /**
      * 直出无从成立的原因，以及写给日志的结论（前者进撤销说明，后者进诊断日志）。
      *
-     * 归因分两侧：**设备侧**（没有设备、没取到动态混音端口、端口没有匹配当前格式的条目）与**曲目侧**
-     * （解码格式尚未上报、解码输出不是线性 PCM）。曲目侧那两种都会随音频输出上报而自行重试，把它们与
-     * 设备侧混作一句「设备无可承载条目」，会把「设备已识别而直出未生效」的排查引到错误方向。
+     * 归因分三侧：**设备侧**（没有设备、没取到动态混音端口、端口没有匹配当前格式的条目）、**曲目侧**
+     * （解码格式尚未上报、解码输出不是线性 PCM）与**建轨侧**（候选格式已被实测证伪建不出音频轨，
+     * [allCandidatesUnrealizable]）。曲目侧那两种都会随音频输出上报而自行重试，建轨侧则说明设备侧与
+     * 格式侧都没问题、卡在本应用的音频轨；三者混作一句「设备无可承载条目」，会把排查引到错误方向。
      * 两份结论同出此处，同一个判定不会在两处被写成两种说法。
      */
     private fun noDirectOutputReason(
         device: AudioDeviceInfo?,
         supported: List<AudioMixerAttributes>,
+        allCandidatesUnrealizable: Boolean = false,
     ): Pair<String, String> {
         val label = device?.let(::deviceLabel)
         return when {
@@ -258,6 +361,12 @@ class UsbDirectOutput(
                 "解码输出不是线性 PCM" to
                     "USB 设备 $label 已声明动态混音端口，但本曲解码输出不是线性 PCM，无位深可对齐，" +
                     "直出无从成立，播放走系统混音；解码输出 ${describeDecodedFormat()}"
+            // 候选本身构造出来了，只是格式已被实测证伪「建不出音频轨」——与「设备没有可承载条目」是两回事，
+            // 归到后者会把排查引向设备能力不足
+            allCandidatesUnrealizable ->
+                "直出候选的格式建不起音频轨" to
+                    "USB 设备 $label 上构造出的直出候选格式均已实测建不起音频轨（偏好已撤销并记为不可用），" +
+                    "直出未生效，播放走系统混音；本条曲目解码输出 ${describeDecodedFormat()}"
             else ->
                 "设备未提供可承载当前格式的混音器条目" to
                     "USB 设备 $label 的动态混音端口无可承载当前格式的条目，直出未生效，播放走系统混音；" +
@@ -266,7 +375,22 @@ class UsbDirectOutput(
     }
 
     /**
-     * 下发候选条目，返回已被系统受理的那一条；都未受理时为 null。
+     * 依次下发候选，返回首个被系统受理的那条；都未受理时为 null。
+     *
+     * 逐档回落：源格式候选被拒后仍按设备声明的条目再试，声明里有可承载条目时直出照样成立。
+     */
+    private fun applyDirectMixer(
+        device: AudioDeviceInfo,
+        candidates: List<AudioMixerAttributes>,
+    ): AudioMixerAttributes? {
+        for (candidate in candidates) {
+            applyMixerAttributes(device, candidate)?.let { return it }
+        }
+        return null
+    }
+
+    /**
+     * 下发单条候选，返回已被系统受理的那一条；未受理时为 null。
      *
      * 挑出的是默认行为条目时，先按同一格式试一次位完美，被拒再下发它本身。位完美与否由平台按设备声明的
      * 行为应答（getSupportedMixerAttributes 给出的即「可用的集合」），而国产厂商鲜少在动态混音端口上声明
@@ -437,18 +561,55 @@ class UsbDirectOutput(
             .getOrDefault(emptyList())
 
     /**
-     * 挑出可承载当前曲目的直出混音器条目。
+     * 直出候选，按优先级排列：先源格式，再设备声明的条目。
+     *
+     * 源格式候选排在最前是刻意的：USB 设备常只上报自身上限，声明的档位短于实际支持范围，本可直出的
+     * 源格式在声明里找不到对应条目；先按源格式直接请求，被拒再退取声明条目（[pickMixerAttributes]）。
+     * 两者格式相同时去重只留前者——[applyMixerAttributes] 对默认行为候选本就会先按同格式试一次位完美，
+     * 与声明里的位完美条目等值。
+     *
+     * 声明条目一空即返回空表：空表说明设备未开放动态混音端口（厂商未声明，或设备当前没有输出，
+     * 见 [supportedMixerAttributes]），此时按源格式直接请求同样挂不上专用输出流，不必白试。
+     */
+    private fun directMixerCandidates(
+        supported: List<AudioMixerAttributes>,
+    ): List<AudioMixerAttributes> {
+        if (supported.isEmpty()) return emptyList()
+        return listOfNotNull(sourceFormatMixerAttributes(), pickMixerAttributes(supported))
+            .distinctBy { it.format }
+    }
+
+    /**
+     * 按源格式构造的直出候选：采样率与声道取源格式（与解码输出一致），编码取源位深对应值
+     * （见 [sourceOutputEncoding]）。
+     *
+     * 不为「本机是否写得出来」设前置判定：真正的判据只有「系统受理 + 音频轨建得起来」，而事前建轨实测
+     * 既会按声明乱建档位，也会把设备拖进坏状态（见 docs/注意事项.md）。故一律先按源格式请求，被拒即回落
+     * 声明条目；即便受理后音频轨仍建不起来，也由音频输出侧降级兜底，不会拖垮播放。
+     *
+     * 解码格式尚未取得或不是线性 PCM 时位深无对齐依据，返回 null。
+     */
+    private fun sourceFormatMixerAttributes(): AudioMixerAttributes? {
+        if (decodedSampleRate <= 0 || decodedChannelCount <= 0) return null
+        val channelMask = Util.getAudioTrackChannelConfig(decodedChannelCount)
+        if (channelMask == AudioFormat.CHANNEL_INVALID) return null
+        val encoding = sourceOutputEncoding(sourceBitDepth(), decodedPcmEncoding) ?: return null
+        return AudioMixerAttributes.Builder(
+            AudioFormat.Builder()
+                .setSampleRate(decodedSampleRate)
+                .setChannelMask(channelMask)
+                .setEncoding(encoding)
+                .build()
+        ).build()
+    }
+
+    /**
+     * 挑出可承载当前曲目的直出混音器条目，作为源格式候选被拒后的回落档位。
      * 位完美条目优先，缺失时退取同一动态端口的默认行为条目——厂商漏标位完美标志不等于设备做不到
      * 按源格式打开输出流。解码格式未知（尚未起播）或不是线性 PCM 时不下发，等音频输出上报后重新触发。
      */
     private fun pickMixerAttributes(supported: List<AudioMixerAttributes>): AudioMixerAttributes? =
-        selectDirectMixer(
-            supported,
-            decodedSampleRate,
-            decodedChannelCount,
-            decodedPcmEncoding,
-            packedIntWritableEncodings(supported, decodedSampleRate, decodedChannelCount),
-        )
+        selectDirectMixer(supported, decodedSampleRate, decodedChannelCount, decodedPcmEncoding)
 
     private fun registerCallback() {
         if (callbackRegistered) return
@@ -476,9 +637,6 @@ class UsbDirectOutput(
  * 而两处调用点一旦挑出不同条目，AudioFlinger 不报错而是静默混音输出，「已直出」名不副实。
  * 不是线性 PCM（未取得编码、直通等）即无从判定，直接交回系统混音。
  *
- * [writablePackedIntEncodings] 是本机能写出的打包整型编码（24 位 / 32 位），由 [packedIntWritableEncodings]
- * 按设备声明的条目探测后给出——两者都不是媒体3 的默认输出能产出的编码，可用性只能实测。
- *
  * 候选按成色取用：优先厂商声明了 AUDIO_OUTPUT_FLAG_BIT_PERFECT 的条目；无位完美条目时退取同一动态
  * 端口上的默认行为条目。后者是为厂商漏标该标志准备——平台的混音行为枚举对每个动态输出端口恒有一条
  * 默认行为条目，只有声明了标志才额外多出一条位完美条目，故漏标并不等于设备做不到按源格式直出。
@@ -489,8 +647,9 @@ class UsbDirectOutput(
  * 写出，只在无路可走时才落到它——若排在前列，本可在原线路上直出的设备会被无谓地拉进另一套输出实现；
  * 两种打包整型之间取位深更高的 32 位（同为自研实现，32 位能容下更多源位深）。
  *
- * 直出侧据此下发混音器属性，[PerDeviceAudioSink] 据此选择写出变体，两处共用本函数才不会各自跑偏：
- * 一旦写出编码与所下发的条目不符，AudioFlinger 不报错而是静默混音输出，「已直出」名不副实。
+ * 本函数产出的是**源格式候选被拒后的回落档位**；音频输出不再自行挑条目，而是直接取已受理的属性格式来选
+ * 写出变体（[UsbDirectOutput.directOutputEncoding]）。写出编码与已受理的属性不符时 AudioFlinger 不报错
+ * 而是静默混音输出，「已直出」名不副实，故两处只以「系统实际受理的那条属性」为唯一结论。
  */
 @OptIn(UnstableApi::class)
 internal fun selectDirectMixer(
@@ -498,11 +657,10 @@ internal fun selectDirectMixer(
     sampleRate: Int,
     channelCount: Int,
     decodedPcmEncoding: Int,
-    writablePackedIntEncodings: Set<Int>,
 ): AudioMixerAttributes? {
     if (sampleRate <= 0) return null
     if (!Util.isEncodingLinearPcm(decodedPcmEncoding)) return null
-    val writable = writablePcmEncodings(decodedPcmEncoding, writablePackedIntEncodings)
+    val writable = writablePcmEncodings(decodedPcmEncoding)
     val candidates = supported.filter {
         it.format.sampleRate == sampleRate &&
             it.format.encoding in writable &&
@@ -520,61 +678,55 @@ internal fun selectDirectMixer(
 }
 
 /**
- * 本机在给定解码格式下能写出的打包整型编码。
+ * 源位深对应的目标写出编码。
  *
- * 打包整型只能由自研输出实现写出，且平台是否受理该位深随机型与音频策略而变，没有能力查询接口，
- * 故逐个实测建轨（成功结论由 [IntPcmOutputSupport] 长期缓存）。
+ * 16 位及以下源写成 16 位整型，24 位源写成 24 位打包，32 位及以上写成 32 位整型：设备的动态混音端口
+ * 常只声明自身上限（编码只报最高的 32 位或 24 位），源位深才是选出「源格式直出」编码的依据；按声明取用
+ * 会让 16 位源也走上最高位深，本可直出的低档位反而无候选。
  *
- * 只探测设备在**该采样率与声道数上确实声明过**的编码：探测不是查询，它真的会建起一条该档位的轨道，
- * 而候选要求采样率、声道、编码三者逐字段相符——设备没声明这个档位时，探测结果永远进不了候选，
- * 白白建轨只会把设备拖进它并不支持的档位。USB 音频尤其经不起这一下：在设备不支持的采样率上建轨，
- * 会让它之后连受支持档位的直出都建不起来（曲目源采样率不支时直出退不回来的成因）。
- *
- * 直出侧与音频输出都经本函数取值，两处由此自动取同一口径——一旦一处的可写集合更宽，
- * 挑出的条目就会与另一处写出的编码不符，而 AudioFlinger 不报错只是静默混音输出。
+ * [sourceBitDepth] 为 null（容器未声明源位深，如有损源）时按解码头实际输出编码兜底：解码器对高分辨率源
+ * 请求浮点输出（浮点给不出 24 位与 32 位之别，按 32 位请求），其余按 16 位。非线性 PCM 无位深可言，
+ * 返回 null，由调用方交回系统混音。
  */
-internal fun packedIntWritableEncodings(
-    supported: List<AudioMixerAttributes>,
-    sampleRate: Int,
-    channelCount: Int,
-): Set<Int> {
-    if (sampleRate <= 0 || channelCount <= 0) return emptySet()
-    val declared = supported
-        .filter { it.format.sampleRate == sampleRate && it.format.channelCount == channelCount }
-        .mapTo(mutableSetOf()) { it.format.encoding }
-    return PACKED_INT_ENCODINGS.filterTo(mutableSetOf()) { encoding ->
-        encoding in declared &&
-            IntPcmOutputSupport.isSupported(sampleRate, channelCount, encoding)
+@OptIn(UnstableApi::class)
+internal fun sourceOutputEncoding(sourceBitDepth: Int?, decodedPcmEncoding: Int): Int? {
+    if (!Util.isEncodingLinearPcm(decodedPcmEncoding)) return null
+    return when {
+        sourceBitDepth == null ->
+            if (Util.isEncodingHighResolutionPcm(decodedPcmEncoding)) {
+                AudioFormat.ENCODING_PCM_32BIT
+            } else {
+                AudioFormat.ENCODING_PCM_16BIT
+            }
+        sourceBitDepth <= 16 -> AudioFormat.ENCODING_PCM_16BIT
+        sourceBitDepth <= 24 -> AudioFormat.ENCODING_PCM_24BIT_PACKED
+        else -> AudioFormat.ENCODING_PCM_32BIT
     }
 }
 
-// 自研输出实现能写出的打包整型：设备动态混音端口上出现过的取值只有这两种
-private val PACKED_INT_ENCODINGS = setOf(
-    AudioFormat.ENCODING_PCM_24BIT_PACKED,
-    AudioFormat.ENCODING_PCM_32BIT,
-)
-
 /**
- * 播放器能写出的 PCM 编码。
+ * 音频输出能写出的 PCM 编码。
  *
  * 浮点与 16 位整型由媒体3 的默认输出产出：浮点变体下写浮点，非浮点变体上经 `ToInt16PcmAudioProcessor`
- * 转成 16 位整型。浮点因此不由源位深决定——渲染器配置解码器时已按接收器的能力基准索取浮点输出，
+ * 转成 16 位整型。浮点因此不由源位深决定——渲染器配置解码器时按接收器的能力基准索取浮点输出，
  * [decodedPcmEncoding] 通常就是浮点；保留 [Util.isEncodingHighResolutionPcm] 这一关，是为解码器未照做、
  * 仍按 16 位整型输出时不再放宽可写集合。
- * 打包整型由 [IntPcmAudioSink] 写出，需先确认本机在该位深下能建起轨道（由 [packedIntWritableEncodings]
- * 实测后传入）。其中 32 位容得下任意线性源——32 位及以下源左移补零后逐位无损，浮点源按中间态取整；
- * 24 位则丢 32 位源的低八位，故源本就是 32 位时不列入。
+ * 打包整型由 [IntPcmAudioSink] 写出，其中 32 位容得下任意线性源——32 位及以下源左移补零后逐位无损，
+ * 浮点源按中间态取整；24 位则丢 32 位源的低八位，故源本就是 32 位时不列入。
+ *
+ * 这里只列「本应用写得出的编码」，不掺「本机是否建得起轨」：后者不再事前实测（见 docs/注意事项.md），
+ * 由音频输出在真实建轨失败时降级兜底。
  *
  * [decodedPcmEncoding] 取解码头实际输出的线性 PCM 编码：未取得编码时的取值会让「高分辨率」与
  * 「32 位」两项判定都失去依据，凭空放宽可写集合，故调用方须先换算到真实 PCM。
  */
 @OptIn(UnstableApi::class)
-internal fun writablePcmEncodings(
-    decodedPcmEncoding: Int,
-    writablePackedIntEncodings: Set<Int>,
-): Set<Int> {
-    val writable = writablePackedIntEncodings.toMutableSet()
-    writable += AudioFormat.ENCODING_PCM_16BIT
+internal fun writablePcmEncodings(decodedPcmEncoding: Int): Set<Int> {
+    val writable = mutableSetOf(
+        AudioFormat.ENCODING_PCM_16BIT,
+        AudioFormat.ENCODING_PCM_24BIT_PACKED,
+        AudioFormat.ENCODING_PCM_32BIT,
+    )
     if (Util.isEncodingHighResolutionPcm(decodedPcmEncoding)) {
         writable += AudioFormat.ENCODING_PCM_FLOAT
     }

@@ -85,15 +85,27 @@ class MusicPlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         audioManager = getSystemService(AudioManager::class.java)
-        // 音频输出由 PerDeviceAudioSink 按目标设备挑选浮点/整型变体并自行重建，
+        // 音频输出由 PerDeviceAudioSink 按直出已受理的编码挑选浮点/整型变体并自行重建，
         // 故此处忽略工厂给出的浮点参数，固定返回同一实例供渲染器使用
         val audioSink = PerDeviceAudioSink(
             context = this,
-            audioManager = audioManager,
             directTarget = {
                 // 直出在播放器之后装配，此处延迟求值；尚未装配时视为未直出
                 if (::usbDirectOutput.isInitialized) usbDirectOutput.directTargetDevice() else null
             },
+            // 写出变体按直出已受理的编码选定，与下发并被系统受理的那条属性逐字段对齐；
+            // 不是直出时为空，变体保持浮点
+            directOutputEncoding = {
+                if (::usbDirectOutput.isInitialized) usbDirectOutput.directOutputEncoding() else null
+            },
+            // 打包整型输出建不起音频轨时回报直出侧：撤销该格式偏好并记为不可用，播放降级续走
+            onDirectOutputUnrealizable = {
+                if (::usbDirectOutput.isInitialized) usbDirectOutput.reportUnrealizableFormat()
+            },
+            // 源位深决定「浮点可直出」是否申报：已知 16 位及以下的源按源位深解码输出，
+            // 解码输出、写出与面板三者才与源一致。取值须属于当前曲目——上一首的记录会让这一首
+            // 也按上一首的位深解码（见 MusicPlaybackState.currentSourceBitDepth）
+            sourceBitDepth = { stateHolder.state.currentSourceBitDepth },
             // 变体切换发生在渲染器重配点，即 ExoPlayer 的播放线程，回写共享状态无需切线程
             onOutputVariantChanged = { floatOutput ->
                 stateHolder.state.audioSinkFloatOutput = floatOutput
@@ -271,7 +283,13 @@ class MusicPlaybackService : MediaSessionService() {
             .setCallback(sessionCallback)
             .build()
         // 直出不参与媒体会话，在会话建立后单独装配；设置变更即刻生效，无需重启服务
-        usbDirectOutput = UsbDirectOutput(player, audioManager)
+        // 源位深取自容器（先于解码输出可得，且不受解码器「高分辨率源一律请求浮点」的抹平）：
+        // 直出据此按源格式构造候选，源位深未读到时类内按解码头编码兜底
+        usbDirectOutput = UsbDirectOutput(
+            player = player,
+            audioManager = audioManager,
+            sourceBitDepth = { stateHolder.state.currentSourceBitDepth },
+        )
         // 免打扰随输出成色进出：位完美与源格式直出都属于专注聆听，通知与提示音是最直接的打扰源；
         // 未获免打扰访问权时类内自行跳过，不影响播放
         val notificationManager = getSystemService(NotificationManager::class.java)

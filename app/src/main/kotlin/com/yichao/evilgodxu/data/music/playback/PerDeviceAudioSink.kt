@@ -3,7 +3,6 @@ package com.yichao.evilgodxu.data.music.playback
 import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
-import android.media.AudioManager
 import android.media.AudioTrack
 import android.os.Handler
 import android.os.Looper
@@ -35,14 +34,14 @@ private const val LOG_TAG = "PerDeviceAudioSink"
 private const val MILLIS_PER_SECOND = 1000
 
 /**
- * 按目标设备重建的音频输出。
+ * 按直出已受理的写出格式重建的音频输出。
  *
  * 写出编码是 [DefaultAudioSink] 的构造期取向，实例内不可更改：浮点变体把高分辨率 PCM 源写成 32 位浮点，
  * 整型变体把高分辨率源降回 16 位整型，24 位与 32 位两个变体则由 [IntPcmAudioSink] 各自写出对应位深的
  * 打包整型——设备只声明该编码时，媒体3 的默认输出无从产出它，只能另起一个输出实现。而 USB 直出建立的
- * 专用输出流只接纳与混音器属性逐字段一致的播放，设备声明哪些格式随机型而变，因此这里持有四个变体，
- * 在每次 [configure] 时按目标设备决策，决策变化即切换变体——即按设备重建输出，使该设备上能挂上的格式
- * 成为当前写出格式。
+ * 专用输出流只接纳与混音器属性逐字段一致的播放，该属性由直出侧按源格式优先挑选并得平台受理，因此这里
+ * 持有四个变体，在每次 [configure] 时按已受理的属性编码决策，决策变化即切换变体——即按该格式重建输出，
+ * 使已受理的条目成为当前写出格式。
  *
  * 平台与 media3 都不对线性 PCM 做设备级能力探测，故非直出时一律保持浮点输出；
  * 决策只在 [configure] 处落地——切换需要重开 AudioTrack，只能发生在渲染器重配点。
@@ -52,9 +51,19 @@ private const val MILLIS_PER_SECOND = 1000
 @OptIn(UnstableApi::class)
 class PerDeviceAudioSink(
     private val context: Context,
-    private val audioManager: AudioManager,
     /** 已建立专用输出流的 USB 输出设备，null 表示当前未直出 */
     private val directTarget: () -> AudioDeviceInfo?,
+    /** 已受理的直出写出编码，null 表示当前未直出；写出变体据此与已受理的混音器属性逐字段对齐 */
+    private val directOutputEncoding: () -> Int?,
+    /** 生效变体建不起音频轨时的报告出口：直出侧据此撤销该格式的偏好并记为不可用 */
+    private val onDirectOutputUnrealizable: () -> Unit = {},
+    /**
+     * 当前曲目的源位深（容器声明），未声明或尚未读到时为 null。
+     *
+     * 据它收窄「浮点可直出」的申报：已知 16 位及以下的源不再让渲染器索取浮点解码输出，解码输出因此
+     * 落在源位深上（见 [formatSupportWithSourceBitDepth]）。
+     */
+    private val sourceBitDepth: () -> Int? = { null },
     /** 输出变体变更回调：报告本次配置后是否以浮点 PCM 写出 */
     private val onOutputVariantChanged: (Boolean) -> Unit = {},
     /** 输出编码变更回调：报告生效变体音频轨实际写出的 PCM 编码，null 表示当前链路无音频轨 */
@@ -284,9 +293,10 @@ class PerDeviceAudioSink(
         val frames = track.bufferSizeInFrames
         val sampleRate = track.sampleRate
         val bufferMs = if (sampleRate > 0) frames * MILLIS_PER_SECOND / sampleRate else 0
+        val targetFrames = if (sampleRate > 0) PlaybackBufferPolicy.targetBufferFrames(sampleRate) else 0
         CrashLogManager.logInfo(
             LOG_TAG,
-            "音频轨缓冲：变体=$variant 请求=${PlaybackBufferPolicy.TARGET_FRAMES}帧 " +
+            "音频轨缓冲：变体=$variant 请求=${targetFrames}帧(${PlaybackBufferPolicy.TARGET_BUFFER_MS}ms) " +
                 "实得=${frames}帧(${bufferMs}ms)",
         )
     }
@@ -302,30 +312,20 @@ class PerDeviceAudioSink(
     /**
      * 该曲目应当用哪个变体写出。
      *
-     * 线性 PCM 的设备级能力无从探测（AudioTrack 经混音输出普遍接受浮点与整型，media3 也只按 API 级别
-     * 判定支持），按设备分化的只有专用输出流的格式匹配，因此仅在直出已建立时决策，其余情况保持浮点。
-     * 判定与直出侧共用 [selectDirectMixer]：选中的条目即直出侧下发的混音器属性，写出编码须与
-     * 之逐字段一致——已核实，格式与偏好不符时 AudioFlinger 不会报错，而是把该轨静默混音输出，
-     * 「已直出」名不副实，故两处必须取同一口径；打包整型的可写入性也须与直出侧同一个结论，
-     * 否则两处会挑出不同条目，由 [IntPcmOutputSupport] 缓存后统一给出。
+     * 唯一依据是直出已受理的混音器属性编码（[directOutputEncoding]）：写出编码须与之逐字段一致——
+     * 已核实，格式与偏好不符时 AudioFlinger 不报错，而是把该轨静默混音输出，「已直出」名不副实。
+     * 故不在此另行挑选：直出侧按源格式优先试出的条目未必在设备声明之列，按声明重挑只会挑到别的编码。
      *
-     * [format] 是解码头输出的格式，其 pcmEncoding 已是真实线性 PCM，正是 [selectDirectMixer]
-     * 要的那一项；不是线性 PCM（直通等）时该函数即返回 null，此处随之回落到浮点。
+     * 线性 PCM 的设备级能力无从探测（AudioTrack 经混音输出普遍接受浮点与整型，media3 也只按 API 级别
+     * 判定支持），按格式分化的只有专用输出流的匹配，故仅在直出已建立时决策，其余情况保持浮点。
      */
-    private fun variantFor(format: Format): OutputVariant {
-        val device = directTarget() ?: return OutputVariant.FLOAT
-        val supported = audioManager.getSupportedMixerAttributes(device)
-        val attributes = selectDirectMixer(
-            supported,
-            format.sampleRate,
-            format.channelCount,
-            format.pcmEncoding,
-            packedIntWritableEncodings(supported, format.sampleRate, format.channelCount),
-        ) ?: return OutputVariant.FLOAT
-        return when (attributes.format.encoding) {
+    private fun variantFor(): OutputVariant {
+        if (directTarget() == null) return OutputVariant.FLOAT
+        return when (directOutputEncoding()) {
             AudioFormat.ENCODING_PCM_16BIT -> OutputVariant.INT16
             AudioFormat.ENCODING_PCM_24BIT_PACKED -> OutputVariant.INT24
             AudioFormat.ENCODING_PCM_32BIT -> OutputVariant.INT32
+            // 浮点变体本就以浮点写出；未受理编码不在此时取值（directTarget 非空即编码非空）
             else -> OutputVariant.FLOAT
         }
     }
@@ -372,7 +372,7 @@ class PerDeviceAudioSink(
         // 先上报再挑变体：直出侧据此下发混音器属性，属性生效后 directTarget 才给出设备，
         // 变体才能按与属性同一个条目来选；音频轨在下一次数据写入时才建立，属性来得及生效
         onDecodedFormatChanged(format.sampleRate, format.channelCount, format.pcmEncoding)
-        switchTo(variantFor(format))
+        switchTo(variantFor())
         onOutputVariantChanged(activeVariant == OutputVariant.FLOAT)
         active().configure(audioSinkConfig)
     }
@@ -391,7 +391,7 @@ class PerDeviceAudioSink(
         handler.post {
             val config = lastConfig ?: return@post
             if (released) return@post
-            if (variantFor(config.format) == activeVariant) return@post
+            if (variantFor() == activeVariant) return@post
             // 重配由本类自发起，不经渲染器的错误处置，故失败自己吞掉：下次换曲的重配点会照常重来
             runCatching { configure(config) }.onFailure {
                 CrashLogManager.logException(LOG_TAG, "直出路由变化后的重配失败", it)
@@ -413,9 +413,34 @@ class PerDeviceAudioSink(
      * 解码器索取浮点输出；上一曲是 16 位源时变体已落到整型，探针失手，下一曲的高分辨率源便拿不到浮点
      * 解码输出，低 8 位在解码口即丢，且此后无缘再回到设备声明的浮点条目。
      */
-    override fun supportsFormat(format: Format): Boolean = floatSink.supportsFormat(format)
+    override fun supportsFormat(format: Format): Boolean =
+        formatSupportWithSourceBitDepth(format) != AudioSink.SINK_FORMAT_UNSUPPORTED
 
-    override fun getFormatSupport(format: Format): Int = floatSink.getFormatSupport(format)
+    override fun getFormatSupport(format: Format): Int = formatSupportWithSourceBitDepth(format)
+
+    /**
+     * 能力基准的答案，但「浮点可直出」这一项随源位深收窄。
+     *
+     * 渲染器只在答案恰为 [AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY] 时才向解码器索取浮点输出
+     * （media3 的 MediaCodecAudioRenderer 据此设 KEY_PCM_ENCODING），所以对已知 16 位及以下的源改答
+     * 「需转换」，解码输出即落在源位深上——解码、写出与信息面板三者随之与源一致。不改答的值本身：
+     * 浮点仍被接受，只是不再被渲染器选为解码输出的取向。
+     *
+     * 源位深未知（有损源、图标信息尚未读到）或高于 16 位时不收窄，浮点取向照旧，精度不受影响。
+     */
+    private fun formatSupportWithSourceBitDepth(format: Format): Int {
+        val support = floatSink.getFormatSupport(format)
+        if (support == AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY &&
+            format.pcmEncoding == C.ENCODING_PCM_FLOAT &&
+            !floatDirectOutputAllowed()
+        ) {
+            return AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING
+        }
+        return support
+    }
+
+    // 已知源为 16 位及以下即收窄浮点取向；位深未知按高分辨率处理，宁可保精度也不误降
+    private fun floatDirectOutputAllowed(): Boolean = (sourceBitDepth() ?: Int.MAX_VALUE) > 16
 
     override fun getFormatOffloadSupport(format: Format): AudioOffloadSupport =
         active().getFormatOffloadSupport(format)
@@ -440,11 +465,74 @@ class PerDeviceAudioSink(
 
     override fun hasPendingData(): Boolean = active().hasPendingData()
 
+    /**
+     * 写出数据；生效变体建不起音频轨、或建起后写不出，都逐档降级，绝不把该失败传成致命错误。
+     *
+     * 两种失败都要拦，且都在真实链路上、别无更早的判据：
+     * - **建不起轨**：「混音器属性被系统受理」并不保证音频轨建得起来（实测：默认行为的
+     *   48000Hz/2ch/24 位被受理后，建轨抛 UnsupportedOperationException 并让整曲播放以
+     *   ERROR_CODE_AUDIO_TRACK_INIT_FAILED 终止）；
+     * - **写不出**：建得起轨也不保证写得出去（实测同一台设备：24 位轨建成后写返回
+     *   `AudioTrack.ERROR_INVALID_OPERATION`，播放以 ERROR_CODE_AUDIO_TRACK_WRITE_FAILED 终止）。
+     *   该错误码不在媒体3 的可恢复集（只有 ERROR_DEAD_OBJECT 算可恢复），故它会直接终止整曲播放。
+     *
+     * 直出是尽力而为：任一变体失败都换下一个续写，全部用尽才交可恢复错误——把决定权还给渲染器，
+     * 而不是以不可恢复错误终止播放。**下一档由直出重挑得出，不是一张固定次序表**：撤销失败的格式后
+     * [onDirectOutputUnrealizable] 会把该格式记为不可用并重新挑选候选，于是降级次序正是设计的那条——
+     * 先源格式，被证伪后退回设备声明的档位，设备侧也无档位可用才回系统混音（[variantFor] 在其后无
+     * 已受理编码时给出浮点变体）。固定次序表做不到这一点：它不知道设备声明了哪些位深。
+     *
+     * 降级前先撤销直出的该格式偏好：写出编码必须与已受理的混音器属性一致，换了编码就不能再挂着那条
+     * 专用流，否则 AudioFlinger 静默混音、「已直出」名不副实。记入不可用则保证同一失败不会反复发生。
+     *
+     * 两种失败对缓冲的影响不同：建轨失败发生在对本缓冲的任何读写之前，可直接改交下一个变体；写出失败时
+     * 缓冲可能已被消费（媒体3 的输出实现会就地消费输入缓冲）。故一则统一退回本轮的缓冲起点再重试：
+     * 失败的一方已随切换被释放，它接纳而未播出的数据不会再播出，整块重写才是连续的。
+     */
     override fun handleBuffer(
         buffer: ByteBuffer,
         presentationTimeUs: Long,
         encodedAccessUnitCount: Int,
-    ): Boolean = active().handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+    ): Boolean {
+        val tried = mutableSetOf<OutputVariant>()
+        var cause: Exception? = null
+        while (true) {
+            tried += activeVariant
+            val startPosition = buffer.position()
+            try {
+                return active().handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+            } catch (e: AudioSink.InitializationException) {
+                cause = e
+                CrashLogManager.logException(LOG_TAG, "变体 $activeVariant 建不起音频轨，降级续写", e)
+            } catch (e: AudioSink.WriteException) {
+                // 可恢复的写出错误交回渲染器冲刷后重试，不在本层吞掉
+                if (e.isRecoverable) throw e
+                cause = e
+                CrashLogManager.logException(LOG_TAG, "变体 $activeVariant 写出失败，降级续写", e)
+            }
+            buffer.position(startPosition)
+            onDirectOutputUnrealizable()
+            // 重挑之后才知道下一档：仍能直出即取新受理编码对应的变体，无档位可退则为浮点（系统混音）
+            val next = variantFor()
+            if (next in tried) throw recoverable(checkNotNull(cause))
+            // 直接切到下一档，不经 [configure]：那会按已受理的编码重挑变体，降级就白做了
+            switchTo(next)
+            onOutputVariantChanged(next == OutputVariant.FLOAT)
+            runCatching { active().configure(checkNotNull(lastConfig)) }.onFailure {
+                CrashLogManager.logException(LOG_TAG, "直出降级后的重配失败", it)
+            }
+        }
+    }
+
+    // 全部变体都用尽：以可恢复错误交回渲染器重试，不用不可恢复错误终止整曲播放
+    private fun recoverable(cause: Throwable): AudioSink.InitializationException =
+        AudioSink.InitializationException(
+            "全部输出变体均无法建轨或写出",
+            AudioTrack.STATE_UNINITIALIZED,
+            checkNotNull(lastConfig).format,
+            /* isRecoverable= */ true,
+            cause,
+        )
 
     override fun play() {
         playRequested = true
