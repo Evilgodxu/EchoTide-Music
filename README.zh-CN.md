@@ -12,8 +12,8 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-4.5.7-informational)
-![Kotlin](https://img.shields.io/badge/Kotlin-2.4.20-purple)
+![Version](https://img.shields.io/badge/version-4.7.0-informational)
+![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.0-blue)
 ![Compose BOM](https://img.shields.io/badge/Compose%20BOM-2026.09.00-blue)
@@ -38,7 +38,7 @@
 
 | 层次 | 技术 |
 | --- | --- |
-| 语言 | Kotlin 2.4.20 |
+| 语言 | Kotlin 2.4.21 |
 | UI | Jetpack Compose(BOM 2026.09.00)+ Material 3 |
 | 播放 | Media3 ExoPlayer 1.11.1 + MediaSessionService |
 | 导航 | AndroidX Navigation3 1.2.0(类型安全路由) |

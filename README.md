@@ -12,8 +12,8 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-4.5.7-informational)
-![Kotlin](https://img.shields.io/badge/Kotlin-2.4.20-purple)
+![Version](https://img.shields.io/badge/version-4.7.0-informational)
+![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.0-blue)
 ![Compose BOM](https://img.shields.io/badge/Compose%20BOM-2026.09.00-blue)
@@ -38,7 +38,7 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 
 | Layer | Technology |
 | --- | --- |
-| Language | Kotlin 2.4.20 |
+| Language | Kotlin 2.4.21 |
 | UI | Jetpack Compose (BOM 2026.09.00) + Material 3 |
 | Playback | Media3 ExoPlayer 1.11.1 + MediaSessionService |
 | Navigation | AndroidX Navigation3 1.2.0 (typed routes) |
@@ -63,10 +63,10 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 │       │   │   ├── cache/               #   Cache inventory (categories, usage, cold-start reclaim)
 │       │   │   ├── music/               #   Music scanning / online sources / metadata / proxy source
 │       │   │   │   ├── api/             #     Search services, translation endpoint & HTTP client
-│       │   │   │   ├── analysis/        #     Lossless-format, audio info, word-level lyric alignment, FFT & full-track spectrogram, per-frame energy envelope
+│       │   │   │   ├── analysis/        #     Lossless-format, audio info, word-level lyric alignment, FFT & full-track spectrogram
 │       │   │   │   ├── clip/            #     Sharing, default ringtone / alarm installer, readable URIs, spectrum image export
 │       │   │   │   ├── download/        #     Online track download & cache
-│       │   │   │   ├── highlight/       #     Chorus (highlight) location (lyric structure + audio energy) & whole-library segment table (background scan + persist), drives chorus-only playback
+│       │   │   │   ├── highlight/       #     Chorus (highlight) location (pure lyric analysis) & whole-library segment table (background scan + persist), drives chorus-only playback
 │       │   │   │   ├── metadata/        #     Cover management, metadata & lyric read/write (ranged streaming tag I/O), metadata cache, gallery image writes
 │       │   │   │   ├── model/           #     Track & search data models (platform key as identity)
 │       │   │   │   ├── panel/           #     Panel state holder, search logic & lyric alignment entry
