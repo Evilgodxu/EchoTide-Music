@@ -102,10 +102,6 @@ class MusicPlaybackService : MediaSessionService() {
             onDirectOutputUnrealizable = {
                 if (::usbDirectOutput.isInitialized) usbDirectOutput.reportUnrealizableFormat()
             },
-            // 源位深决定「浮点可直出」是否申报：已知 16 位及以下的源按源位深解码输出，
-            // 解码输出、写出与面板三者才与源一致。取值须属于当前曲目——上一首的记录会让这一首
-            // 也按上一首的位深解码（见 MusicPlaybackState.currentSourceBitDepth）
-            sourceBitDepth = { stateHolder.state.currentSourceBitDepth },
             // 变体切换发生在渲染器重配点，即 ExoPlayer 的播放线程，回写共享状态无需切线程
             onOutputVariantChanged = { floatOutput ->
                 stateHolder.state.audioSinkFloatOutput = floatOutput

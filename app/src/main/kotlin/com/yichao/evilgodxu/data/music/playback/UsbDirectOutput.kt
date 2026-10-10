@@ -639,8 +639,8 @@ class UsbDirectOutput(
  * 选出默认行为条目只说明声明里没有位完美，下发时仍会按同一格式试一次位完美（见 [applyMixerAttributes]）。
  * 两档都不存在时返回 null，由调用方交回系统混音。
  *
- * 同成色内按编码排序，位深优先——见 [encodingPreference]：高分辨率源的解码输出是浮点，落到 16 位档位
- * 即丢低位，故位深高的档位排在前；16 位及以下的源则优先取同位的整型档位，不白白多走一次补位转换。
+ * 同成色内按编码排序，位深优先——见 [encodingPreference]：解码输出通常为浮点，写到 16 位档位即丢低位，
+ * 故位深高的档位排在前，浮点最优先。
  *
  * 本函数产出的是直出档位；音频输出不再自行挑条目，而是直接取已受理的属性格式来选写出变体
  * （[UsbDirectOutput.directOutputEncoding]）。写出编码与已受理的属性不符时 AudioFlinger 不报错
@@ -670,7 +670,7 @@ internal fun selectDirectMixer(
         candidates.filter { it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT }
     }
     return pool.maxByOrNull {
-        encodingPreference(it.format.encoding, Util.isEncodingHighResolutionPcm(decodedPcmEncoding))
+        encodingPreference(it.format.encoding)
     }
 }
 
@@ -709,22 +709,14 @@ internal fun writablePcmEncodings(decodedPcmEncoding: Int): Set<Int> {
 /**
  * 同为可写编码时的优先序：取容量够的那一档，浮点最优先。
  *
- * [highResolutionSource] 由解码头输出编码反推（解码器只在源位深高于 16 位时才被要求浮点输出，
- * 见 PerDeviceAudioSink.formatSupportWithSourceBitDepth），故它就是「本曲源位深高于 16 位」的等价信号。
- * 位深直接决定精度，不能像从前那样让 16 位整型无条件排在最前——那是「源格式候选被拒后只剩回落档位」
- * 时代的取舍；现在档位一律取自设备声明，16 位档位就是写出位深本身，高分辨率源落到它即丢低位。
+ * 解码输出按接收器的能力基准索取，通常就是浮点，故位深直接决定精度：不能像从前那样让 16 位整型无条件
+ * 排在最前——那是「源格式候选被拒后只剩回落档位」时代的取舍。现在档位一律取自设备声明，16 位档位就是
+ * 写出位深本身，写到它即丢低位。
  * 打包整型内 32 位高于 24 位：32 位容得下 32 位及以下的一切源，24 位放不下 32 位源的低八位。
  */
-private fun encodingPreference(encoding: Int, highResolutionSource: Boolean): Int = when {
-    encoding == AudioFormat.ENCODING_PCM_FLOAT -> 4
-    highResolutionSource -> when (encoding) {
-        AudioFormat.ENCODING_PCM_32BIT -> 3
-        AudioFormat.ENCODING_PCM_24BIT_PACKED -> 2
-        else -> 1
-    }
-    else -> when (encoding) {
-        AudioFormat.ENCODING_PCM_16BIT -> 3
-        AudioFormat.ENCODING_PCM_32BIT -> 2
-        else -> 1
-    }
+private fun encodingPreference(encoding: Int): Int = when (encoding) {
+    AudioFormat.ENCODING_PCM_FLOAT -> 4
+    AudioFormat.ENCODING_PCM_32BIT -> 3
+    AudioFormat.ENCODING_PCM_24BIT_PACKED -> 2
+    else -> 1
 }

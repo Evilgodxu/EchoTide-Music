@@ -239,7 +239,7 @@ class MusicPlaybackState(
                 // 播放器自行接续（自动下一首）不经切歌入口，此处补记类型：漏记则会沿用上一次的
                 // 类型，本次接续的横移方向随之失真。单曲循环重播同一曲目标识未变，不重记
                 if (currentTrack?.id != id) beginTrackSwitch(TrackSwitchKind.Next)
-                // 自动接续同样要在解码器配置前落定源位深（见 recordSourceBitDepthBeforePlayback）
+                // 自动接续同样要在起播前落定源位深与声道（见 recordSourceBitDepthBeforePlayback）
                 recordSourceBitDepthBeforePlayback(playlist[index])
                 currentIndex = index
                 currentTrack = playlist[index]
@@ -1106,16 +1106,13 @@ class MusicPlaybackState(
     }
 
     /**
-     * 起播前落定目标曲目的源位深，供音频输出在解码器配置前取用。
+     * 起播前落定目标曲目的源位深与声道，供音频信息条在解码前即展示源格式。
      *
-     * 「浮点可直出」的申报发生在解码器配置那一刻——早于解码头格式回调，也早于本应用收到轨道回调，
-     * 按它解码器才以浮点输出。而源格式是异步读来的，切歌时若等它读完再交给播放器，解码器已经按上一首
-     * 的位深配置好了，高分辨率源在解码口即丢低位（实测：24 位源被 16 位解码，随后按 24 位建轨）。
-     * 故在把新曲目交给播放器之前先按容器头读一次位深与声道，记录随曲目归属一并更新。
+     * 源格式是异步读来的，而信息条在切歌后随即读取；先在把新曲目交给播放器之前按容器头读一次，展示即
+     * 不必等待解码回填，播放线程上的轨道回调也因记录已归属本曲目而省去一次同步的容器头读取。
      *
-     * 只读容器头（定长窗口，含前置元数据块的偏移重定位），不读采样率与比特率——那两项不是申报的依据，
-     * 由轨道回调补齐。容器头读不出的源（有损格式、在线源）保持原样不动：位深无从得知时申报按高分辨率
-     * 处理，精度不受影响，比拿上一首的位深去收窄安全。
+     * 只读容器头（定长窗口，含前置元数据块的偏移重定位），不读采样率与比特率——那两项由轨道回调补齐。
+     * 容器头读不出的源（有损格式、在线源）保持原样不动，后续由轨道回调或缓存完成后的补读取齐。
      *
      * 归属已属于该曲目时直接跳过：此时记录只会更完整（可能已由轨道回调填了采样率与比特率），
      * 重读不会带来更多信息。
@@ -1181,16 +1178,6 @@ class MusicPlaybackState(
     // 格式信息是否对应当前曲目的当前音频源（供信息条判定是否展示，避免换源后短暂错配残留）
     val isAudioSignalPathCurrent: Boolean
         get() = currentTrack?.let(::isTrackFormatCurrent) == true
-
-    /**
-     * 当前曲目的源位深，供音频输出决定是否申报「浮点可直出」；不属于当前曲目或尚未读到时为 null。
-     *
-     * 归属不符即视为没读到，而不是退回上一首的取值：两侧的含义相反——「没读到」按高分辨率处理、
-     * 照旧申报浮点，「已知为 16 位」才收窄成 16 位解码。切曲瞬间记录仍是上一首的，直接取用会把上一首
-     * 的位深当成这一首的源位深，高分辨率源因此在解码口就丢低位。
-     */
-    val currentSourceBitDepth: Int?
-        get() = audioSignalPathFormat?.takeIf { isAudioSignalPathCurrent }?.bitDepth
 
     fun persistPlaylist() {
         val context = appContext ?: return

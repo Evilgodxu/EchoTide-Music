@@ -36,8 +36,8 @@ private const val MILLIS_PER_SECOND = 1000
 /**
  * 按直出已受理的写出格式重建的音频输出。
  *
- * 写出编码是 [DefaultAudioSink] 的构造期取向，实例内不可更改：浮点变体把高分辨率 PCM 源写成 32 位浮点，
- * 整型变体把高分辨率源降回 16 位整型，24 位与 32 位两个变体则由 [IntPcmAudioSink] 各自写出对应位深的
+ * 写出编码是 [DefaultAudioSink] 的构造期取向，实例内不可更改：浮点变体以 32 位浮点写出，
+ * 整型变体以 16 位整型写出，24 位与 32 位两个变体则由 [IntPcmAudioSink] 各自写出对应位深的
  * 打包整型——设备只声明该编码时，媒体3 的默认输出无从产出它，只能另起一个输出实现。而 USB 直出建立的
  * 专用输出流只接纳与混音器属性逐字段一致的播放，该属性由直出侧按源格式优先挑选并得平台受理，因此这里
  * 持有四个变体，在每次 [configure] 时按已受理的属性编码决策，决策变化即切换变体——即按该格式重建输出，
@@ -57,13 +57,6 @@ class PerDeviceAudioSink(
     private val directOutputEncoding: () -> Int?,
     /** 生效变体建不起音频轨时的报告出口：直出侧据此撤销该格式的偏好并记为不可用 */
     private val onDirectOutputUnrealizable: () -> Unit = {},
-    /**
-     * 当前曲目的源位深（容器声明），未声明或尚未读到时为 null。
-     *
-     * 据它收窄「浮点可直出」的申报：已知 16 位及以下的源不再让渲染器索取浮点解码输出，解码输出因此
-     * 落在源位深上（见 [formatSupportWithSourceBitDepth]）。
-     */
-    private val sourceBitDepth: () -> Int? = { null },
     /** 输出变体变更回调：报告本次配置后是否以浮点 PCM 写出 */
     private val onOutputVariantChanged: (Boolean) -> Unit = {},
     /** 输出编码变更回调：报告生效变体音频轨实际写出的 PCM 编码，null 表示当前链路无音频轨 */
@@ -85,7 +78,7 @@ class PerDeviceAudioSink(
     private val onDecodedFormatChanged: (Int, Int, Int) -> Unit = { _, _, _ -> },
 ) : AudioSink {
 
-    /** 默认变体：高分辨率源以 32 位浮点写出，保留解码精度 */
+    /** 默认变体：以 32 位浮点写出，保留解码精度 */
     private val floatSink: AudioSink = buildSink(OutputVariant.FLOAT, enableFloatOutput = true)
 
     /** 降级变体：一律以 16 位整型写出，供直出流只提供整型格式的设备使用 */
@@ -412,37 +405,16 @@ class PerDeviceAudioSink(
      * 必定挂它——故「能否接受这一格式」是接收器的整体能力，与「本曲由哪个变体写出」是两件事。
      *
      * 按生效变体回答会让取值随上一曲遗留的变体漂移：渲染器配置解码器时以浮点格式探一次，命中才向
-     * 解码器索取浮点输出；上一曲是 16 位源时变体已落到整型，探针失手，下一曲的高分辨率源便拿不到浮点
-     * 解码输出，低 8 位在解码口即丢，且此后无缘再回到设备声明的浮点条目。
-     */
-    override fun supportsFormat(format: Format): Boolean =
-        formatSupportWithSourceBitDepth(format) != AudioSink.SINK_FORMAT_UNSUPPORTED
-
-    override fun getFormatSupport(format: Format): Int = formatSupportWithSourceBitDepth(format)
-
-    /**
-     * 能力基准的答案，但「浮点可直出」这一项随源位深收窄。
+     * 解码器索取浮点输出；上一曲是 16 位源时变体已落到整型，探针失手，下一曲便拿不到浮点解码输出，
+     * 且此后无缘再回到设备声明的浮点条目。
      *
-     * 渲染器只在答案恰为 [AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY] 时才向解码器索取浮点输出
-     * （media3 的 MediaCodecAudioRenderer 据此设 KEY_PCM_ENCODING），所以对已知 16 位及以下的源改答
-     * 「需转换」，解码输出即落在源位深上——解码、写出与信息面板三者随之与源一致。不改答的值本身：
-     * 浮点仍被接受，只是不再被渲染器选为解码输出的取向。
-     *
-     * 源位深未知（有损源、图标信息尚未读到）或高于 16 位时不收窄，浮点取向照旧，精度不受影响。
+     * 不按源位深收窄浮点申报：媒体3 只在恰好收到 [AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY] 时才向解码器
+     * 索取浮点输出，而直出追求的是按源格式写出，解码统一落在浮点、由写出端按目标位深取整，精度只多不少；
+     * 16 位及以下的源被截到 16 位解码换不来任何收益，故申报恒报浮点。
      */
-    private fun formatSupportWithSourceBitDepth(format: Format): Int {
-        val support = floatSink.getFormatSupport(format)
-        if (support == AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY &&
-            format.pcmEncoding == C.ENCODING_PCM_FLOAT &&
-            !floatDirectOutputAllowed()
-        ) {
-            return AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING
-        }
-        return support
-    }
+    override fun supportsFormat(format: Format): Boolean = floatSink.supportsFormat(format)
 
-    // 已知源为 16 位及以下即收窄浮点取向；位深未知按高分辨率处理，宁可保精度也不误降
-    private fun floatDirectOutputAllowed(): Boolean = (sourceBitDepth() ?: Int.MAX_VALUE) > 16
+    override fun getFormatSupport(format: Format): Int = floatSink.getFormatSupport(format)
 
     override fun getFormatOffloadSupport(format: Format): AudioOffloadSupport =
         active().getFormatOffloadSupport(format)
@@ -652,8 +624,8 @@ private enum class OutputVariant { FLOAT, INT16, INT24, INT32 }
 /**
  * 音频接收回调的转接器：透传渲染器的回调，并截取音频轨被创建与被释放时的写出编码。
  *
- * 写出编码只在音频轨被创建的那一刻可知，且不经监听器无从取得，故在此截取而非按源格式与变体推测
- * ——16 位及以下源在浮点变体下同样写成整型，推测值未必等于实际写出的编码。
+ * 写出编码只在音频轨被创建的那一刻可知，且不经监听器无从取得，故在此截取而非按变体与源格式推测
+ * ——写出编码由生效变体与音频轨的实际能力共同决定，推测值未必等于真正写出的编码。
  *
  * 出口按调用时刻取值：变体退出使用后其音频轨的释放回调仍会到达，此时出口已回到静默实现，事件不外泄；
  * 编码与释放则交由 [PerDeviceAudioSink] 按变体归属与释放请求判定去留。

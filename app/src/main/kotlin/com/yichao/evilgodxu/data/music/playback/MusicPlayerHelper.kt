@@ -63,8 +63,8 @@ suspend fun playTrackAt(
             state.beginTrackSwitch(switchKind)
         }
         val controller = getController(context, state)
-        // 源位深必须在把曲目交给播放器之前落定：音频输出的「浮点可直出」申报发生在解码器配置那一刻，
-        // 晚于此处的异步预读会让解码器按上一首的位深配置（见 recordSourceBitDepthBeforePlayback）
+        // 源位深/声道在把曲目交给播放器之前落定：信息条要在解码前展示源格式，也避免轨道回调
+        // 在播放线程上同步读一次容器头（见 recordSourceBitDepthBeforePlayback）
         withContext(Dispatchers.IO) { state.recordSourceBitDepthBeforePlayback(track) }
         // 队列项一律由片段表推出（心动模式下带区间），装载路径不含任何解析
         val items = state.cachedMediaItems ?: withContext(Dispatchers.IO) {
