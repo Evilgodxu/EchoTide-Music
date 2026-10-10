@@ -116,6 +116,14 @@ class UsbDirectOutput(
      */
     private var unrealizableFormatsDeviceId: Int? = null
     /**
+     * 上次问到的设备声明档位，及其所属设备编号。
+     *
+     * 查询的应答取决于本应用此刻在该设备上有没有输出（见 [supportedMixerAttributes]），故空表须按上次的
+     * 声明兜底；声明是设备的固定属性，换设备即作废，故与设备编号一并记。
+     */
+    private var declaredFormats: List<AudioMixerAttributes> = emptyList()
+    private var declaredFormatsDeviceId: Int? = null
+    /**
      * 上一轮构造出的直出候选，按优先级排列（源格式在前、设备声明的条目在后）。
      *
      * 失败降级要按同一张表续试下一档，而那一刻不能重新查询设备（见 [applyNextDirectCandidate]），
@@ -203,45 +211,46 @@ class UsbDirectOutput(
     fun directOutputEncoding(): Int? = acceptedMixerAttributes?.format?.encoding
 
     /**
-     * 音频输出报告：已受理的直出格式在本机不可用（建不起音频轨，或建成后写不出），撤销其配置并记为不可用。
+     * 音频输出报告：已受理的直出格式在本机不可用（建不起音频轨，或建成后写不出），记为不可用并改挂下一档。
      *
      * 受理条件只说明设备侧有一条匹配的动态输出 profile，不说明本应用真的用得上它——实测同一台设备两处都
-     * 失手过：默认行为的 48000Hz/2ch/24 位被受理后建轨抛 UnsupportedOperationException；同一台设备的
-     * 另一档是轨道建成后写返回 ERROR_INVALID_OPERATION。这一步是直出链路上唯一能拦住这两种情形的环节
+     * 失手过：默认行为的 48000Hz/2ch/24 位被受理后建轨抛 UnsupportedOperationException；96000Hz/2ch/24 位
+     * 则是轨道建成后写返回 ERROR_INVALID_OPERATION。这一步是直出链路上唯一能拦住这两种情形的环节
      * ——事前实测的结论依赖「设备当时是否已有输出」，预测不了偏好生效后的建轨与写出，故不能代替此处的
      * 实测结论。
      *
-     * 撤销后随即按上次挑出的候选改挂下一档（[applyNextDirectCandidate]）：被证伪的格式已记入
-     * [unrealizableFormats]，故取到的正是设备声明的下一档——「先源格式、失败则按设备支持的位深与采样率」
-     * 这条次序由此落实。改挂不成则播放交回系统混音、写出降为浮点变体；输出建起后 [onOutputEstablished]
-     * 还会再重算一次，故系统混音只是暂态而不是终局。
+     * 先改挂、不先撤销：setPreferredMixerAttributes 是覆盖式的，改挂成功即无需撤销，设备也不会被解钉。
+     * 撤销会把设备解钉并让成色落回系统混音（免打扰随之白翻一次），且解钉之后本应用在该设备上没有输出、
+     * 动态混音端口查询便一直得空表，直出再回不来。失败只是换一档，并没有离开直出，不该走那条路。
+     * 改挂不成才撤销：那条失败格式的偏好此刻仍挂着，必须清掉，否则 AudioFlinger 会继续静默混音。
+     * 两种情形下该格式都已记入 [unrealizableFormats]，再次重算时不再入选，避免同一失败反复发生。
      */
     fun reportUnrealizableFormat() {
         val attributes = acceptedMixerAttributes ?: return
         targetDevice?.let { unrealizableFormatsDeviceId = it.id }
         unrealizableFormats += attributes.format
-        logDiagnostic(
-            "直出格式不可用（已受理但建不起轨或写不出），撤销该格式偏好并记为不可用：${describeMixer(attributes)}"
-        )
-        releaseConfiguration("直出格式不可用")
-        applyNextDirectCandidate()
+        logDiagnostic("直出格式不可用（已受理但建不起轨或写不出），记为不可用并改挂下一档：${describeMixer(attributes)}")
+        if (!applyNextDirectCandidate()) {
+            releaseConfiguration("直出格式不可用")
+        }
     }
 
     /**
-     * 改挂上一轮候选里尚未被证伪的下一档。
+     * 按上一轮候选改挂尚未被证伪的下一档，返回是否改挂成功。
      *
-     * 不重新查询设备：查询按输出端口应答，而此刻本应用刚释放掉那条失败的音频轨，设备上没有本应用的输出，
-     * 重问只会得到空表（空表的两种含义见 [supportedMixerAttributes]）。设备声明的档位与「此刻是否已有
-     * 输出」无关，故按上一轮的候选表续试是有效的；改挂不成（无候选、或属性未被受理）即维持系统混音。
+     * 不重新查询设备：查询的应答取决于本应用此刻在该设备上有没有输出（见 [supportedMixerAttributes]），
+     * 而此刻刚释放掉那条失败的音频轨，多半问不到。设备声明的档位是设备的固定属性，故按上一轮的候选表续试
+     * 是有效的；改挂不成（无候选、或属性未被系统受理）由调用方交回系统混音。
      */
-    private fun applyNextDirectCandidate() {
-        val device = findUsbOutputDevice() ?: return
+    private fun applyNextDirectCandidate(): Boolean {
+        val device = findUsbOutputDevice() ?: return false
         val candidates = lastCandidates.filterNot { it.format in unrealizableFormats }
-        if (candidates.isEmpty()) return
+        if (candidates.isEmpty()) return false
         // 属性先于路由下发：播放改道到该设备时，才按已配置的属性建立专用输出流
-        val accepted = applyDirectMixer(device, candidates)
+        val accepted = applyDirectMixer(device, candidates) ?: return false
         pinPreferredDevice(device)
         updateRouting(device, accepted)
+        return true
     }
 
     /**
@@ -293,8 +302,21 @@ class UsbDirectOutput(
         }
         // 设备声明的动态混音端口条目：厂商只报上限时它短于实际支持范围，故声明档位之外还先构造源格式候选，
         // 两者一并成为候选（见 [directMixerCandidates]）
-        val supported = device?.let { supportedMixerAttributes(it) }.orEmpty()
-        val built = device?.let { directMixerCandidates(supported) }.orEmpty()
+        val queried = device?.let { supportedMixerAttributes(it) }.orEmpty()
+        // 空表不作终局。查询的应答取决于本应用此刻在该设备上有没有输出，而厂商声明的档位是设备的固定属性，
+        // 故问不到时沿用上次问到的声明：不沿用就会把「这次问不到」当成「设备没有档位」，而撤销直出会一并
+        // 解除路由钉定、新起的输出不再落在该设备上，此后每次重问都得空表——直出再也回不来（实测）。
+        val remembered = declaredFormats
+            .takeIf { device != null && declaredFormatsDeviceId == device.id }
+            .orEmpty()
+        val supported = queried.ifEmpty { remembered }
+        if (queried.isNotEmpty()) {
+            declaredFormats = queried
+            declaredFormatsDeviceId = device?.id
+        } else if (supported.isNotEmpty()) {
+            logDiagnostic("动态混音端口本次未应答档位，沿用上次问到的声明：${deviceLabel(checkNotNull(device))}")
+        }
+        val built = directMixerCandidates(supported)
         // 已被实测证伪建不出音频轨的格式不再入选：再选只会再失败一次（见 [reportUnrealizableFormat]）
         val candidates = built.filterNot { it.format in unrealizableFormats }
         lastCandidates = candidates
