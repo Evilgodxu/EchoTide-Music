@@ -113,3 +113,14 @@ internal fun artistGroup(all: List<MusicTrack>, artist: String): PlaylistGroup =
         name = artist,
         trackIds = all.filter { artist in parseTrackArtists(it.artist) }.map { it.id },
     )
+
+// 按存档的曲序重排一组曲目。存档只记次序不记成员（见 ArtistOrderStore），三类情形都在此收口：
+// 存档内的曲目按存档次序排在前；存档里没有的曲目（新入库、从未参与过排序）保持原相对次序附在其后——
+// 丢弃会让新曲目凭空消失，插回原位又读不出排序意图；存档里已不存在的 id 自然落空。
+// 落空的死 id 无需另行清理：下次拖拽会把该歌手的存档整条覆盖成当时的实际顺序
+internal fun applySavedTrackOrder(tracks: List<MusicTrack>, savedIds: List<Long>): List<MusicTrack> {
+    if (savedIds.isEmpty()) return tracks
+    val rank = savedIds.withIndex().associate { (index, id) -> id to index }
+    // sortedBy 稳定：未在存档内的曲目按原相对次序排在存档曲目之后
+    return tracks.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
+}

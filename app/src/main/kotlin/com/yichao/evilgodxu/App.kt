@@ -16,6 +16,7 @@ import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
+import com.yichao.evilgodxu.data.playlist.ArtistOrderStore
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.repository.SettingsRepository
 import com.yichao.evilgodxu.data.settings.bootstrapAppLanguage
@@ -43,6 +44,7 @@ class App : Application() {
     val settingsRepository: SettingsRepository by lazy { SettingsRepository(this) }
     val localizationManager: LocalizationManager by lazy { LocalizationManager(this) }
     val playlistStore: PlaylistStore by lazy { PlaylistStore() }
+    val artistOrderStore: ArtistOrderStore by lazy { ArtistOrderStore() }
     val metadataEnricher: MetadataEnricher by lazy { MetadataEnricher() }
     val playlistRefresher: PlaylistRefresher by lazy { PlaylistRefresher(playlistStore) }
     val stateHolder: MusicPanelStateHolder by lazy {
@@ -139,6 +141,10 @@ val LocalPlaylistStore = staticCompositionLocalOf<PlaylistStore> {
     error("PlaylistStore is not provided")
 }
 
+val LocalArtistOrderStore = staticCompositionLocalOf<ArtistOrderStore> {
+    error("ArtistOrderStore is not provided")
+}
+
 val LocalMetadataEnricher = staticCompositionLocalOf<MetadataEnricher> {
     error("MetadataEnricher is not provided")
 }
@@ -167,6 +173,7 @@ fun ProvideAppDependencies(app: App, content: @Composable () -> Unit) {
         LocalUpdateViewModel provides app.updateViewModel,
         LocalMusicPanelStateHolder provides app.stateHolder,
         LocalPlaylistStore provides app.playlistStore,
+        LocalArtistOrderStore provides app.artistOrderStore,
         LocalMetadataEnricher provides app.metadataEnricher,
         LocalPlaylistRefresher provides app.playlistRefresher,
         LocalApplication provides app,

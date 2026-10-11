@@ -55,6 +55,7 @@ import com.yichao.evilgodxu.data.playlist.distinctArtistCount
 import com.yichao.evilgodxu.data.playlist.smartTrackCount
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.LocalArtistOrderStore
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
@@ -80,8 +81,13 @@ internal fun PlaylistPanel(
 ) {
     val context = LocalContext.current
     val playlistStore = LocalPlaylistStore.current
-    // 读盘切到 IO：首次 getSharedPreferences 需同步解析整份歌单 JSON，在主线程执行会阻塞首帧
-    LaunchedEffect(Unit) { playlistStore.awaitLoaded(context) }
+    val artistOrderStore = LocalArtistOrderStore.current
+    // 读盘切到 IO：首次 getSharedPreferences 需同步解析整份歌单 JSON，在主线程执行会阻塞首帧。
+    // 歌手曲序在此一并预读：歌手页按存档顺序铺列表，等进页才读会让该页先按曲库顺序成形再整体重排
+    LaunchedEffect(Unit) {
+        playlistStore.awaitLoaded(context)
+        artistOrderStore.awaitLoaded(context)
+    }
     var backStack by remember { mutableStateOf(listOf<PlaylistPage>(PlaylistPage.Overview)) }
     // 页面栈的唯一写入口：栈变化与「当前页是否要标题栏让位」必须同一次写入。
     // 歌手页的标题栏始终隐藏，而标题栏归首页组装器管——挪到组合之后的副作用上报，

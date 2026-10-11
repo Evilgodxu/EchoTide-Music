@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -42,8 +43,10 @@ import com.yichao.evilgodxu.data.music.playback.PlaylistSource
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.playlist.PlaylistGroup
 import com.yichao.evilgodxu.data.playlist.albumGroups
+import com.yichao.evilgodxu.data.playlist.applySavedTrackOrder
 import com.yichao.evilgodxu.data.playlist.resolveTracks
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.LocalArtistOrderStore
 import com.yichao.evilgodxu.screens.home.component.player.HomeImmersiveCover
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.SongImmersiveBackground
@@ -66,7 +69,12 @@ private enum class ArtistTab(@StringRes val labelRes: Int) {
  * 下方以标签页区分歌曲与专辑。
  *
  * 标签由本页自己的分页承载：左右滑动在歌曲与专辑之间切换，首页那层翻页在该页关闭
- * （见 [HomePanels]）——一层滑动只对应一个去向，滑动落在哪个列表上都不该同时换标签又换页。
+ * （见 HomePanels 的翻页开关）——一层滑动只对应一个去向，滑动落在哪个列表上都不该同时换标签又换页。
+ *
+ * 歌曲顺序 = 曲库顺序套上该歌手的存档曲序（见 ArtistOrderStore）：分组由曲库即时解析，
+ * 次序本身没有落脚点，故拖拽落定即写档，离开再进仍保持。头图封面、沉浸背景取色与歌曲列表
+ * 读的是同一份顺序——拖到哪首就显示哪首，三者不会各读各的先后；专辑列表另按曲库顺序扫，
+ * 专辑封面不该因歌曲次序调整而改换（见下方 albums）。
  *
  * 整页自带骨架而非套在面板的标题栏内容列里：沉浸头图与沉浸背景都要铺到状态栏后方，
  * 与播放页的同名处理一致（见 [PlaylistPanel] 的页面分派）。标题栏在该页始终隐藏
@@ -90,6 +98,8 @@ internal fun ArtistPlaylistPage(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val artistOrderStore = LocalArtistOrderStore.current
     // 与分组列表同一口径：按分组保存的 trackIds 解析，避免多歌手曲目（如 "A / B"）
     // 因 artist 整串不等于歌手名而被过滤，导致详情曲目少于列表展示数
     val libraryById = remember(playbackState.libraryTracks) {
@@ -98,8 +108,13 @@ internal fun ArtistPlaylistPage(
     val tracks = remember(playbackState.libraryTracks, group.key) {
         resolveTracks(playbackState.libraryTracks, group.trackIds)
     }
+    // 展示顺序 = 曲库顺序套上该歌手的存档曲序。头图封面、沉浸背景取色与歌曲列表都读这一份，
+    // 三者同源：拖拽落下后存档即更新，同一帧里换的是同一首歌的封面与底色，不会各读各的先后
+    val savedOrder = artistOrderStore.orders[group.name].orEmpty()
+    val orderedTracks = remember(tracks, savedOrder) { applySavedTrackOrder(tracks, savedOrder) }
     val unknownAlbum = stringResource(R.string.playlist_unknown_album)
-    // 专辑分组是该歌手全量曲目的扫描 + 排序，缓存到曲目或本地化文案变化为止
+    // 专辑分组按曲库顺序扫（不套存档）：专辑封面取该专辑在曲库里的首曲，
+    // 不该因为用户调整了歌曲次序而改换；顺带让这份分组缓存不在拖拽过程中逐次重算
     val albums = remember(tracks, unknownAlbum) { albumGroups(tracks, unknownAlbum) }
     // 标签分页：左右滑动即切换歌曲与专辑（首页那层翻页在该页已关闭，见 HomePanels），
     // 跟手拖动、吸附与回弹由系统结算，本页不自行判定滑动
@@ -107,12 +122,12 @@ internal fun ArtistPlaylistPage(
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val headerHeight = (maxHeight * ARTIST_HEADER_HEIGHT_RATIO).coerceAtMost(ArtistHeaderMaxHeight)
         // 整屏沉浸背景：与头图同源，下缘渐隐的封面正是融入它
-        SongImmersiveBackground(track = tracks.firstOrNull(), modifier = Modifier.fillMaxSize())
+        SongImmersiveBackground(track = orderedTracks.firstOrNull(), modifier = Modifier.fillMaxSize())
         Column(modifier = Modifier.fillMaxSize()) {
             ArtistHeader(
-                track = tracks.firstOrNull(),
+                track = orderedTracks.firstOrNull(),
                 name = group.name,
-                trackCount = tracks.size,
+                trackCount = orderedTracks.size,
                 height = headerHeight,
             )
             ArtistTabBar(
@@ -128,12 +143,15 @@ internal fun ArtistPlaylistPage(
             ) { index ->
                 when (ArtistTab.entries[index]) {
                     ArtistTab.SONGS -> TracksContent(
-                        tracks = tracks,
+                        tracks = orderedTracks,
                         source = PlaylistSource(group.key, group.name),
                         playbackState = playbackState,
                         scope = scope,
                         trailingAction = {},
                         onTrackLongClick = {},
+                        // 歌手分组的次序无处存放（分组由曲库即时解析），拖拽落定即写进本歌手的存档，
+                        // 离开再进仍按它铺列表
+                        onReorder = { ordered -> artistOrderStore.setOrder(context, group.name, ordered.map { it.id }) },
                     )
                     ArtistTab.ALBUMS -> ArtistAlbumList(
                         albums = albums,

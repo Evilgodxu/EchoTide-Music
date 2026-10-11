@@ -150,6 +150,29 @@ class PlaylistGroupingTest {
     }
 
     // -----------------------------------------------------------------------
+    // 歌手曲序存档
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun savedOrderRearrangesListedTracksBySavedRank() {
+        assertEquals(listOf(3L, 1L, 2L), applySavedTrackOrder(tracks, listOf(3, 1, 2)).map { it.id })
+    }
+
+    @Test
+    fun savedOrderKeepsUnlistedTracksAfterListedOnes() {
+        // 新入库、从未参与排序的曲目一律附在存档曲目之后，且彼此保持原相对次序
+        assertEquals(listOf(3L, 1L, 2L), applySavedTrackOrder(tracks, listOf(3)).map { it.id })
+        // 无存档即为原顺序
+        assertEquals(listOf(1L, 2L, 3L), applySavedTrackOrder(tracks, emptyList()).map { it.id })
+    }
+
+    @Test
+    fun savedOrderSkipsIdsThatNoLongerExist() {
+        // 曲目被删除后存档里的死 id 落空，不影响其余曲目的次序
+        assertEquals(listOf(2L, 1L, 3L), applySavedTrackOrder(tracks, listOf(99, 2, 1)).map { it.id })
+    }
+
+    // -----------------------------------------------------------------------
 
     private fun source(key: String): PlaylistSource = PlaylistSource(key, key)
 
