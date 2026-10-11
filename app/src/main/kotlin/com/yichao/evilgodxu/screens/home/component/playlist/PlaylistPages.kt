@@ -164,64 +164,16 @@ internal fun PlaylistGroupsPage(
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(visibleGroups, key = { it.key }) { group ->
-                        // 专辑/艺术家歌单封面统一采用该歌单内第一首歌曲的封面
-                        val coverTrack = group.trackIds.firstOrNull()?.let { libraryById[it] }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    keyboardController?.hide()
-                                    onOpenGroup(group)
-                                }
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (coverTrack != null) {
-                                    PlaylistArt(track = coverTrack, modifier = Modifier.fillMaxSize())
-                                } else {
-                                    Icon(
-                                        imageVector = icon,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                }
-                            }
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.Center,
-                            ) {
-                                Text(
-                                    text = group.name,
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    lineHeight = 15.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = pluralStringResource(R.plurals.music_panel_track_count, group.trackIds.size, group.trackIds.size),
-                                    color = Color.White.copy(alpha = 0.6f),
-                                    fontSize = 10.sp,
-                                    lineHeight = 12.sp,
-                                )
-                            }
-                            Icon(
-                                imageVector = AppIcons.KeyboardArrowRight,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
+                        PlaylistGroupRow(
+                            group = group,
+                            // 专辑/艺术家歌单封面统一采用该歌单内第一首歌曲的封面
+                            coverTrack = group.trackIds.firstOrNull()?.let { libraryById[it] },
+                            fallbackIcon = icon,
+                            onClick = {
+                                keyboardController?.hide()
+                                onOpenGroup(group)
+                            },
+                        )
                     }
                 }
             }
@@ -241,6 +193,70 @@ internal fun PlaylistGroupsPage(
                 hintColor = Color.White.copy(alpha = 0.6f),
             )
         }
+    }
+}
+
+// 分组行：封面（取该分组首曲）+ 主次文字 + 进入箭头。专辑与艺术家分组列表共用一份实现，
+// 两处的行高、封面档位与文字口径因此始终一致；分组内无可用曲目时回落到 [fallbackIcon]
+@Composable
+internal fun PlaylistGroupRow(
+    group: PlaylistGroup,
+    coverTrack: MusicTrack?,
+    fallbackIcon: ImageVector,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (coverTrack != null) {
+                PlaylistArt(track = coverTrack, modifier = Modifier.fillMaxSize())
+            } else {
+                Icon(
+                    imageVector = fallbackIcon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = group.name,
+                color = Color.White,
+                fontSize = 12.sp,
+                lineHeight = 15.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = pluralStringResource(R.plurals.music_panel_track_count, group.trackIds.size, group.trackIds.size),
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+            )
+        }
+        Icon(
+            imageVector = AppIcons.KeyboardArrowRight,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -345,26 +361,20 @@ internal fun PlaylistSmartTracksPage(
     )
 }
 
-// 智能分组曲目页（专辑/艺术家下的曲目列表）
+// 专辑分组曲目页（专辑分组下的曲目列表）。歌手分组另有沉浸头图 + 歌曲/专辑标签页的版式，
+// 见 ArtistPlaylistPage——两者的内容形态已不同，故不再共用一个按类型分叉的入口
 @Composable
-internal fun PlaylistGroupTracksPage(
-    type: SmartPlaylistType,
+internal fun PlaylistAlbumTracksPage(
     group: PlaylistGroup,
     playbackState: MusicPlaybackState,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val tracks = remember(playbackState.libraryTracks, group.key) {
-        if (type == SmartPlaylistType.ALBUM) {
-            val albumId = group.key.removePrefix("album:").toLongOrNull()
-            playbackState.libraryTracks.filter { it.albumId == albumId }
-        } else {
-            // 与分组列表一致：按分组保存的 trackIds 解析，避免多歌手曲目（如 "A / B"）
-            // 因 artist 整串不等于歌手名而被过滤，导致详情曲目少于列表展示数
-            resolveTracks(playbackState.libraryTracks, group.trackIds)
-        }
+        val albumId = group.key.removePrefix("album:").toLongOrNull()
+        playbackState.libraryTracks.filter { it.albumId == albumId }
     }
-    // 专辑视图长按歌曲：编辑该歌曲的专辑元数据
+    // 长按歌曲：编辑该歌曲的专辑元数据
     var editAlbumTrack by remember { mutableStateOf<MusicTrack?>(null) }
     TracksContent(
         tracks = tracks,
@@ -372,9 +382,7 @@ internal fun PlaylistGroupTracksPage(
         playbackState = playbackState,
         scope = scope,
         trailingAction = {},
-        onTrackLongClick = { track ->
-            if (type == SmartPlaylistType.ALBUM) editAlbumTrack = track
-        },
+        onTrackLongClick = { editAlbumTrack = it },
     )
     EditAlbumDialog(
         track = editAlbumTrack,
@@ -392,7 +400,7 @@ internal fun PlaylistGroupTracksPage(
 
 // 曲目页共享主体：播放全部 + 操作栏 + 曲目列表（支持长按手柄拖拽排序）
 @Composable
-private fun TracksContent(
+internal fun TracksContent(
     tracks: List<MusicTrack>,
     source: PlaylistSource?,
     playbackState: MusicPlaybackState,
@@ -488,9 +496,9 @@ private fun TracksContent(
     }
 }
 
-// 空态提示
+// 空态提示：各曲目页与分组列表共用，居中一行浅色说明文字
 @Composable
-private fun EmptyHint(text: String) {
+internal fun EmptyHint(text: String) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(
             text = text,

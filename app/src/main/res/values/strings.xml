@@ -456,6 +456,9 @@
     <string name="playlist_smart_favorite">收藏</string>
     <string name="playlist_smart_album">专辑</string>
     <string name="playlist_smart_artist">歌手</string>
+    <string name="playlist_tab_songs">歌曲</string>
+    <string name="playlist_tab_albums">专辑</string>
+    <string name="playlist_artist_no_albums">暂无专辑</string>
     <string name="playlist_create">新建歌单</string>
     <string name="playlist_create_title">新建歌单</string>
     <string name="playlist_create_confirm">创建</string>

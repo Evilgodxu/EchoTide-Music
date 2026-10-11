@@ -39,6 +39,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.model.MusicTrack
@@ -68,6 +69,9 @@ internal fun PlaylistPanel(
     visible: Boolean,
     playbackState: MusicPlaybackState,
     menuBackgroundColor: Color,
+    // 标题栏高度：除歌手页外的页面内容都从标题栏下方开始；
+    // 歌手页的沉浸头图与沉浸背景要铺到标题栏后方，故由该页自行按此值避让返回按钮
+    topInset: Dp,
     modifier: Modifier = Modifier,
     // 点击播放器歌手信息后请求打开的歌手名：非空时跳转到该歌手的曲目列表
     pendingArtist: String? = null,
@@ -99,45 +103,63 @@ internal fun PlaylistPanel(
     var deleteTarget by remember { mutableStateOf<Playlist?>(null) }
 
     Box(modifier = modifier) {
-        // 透明全屏布局，与在线搜索面板一致，透出首页沉浸渐变背景
-        Column(modifier = Modifier.fillMaxSize()) {
-            PanelHeader(
-                title = page.title(),
+        if (page is PlaylistPage.GroupTracks && page.type == SmartPlaylistType.ARTIST) {
+            // 歌手页自带整页骨架（沉浸头图 + 歌曲/专辑标签页，见 ArtistPlaylistPage）：
+            // 头图与沉浸背景要铺到标题栏后方，故不套下方内容列的顶部内边距
+            ArtistPlaylistPage(
+                group = page.group,
+                playbackState = playbackState,
+                topInset = topInset,
                 showBack = backStack.size > 1,
                 onBack = { backStack = backStack.dropLast(1) },
+                onOpenAlbum = { album ->
+                    backStack = backStack + PlaylistPage.GroupTracks(SmartPlaylistType.ALBUM, album)
+                },
             )
-            when (page) {
-                is PlaylistPage.Overview -> PlaylistOverview(
-                    playlistStore = playlistStore,
-                    playbackState = playbackState,
-                    menuBackgroundColor = menuBackgroundColor,
-                    onOpenSmart = { type ->
-                        backStack = backStack + if (type == SmartPlaylistType.ALBUM || type == SmartPlaylistType.ARTIST) {
-                            PlaylistPage.Groups(type)
-                        } else {
-                            PlaylistPage.SmartTracks(type)
-                        }
-                    },
-                    onOpenCustom = { playlist -> backStack = backStack + PlaylistPage.Tracks(playlist) },
-                    onCreatePlaylist = { showCreate = true },
-                    onRename = { renameTarget = it },
-                    onDelete = { deleteTarget = it },
+        } else {
+            // 透明全屏布局，与在线搜索面板一致，透出首页沉浸渐变背景
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = topInset),
+            ) {
+                PanelHeader(
+                    title = page.title(),
+                    showBack = backStack.size > 1,
+                    onBack = { backStack = backStack.dropLast(1) },
                 )
-                is PlaylistPage.Groups -> PlaylistGroupsPage(
-                    type = page.type,
-                    playbackState = playbackState,
-                    onOpenGroup = { group -> backStack = backStack + PlaylistPage.GroupTracks(page.type, group) },
-                )
-                is PlaylistPage.SmartTracks -> PlaylistSmartTracksPage(
-                    type = page.type,
-                    playbackState = playbackState,
-                )
-                is PlaylistPage.Tracks -> PlaylistTracksPage(playlist = page.playlist, playbackState = playbackState)
-                is PlaylistPage.GroupTracks -> PlaylistGroupTracksPage(
-                    type = page.type,
-                    group = page.group,
-                    playbackState = playbackState,
-                )
+                when (page) {
+                    is PlaylistPage.Overview -> PlaylistOverview(
+                        playlistStore = playlistStore,
+                        playbackState = playbackState,
+                        menuBackgroundColor = menuBackgroundColor,
+                        onOpenSmart = { type ->
+                            backStack = backStack + if (type == SmartPlaylistType.ALBUM || type == SmartPlaylistType.ARTIST) {
+                                PlaylistPage.Groups(type)
+                            } else {
+                                PlaylistPage.SmartTracks(type)
+                            }
+                        },
+                        onOpenCustom = { playlist -> backStack = backStack + PlaylistPage.Tracks(playlist) },
+                        onCreatePlaylist = { showCreate = true },
+                        onRename = { renameTarget = it },
+                        onDelete = { deleteTarget = it },
+                    )
+                    is PlaylistPage.Groups -> PlaylistGroupsPage(
+                        type = page.type,
+                        playbackState = playbackState,
+                        onOpenGroup = { group -> backStack = backStack + PlaylistPage.GroupTracks(page.type, group) },
+                    )
+                    is PlaylistPage.SmartTracks -> PlaylistSmartTracksPage(
+                        type = page.type,
+                        playbackState = playbackState,
+                    )
+                    is PlaylistPage.Tracks -> PlaylistTracksPage(playlist = page.playlist, playbackState = playbackState)
+                    is PlaylistPage.GroupTracks -> PlaylistAlbumTracksPage(
+                        group = page.group,
+                        playbackState = playbackState,
+                    )
+                }
             }
         }
     }

@@ -463,6 +463,9 @@
     <string name="playlist_smart_favorite">Favorites</string>
     <string name="playlist_smart_album">Albums</string>
     <string name="playlist_smart_artist">Artists</string>
+    <string name="playlist_tab_songs">Songs</string>
+    <string name="playlist_tab_albums">Albums</string>
+    <string name="playlist_artist_no_albums">No albums</string>
     <string name="playlist_create">New playlist</string>
     <string name="playlist_create_title">New playlist</string>
     <string name="playlist_create_confirm">Create</string>

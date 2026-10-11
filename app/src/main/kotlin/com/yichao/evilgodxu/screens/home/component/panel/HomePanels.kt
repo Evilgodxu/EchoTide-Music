@@ -43,12 +43,12 @@ internal fun HomePanels(
                 visible = panelState.currentPage == HomePage.PLAYLIST,
                 playbackState = panelState.playbackState.state,
                 menuBackgroundColor = panelState.backgroundColor,
+                // 顶部内边距交给面板自行分配：歌手页要把沉浸头图与背景铺到标题栏后方
+                topInset = topInset,
                 // 点击播放器歌手信息后请求打开的歌手歌单
                 pendingArtist = panelState.pendingArtistPlaylist,
                 onPendingArtistHandled = { panelState.pendingArtistPlaylist = null },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = topInset),
+                modifier = Modifier.fillMaxSize(),
             )
         }
     }
