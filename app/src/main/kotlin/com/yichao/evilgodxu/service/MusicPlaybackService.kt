@@ -410,6 +410,9 @@ class MusicPlaybackService : MediaSessionService() {
                     .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build()
             )
+            // 直出链路上音量不参与处理，被压低音量等同于破坏输出格式，故声明「被 duck 时暂停」：
+            // 框架据此按暂停而非压低音量处理本应用的流，与下面的监听器一律暂停的行为保持一致
+            .setWillPauseWhenDucked(true)
             .setOnAudioFocusChangeListener(audioFocusListener, audioFocusHandler)
             .build()
             .also { audioFocusRequest = it }

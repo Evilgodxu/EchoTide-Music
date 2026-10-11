@@ -78,9 +78,15 @@ class UsbDirectOutput(
     private val player: ExoPlayer,
     private val audioManager: AudioManager,
 ) {
+    // 路由重算由主线程（开关、设备插拔）与播放线程（解码格式上报、音频轨建成）两处驱动，下列字段因此
+    // 被两线程读写：取值都按音频属性的现场状态重新求出，重复求值无害，但跨线程可见性必须显式给出，
+    // 否则播放线程可能读到旧值——按旧值建出的音频轨与生效的偏好不符时 AudioFlinger 静默混音，
+    // 界面却仍显示直出。
+    @Volatile
     private var enabled = false
     private var callbackRegistered = false
     /** 已钉定的 USB 输出设备，null 表示当前未钉定路由 */
+    @Volatile
     private var targetDevice: AudioDeviceInfo? = null
     /**
      * 已被系统受理的混音器属性，null 表示未建立专用输出流。
@@ -88,7 +94,11 @@ class UsbDirectOutput(
      * 一处状态管两件事：既是输出成色的依据（取值被拒时播放仍走系统混音，据此判定才不会以「已直出」
      * 之名走混音路径），也是抑制重复下发的判据（重复下发会让框架重开输出流，故已受理的取值在变化前
      * 不再下发）。两者必须同一份——把「下发过」与「已受理」分开记，被拒的取值就会挡住下次重试。
+     *
+     * 取值以平台的读回值为准而非「set 返回过 true」：偏好会被 audioserver 重启、厂商策略变更等外部原因
+     * 清除，而本地记录不会随之改变（见 [readAcceptedMixerAttributes]）。
      */
+    @Volatile
     private var acceptedMixerAttributes: AudioMixerAttributes? = null
     /**
      * 本会话内已被证实建不起音频轨的直出格式。
@@ -106,13 +116,17 @@ class UsbDirectOutput(
      * 与当前设备不符即整体作废——上一台做不到的档位，新设备未必做不到。以设备编号而非 [targetDevice]
      * 判归属：撤销配置会把 [targetDevice] 置空，拿它判会把「同一台设备上的失败」误当成「换了设备」。
      */
+    @Volatile
     private var unrealizableFormatsDeviceId: Int? = null
     /**
      * 本次连接问到的设备声明档位，及其所属设备编号。
      *
      * 声明是设备的固定属性，问到一次即认定本次连接的答案已定（见 [declaredFormatsFor]），故与设备编号一并记。
      */
+    @Volatile
     private var declaredFormats: List<AudioMixerAttributes> = emptyList()
+
+    @Volatile
     private var declaredFormatsDeviceId: Int? = null
     /**
      * 本次连接位完美请求是否已被拒。
@@ -121,12 +135,19 @@ class UsbDirectOutput(
      * （实测同一会话里每个候选都带一条「位完美请求被拒」）。被拒一次即认定本次连接没有可声明的位完美档位，
      * 此后不再试探；换设备即作废。
      */
+    @Volatile
     private var bitPerfectRejected = false
     /** 已对外上报的输出成色，与 [onRoutingChanged] 的出参同处一处，避免内部状态与上报值脱节 */
+    @Volatile
     private var reportedMode = AudioOutputMode.MIXER
     /** 当前曲目的解码格式，混音器属性需与之逐字段（采样率、声道、编码）匹配才能被直出流接纳 */
+    @Volatile
     private var decodedSampleRate = 0
+
+    @Volatile
     private var decodedChannelCount = 0
+
+    @Volatile
     private var decodedPcmEncoding = 0
 
     /**
@@ -135,6 +156,7 @@ class UsbDirectOutput(
      * 设备插拔回调与轨道回调都会触发路由重算，同一结论因此会被反复求出；去重后每条结论只在发生变化时
      * 落盘，日志读到的才是「何时因何原因变化」，而不是一串同义重复行。
      */
+    @Volatile
     private var lastDiagnostic: String? = null
 
     /** 输出成色变更回调：[AudioOutputMode.MIXER] 表示已回到系统混音输出 */
@@ -299,6 +321,15 @@ class UsbDirectOutput(
         }
         // 设备声明的动态混音端口条目：直出档位一律取自这里，不再按源格式另拼候选（见 [directMixerCandidates]）
         val supported = declaredFormatsFor(device)
+        // 本地记录只在平台侧仍持有该偏好时才算数：偏好会被 audioserver 重启、厂商策略变更等外部原因清除，
+        // 而本地记录不会随之改变，此后仍会指示按直出格式建轨——该格式此刻已无专用输出流承载，
+        // AudioFlinger 不报错而是静默混音，界面却仍显示直出。作废记录后，下面的判定会照常重新下发。
+        if (device != null && acceptedMixerAttributes != null &&
+            readAcceptedMixerAttributes(device) == null
+        ) {
+            logDiagnostic("系统侧已不持有直出偏好，重新下发：${deviceLabel(device)}")
+            acceptedMixerAttributes = null
+        }
         val built = directMixerCandidates(supported)
         // 已被实测证伪建不出音频轨的格式不再入选：再选只会再失败一次（见 [reportUnrealizableFormat]）
         val candidates = built.filterNot { it.format in unrealizableFormats }
@@ -457,6 +488,25 @@ class UsbDirectOutput(
         device: AudioDeviceInfo,
         mixerAttributes: AudioMixerAttributes,
     ): Boolean = audioManager.setPreferredMixerAttributes(playbackAttributes, device, mixerAttributes)
+
+    /**
+     * 读回平台此刻仍持有的偏好混音器属性，null 表示系统侧已不再持有。
+     *
+     * 判据取读回值而非「[postMixerAttributes] 曾返回 true」：偏好由系统按其自身的生命周期管理，
+     * audioserver 重启、厂商策略变更、客户端死亡处置都会把它清掉，而本地记录不会随之改变。
+     * 本地记录一旦与实际不符，音频轨仍按直出格式建起，却不再有专用输出流承载——AudioFlinger 不报错
+     * 而是静默混音，成色照旧显示直出。读回是一次按属性的查询，代价与一次下发相当，故可在每次路由重算时取。
+     */
+    private fun readAcceptedMixerAttributes(device: AudioDeviceInfo): AudioMixerAttributes? =
+        runCatching { audioManager.getPreferredMixerAttributes(playbackAttributes, device) }
+            .onFailure {
+                CrashLogManager.logException(
+                    LOG_TAG,
+                    "读回偏好混音器属性失败：${deviceLabel(device)}",
+                    it,
+                )
+            }
+            .getOrNull()
 
     /** 撤销直出配置并解除路由钉定；[reason] 是本次撤销的原因，仅用于日志留痕 */
     private fun releaseConfiguration(reason: String) {
