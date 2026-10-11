@@ -258,6 +258,7 @@ class PerDeviceAudioSink(
                         .build(),
                     onAudioTrackCreated = { track ->
                         capturedTracks[variant] = track
+                        applyStartThreshold(track)
                         reportTrackBuffer(variant, track)
                     },
                 )
@@ -275,6 +276,21 @@ class PerDeviceAudioSink(
         OutputVariant.INT24 -> int24Sink.writtenOutputFrames
         OutputVariant.INT32 -> int32Sink.writtenOutputFrames
         else -> null
+    }
+
+    /**
+     * 把起播阈值收到缓冲的一半。
+     *
+     * 平台没有在 `AudioTrack.Builder` 上给出入口，只能建轨后写入；轨道建起即回调，早于任何 [play]，
+     * 故写入的是「起播用」的那一版阈值。失败不致命：退回平台初值（等于缓冲容量），只是起播多等一段，
+     * 故按日志记录后放过，不影响播放。
+     */
+    private fun applyStartThreshold(track: AudioTrack) {
+        runCatching {
+            track.setStartThresholdInFrames(PlaybackBufferPolicy.startThresholdFrames(track.sampleRate))
+        }.onFailure {
+            CrashLogManager.logException(LOG_TAG, "设置起播阈值失败，沿用平台初值", it)
+        }
     }
 
     /**

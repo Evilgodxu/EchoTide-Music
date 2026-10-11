@@ -165,6 +165,12 @@ class UsbDirectOutput(
     private val audioDeviceHandler = Handler(Looper.getMainLooper())
 
     /**
+     * 直出期间的静音保活输出：设备上恒保有一路本应用的输出，使动态混音端口查询不至于永远得空表。
+     * 只在今天会丢失直出的状态下建立（见 [refreshOutputRouting]），因而不会改变有输出时的既有行为。
+     */
+    private val keepAlive = SilentKeepAliveOutput(audioManager)
+
+    /**
      * 播放的原生音频属性。
      *
      * 沿用播放器自身的实例而非另建等价属性：原生侧按属性匹配播放记录。读取它需经播放器的主线程校验，
@@ -203,6 +209,7 @@ class UsbDirectOutput(
             refreshOutputRouting()
         } else {
             releaseConfiguration("开关关闭")
+            keepAlive.release("直出开关关闭")
             unregisterCallback()
         }
     }
@@ -306,6 +313,7 @@ class UsbDirectOutput(
     fun release() {
         enabled = false
         releaseConfiguration("直出释放")
+        keepAlive.release("直出释放")
         unregisterCallback()
     }
 
@@ -319,8 +327,25 @@ class UsbDirectOutput(
             unrealizableFormatsDeviceId = device?.id
             bitPerfectRejected = false
         }
+        // 保活输出随设备走：设备换了或拔了先释放，下面的空表分支再按需建立
+        if (keepAlive.heldDeviceId != device?.id) keepAlive.release("USB 输出设备变更")
         // 设备声明的动态混音端口条目：直出档位一律取自这里，不再按源格式另拼候选（见 [directMixerCandidates]）
-        val supported = declaredFormatsFor(device)
+        var supported = declaredFormatsFor(device)
+        // 空表不是终局结论：平台的应答取决于本应用此刻在该设备上有没有输出。故空表时先保有一路静音输出
+        // 再问第二次——这正是「撤销后新起的输出不再落在该设备上、查询从此永远得空表」那条死结的出口。
+        // 只在这一状态下保活，有输出时的既有行为因此不被改变（保活的格式另见 [SilentKeepAliveOutput]）
+        if (device != null && supported.isEmpty()) {
+            keepAlive.hold(device)
+            supported = declaredFormatsFor(device)
+            if (supported.isNotEmpty()) {
+                logDiagnostic("保活输出使动态混音端口查询恢复应答：${deviceLabel(device)}")
+            }
+        }
+        // 保活轨与设备声明的档位同名时会被平台的「编码、声道掩码、采样率三项一致即挂上偏好流」吸入直出流，
+        // 而直出流多出一条音轨就不再旁路混音；此时放弃保活，宁可退回今天的行为
+        if (keepAlive.format != null && supported.any { it.format == keepAlive.format }) {
+            keepAlive.release("保活轨格式与设备声明档位同名")
+        }
         // 本地记录只在平台侧仍持有该偏好时才算数：偏好会被 audioserver 重启、厂商策略变更等外部原因清除，
         // 而本地记录不会随之改变，此后仍会指示按直出格式建轨——该格式此刻已无专用输出流承载，
         // AudioFlinger 不报错而是静默混音，界面却仍显示直出。作废记录后，下面的判定会照常重新下发。

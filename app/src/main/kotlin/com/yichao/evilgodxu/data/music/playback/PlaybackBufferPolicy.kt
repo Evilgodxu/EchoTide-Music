@@ -22,17 +22,18 @@ import kotlin.math.max
  *   与之相对，「已离开音频轨 → 发声」那一段（[OutputLatencyReading.afterTrackMs]）由混音缓冲、HAL
  *   与设备传输决定，与本策略无关——判断本策略是否生效要看音频轨的实得容量与全链路读数，不能看那一段。
  *
- * 取 200ms 是两者的折中：足以吸收上游停顿，又远短于媒体3 的 500ms。目标按**时长**给定、用采样率换算
- * 成帧，而不是固定帧数——帧与时长的对应随采样率变化，固定帧数在高采样率上会短到不足以抗欠载。
+ * 取 [TARGET_BUFFER_MS] 是两者的折中：足以吸收上游停顿，又远短于媒体3 的 500ms 默认口径。目标按**时长**
+ * 给定、用采样率换算成帧，而不是固定帧数——帧与时长的对应随采样率变化，固定帧数在高采样率上会短到不足以
+ * 抗欠载。
  *
  * 抬回下限这一步由本策略自己完成（见 [trackBufferBytes] 的 `max`），不是平台「判断设备是否支持」后的
  * 回退：平台只在音频轨一侧再兜一次下限。抬回的目标是**平台下限**，既不是媒体3 的 500ms 默认口径，
  * 也不是某个「合理值」。故本策略在平台下限更高时（实测某平台约 80ms）不生效，此时实得量即平台下限。
  *
- * 起播阈值随之一起变，但它不是独立的保护层：轨道要灌到阈值才出声，而阈值的初值就等于缓冲容量
- * （`AudioTrack.getStartThresholdInFrames`），两者是随动关系。故 200ms 的代价之一就是起播要多等这一段
- * （暂停后恢复同理）——这是换取抗欠载余量所付的价，不是配置失误；要缩短它只能下调本值，
- * 而抗欠载余量随之减少，两者同源，不能各取一头。
+ * 起播阈值（轨道灌到多少才出声）另按 [startThresholdFrames] 取容量的一半，不再沿用「等于容量」的初值：
+ * 初值让起播与暂停恢复都要多等整个缓冲，而阈值只作用于**起播那一刻**——一旦起唱，播放只要求「有数据
+ * 可播」，存量随即回升到容量，稳态余量不受影响。代价落在起播那一小段：起始存量减半，上游若恰好在此刻
+ * 停顿，欠载会更早出现。要缩短这段等待只能下调本值或该阈值，两者同源，不能各取一头。
  */
 @OptIn(UnstableApi::class)
 internal object PlaybackBufferPolicy {
@@ -46,6 +47,14 @@ internal object PlaybackBufferPolicy {
 
     /** 目标缓冲帧数：按 [TARGET_BUFFER_MS] 与采样率换算 */
     fun targetBufferFrames(sampleRate: Int): Int = sampleRate * TARGET_BUFFER_MS / 1000
+
+    /**
+     * 起播阈值帧数：目标缓冲的一半。
+     *
+     * 这是轨道建起后要经 `AudioTrack.setStartThresholdInFrames` 写入的值——平台没有在
+     * `AudioTrack.Builder` 上给出对应入口，只能建轨后设置。至少取 1 帧，否则平台按非法值拒绝。
+     */
+    fun startThresholdFrames(sampleRate: Int): Int = max(1, targetBufferFrames(sampleRate) / 2)
 
     /**
      * 按目标时长申请缓冲的字节数，且不低于平台下限。

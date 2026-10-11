@@ -503,6 +503,13 @@ internal class IntPcmAudioSink(
                 /* cause= */ null,
             )
         }
+        // 起播阈值收到缓冲的一半：平台没有 Builder 入口，只能建轨后写入；此刻尚未 play，写的是起播用的那一版。
+        // 失败退回平台初值（等于缓冲容量），只影响起播等待，故记录后放过
+        runCatching {
+            created.setStartThresholdInFrames(PlaybackBufferPolicy.startThresholdFrames(sampleRate))
+        }.onFailure {
+            CrashLogManager.logException(LOG_TAG, "设置起播阈值失败，沿用平台初值", it)
+        }
         val created1 = AudioTrackAudioOutput(
             created,
             config,
