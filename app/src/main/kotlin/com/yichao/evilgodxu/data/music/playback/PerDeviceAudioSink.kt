@@ -14,6 +14,7 @@ import androidx.media3.common.Format
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.util.Clock
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.analytics.PlayerId
 import androidx.media3.exoplayer.audio.AudioCapabilities
 import androidx.media3.exoplayer.audio.AudioOffloadSupport
@@ -26,6 +27,7 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioOutputProvider
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 // 音频轨诊断的类名前缀：缓冲请求量与实得量写在此名下，与音频信息面板的延迟读数互为印证
 private const val LOG_TAG = "PerDeviceAudioSink"
@@ -47,6 +49,12 @@ private const val MILLIS_PER_SECOND = 1000
  * 决策只在 [configure] 处落地——切换需要重开 AudioTrack，只能发生在渲染器重配点。
  * 变体切换不需要回放历史配置：所有设置类调用同时下发到四个变体。播放与暂停不属设置类——退出使用的变体
  * 在切换时被复位，其播放状态随之清零，故切换点按登记的播放意图给进入方单独接续（见 [switchTo]）。
+ *
+ * 写出率是第二个维度，与编码同出于已受理的那条属性：设备只声明同族倍率（如 88.2kHz）而不声明源采样率
+ * （44.1kHz）时直出挑中的是倍率档，音频轨必须开在该倍率上才挂得上专用输出流，而数据得由本层按整数倍
+ * 补齐。[SameFamilyUpsampler] 承担插值，本层负责按倍率放大内层配置（见 [scaledConfig]）、在写出前插值
+ * 并把余量握在手里（见 [handleBuffer]）、曲末冲出延迟段（见 [playToEndOfStream]）。倍率为 1 时整条
+ * 路径不参与，行为与从前一致。
  */
 @OptIn(UnstableApi::class)
 class PerDeviceAudioSink(
@@ -55,6 +63,8 @@ class PerDeviceAudioSink(
     private val directTarget: () -> AudioDeviceInfo?,
     /** 已受理的直出写出编码，null 表示当前未直出；写出变体据此与已受理的混音器属性逐字段对齐 */
     private val directOutputEncoding: () -> Int?,
+    /** 直出写出率相对源采样率的倍率（未直出或与源同率时为 1）：内层按它开轨，本层按它插值 */
+    private val directOutputRateMultiple: () -> Int = { 1 },
     /** 生效变体建不起音频轨时的报告出口：直出侧据此撤销该格式的偏好并记为不可用 */
     private val onDirectOutputUnrealizable: () -> Unit = {},
     /** 输出变体变更回调：报告本次配置后是否以浮点 PCM 写出 */
@@ -130,6 +140,36 @@ class PerDeviceAudioSink(
      * 切到对应的写出变体，故留一份备用；变体决策只看它带的解码格式，与配置的其余内容无关。
      */
     private var lastConfig: AudioSink.AudioSinkConfig? = null
+
+    /**
+     * 交给内层 sink 的配置：倍率档下采样率与延迟计数已按倍率放大，其余与渲染器下发的一致。
+     *
+     * 单独存一份而不是每次由 [lastConfig] 现算：降级换变体时要按同一份配置重建音频轨
+     * （见 [writeWithFallback]），现算会把这段时间里倍率的任何变化掺进来，写出率随之与已受理的属性脱节。
+     */
+    private var innerConfig: AudioSink.AudioSinkConfig? = null
+
+    /** 本次配置的插值器，null 表示按源采样率写出（未直出，或直出档位与源同率） */
+    private var upsampler: SameFamilyUpsampler? = null
+
+    /**
+     * 已插值而未写完的输出，null 表示本层不持余量。
+     *
+     * 非空即说明渲染器那一次缓冲尚未全写完：源缓冲已由本层接过（位置推到末位），余量留着续写，
+     * 返回 false 让媒体3 以同一缓冲再次调用（见 [handleBuffer]）。
+     */
+    private var pendingUpsampled: ByteBuffer? = null
+
+    /**
+     * 插值落点：按需增长后复用。
+     *
+     * 同一时刻只有一块：余量未清空时不会再插值，而曲末冲段只发生在余量已清空之后
+     * （见 [handleBuffer] 与 [playToEndOfStream]）。
+     */
+    private var upsampleScratch: ByteBuffer? = null
+
+    /** 曲末延迟段是否已冲出：冲出只做一次，此后若被再次调用，写的只是尚未接纳的余量 */
+    private var tailFlushed = false
 
     /**
      * 音频线程的 Handler：直出路由从别处变更时，重配只能投回音频线程执行。
@@ -381,11 +421,86 @@ class PerDeviceAudioSink(
         lastConfig = audioSinkConfig
         if (playbackHandler == null) playbackHandler = Looper.myLooper()?.let(::Handler)
         // 先上报再挑变体：直出侧据此下发混音器属性，属性生效后 directTarget 才给出设备，
-        // 变体才能按与属性同一个条目来选；音频轨在下一次数据写入时才建立，属性来得及生效
+        // 变体才能按与属性同一个条目来选；音频轨在下一次数据写入时才建立，属性来得及生效。
+        // 倍率同取这一份已受理的属性，故也在这一步之后才有取值
         onDecodedFormatChanged(format.sampleRate, format.channelCount, format.pcmEncoding)
         switchTo(variantFor())
         onOutputVariantChanged(activeVariant == OutputVariant.FLOAT)
-        active().configure(audioSinkConfig)
+        // 换了流（或换了档位）：上一轮的余量与冲段都属旧流，插值器也随新倍率重建，一律作废
+        discardUpsampled()
+        upsampler = buildUpsampler(format)
+        innerConfig = scaledConfig(audioSinkConfig, upsampler?.multiple ?: 1)
+        active().configure(checkNotNull(innerConfig))
+    }
+
+    /**
+     * 本次配置的插值器：直出给出的倍率大于 1、且解码编码插得动时才有。
+     *
+     * 编码插不动却仍按倍率开轨，落到「写出率与混音器属性不符 + AudioFlinger 静默混音」的组合上，
+     * 故退回按源采样率写出并留痕。这种情况正常不会出现：直出挑倍率档时已按同一个解码编码筛过
+     * （两处的取值同出 [onDecodedFormatChanged] 那一次上报），此处是兜底。
+     */
+    private fun buildUpsampler(format: Format): SameFamilyUpsampler? {
+        val multiple = directOutputRateMultiple()
+        if (multiple <= 1) return null
+        if (!canInterpolatePcm(format.pcmEncoding)) {
+            CrashLogManager.logInfo(
+                LOG_TAG,
+                "直出倍率档为 ×$multiple，但解码编码插不动（编码 ${format.pcmEncoding}），" +
+                    "本次按源采样率写出",
+            )
+            return null
+        }
+        return SameFamilyUpsampler(multiple)
+    }
+
+    /**
+     * 内层 sink 的配置：倍率档下把采样率与编码器延迟/填充按倍率放大，其余原样带回。
+     *
+     * 采样率决定内层按什么速率建音频轨——轨道必须开在倍率档的采样率上，才与已受理的混音器属性逐字段
+     * 一致、挂得上专用输出流。延迟与填充按帧计，而数据在进入内层之前已被本层插值放大，计数不跟着放大
+     * 就会曲首尾各裁错一截（gapless 接缝与首尾样本都会错位）。
+     *
+     * 声道映射、时间轴与媒体期编号原样带回：它们与写出格式无关，丢一个就可能让内层按另一条时间轴记账。
+     * 已废弃的 preferredBufferSizeOverride 不带走：本应用走的两条渲染器路径都不设它
+     * （MediaCodecAudioRenderer 与 DecoderAudioRenderer 各自只设声道映射、时间轴与媒体期编号），
+     * 重建即默认 0，与原来同值，故不必为它碰废弃接口。
+     * 倍率为 1 时整份配置原样交回，非直出与按源格式直出两条路径因此与从前逐字段一致。
+     */
+    private fun scaledConfig(
+        config: AudioSink.AudioSinkConfig,
+        multiple: Int,
+    ): AudioSink.AudioSinkConfig {
+        if (multiple <= 1) return config
+        val format = config.format
+        val scaled = format.buildUpon()
+            .setSampleRate(format.sampleRate * multiple)
+            .apply {
+                if (format.encoderDelay != Format.NO_VALUE) {
+                    setEncoderDelay(format.encoderDelay * multiple)
+                }
+                if (format.encoderPadding != Format.NO_VALUE) {
+                    setEncoderPadding(format.encoderPadding * multiple)
+                }
+            }
+            .build()
+        return AudioSink.AudioSinkConfig.Builder(scaled)
+            .setOutputChannelMapping(config.outputChannelMapping)
+            .setTimeline(config.timeline)
+            .setMediaPeriodId(config.mediaPeriodId)
+            .build()
+    }
+
+    /**
+     * 丢弃插值余量与冲段状态。
+     *
+     * 余量是「已插值而未写出」的数据，其基准是那条流的延迟线；流一换（重配、冲刷、复位）便无从续起，
+     * 留着只会把旧流的数据写进新流。插值器的延迟线随之清空，新流从零历史起算。
+     */
+    private fun discardUpsampled() {
+        pendingUpsampled = null
+        tailFlushed = false
+        upsampler?.reset()
     }
 
     /**
@@ -453,7 +568,10 @@ class PerDeviceAudioSink(
 
     override fun isEnded(): Boolean = active().isEnded
 
-    override fun hasPendingData(): Boolean = active().hasPendingData()
+    // 倍率档下本层还持着已插值而未写出的余量，内层未必知道它——不并进来，媒体3 会在余量写出之前
+    // 就认为输出已空（渲染器据此判定播放是否推进）
+    override fun hasPendingData(): Boolean =
+        pendingUpsampled != null || active().hasPendingData()
 
     /**
      * 写出数据；生效变体建不起音频轨、或建起后写不出，都逐档降级，绝不把该失败传成致命错误。
@@ -469,8 +587,8 @@ class PerDeviceAudioSink(
      * 直出是尽力而为：任一变体失败都换下一个续写，全部用尽才交可恢复错误——把决定权还给渲染器，
      * 而不是以不可恢复错误终止播放。**下一档由直出重挑得出，不是一张固定次序表**：撤销失败的格式后
      * [onDirectOutputUnrealizable] 会把该格式记为不可用并重新挑选候选，于是降级次序正是设计的那条——
-     * 先源格式，被证伪后退回设备声明的档位，设备侧也无档位可用才回系统混音（[variantFor] 在其后无
-     * 已受理编码时给出浮点变体）。固定次序表做不到这一点：它不知道设备声明了哪些位深。
+     * 先与源同率的档位（数据一字不动），被证伪后退到同族倍率档（数据由本层补齐），两者都用尽才回系统混音
+     * （[variantFor] 在其后无已受理编码时给出浮点变体）。固定次序表做不到这一点：它不知道设备声明了哪些位深。
      *
      * 降级前先撤销直出的该格式偏好：写出编码必须与已受理的混音器属性一致，换了编码就不能再挂着那条
      * 专用流，否则 AudioFlinger 静默混音、「已直出」名不副实。记入不可用则保证同一失败不会反复发生。
@@ -478,8 +596,40 @@ class PerDeviceAudioSink(
      * 两种失败对缓冲的影响不同：建轨失败发生在对本缓冲的任何读写之前，可直接改交下一个变体；写出失败时
      * 缓冲可能已被消费（媒体3 的输出实现会就地消费输入缓冲）。故一则统一退回本轮的缓冲起点再重试：
      * 失败的一方已随切换被释放，它接纳而未播出的数据不会再播出，整块重写才是连续的。
+     *
+     * 倍率档下写出的是插值后的余量：源缓冲由本层接下（见 [handleBuffer]），降级重试因此打在余量上，
+     * 与源缓冲无关。余量写完之前不得让渲染器推进——这是本层对媒体3 的契约（它承诺以同一缓冲再调用）。
      */
     override fun handleBuffer(
+        buffer: ByteBuffer,
+        presentationTimeUs: Long,
+        encodedAccessUnitCount: Int,
+    ): Boolean {
+        val upsampler = upsampler
+            ?: return writeWithFallback(buffer, presentationTimeUs, encodedAccessUnitCount)
+        // 余量优先：插值只做一次，失败重试与接着写都从余量继续（见 [upsampleInto]）
+        val pending = pendingUpsampled ?: upsampleInto(buffer, upsampler).also { pendingUpsampled = it }
+        val handled = writeWithFallback(pending, presentationTimeUs, encodedAccessUnitCount)
+        // 降级重挑出的档位换了倍率：余量已是旧倍率下的数据，整体重配已把余量作废。源缓冲未被消费，
+        // 原样交回渲染器，它会以同一缓冲再送一次，由新倍率重新插值（见 [writeWithFallback]）
+        if (pendingUpsampled !== pending) return false
+        // 整块输入已被插值接过，无论余量写没写完，源缓冲都算消费完——余量由本层持有，不再回看源缓冲
+        buffer.position(buffer.limit())
+        if (pending.hasRemaining()) return false
+        pendingUpsampled = null
+        return handled
+    }
+
+    /**
+     * 把 [buffer] 交给生效变体写出，失败即按直出重挑出的下一档降级续写；返回是否写完。
+     *
+     * 未写完时 [buffer] 的位置停在已消费处，由调用方决定继续持有还是交回渲染器（见 [handleBuffer]）。
+     * 倍率档多一种情形：重挑出的档位**倍率不同**（从 ×2 退到 ×4，或档位全部用尽而交回系统混音）。
+     * 手里的余量是旧倍率下的数据，写进新档就是错速率的音频，比丢掉一段余量严重得多，故一律整体重配
+     * （[configure] 会重建插值器与内层配置）并把余量置空交回调用方——源缓冲未被消费，渲染器原样再送，
+     * 数据不丢。
+     */
+    private fun writeWithFallback(
         buffer: ByteBuffer,
         presentationTimeUs: Long,
         encodedAccessUnitCount: Int,
@@ -502,16 +652,102 @@ class PerDeviceAudioSink(
             }
             buffer.position(startPosition)
             onDirectOutputUnrealizable()
+            if (upsampler?.multiple != directOutputRateMultiple()) {
+                pendingUpsampled = null
+                CrashLogManager.logInfo(LOG_TAG, "直出倍率已变，按新档整体重配")
+                runCatching { configure(checkNotNull(lastConfig)) }.onFailure {
+                    CrashLogManager.logException(LOG_TAG, "倍率变更后的重配失败", it)
+                }
+                return false
+            }
             // 重挑之后才知道下一档：仍能直出即取新受理编码对应的变体，无档位可退则为浮点（系统混音）
             val next = variantFor()
             if (next in tried) throw recoverable(checkNotNull(cause))
             // 直接切到下一档，不经 [configure]：那会按已受理的编码重挑变体，降级就白做了
             switchTo(next)
             onOutputVariantChanged(next == OutputVariant.FLOAT)
-            runCatching { active().configure(checkNotNull(lastConfig)) }.onFailure {
+            runCatching { active().configure(checkNotNull(innerConfig)) }.onFailure {
                 CrashLogManager.logException(LOG_TAG, "直出降级后的重配失败", it)
             }
         }
+    }
+
+    /**
+     * 把 [source] 整块插值到复用落点，返回已 flip 的缓冲。
+     *
+     * 输入的位置在此借还（[ByteBuffer.mark] / [ByteBuffer.reset]）：插值本身要把输入读到末位，但源缓冲
+     * 「算不算被消费」由调用方决定——降级中倍率变了时，这一块要原样交回渲染器按新倍率重来。
+     */
+    private fun upsampleInto(source: ByteBuffer, upsampler: SameFamilyUpsampler): ByteBuffer {
+        val format = checkNotNull(lastConfig).format
+        val frames = source.remaining() /
+            Util.getPcmFrameSize(format.pcmEncoding, format.channelCount)
+        val output = scratchFor(
+            upsampler.outputBytes(frames, format.channelCount, format.pcmEncoding)
+        )
+        source.mark()
+        upsampler.process(source, format.channelCount, format.pcmEncoding, output)
+        source.reset()
+        output.flip()
+        return output
+    }
+
+    /**
+     * 把插值器的尾段冲出来，返回已 flip 的缓冲。
+     *
+     * 半带插值有固有延迟，曲末的原样本还留在延迟线里，不冲出来就是丢样本（见 [SameFamilyUpsampler]）。
+     * 冲段按静音补齐输入——曲末之后本就是无声。
+     */
+    private fun drainInto(upsampler: SameFamilyUpsampler): ByteBuffer {
+        val format = checkNotNull(lastConfig).format
+        val frameSize = Util.getPcmFrameSize(format.pcmEncoding, format.channelCount)
+        val output = scratchFor(upsampler.drainFrames * frameSize)
+        upsampler.drain(format.channelCount, format.pcmEncoding, output)
+        output.flip()
+        return output
+    }
+
+    /**
+     * 把插值尾段写进生效变体，返回是否已冲完。
+     *
+     * 先写完手上的余量再冲段，次序不能反——余量在时间上先于尾段。未冲完时留待下次调用，此时不得让
+     * 内层收尾（见 [playToEndOfStream]）。冲段写出失败即放弃它：尾段不过一毫秒上下，
+     * 让渲染器一直等下去才是真损失。
+     */
+    private fun flushUpsamplerTail(): Boolean {
+        val upsampler = upsampler ?: return true
+        if (tailFlushed && pendingUpsampled == null) return true
+        val pending = pendingUpsampled
+            ?: drainInto(upsampler).also {
+                pendingUpsampled = it
+                tailFlushed = true
+            }
+        val written = runCatching { writeWithFallback(pending, C.TIME_END_OF_SOURCE, 1) }
+        if (written.isFailure) {
+            CrashLogManager.logException(LOG_TAG, "插值尾段写出失败，放弃冲段", written.exceptionOrNull())
+            pendingUpsampled = null
+            return true
+        }
+        if (pendingUpsampled !== pending) return true
+        if (pending.hasRemaining()) return false
+        pendingUpsampled = null
+        return written.getOrDefault(true)
+    }
+
+    /**
+     * 插值落点：按需增长后复用。
+     *
+     * 用直接缓冲与平台字节序，与 [IntPcmAudioSink] 的转换缓冲同一口径，内层按同一套约定读它。
+     */
+    private fun scratchFor(bytes: Int): ByteBuffer {
+        val current = upsampleScratch
+        if (current != null && current.capacity() >= bytes) {
+            current.clear()
+            return current
+        }
+        return ByteBuffer.allocateDirect(bytes)
+            .order(ByteOrder.nativeOrder())
+            .also { upsampleScratch = it }
     }
 
     // 全部变体都用尽：以可恢复错误交回渲染器重试，不用不可恢复错误终止整曲播放
@@ -538,10 +774,21 @@ class PerDeviceAudioSink(
     // 登记的时点早于释放事件，后续建轨会撤销它，据此把迟到的释放事件判为不属于当前链路
     override fun flush() {
         outputReleaseRequested = true
+        // 余量与冲段都属被冲刷掉的那条流：留着只会把旧流的数据写进新流
+        discardUpsampled()
         active().flush()
     }
 
-    override fun playToEndOfStream() = active().playToEndOfStream()
+    /**
+     * 收尾：先把插值器的延迟段冲出来，再让内层收尾。
+     *
+     * 冲出未完成时不得让内层收尾，也不得报已结束——媒体3 会反复调用本方法直到写出结束
+     * （内层对自家余量取的也是这个口径）。
+     */
+    override fun playToEndOfStream() {
+        if (!flushUpsamplerTail()) return
+        active().playToEndOfStream()
+    }
 
     override fun handleDiscontinuity() = active().handleDiscontinuity()
 
@@ -590,11 +837,15 @@ class PerDeviceAudioSink(
         // 新生效的变体就不会被启动，位置随之冻结，媒体3 的停滞检测满 10 秒即以 ERROR_CODE_TIMEOUT 终止播放。
         // 起停只由 play/pause 决定——媒体3 的渲染器起停也只经这两个调用下发。
         outputReleaseRequested = true
+        // 余量与冲段同属被复位掉的那条流（切轨即换流），留着会被写进新流
+        discardUpsampled()
         forEachSink { it.reset() }
     }
 
     override fun release() {
         released = true
+        discardUpsampled()
+        upsampler = null
         forEachSink { it.release() }
     }
 

@@ -98,6 +98,12 @@ class MusicPlaybackService : MediaSessionService() {
             directOutputEncoding = {
                 if (::usbDirectOutput.isInitialized) usbDirectOutput.directOutputEncoding() else null
             },
+            // 直出档位与源同族却不同率时（设备只声明 88.2、本条是 44.1）给出倍率：音频输出据此把数据
+            // 插值放大、并按倍率开音轨（见 UsbDirectOutput 与 SameFamilyUpsampler）；
+            // 未直出、或直出档位与源同率时为 1，该路径整体不参与
+            directOutputRateMultiple = {
+                if (::usbDirectOutput.isInitialized) usbDirectOutput.directOutputRateMultiple() else 1
+            },
             // 打包整型输出建不起音频轨时回报直出侧：撤销该格式偏好并记为不可用，播放降级续走
             onDirectOutputUnrealizable = {
                 if (::usbDirectOutput.isInitialized) usbDirectOutput.reportUnrealizableFormat()

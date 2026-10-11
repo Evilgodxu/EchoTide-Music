@@ -49,12 +49,12 @@ internal object PlaybackBufferPolicy {
     fun targetBufferFrames(sampleRate: Int): Int = sampleRate * TARGET_BUFFER_MS / 1000
 
     /**
-     * 起播阈值帧数：目标缓冲的一半。
+     * 起播阈值帧数：
      *
      * 这是轨道建起后要经 `AudioTrack.setStartThresholdInFrames` 写入的值——平台没有在
      * `AudioTrack.Builder` 上给出对应入口，只能建轨后设置。至少取 1 帧，否则平台按非法值拒绝。
      */
-    fun startThresholdFrames(sampleRate: Int): Int = max(1, targetBufferFrames(sampleRate) / 2)
+    fun startThresholdFrames(sampleRate: Int): Int = max(1, targetBufferFrames(sampleRate))
 
     /**
      * 按目标时长申请缓冲的字节数，且不低于平台下限。

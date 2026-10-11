@@ -47,8 +47,14 @@ private const val LOG_TAG = "UsbDirectOutput"
  *
  * 档位只取自**设备声明的动态混音端口条目**，且本次连接只读取一次（见 [declaredFormatsFor]）；不按源位深
  * 与源采样率另拼一条去试探未声明的参数——试探只换来一次被拒或一条写不出的轨道，而设备侧真正支持的档位
- * 恰在声明里。选不出档位（声明里没有与当前解码格式逐字段相符的条目）即交回系统混音；档位建不起或写不出
- * 再由音频输出逐档降级（见 [reportUnrealizableFormat]）。
+ * 恰在声明里。档位按优先级排成两条：与源同率的在先、同族整数倍的在后（见 [directMixerCandidates]）；
+ * 两条都挑不出即交回系统混音；档位建不起或写不出再由音频输出逐档降级（见 [reportUnrealizableFormat]）。
+ *
+ * 同族倍率那条是为「不声明源采样率、却声明了同族倍率」的设备留的出口（如只声明 88.2 而不声明 44.1）：
+ * 交回系统混音会被重采样到设备当时那档采样率（通常 48k，跨族），而按同族倍率直出只需本应用把数据按
+ * 整数倍补齐，就能挂在设备确实声明的档位上——同族时钟、不经系统重采样器（见 [SameFamilyUpsampler]）。
+ * **倍率那一份数据必须由本应用补齐**：只把偏好设成倍率档而仍写源采样率的帧，三字段不符，轨挂不上
+ * 专用输出流，系统照样重采样，而界面仍显示已直出。
  *
  * 原生行为（已核实）：
  * - 受理条件：APM 要求 usage 为 USAGE_MEDIA、设备为已接入的 USB 输出，且存在与目标格式、采样率、
@@ -224,6 +230,20 @@ class UsbDirectOutput(
      * 只有「系统实际受理的那条属性」才是写出必须对齐的目标。
      */
     fun directOutputEncoding(): Int? = acceptedMixerAttributes?.format?.encoding
+
+    /**
+     * 直出写出率相对源采样率的倍率，未直出、或按源格式直出时为 1。
+     *
+     * 与 [directOutputEncoding] 同取一份已受理的属性：倍率只由「已受理的采样率」与「当前解码采样率」
+     * 决定，不看设备声明——改挂之后声明里那两条的次序不说明此刻生效的是哪一条，只有已受理的取值能。
+     * 音频输出据此把数据插值放大并按倍率开轨，使写出率与混音器属性逐字段一致（见 [PerDeviceAudioSink]）；
+     * 数据补不到该倍率，AudioFlinger 不报错而是把该轨静默混音，「已直出」名不副实——故倍率与编码
+     * 必须出自同一处。
+     */
+    fun directOutputRateMultiple(): Int =
+        acceptedMixerAttributes
+            ?.let { sameFamilyMultiple(decodedSampleRate, it.format.sampleRate) }
+            ?: 1
 
     /**
      * 音频输出报告：已受理的直出格式在本机不可用（建不起音频轨，或建成后写不出），记为不可用并改挂下一档。
@@ -420,7 +440,7 @@ class UsbDirectOutput(
                     "直出未生效，本条曲目解码输出 ${describeDecodedFormat()}"
             else ->
                 "设备未提供可承载当前格式的混音器条目" to
-                    "USB 设备 $label 的动态混音端口无可承载当前格式的条目，直出未生效，" +
+                    "USB 设备 $label 的动态混音端口既无与源同率的条目、也无同族整数倍条目，直出未生效，" +
                     "本条曲目解码输出 ${describeDecodedFormat()}"
         }
     }
@@ -596,20 +616,34 @@ class UsbDirectOutput(
     }
 
     /**
-     * 直出候选：只取设备声明的动态混音端口条目，一条。
+     * 直出候选：设备声明的动态混音端口条目，按优先级排成两条，前者不成立时取后者。
      *
-     * **不构造设备未声明的格式**——不按源位深与源采样率直接拼一条去试探。设备声明哪些档位就按哪些直出：
-     * 声明的档位就是设备确实支持的那几档，未声明的参数（位深、采样率）试探一次只换来一次被拒、或一条
-     * 建得起却写不出的轨道（实测：96000Hz/24 位被受理后写返回 ERROR_INVALID_OPERATION）。真正的判据
-     * 始终在真实链路上（见 [reportUnrealizableFormat]），事前拼格式并不能替代它。
+     * **不构造设备声明的格式之外的东西**——不按源位深与源采样率直接拼一条去试探。设备声明哪些档位就按哪些
+     * 直出：声明的档位就是设备确实支持的那几档，未声明的参数（位深、采样率）试探一次只换来一次被拒、
+     * 或一条建得起却写不出的轨道（实测：96000Hz/24 位被受理后写返回 ERROR_INVALID_OPERATION）。
+     * 真正的判据始终在真实链路上（见 [reportUnrealizableFormat]），事前拼格式并不能替代它。
      *
-     * 声明条目一空即返回空表：空表说明这次问不到（厂商未声明，或设备当前没有输出，见 [declaredFormatsFor]），
-     * 此时没有可用档位，播放交回系统混音。
+     * 两条的次序与各自的取舍：
+     * - 首选**与源同率**的那条：写出率与源一致、数据一字不动，这是直出的本义（见 [selectDirectMixer]）；
+     * - 同率档缺席时退到**同族整数倍**那条：设备不声明 44.1 却声明 88.2 时，交回系统混音会被重采样到
+     *   设备当时那档采样率（通常是 48k，**跨族**）；而按同族倍率直出只需本应用把数据按整数倍补齐
+     *   （见 [SameFamilyUpsampler]）——同族时钟、不经系统重采样器，代价是多了插值样本。
+     *
+     * 两条都只是候选：声明里挑不出（或倍率档的编码本应用写不出，见 [canInterpolatePcm]）即返回空表，
+     * 播放交回系统混音。
      */
     private fun directMixerCandidates(
         supported: List<AudioMixerAttributes>,
     ): List<AudioMixerAttributes> =
-        listOfNotNull(selectDirectMixer(supported, decodedSampleRate, decodedChannelCount, decodedPcmEncoding))
+        listOfNotNull(
+            selectDirectMixer(supported, decodedSampleRate, decodedChannelCount, decodedPcmEncoding),
+            selectSameFamilyUpsample(
+                supported,
+                decodedSampleRate,
+                decodedChannelCount,
+                decodedPcmEncoding,
+            ),
+        )
 
     private fun registerCallback() {
         if (callbackRegistered) return
@@ -625,10 +659,11 @@ class UsbDirectOutput(
 }
 
 /**
- * 从设备支持的混音器属性中挑出可承载解码格式的直出条目，无可用条目时返回 null。
+ * 从设备支持的混音器属性中挑出**与解码格式同率**的直出条目，无可用条目时返回 null。
  *
- * 这是直出的**唯一**档位来源：设备声明了什么就按什么直出，不按源位深与源采样率另拼格式（见
- * [UsbDirectOutput.directMixerCandidates]）。
+ * 与 [selectSameFamilyUpsample] 合起来构成直出的全部档位来源，两者都只从设备**声明**的条目里挑，
+ * 不按源位深与源采样率另拼格式（见 [UsbDirectOutput.directMixerCandidates]）。本函数是首选那一条：
+ * 写出率与源一致，数据一字不动。
  *
  * 专用输出流只接纳与混音器属性逐字段一致的播放——采样率、声道与编码任一不符，播放都不会挂到该流上，
  * 因此候选严格按这三项筛定，不做「挑最接近条目」的退让：挂不上的条目只会让播放静默落回混音路径，
@@ -671,6 +706,50 @@ internal fun selectDirectMixer(
     return candidates.maxByOrNull {
         encodingPreference(it.format.encoding)
     }
+}
+
+/**
+ * 从设备支持的混音器属性中挑出**同族整数倍**的直出条目，无可用条目时返回 null。
+ *
+ * 用途：设备不声明源采样率（44.1kHz 落不到任何档位上）却声明了同族倍率（88.2kHz）时，本应用把数据
+ * 按整数倍补齐后仍能直出，避免交回系统混音被重采样到跨族的档位（见 [SameFamilyUpsampler] 与
+ * [UsbDirectOutput.directMixerCandidates]）。
+ *
+ * 筛法与 [selectDirectMixer] 逐条一致——声道与编码同筛，只把采样率一项由「相等」放宽为「同族整数倍」。
+ * 同率条目不会被本函数挑中（倍率恒 ≥ 2），故两条候选天然互斥、次序不会打架。
+ *
+ * 倍率取**最小**那一档：多出一倍的样本已是能守住的最近一档，再往上是白添数据与延迟；同倍率内仍按
+ * [encodingPreference] 取位深最高的编码。
+ *
+ * 编码一侧多一道门槛：倍率档的数据要由本应用插值写出，故 [decodedPcmEncoding] 必须是本应用插得动的
+ * 线性 PCM（见 [canInterpolatePcm]）。插不出的编码宁可不出现在候选里——挂上了也补不出数据，而写出率
+ * 与混音器属性不符时 AudioFlinger 只静默混音，成色却照旧显示已直出。
+ */
+@OptIn(UnstableApi::class)
+internal fun selectSameFamilyUpsample(
+    supported: List<AudioMixerAttributes>,
+    sampleRate: Int,
+    channelCount: Int,
+    decodedPcmEncoding: Int,
+): AudioMixerAttributes? {
+    if (sampleRate <= 0) return null
+    if (!Util.isEncodingLinearPcm(decodedPcmEncoding)) return null
+    if (!canInterpolatePcm(decodedPcmEncoding)) return null
+    val writable = writablePcmEncodings(decodedPcmEncoding)
+    return supported
+        .filter {
+            it.format.encoding in writable &&
+                (channelCount <= 0 || it.format.channelCount == channelCount) &&
+                it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT
+        }
+        .mapNotNull { attributes ->
+            sameFamilyMultiple(sampleRate, attributes.format.sampleRate)?.let { it to attributes }
+        }
+        // 倍率小者优先，同倍率内位深高者优先
+        .minWithOrNull(
+            compareBy({ it.first }, { -encodingPreference(it.second.format.encoding) })
+        )
+        ?.second
 }
 
 /**
