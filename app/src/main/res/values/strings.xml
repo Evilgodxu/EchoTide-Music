@@ -322,7 +322,6 @@
     <string name="metadata_cover_save">保存封面</string>
     <string name="metadata_cover_same_album">选同专辑</string>
     <string name="metadata_cover_online">在线刷新</string>
-    <string name="metadata_cover_revert">撤销更改</string>
     <string name="metadata_cover_edit_hint">点击更换</string>
     <string name="metadata_cover_saved">封面已保存到相册</string>
     <string name="metadata_cover_save_failed">封面保存失败</string>

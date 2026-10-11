@@ -36,8 +36,6 @@ data class MetadataUiState(
     val lyricsUnparsable: Boolean = false,
     // 封面预览：进入页面时从文件内嵌封面取回，用户选择新图或移除后替换；为 null 表示当前无封面
     val coverBytes: ByteArray? = null,
-    // 封面相对进入页面时的原封面是否被改动：驱动封面卡片的「撤销更改」
-    val coverDirty: Boolean = false,
     // 载入中：读取标签期间不展示表单，避免旧内容与新内容在界面上交叠
     val loading: Boolean = true,
     // 正在写回音频文件：期间不接受新的编辑入口，避免写入过程中的改动与已有写入交错。

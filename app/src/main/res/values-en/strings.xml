@@ -326,7 +326,6 @@
     <string name="metadata_cover_save">Save cover</string>
     <string name="metadata_cover_same_album">From same album</string>
     <string name="metadata_cover_online">Refresh online</string>
-    <string name="metadata_cover_revert">Undo changes</string>
     <string name="metadata_cover_edit_hint">Tap to change</string>
     <string name="metadata_cover_saved">Cover saved to gallery</string>
     <string name="metadata_cover_save_failed">Failed to save cover</string>

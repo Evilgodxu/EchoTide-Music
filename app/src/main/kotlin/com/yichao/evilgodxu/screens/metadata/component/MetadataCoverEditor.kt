@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -59,17 +58,16 @@ private val BADGE_TEXT = Color.White
  * 预览由内嵌封面字节直接解码：此处要展示的正是「音频文件里当前存的是哪张图」，
  * 与显示端按系统略缩图取图的路径不同，不复用封面加载器。
  *
- * 信息与角标布局对齐参考实现：缩略图上标出「封面」「尺寸」与操作提示，改动后角标变成撤销入口，
- * 使「当前存的是哪张图」「是否改过」「能对它做什么」在同一屏内可读。
+ * 信息与角标布局对齐参考实现：缩略图上标出「封面」「尺寸」与操作提示，
+ * 使「当前存的是哪张图」「能对它做什么」在同一屏内可读。
  *
- * 操作入口用对话框而非贴边浮层：选项有六项且文案较长，浮层在窄屏上会被迫横向挤压或折行
+ * 操作入口用对话框而非贴边浮层：选项文案较长，浮层在窄屏上会被迫横向挤压或折行
  */
 @Composable
 internal fun MetadataCoverEditor(
     title: String,
     artist: String,
     coverBytes: ByteArray?,
-    coverDirty: Boolean,
     enabled: Boolean,
     exporting: Boolean,
     onPickCover: () -> Unit,
@@ -77,7 +75,6 @@ internal fun MetadataCoverEditor(
     onPickSameAlbum: () -> Unit,
     onOnlineRefresh: () -> Unit,
     onRemoveCover: () -> Unit,
-    onRevertCover: () -> Unit,
 ) {
     var showActions by remember { mutableStateOf(false) }
     // 解码结果与像素尺寸随字节数组引用变化重算：编辑器同一曲目内不会原地改写字节
@@ -126,11 +123,9 @@ internal fun MetadataCoverEditor(
         ) {
             CoverThumbnail(
                 bitmap = bitmap,
-                coverDirty = coverDirty,
                 sizeText = sizeText,
                 enabled = enabled,
                 onClick = { showActions = true },
-                onRevertClick = onRevertCover,
             )
             Column(
                 modifier = Modifier.weight(1f).padding(start = 16.dp),
@@ -159,38 +154,32 @@ internal fun MetadataCoverEditor(
         CoverActionDialog(
             visible = showActions,
             hasCover = coverBytes != null,
-            coverDirty = coverDirty,
             exporting = exporting,
             onPick = { showActions = false; onPickCover() },
             onSave = { showActions = false; onSaveCover() },
             onSameAlbum = { showActions = false; onPickSameAlbum() },
             onOnlineRefresh = { showActions = false; onOnlineRefresh() },
             onRemove = { showActions = false; onRemoveCover() },
-            onRevert = { showActions = false; onRevertCover() },
             onDismiss = { showActions = false },
         )
     }
 }
 
 /**
- * 封面操作对话框：本页封面可做的六项操作，按使用频度与破坏性排序。
+ * 封面操作对话框：本页封面可做的五项操作，按使用频度排序。
  *
- * 置灰规则按「当前是否做得了」定：
- *  - 保存与移除需要有封面；
- *  - 撤销需要有尚未回退的改动 —— 它回退的是进入本页时的封面，改动一旦落盘也照样能回退。
+ * 置灰规则按「当前是否做得了」定：保存与移除需要有封面在；导出进行中整组不可再触发。
  */
 @Composable
 private fun CoverActionDialog(
     visible: Boolean,
     hasCover: Boolean,
-    coverDirty: Boolean,
     exporting: Boolean,
     onPick: () -> Unit,
     onSave: () -> Unit,
     onSameAlbum: () -> Unit,
     onOnlineRefresh: () -> Unit,
     onRemove: () -> Unit,
-    onRevert: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     if (!visible) return
@@ -217,7 +206,7 @@ private fun CoverActionDialog(
             onClick = onSameAlbum,
         )
         DialogOption(
-            icon = AppIcons.Share,
+            icon = AppIcons.Save,
             label = stringResource(R.string.metadata_cover_save),
             enabled = hasCover && !exporting,
             loading = exporting,
@@ -229,24 +218,16 @@ private fun CoverActionDialog(
             enabled = hasCover && !exporting,
             onClick = onRemove,
         )
-        DialogOption(
-            icon = AppIcons.History,
-            label = stringResource(R.string.metadata_cover_revert),
-            enabled = coverDirty && !exporting,
-            onClick = onRevert,
-        )
     }
 }
 
-// 封面缩略图：方形封面 + 角标（左上「封面」、左下尺寸、右下「点击更换」、右上「撤销更改」）
+// 封面缩略图：方形封面 + 角标（左上「封面」、左下尺寸、右下「点击更换」）
 @Composable
 private fun CoverThumbnail(
     bitmap: ImageBitmap?,
-    coverDirty: Boolean,
     sizeText: String?,
     enabled: Boolean,
     onClick: () -> Unit,
-    onRevertClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -285,23 +266,6 @@ private fun CoverThumbnail(
             text = stringResource(R.string.metadata_cover_edit_hint),
             modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
         )
-        if (coverDirty) {
-            // 改动后角标即撤销入口：点它回到进入本页时的那张封面
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = MaterialTheme.colorScheme.primary,
-                onClick = onRevertClick,
-                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.metadata_cover_revert),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                )
-            }
-        }
     }
 }
 

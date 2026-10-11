@@ -66,7 +66,6 @@ internal fun MetadataForm(
     onLyricsWholeModeToggle: () -> Unit,
     onCoverSelected: (ByteArray) -> Unit,
     onCoverRemoved: () -> Unit,
-    onCoverRevert: () -> Unit,
     onCoverExport: () -> Unit,
     onSameAlbumRequest: () -> Unit,
     onSameAlbumDismiss: () -> Unit,
@@ -150,7 +149,6 @@ internal fun MetadataForm(
             title = uiState.value(TagField.TITLE),
             artist = uiState.value(TagField.ARTIST),
             coverBytes = uiState.coverBytes,
-            coverDirty = uiState.coverDirty,
             enabled = !uiState.saving,
             exporting = uiState.exportingCover,
             onPickCover = { coverLauncher.launch("image/*") },
@@ -158,7 +156,6 @@ internal fun MetadataForm(
             onPickSameAlbum = onSameAlbumRequest,
             onOnlineRefresh = onCoverRefreshOpen,
             onRemoveCover = onCoverRemoved,
-            onRevertCover = onCoverRevert,
         )
         MetadataFormHint(stringResource(R.string.metadata_edit_hint))
         MetadataStatusText(
