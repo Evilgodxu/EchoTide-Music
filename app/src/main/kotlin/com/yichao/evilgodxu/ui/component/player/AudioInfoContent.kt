@@ -75,6 +75,9 @@ import com.yichao.evilgodxu.R
 // 行内文本最大行数：超出以省略号截断，避免个别超长设备描述撑开整块面板
 private const val VALUE_MAX_LINES = 3
 
+// USB 声卡自报名中不携带设备信息的前缀：ALSA 以「声卡名 - 通道名」拼接，声卡名对所有 USB 声卡相同
+private const val USB_CARD_NAME_PREFIX = "USB-Audio - "
+
 /**
  * 音频信息内容：按分组渲染当前播放链路实际可获取的字段行。
  *
@@ -334,7 +337,7 @@ private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
         ),
         device.name
             ?.takeIf { it.isNotBlank() }
-            ?.let { AudioInfoRow(stringResource(R.string.audio_info_device_name), it) },
+            ?.let { AudioInfoRow(stringResource(R.string.audio_info_device_name), deviceNameLabel(it)) },
         device.address?.let {
             AudioInfoRow(stringResource(R.string.audio_info_device_address), it)
         },
@@ -392,6 +395,10 @@ private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
             ?.let { AudioInfoRow(stringResource(R.string.audio_info_bluetooth_category), it) },
     )
 }
+
+// 设备名称：剥掉 USB 声卡自报名里不含设备信息的声卡名前缀，只留设备自称
+private fun deviceNameLabel(name: String): String =
+    name.removePrefix(USB_CARD_NAME_PREFIX).trim().ifEmpty { name }
 
 // 设备类型名：便于一眼区分当前出口通路的类别
 @Composable
