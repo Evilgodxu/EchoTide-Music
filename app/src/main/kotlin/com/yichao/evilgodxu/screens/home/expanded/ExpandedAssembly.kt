@@ -125,9 +125,10 @@ internal fun ExpandedAssembly(
                 )
             }
         }
-        // 横屏标题栏悬浮于内容顶部，随控制栏一起显隐，不挤压播放器布局
+        // 横屏标题栏悬浮于内容顶部，随控制栏一起显隐，不挤压播放器布局。
+        // 歌手页自带沉浸头图，标题栏浮在顶上会与头图争顶部，故该页始终不显示
         AnimatedVisibility(
-            visible = chromeVisible,
+            visible = chromeVisible && !panelState.playlistImmersive,
             modifier = Modifier.align(Alignment.TopCenter),
             enter = slideInVertically(animationSpec = tween(300)) { -it } + fadeIn(),
             exit = slideOutVertically(animationSpec = tween(300)) { -it } + fadeOut(),

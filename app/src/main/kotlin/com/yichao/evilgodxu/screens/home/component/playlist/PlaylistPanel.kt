@@ -69,9 +69,10 @@ internal fun PlaylistPanel(
     visible: Boolean,
     playbackState: MusicPlaybackState,
     menuBackgroundColor: Color,
-    // 标题栏高度：除歌手页外的页面内容都从标题栏下方开始；
-    // 歌手页的沉浸头图与沉浸背景要铺到标题栏后方，故由该页自行按此值避让返回按钮
+    // 标题栏高度：非歌手页的内容都从标题栏下方开始
     topInset: Dp,
+    // 当前页是否需要标题栏让位（歌手页自带整屏骨架）：由本面板随页面栈同步上报
+    onImmersivePageChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     // 点击播放器歌手信息后请求打开的歌手名：非空时跳转到该歌手的曲目列表
     pendingArtist: String? = null,
@@ -82,20 +83,31 @@ internal fun PlaylistPanel(
     // 读盘切到 IO：首次 getSharedPreferences 需同步解析整份歌单 JSON，在主线程执行会阻塞首帧
     LaunchedEffect(Unit) { playlistStore.awaitLoaded(context) }
     var backStack by remember { mutableStateOf(listOf<PlaylistPage>(PlaylistPage.Overview)) }
-    LaunchedEffect(visible) { if (!visible) backStack = listOf(PlaylistPage.Overview) }
+    // 页面栈的唯一写入口：栈变化与「当前页是否要标题栏让位」必须同一次写入。
+    // 歌手页的标题栏始终隐藏，而标题栏归首页组装器管——挪到组合之后的副作用上报，
+    // 进入该页的首帧会先亮出标题栏再淡出
+    fun go(stack: List<PlaylistPage>) {
+        backStack = stack
+        onImmersivePageChange(stack.last().artistGroupPage != null)
+    }
+    LaunchedEffect(visible) { if (!visible) go(listOf(PlaylistPage.Overview)) }
     // 点击歌手信息直达该歌手的曲目列表：与艺术家分组页同构，保留总览页作为回退目标
     LaunchedEffect(pendingArtist) {
         val artist = pendingArtist?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
-        backStack = listOf(
-            PlaylistPage.Overview,
-            PlaylistPage.GroupTracks(SmartPlaylistType.ARTIST, artistGroup(playbackState.libraryTracks, artist)),
+        go(
+            listOf(
+                PlaylistPage.Overview,
+                PlaylistPage.GroupTracks(SmartPlaylistType.ARTIST, artistGroup(playbackState.libraryTracks, artist)),
+            )
         )
         onPendingArtistHandled()
     }
     val page = backStack.last()
+    // 当前页即歌手页时的页面自身：非空即该页在场，标题栏须让位、内容也不再套标题栏内边距
+    val immersiveArtist = page.artistGroupPage
     // 二级/三级详情页系统返回键逐级回退；顶层页面由首页 BackHandler 关闭面板
     BackHandler(enabled = visible && backStack.size > 1) {
-        backStack = backStack.dropLast(1)
+        go(backStack.dropLast(1))
     }
     // 新建/重命名/删除歌单弹窗
     var showCreate by remember { mutableStateOf(false) }
@@ -103,17 +115,14 @@ internal fun PlaylistPanel(
     var deleteTarget by remember { mutableStateOf<Playlist?>(null) }
 
     Box(modifier = modifier) {
-        if (page is PlaylistPage.GroupTracks && page.type == SmartPlaylistType.ARTIST) {
+        if (immersiveArtist != null) {
             // 歌手页自带整页骨架（沉浸头图 + 歌曲/专辑标签页，见 ArtistPlaylistPage）：
             // 头图与沉浸背景要铺到标题栏后方，故不套下方内容列的顶部内边距
             ArtistPlaylistPage(
-                group = page.group,
+                group = immersiveArtist.group,
                 playbackState = playbackState,
-                topInset = topInset,
-                showBack = backStack.size > 1,
-                onBack = { backStack = backStack.dropLast(1) },
                 onOpenAlbum = { album ->
-                    backStack = backStack + PlaylistPage.GroupTracks(SmartPlaylistType.ALBUM, album)
+                    go(backStack + PlaylistPage.GroupTracks(SmartPlaylistType.ALBUM, album))
                 },
             )
         } else {
@@ -126,7 +135,7 @@ internal fun PlaylistPanel(
                 PanelHeader(
                     title = page.title(),
                     showBack = backStack.size > 1,
-                    onBack = { backStack = backStack.dropLast(1) },
+                    onBack = { go(backStack.dropLast(1)) },
                 )
                 when (page) {
                     is PlaylistPage.Overview -> PlaylistOverview(
@@ -134,13 +143,15 @@ internal fun PlaylistPanel(
                         playbackState = playbackState,
                         menuBackgroundColor = menuBackgroundColor,
                         onOpenSmart = { type ->
-                            backStack = backStack + if (type == SmartPlaylistType.ALBUM || type == SmartPlaylistType.ARTIST) {
-                                PlaylistPage.Groups(type)
-                            } else {
-                                PlaylistPage.SmartTracks(type)
-                            }
+                            go(
+                                backStack + if (type == SmartPlaylistType.ALBUM || type == SmartPlaylistType.ARTIST) {
+                                    PlaylistPage.Groups(type)
+                                } else {
+                                    PlaylistPage.SmartTracks(type)
+                                }
+                            )
                         },
-                        onOpenCustom = { playlist -> backStack = backStack + PlaylistPage.Tracks(playlist) },
+                        onOpenCustom = { playlist -> go(backStack + PlaylistPage.Tracks(playlist)) },
                         onCreatePlaylist = { showCreate = true },
                         onRename = { renameTarget = it },
                         onDelete = { deleteTarget = it },
@@ -148,7 +159,7 @@ internal fun PlaylistPanel(
                     is PlaylistPage.Groups -> PlaylistGroupsPage(
                         type = page.type,
                         playbackState = playbackState,
-                        onOpenGroup = { group -> backStack = backStack + PlaylistPage.GroupTracks(page.type, group) },
+                        onOpenGroup = { group -> go(backStack + PlaylistPage.GroupTracks(page.type, group)) },
                     )
                     is PlaylistPage.SmartTracks -> PlaylistSmartTracksPage(
                         type = page.type,
@@ -168,7 +179,7 @@ internal fun PlaylistPanel(
         onCreated = { playlist ->
             showCreate = false
             // 创建后直接进入新歌单，便于立即添加歌曲
-            backStack = backStack + PlaylistPage.Tracks(playlist)
+            go(backStack + PlaylistPage.Tracks(playlist))
         },
         onDismiss = { showCreate = false },
     )
@@ -176,7 +187,8 @@ internal fun PlaylistPanel(
     DeletePlaylistDialog(playlist = deleteTarget, onDismiss = { deleteTarget = null })
 }
 
-// 面板页面：总览 / 智能分组列表 / 智能曲目 / 自定义歌单曲目 / 智能分组曲目
+// 面板页面：总览 / 智能分组列表 / 智能曲目 / 自定义歌单曲目 / 分组曲目。
+// 分组曲目里的艺术家分组另走整屏骨架（见 ArtistPlaylistPage），专辑分组走普通曲目列表
 private sealed interface PlaylistPage {
     data object Overview : PlaylistPage
     data class Groups(val type: SmartPlaylistType) : PlaylistPage
@@ -184,6 +196,11 @@ private sealed interface PlaylistPage {
     data class Tracks(val playlist: Playlist) : PlaylistPage
     data class GroupTracks(val type: SmartPlaylistType, val group: PlaylistGroup) : PlaylistPage
 }
+
+// 页面为歌手分组页时的页面自身：自带整屏骨架（沉浸头图 + 歌曲/专辑标签页），
+// 整页铺满到状态栏后方，标题栏在该页始终隐藏。为空即当前页不是它
+private val PlaylistPage.artistGroupPage: PlaylistPage.GroupTracks?
+    get() = (this as? PlaylistPage.GroupTracks)?.takeIf { it.type == SmartPlaylistType.ARTIST }
 
 @Composable
 private fun PlaylistPage.title(): String = when (this) {

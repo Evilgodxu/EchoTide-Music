@@ -13,7 +13,7 @@ import com.yichao.evilgodxu.screens.home.component.search.OnlineSearchPanel
 @Composable
 internal fun HomePanels(
     panelState: HomePanelState,
-    // 标题栏高度：搜索页与歌单页内容从标题栏下方开始
+    // 标题栏高度：搜索页与歌单页（歌手页除外）的内容从标题栏下方开始
     topInset: Dp,
     modifier: Modifier = Modifier,
     // 播放器页：竖屏与横屏的播放器主体不同，由调用方按形态提供
@@ -23,8 +23,10 @@ internal fun HomePanels(
     HorizontalPager(
         state = pagerState,
         modifier = modifier.fillMaxSize(),
-        // 底部播放列表面板是全屏遮罩式弹层：显示期间关闭翻页，面板内的横向滑动与屏幕边缘滑动都不会切页
-        userScrollEnabled = !panelState.playlistVisible,
+        // 底部播放列表面板是全屏遮罩式弹层：显示期间关闭翻页，面板内的横向滑动与屏幕边缘滑动都不会切页。
+        // 歌手页同样关闭本层翻页——该页的左右滑动用于切换歌曲/专辑标签（见 ArtistPlaylistPage），
+        // 一层滑动只该有一个去向
+        userScrollEnabled = !panelState.playlistVisible && !panelState.playlistImmersive,
         // 三页均为重量级常驻视图（歌单页持有全库分组缓存与页面栈），全部保留在合成树，避免切页重建
         beyondViewportPageCount = HomePage.entries.size,
         key = { HomePage.entries[it] },
@@ -45,6 +47,8 @@ internal fun HomePanels(
                 menuBackgroundColor = panelState.backgroundColor,
                 // 顶部内边距交给面板自行分配：歌手页要把沉浸头图与背景铺到标题栏后方
                 topInset = topInset,
+                // 歌手页在场时标题栏让位：面板随页面栈同步上报，组装器据此收起标题栏
+                onImmersivePageChange = { panelState.playlistImmersive = it },
                 // 点击播放器歌手信息后请求打开的歌手歌单
                 pendingArtist = panelState.pendingArtistPlaylist,
                 onPendingArtistHandled = { panelState.pendingArtistPlaylist = null },

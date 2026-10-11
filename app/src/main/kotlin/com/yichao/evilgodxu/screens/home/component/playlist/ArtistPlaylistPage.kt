@@ -14,21 +14,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +48,7 @@ import com.yichao.evilgodxu.screens.home.component.player.HomeImmersiveCover
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.SongImmersiveBackground
 import com.yichao.evilgodxu.ui.icons.AppIcons
+import kotlinx.coroutines.launch
 
 // 头图高度占本页高度的比例与其上限：构图取播放页沉浸封面的「上重下轻」，尺寸随窗口计算，
 // 各高宽比下都与下方列表分得住；上限挡住超长窗口（大屏、折叠展开）把列表挤成一条
@@ -68,9 +65,14 @@ private enum class ArtistTab(@StringRes val labelRes: Int) {
  * 歌手页：上方为沉浸头图（歌手首曲的专辑封面，沿播放页封面的沉浸处理），
  * 下方以标签页区分歌曲与专辑。
  *
- * 整页自带骨架而非套在面板的标题栏内容列里：沉浸头图与沉浸背景都要铺到状态栏后方、
- * 让标题栏图标悬浮其上，与播放页的同名处理一致（见 [PlaylistPanel] 的页面分派）。
- * [topInset] 因此不是内容顶部留白，而是头图上返回按钮与系统栏、标题栏的避让基准。
+ * 标签由本页自己的分页承载：左右滑动在歌曲与专辑之间切换，首页那层翻页在该页关闭
+ * （见 [HomePanels]）——一层滑动只对应一个去向，滑动落在哪个列表上都不该同时换标签又换页。
+ *
+ * 整页自带骨架而非套在面板的标题栏内容列里：沉浸头图与沉浸背景都要铺到状态栏后方，
+ * 与播放页的同名处理一致（见 [PlaylistPanel] 的页面分派）。标题栏在该页始终隐藏
+ * （首页组装器按 HomePanelState.playlistImmersive 收起），页面因此不从顶部取任何基准，
+ * 也不设页内返回入口——顶部整条让给头图，退出该页走系统返回键（面板的 BackHandler
+ * 逐级回退）；横向滑动已被标签分页占用，不再兼作收回面板。
  *
  * 沉浸背景的流动帧随本页在合成树上存亡（面板离开当前页即把回退栈复位到总览页，
  * 见 [PlaylistPanel]），故不必再按可见性门控：滑入动画期间它已随本页一同铺开，
@@ -84,9 +86,6 @@ private enum class ArtistTab(@StringRes val labelRes: Int) {
 internal fun ArtistPlaylistPage(
     group: PlaylistGroup,
     playbackState: MusicPlaybackState,
-    topInset: Dp,
-    showBack: Boolean,
-    onBack: () -> Unit,
     onOpenAlbum: (PlaylistGroup) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -102,8 +101,9 @@ internal fun ArtistPlaylistPage(
     val unknownAlbum = stringResource(R.string.playlist_unknown_album)
     // 专辑分组是该歌手全量曲目的扫描 + 排序，缓存到曲目或本地化文案变化为止
     val albums = remember(tracks, unknownAlbum) { albumGroups(tracks, unknownAlbum) }
-    // 标签选择随歌手重置：换一位歌手不该继承上一位停留的标签
-    var tab by remember(group.key) { mutableStateOf(ArtistTab.SONGS) }
+    // 标签分页：左右滑动即切换歌曲与专辑（首页那层翻页在该页已关闭，见 HomePanels），
+    // 跟手拖动、吸附与回弹由系统结算，本页不自行判定滑动
+    val tabPagerState = rememberPagerState { ArtistTab.entries.size }
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val headerHeight = (maxHeight * ARTIST_HEADER_HEIGHT_RATIO).coerceAtMost(ArtistHeaderMaxHeight)
         // 整屏沉浸背景：与头图同源，下缘渐隐的封面正是融入它
@@ -114,13 +114,19 @@ internal fun ArtistPlaylistPage(
                 name = group.name,
                 trackCount = tracks.size,
                 height = headerHeight,
-                topInset = topInset,
-                showBack = showBack,
-                onBack = onBack,
             )
-            ArtistTabBar(selected = tab, onSelect = { tab = it })
-            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                when (tab) {
+            ArtistTabBar(
+                selected = ArtistTab.entries[tabPagerState.currentPage],
+                onSelect = { tab -> scope.launch { tabPagerState.animateScrollToPage(tab.ordinal) } },
+            )
+            HorizontalPager(
+                state = tabPagerState,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                // 两页都常驻合成树：曲目列表持有拖拽排序与滚动位置，来回切换不重建
+                beyondViewportPageCount = ArtistTab.entries.size,
+                key = { ArtistTab.entries[it] },
+            ) { index ->
+                when (ArtistTab.entries[index]) {
                     ArtistTab.SONGS -> TracksContent(
                         tracks = tracks,
                         source = PlaylistSource(group.key, group.name),
@@ -141,16 +147,13 @@ internal fun ArtistPlaylistPage(
 }
 
 // 沉浸头图：封面全宽置顶、下缘渐隐融入同源背景（与播放页同一处理），上端铺到状态栏后方；
-// 返回按钮按 [topInset] 下移避开标题栏，歌手名与曲目数叠在头图下缘
+// 歌手名与曲目数叠在头图下缘，页内不含任何按钮，整幅头图保持干净
 @Composable
 private fun ArtistHeader(
     track: MusicTrack?,
     name: String,
     trackCount: Int,
     height: Dp,
-    topInset: Dp,
-    showBack: Boolean,
-    onBack: () -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxWidth().height(height)) {
         HomeImmersiveCover(
@@ -160,22 +163,6 @@ private fun ArtistHeader(
             kind = TrackSwitchKind.Select,
             modifier = Modifier.fillMaxSize(),
         )
-        if (showBack) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(top = topInset, start = 4.dp)
-                    .size(40.dp),
-            ) {
-                Icon(
-                    imageVector = AppIcons.ChevronLeft,
-                    contentDescription = stringResource(R.string.back),
-                    tint = Color.White,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
-        }
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)

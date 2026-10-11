@@ -120,6 +120,8 @@ internal fun CompactAssembly(
     // 标题栏显隐：仅播放器页自动收起（搜索页与歌单页内容从标题栏下方开始，收起会留下空带），
     // 触摸播放页任意位置或切回播放器页即唤出，两秒无操作后收起
     val autoHideTopBar = panelState.currentPage == HomePage.PLAYER
+    // 歌手页自带沉浸头图，标题栏在该页始终隐藏：顶部整个让给头图，也不随触摸唤出
+    val topBarSuppressed = panelState.playlistImmersive
     var topBarVisible by remember { mutableStateOf(true) }
     // 交互计数：每次唤出都自增以重置收起计时，连续触摸期间不会提前收起
     var topBarGeneration by remember { mutableIntStateOf(0) }
@@ -144,7 +146,12 @@ internal fun CompactAssembly(
         if (sheetOnTop) topBarVisible = false
     }
     val topBarAlpha by animateFloatAsState(
-        targetValue = if (topBarVisible || !autoHideTopBar) 1f else 0f,
+        targetValue = when {
+            // 歌手页的标题栏恒隐藏：进该页时一并按这条淡出收走，不做突起突没
+            topBarSuppressed -> 0f
+            topBarVisible || !autoHideTopBar -> 1f
+            else -> 0f
+        },
         animationSpec = tween(durationMillis = TopBarFadeDurationMs),
     )
 
@@ -161,7 +168,8 @@ internal fun CompactAssembly(
                 onToggleFavorite = { currentTrackId?.let { playbackState.toggleFavorite(it) } },
                 onToggleLandscape = onToggleLandscape,
                 onOpenSettings = onOpenSettings,
-                interactive = topBarVisible || !autoHideTopBar,
+                // 收起期间与歌手页都不可交互：控件不可见时不该响应点击
+                interactive = !topBarSuppressed && (topBarVisible || !autoHideTopBar),
                 windowInsets = topBarWindowInsets,
                 modifier = Modifier.graphicsLayer {
                     // 收起时上移淡出并移出触摸范围，布局尺寸不变以保证骨架顶部内边距稳定

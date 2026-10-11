@@ -40,6 +40,10 @@ internal class HomePanelState(
     var backgroundColor by mutableStateOf(md_theme_dark_surface)
     // 点击歌手信息后请求打开的歌手歌单：由歌单面板消费并跳转到该歌手的曲目列表
     var pendingArtistPlaylist by mutableStateOf<String?>(null)
+    // 歌单面板当前是否停在自带整屏骨架的页面（歌手页）：标题栏在该页始终隐藏，不与沉浸头图争顶部。
+    // 由歌单面板随页面栈在同一次事件回调里写入——挪到组合之后的副作用上报，
+    // 进入该页的首帧会先亮出标题栏再收回去
+    var playlistImmersive by mutableStateOf(false)
 
     // 当前落点页面
     val currentPage: HomePage
