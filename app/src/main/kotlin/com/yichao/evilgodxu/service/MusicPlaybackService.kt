@@ -200,7 +200,13 @@ class MusicPlaybackService : MediaSessionService() {
                             ?.let(group::getTrackFormat)
                     }
                 val state = stateHolder.state
-                val currentTrack = state.currentTrack
+                // 轨道回调直接来自播放器，早于 MediaController 把曲目过渡转投到 state.currentTrack：
+                // 自动接续时按 state.currentTrack 取，会把新曲目的解码格式记到上一首名下，随后到达的
+                // 过渡回调又只按容器头补一份缺格式与采样率的预置记录，归属从此错位——信息条与音频参数
+                // 面板清空，且再无回填时机。故以播放器实际的当前项定位曲目，与稍后到达的过渡回调一致
+                val currentTrack = player.currentMediaItem?.mediaId?.toLongOrNull()
+                    ?.let { mediaId -> state.playlist.firstOrNull { it.id == mediaId } }
+                    ?: state.currentTrack
                 // 每次轨道切换后按解码格式更新信号路径状态
                 val fileFormat = format?.let { f ->
                     currentTrack?.path

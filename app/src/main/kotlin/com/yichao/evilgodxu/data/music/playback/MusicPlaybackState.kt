@@ -1136,10 +1136,12 @@ class MusicPlaybackState(
     // 冷启动未播放时预读当前曲目格式信息，供音频信息条展示；开始播放后由解码头覆盖
     fun refreshIdleTrackFormatInfo(context: Context) {
         val track = currentTrack ?: return
-        if (isTrackFormatCurrent(track)) return
+        if (isTrackFormatComplete(track)) return
         playbackScope.launch(Dispatchers.IO) {
             val info = TrackAudioInfoReader.readIdleFormat(context, track) ?: return@launch
-            if (isTrackFormatCurrent(track)) return@launch
+            // 落盘前的两道闸：读盘期间已切歌的不覆盖，已被解码回调补全的记录也不覆盖；
+            // 归属为空但曲目未变（reconcile 清空后重读）时照常写入
+            if (currentTrack?.id != track.id || isTrackFormatComplete(track)) return@launch
             audioSignalPathFormat = info
             audioSignalPathTrackId = track.id
             audioSignalPathSourceUri = track.audioUri
@@ -1174,6 +1176,13 @@ class MusicPlaybackState(
     // 已展示的格式信息是否就属于该曲目的当前音频源：曲目或音频源任一变化都需重算
     private fun isTrackFormatCurrent(track: MusicTrack): Boolean =
         audioSignalPathTrackId == track.id && audioSignalPathSourceUri == track.audioUri
+
+    // 可用的最新记录：归属正确之外，格式与采样率还须已就位。起播前只预置位深与声道
+    // （见 recordSourceBitDepthBeforePlayback），格式与采样率尚缺；仅按归属就把它当最新，
+    // 会挡住后来的补齐，信息条与音频参数面板便停在这份缺项记录上不再回填
+    private fun isTrackFormatComplete(track: MusicTrack): Boolean =
+        isTrackFormatCurrent(track) &&
+            audioSignalPathFormat?.let { it.format != null && it.sampleRate != null } == true
 
     // 格式信息是否对应当前曲目的当前音频源（供信息条判定是否展示，避免换源后短暂错配残留）
     val isAudioSignalPathCurrent: Boolean
