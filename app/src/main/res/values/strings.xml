@@ -251,7 +251,6 @@
     <string name="audio_info_value_pcm_24bit">24 位整型</string>
     <string name="audio_info_value_pcm_32bit">32 位整型</string>
     <string name="audio_info_value_pcm_float">32 位浮点</string>
-    <string name="audio_info_output_mode_bit_perfect">位完美直出</string>
     <string name="audio_info_output_mode_format_locked">源格式直出</string>
     <string name="audio_info_output_mode_mixer">系统混音</string>
     <!-- 「24bit」是位深单位写法（数字与单位连排），不是可数名词 -->

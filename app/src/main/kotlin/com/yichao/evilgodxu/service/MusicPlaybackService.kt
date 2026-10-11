@@ -47,7 +47,7 @@ class MusicPlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
-    /** USB 直出：把播放钉到 USB 解码器并申请位完美传输 */
+    /** USB 直出：把播放钉到 USB 解码器，并为播放申请按源格式打开的专用输出流 */
     private lateinit var usbDirectOutput: UsbDirectOutput
     /** 直出期间的系统免打扰：随输出成色进出 */
     private lateinit var directOutputDoNotDisturb: DirectOutputDoNotDisturb
@@ -290,7 +290,7 @@ class MusicPlaybackService : MediaSessionService() {
             player = player,
             audioManager = audioManager,
         )
-        // 免打扰随输出成色进出：位完美与源格式直出都属于专注聆听，通知与提示音是最直接的打扰源；
+        // 免打扰随输出成色进出：直出属于专注聆听，通知与提示音是最直接的打扰源；
         // 未获免打扰访问权时类内自行跳过，不影响播放
         val notificationManager = getSystemService(NotificationManager::class.java)
         directOutputDoNotDisturb = DirectOutputDoNotDisturb(

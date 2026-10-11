@@ -37,7 +37,7 @@ class DirectOutputDoNotDisturbTest {
     fun directOutputMutesNotificationsThenRestoresPreviousFilter() {
         val controller = controller()
 
-        controller.onModeChanged(AudioOutputMode.BIT_PERFECT)
+        controller.onModeChanged(AudioOutputMode.FORMAT_LOCKED)
         assertEquals(alarms, filter)
 
         controller.onModeChanged(AudioOutputMode.MIXER)
@@ -59,7 +59,7 @@ class DirectOutputDoNotDisturbTest {
     fun totalSilenceIsNeverWritten() {
         val controller = controller()
 
-        controller.onModeChanged(AudioOutputMode.BIT_PERFECT)
+        controller.onModeChanged(AudioOutputMode.FORMAT_LOCKED)
         controller.onModeChanged(AudioOutputMode.MIXER)
         controller.release()
 
@@ -74,7 +74,7 @@ class DirectOutputDoNotDisturbTest {
             writes.clear()
             val controller = controller()
 
-            controller.onModeChanged(AudioOutputMode.BIT_PERFECT)
+            controller.onModeChanged(AudioOutputMode.FORMAT_LOCKED)
             controller.onModeChanged(AudioOutputMode.MIXER)
 
             assertTrue("档位 $silenced 不应被改写", writes.isEmpty())
@@ -88,7 +88,7 @@ class DirectOutputDoNotDisturbTest {
         filter = priority
         val controller = controller()
 
-        controller.onModeChanged(AudioOutputMode.BIT_PERFECT)
+        controller.onModeChanged(AudioOutputMode.FORMAT_LOCKED)
         controller.onModeChanged(AudioOutputMode.MIXER)
 
         assertEquals(priority, filter)
@@ -99,7 +99,7 @@ class DirectOutputDoNotDisturbTest {
         granted = false
         val controller = controller()
 
-        controller.onModeChanged(AudioOutputMode.BIT_PERFECT)
+        controller.onModeChanged(AudioOutputMode.FORMAT_LOCKED)
 
         assertTrue(writes.isEmpty())
         assertEquals(all, filter)
@@ -119,7 +119,7 @@ class DirectOutputDoNotDisturbTest {
     @Test
     fun releaseRestoresOnlyWhenHolding() {
         val controller = controller()
-        controller.onModeChanged(AudioOutputMode.BIT_PERFECT)
+        controller.onModeChanged(AudioOutputMode.FORMAT_LOCKED)
 
         controller.release()
         assertEquals(all, filter)

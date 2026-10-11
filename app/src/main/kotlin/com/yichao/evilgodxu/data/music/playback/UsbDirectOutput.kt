@@ -35,11 +35,15 @@ private const val LOG_TAG = "UsbDirectOutput"
  * 专用流只接纳与混音器属性逐字段一致（采样率、声道、编码）的播放，混音器属性因此按当前曲目的解码格式
  * 从设备声明的档位里挑，并在换曲导致格式变化时重新下发。
  *
- * 混音器属性分两档取用，成色随之不同：
- * - 位完美：端口声明了 AUDIO_OUTPUT_FLAG_BIT_PERFECT，或厂商未声明而平台受理了本应用的位完美请求
- *   ——音频不经混音、不受音量与音效处理，数据原样下发到 HAL；
- * - 源格式直出：位完美请求未被受理时的兼容结果——仍按设备声明的格式请求该端口的输出流，播放格式对齐
- *   即不发生重采样，但音轨音量与音效按常规链路处理。
+ * 只申请**默认行为**档：专用输出流照开、按源格式、不重采样，但不向平台索要位完美（`MIXER_BEHAVIOR_BIT_PERFECT`）。
+ * 位完美那一档本应用一律不用，两条理由都在原生源码里（frameworks/av，见 docs/注意事项.md）：
+ * - 拿不到：`setPreferredMixerAttributes` 把所请求的行为并进用于匹配的输出 flags，`IOProfile::getFlagsCompatibleScore`
+ *   要求「请求的每个 flag 都在 profile 声明里」，厂商没在动态端口上写 `AUDIO_OUTPUT_FLAG_BIT_PERFECT` 就必然 BAD_VALUE
+ *   ——应用无从替厂商声明，试也白试；
+ * - 拿到了更差：`getOutputForAttrInt` 里对**别的 uid** 保留偏好条目当且仅当「偏好是位完美且我们自己有活动客户端」，
+ *   也就是说位完美档会把别人的媒体轨吸到同一条输出上；而 `BitPerfectThread::getTrackToStreamBitPerfectly_l`
+ *   只有在「除位完美轨外所有活动轨都被静音」时才旁路混音，别人一放就静默退回混音——位完美失效，且必然吃一次重配顿挫。
+ * 默认行为档下别人的轨进不来（同一处 uid 闸门），我们这条输出保持单客户端。
  *
  * 档位只取自**设备声明的动态混音端口条目**，且本次连接只读取一次（见 [declaredFormatsFor]）；不按源位深
  * 与源采样率另拼一条去试探未声明的参数——试探只换来一次被拒或一条写不出的轨道，而设备侧真正支持的档位
@@ -49,16 +53,15 @@ private const val LOG_TAG = "UsbDirectOutput"
  * 原生行为（已核实）：
  * - 受理条件：APM 要求 usage 为 USAGE_MEDIA、设备为已接入的 USB 输出，且存在与目标格式、采样率、
  *   声道及各行为兼容的动态输出 profile；标志由行为反推——位完美行为对应 AUDIO_OUTPUT_FLAG_BIT_PERFECT，
- *   默认行为不附加标志，故漏标位完美标志的端口仍能受理默认行为的请求。任一条件不满足即返回 BAD_VALUE，
- *   此处体现为 set 返回 false；缺少 MODIFY_AUDIO_SETTINGS 则为 PERMISSION_DENIED。
+ *   默认行为不附加标志。任一条件不满足即返回 BAD_VALUE，此处体现为 set 返回 false；
+ *   缺少 MODIFY_AUDIO_SETTINGS 则为 PERMISSION_DENIED。
  * - 行为枚举：对每个支持该设备的动态输出 profile，恒有一条默认行为条目；只有 profile 声明了位完美标志
- *   才额外多出一条位完美条目（IOProfile::refreshMixerBehaviors）。漏标因此只影响成色，不影响可用性；
- *   而行为是**请求**——声明里没有的档位通常直接被拒（BAD_VALUE），故漏标的端口上请求位完美多半失败
- *   （应用仍先试一次，见 [applyMixerAttributes]）。
+ *   才额外多出一条位完美条目（IOProfile::refreshMixerBehaviors）——故只取默认行为条目不会挑不出档位。
  * - 拔出：APM 在断连的同一路径内直接清除该端口的偏好且不回调，故只能经 AudioDeviceCallback 感知。
- * - 端口查询：getSupportedMixerAttributes 直查音频策略，Java 层把任何非 SUCCESS 一律折成空表，故空表
- *   既可能是厂商没声明端口，也可能是该设备此刻没有输出（平台按输出端口应答）。实测同一台设备无输出时
- *   空表、有输出时 7 条档位，故空表不作终局结论——问到非空为止（见 [declaredFormatsFor]）。
+ * - 端口查询：getSupportedMixerAttributes 直查音频策略，Java 层把任何非 SUCCESS 一律折成空表。其原生实现在
+ *   设备在场且是 USB 输出设备时，枚举各 HAL 模块中支持该设备、且带动态 profile 的输出档位；那些档位要到该设备上
+ *   开过一次输出、由 `updateAudioProfiles` 把 HAL 实报的档位 import 进 profile 之后才是完整的一份（见 [SilentKeepAliveOutput]），
+ *   故空表不作终局结论——问到非空为止（见 [declaredFormatsFor]）。
  * - 格式不符：写出格式与偏好混音器不一致时，AudioFlinger 不会失败，而是把该轨静默混音输出，
  *   因此输出格式必须与偏好对齐，才不会以「已直出」之名走混音路径。路由在曲中才成立时，写出变体必须
  *   跟着重配（见 [PerDeviceAudioSink.syncRouting]），否则状态与实际写出会各说一套。
@@ -128,15 +131,6 @@ class UsbDirectOutput(
 
     @Volatile
     private var declaredFormatsDeviceId: Int? = null
-    /**
-     * 本次连接位完美请求是否已被拒。
-     *
-     * 行为由动态输出 profile 的 AUDIO_OUTPUT_FLAG_BIT_PERFECT 反推，厂商不声明时每个候选都要白试一条下发
-     * （实测同一会话里每个候选都带一条「位完美请求被拒」）。被拒一次即认定本次连接没有可声明的位完美档位，
-     * 此后不再试探；换设备即作废。
-     */
-    @Volatile
-    private var bitPerfectRejected = false
     /** 已对外上报的输出成色，与 [onRoutingChanged] 的出参同处一处，避免内部状态与上报值脱节 */
     @Volatile
     private var reportedMode = AudioOutputMode.MIXER
@@ -325,7 +319,6 @@ class UsbDirectOutput(
         if (device?.id != unrealizableFormatsDeviceId) {
             unrealizableFormats.clear()
             unrealizableFormatsDeviceId = device?.id
-            bitPerfectRejected = false
         }
         // 保活输出随设备走：设备换了或拔了先释放，下面的空表分支再按需建立
         if (keepAlive.heldDeviceId != device?.id) keepAlive.release("USB 输出设备变更")
@@ -383,9 +376,8 @@ class UsbDirectOutput(
         }
         // 已钉定同一设备时，只有「当前候选里已有格式被系统受理」才不再下发：未受理、专用输出流已被撤销、
         // 换了格式，三者都表现为已受理格式不在本轮候选内，据此判定才不会把「上次被拒」当成「正在直出」。
-        // 按格式比较而非整体相等：受理的可能是位完美的请求变体（行为不同、格式相同），
-        // 行为不参与「要不要重下发」的判定——已经拿到位完美，再下发只会白开一次输出流。
-        // 以「任一候选」而非「首个候选」为准：源格式候选被拒而声明条目受理时，重下发只会白开一次输出流
+        // 按格式而非整体比较：受理的条目与本轮候选只是同一档位的两份实例，逐字段相等即视为无需重下发。
+        // 以「任一候选」而非「首个候选」为准：声明里的多条可承载同一格式时，重下发只会白开一次输出流
         val acceptedFormat = acceptedMixerAttributes?.format
         if (acceptedFormat != null && candidates.any { it.format == acceptedFormat }) return
         updateRouting(device, applyDirectMixer(device, candidates))
@@ -436,79 +428,26 @@ class UsbDirectOutput(
     /**
      * 依次下发候选，返回首个被系统受理的那条；都未受理时为 null。
      *
-     * 逐档回落：源格式候选被拒后仍按设备声明的条目再试，声明里有可承载条目时直出照样成立。
+     * 逐档回落：首选条目被拒后仍按设备声明的其它条目再试，声明里有可承载条目时直出照样成立。
+     *
+     * 未受理的取值不进 [acceptedMixerAttributes]（落定在调用方）：被拒可能只是当时的现场使然（设备正被
+     * 别的输出占着、上一条属性留下的专用流尚未释放），记成「已下发」会让同一条属性在之后的换曲里再不被
+     * 重试，直出因此再也回不来；重试的代价只是重复下发一次，重复的结论由 [logDiagnostic] 去重。
      */
     private fun applyDirectMixer(
         device: AudioDeviceInfo,
         candidates: List<AudioMixerAttributes>,
     ): AudioMixerAttributes? {
         for (candidate in candidates) {
-            applyMixerAttributes(device, candidate)?.let { return it }
+            if (postMixerAttributes(device, candidate)) return candidate
+            logDiagnostic(
+                "USB 输出拒绝首选混音器属性：${deviceLabel(device)}，${describeMixer(candidate)}"
+            )
         }
         return null
     }
 
-    /**
-     * 下发单条候选，返回已被系统受理的那一条；未受理时为 null。
-     *
-     * 挑出的是默认行为条目时，先按同一格式试一次位完美，被拒再下发它本身。位完美与否由平台按设备声明的
-     * 行为应答（getSupportedMixerAttributes 给出的即「可用的集合」），而国产厂商鲜少在动态混音端口上声明
-     * AUDIO_OUTPUT_FLAG_BIT_PERFECT——应用无从替厂商声明，只能试：试的成本是可能被拒的一次下发，被拒不建立
-     * 任何东西；一旦受理就是真的位完美（数据不经混音直达 HAL），被拒则退回今天的成色（源格式直出）。
-     * 两条路的写出格式相同，音频输出侧不必区分。
-     *
-     * 试探**本次连接只做一次**（见 [bitPerfectRejected]）：行为由 profile 的标志反推，被拒一次即说明这台
-     * 设备上没有可声明的位完美档位，此后每个候选都再试一次纯属重复。日志里因此只有一条试探结论，
-     * 而不是每个候选一条。
-     *
-     * 绝不用「视为声明了位完美」冒充成色：默认行为的流仍经混音，只是采样率与源一致；
-     * 把这种流报成位完美，正是「以已直出之名走混音路径」的翻版。
-     */
-    private fun applyMixerAttributes(
-        device: AudioDeviceInfo,
-        mixerAttributes: AudioMixerAttributes,
-    ): AudioMixerAttributes? {
-        if (mixerAttributes.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT) {
-            return mixerAttributes.takeIf { requestMixerAttributes(device, it) }
-        }
-        if (!bitPerfectRejected) {
-            val bitPerfect = AudioMixerAttributes.Builder(mixerAttributes.format)
-                .setMixerBehavior(AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT)
-                .build()
-            // 试探的两种结局都在此表述：被拒是预期结论而非异常，故直接下发而不走 [requestMixerAttributes]
-            // 的通用拒绝留痕，免得日志里只看到「拒绝首选混音器属性：…位完美…」，读起来像连默认条目也没下发成
-            if (postMixerAttributes(device, bitPerfect)) {
-                logDiagnostic("位完美请求已被受理（厂商未在端口声明该行为）：${describeMixer(bitPerfect)}")
-                return bitPerfect
-            }
-            bitPerfectRejected = true
-            logDiagnostic(
-                "位完美请求被拒（厂商未在端口声明该行为），本次连接不再试探：${describeMixer(bitPerfect)}"
-            )
-        }
-        return mixerAttributes.takeIf { requestMixerAttributes(device, it) }
-    }
-
-    /**
-     * 下发一条混音器属性，返回系统是否受理；未受理时不会建立专用输出流，播放走默认混音。
-     *
-     * 本函数不改受理状态，由调用方按返回值经 [updateRouting] 落定：未受理的取值不进
-     * [acceptedMixerAttributes]。被拒可能只是当时的现场使然（设备正被别的输出占着、上一条属性留下的
-     * 专用流尚未释放），记成「已下发」会让同一条属性在之后的换曲里再不被重试，直出因此再也回不来；
-     * 重试的代价只是重复下发一次，重复的结论由 [logDiagnostic] 去重。
-     */
-    private fun requestMixerAttributes(
-        device: AudioDeviceInfo,
-        mixerAttributes: AudioMixerAttributes,
-    ): Boolean {
-        if (postMixerAttributes(device, mixerAttributes)) return true
-        logDiagnostic(
-            "USB 输出拒绝首选混音器属性：${deviceLabel(device)}，${describeMixer(mixerAttributes)}"
-        )
-        return false
-    }
-
-    // 裸下发：同一次试探的成败常要按语境合起来表述，故留痕交给调用方
+    /** 裸下发；成败的表述交给调用方 */
     private fun postMixerAttributes(
         device: AudioDeviceInfo,
         mixerAttributes: AudioMixerAttributes,
@@ -548,7 +487,7 @@ class UsbDirectOutput(
      * 直出状态的唯一出口：记录钉定设备与已受理的属性，据此推出成色对外通知。
      *
      * 赋值与通知同处一处，内部状态与上报值才不会脱节；成色变化即写日志——成色是「设备是否可用、
-     * 厂商是否声明位完美、格式能否对齐、属性是否被受理」共同作用的结论，变化点正是定位问题的入口。
+     * 格式能否对齐、属性是否被受理」共同作用的结论，变化点正是定位问题的入口。
      */
     private fun updateRouting(device: AudioDeviceInfo?, attributes: AudioMixerAttributes?) {
         targetDevice = device
@@ -559,8 +498,6 @@ class UsbDirectOutput(
         logDiagnostic(
             when {
                 device == null || attributes == null -> "输出成色：系统混音"
-                mode == AudioOutputMode.BIT_PERFECT ->
-                    "输出成色：位完美直出，${deviceLabel(device)}，${describeMixer(attributes)}"
                 else ->
                     "输出成色：源格式直出，" +
                         "${deviceLabel(device)}，${describeMixer(attributes)}"
@@ -569,14 +506,9 @@ class UsbDirectOutput(
         onRoutingChanged?.invoke(mode)
     }
 
-    // 成色由已受理的属性行为决定：未钉定设备或属性未被受理时都退回系统混音
+    // 成色由已受理的属性决定：未钉定设备或属性未被受理时退回系统混音，其余即按源格式直出
     private fun modeOf(device: AudioDeviceInfo?, attributes: AudioMixerAttributes?): AudioOutputMode =
-        when {
-            device == null || attributes == null -> AudioOutputMode.MIXER
-            attributes.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT ->
-                AudioOutputMode.BIT_PERFECT
-            else -> AudioOutputMode.FORMAT_LOCKED
-        }
+        if (device == null || attributes == null) AudioOutputMode.MIXER else AudioOutputMode.FORMAT_LOCKED
 
     /**
      * 写一条诊断日志。
@@ -608,8 +540,8 @@ class UsbDirectOutput(
             encodingName(attributes.format.encoding)
 
     private fun behaviorName(behavior: Int): String = when (behavior) {
+        AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT -> "默认行为"
         AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT -> "位完美"
-        AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT -> "默认混音"
         else -> "行为$behavior"
     }
 
@@ -708,11 +640,10 @@ class UsbDirectOutput(
  * 而两处调用点一旦挑出不同条目，AudioFlinger 不报错而是静默混音输出，「已直出」名不副实。
  * 不是线性 PCM（未取得编码、直通等）即无从判定，直接交回系统混音。
  *
- * 候选按成色取用：优先厂商声明了 AUDIO_OUTPUT_FLAG_BIT_PERFECT 的条目；无位完美条目时退取同一动态
- * 端口上的默认行为条目。后者是为厂商漏标该标志准备——平台的混音行为枚举对每个动态输出端口恒有一条
- * 默认行为条目，只有声明了标志才额外多出一条位完美条目，故漏标并不等于设备做不到按该格式直出。
- * 选出默认行为条目只说明声明里没有位完美，下发时仍会按同一格式试一次位完美（见 [applyMixerAttributes]）。
- * 两档都不存在时返回 null，由调用方交回系统混音。
+ * **只取默认行为条目**，不取厂商声明的位完美条目，理由见类注释：位完美档会把别的应用的媒体轨吸到同一条
+ * 输出上、并把该输出的旁路混音打掉，代价大于收益。平台的混音行为枚举对每个动态输出端口恒有一条默认行为
+ * 条目（只有 profile 声明了 AUDIO_OUTPUT_FLAG_BIT_PERFECT 才额外多出一条位完美条目），故只取默认条目不
+ * 会挑不出档位。一条都没有时返回 null，由调用方交回系统混音。
  *
  * 同成色内按编码排序，位深优先——见 [encodingPreference]：解码输出通常为浮点，写到 16 位档位即丢低位，
  * 故位深高的档位排在前，浮点最优先。
@@ -734,17 +665,10 @@ internal fun selectDirectMixer(
     val candidates = supported.filter {
         it.format.sampleRate == sampleRate &&
             it.format.encoding in writable &&
-            (channelCount <= 0 || it.format.channelCount == channelCount)
+            (channelCount <= 0 || it.format.channelCount == channelCount) &&
+            it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT
     }
-    val bitPerfect = candidates.filter {
-        it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT
-    }
-    // 位完美条目缺失即退取默认行为条目：厂商可能只在动态混音端口上漏标了位完美标志，
-    // 该端口仍会按所请求的格式打开输出流，播放格式对齐即不发生重采样
-    val pool = bitPerfect.ifEmpty {
-        candidates.filter { it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT }
-    }
-    return pool.maxByOrNull {
+    return candidates.maxByOrNull {
         encodingPreference(it.format.encoding)
     }
 }

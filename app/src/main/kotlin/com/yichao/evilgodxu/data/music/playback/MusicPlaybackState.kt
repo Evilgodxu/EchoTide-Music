@@ -1940,8 +1940,8 @@ class MusicPlaybackState(
     @JvmName("updatePlayMode")
     fun setPlayMode(mode: PlayMode) {
         if (playMode == mode) return
-        // 直出期间不接受心动模式：位完美一档绕过系统混音，音量与音效都不生效，
-        // 片段首尾的淡入淡出在其上无从实施。界面据此说明缘由而不是静默不响应
+        // 直出期间不接受心动模式：直出为整曲保真聆听服务，与「把每首裁成 30–45 秒片段」的取向相斥。
+        // 界面据此说明缘由而不是静默不响应
         if (mode == PlayMode.Highlight && directOutputMode != AudioOutputMode.MIXER) {
             highlightExitNotice = HighlightExitReason.DirectOutput
             return
@@ -1968,8 +1968,9 @@ class MusicPlaybackState(
     /**
      * 输出成色变化的收尾：成立直出即退出心动模式。
      *
-     * 直出与片段播放的取向相斥：位完美直出绕过系统混音，音量与音效都不生效，片段首尾的
-     * 淡入淡出在其上无从实施；直出本身也是为整曲保真聆听服务，无需把每首裁成 30–45 秒的片段。
+     * 直出与片段播放的取向相斥：直出为整曲保真聆听服务，无需把每首裁成 30–45 秒的片段。
+     * （片段的音量淡入淡出在本应用采用的源格式直出档下是生效的——该档按常规链路处理音轨音量——
+     * 故互斥的判据是取向，不是淡入淡出能否实施。）
      *
      * 成色回调来自播放线程与主线程两处，故统一切到主线程再改播放模式。
      */
@@ -2114,7 +2115,7 @@ enum class HighlightExitReason {
     /** 整队列都定位不到副歌，继续跳过只会回绕空转 */
     NoChorus,
 
-    /** 音频直出成立：位完美一档绕过音量，片段首尾的淡入淡出无从实施 */
+    /** 音频直出成立：取向与片段播放相斥，片段模式随之退出 */
     DirectOutput,
 }
 

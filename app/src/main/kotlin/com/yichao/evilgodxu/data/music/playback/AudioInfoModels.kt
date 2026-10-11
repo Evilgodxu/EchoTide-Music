@@ -53,14 +53,14 @@ data class OutputDeviceInfo(
 /**
  * 音频输出模式。
  *
- * 直出分两档，差别在厂商是否在动态混音端口上声明了 AUDIO_OUTPUT_FLAG_BIT_PERFECT：
- * - 位完美直出：音频不经混音、不受音量与音效处理，数据原样下发到设备；
- * - 源格式直出：厂商漏标该标志时的兼容结果——输出流仍按与该曲目源采样率相同的设备声明档位打开，
- *   因而不发生重采样，但音轨音量与音效按常规链路处理（写出位深取设备声明的那一档，如 24 位源落到
- *   32 位档位时左移补零）。
- * 两者都谈不上时播放交系统混音器，输出采样率由系统决定，与源不一致即发生重采样。
+ * 位完美那一档本应用不再使用（见 [UsbDirectOutput] 的类注释：厂商没声明就请求不到，能请求到时又会被别的应用
+ * 的播放吸进来并静默失效），故只有两档：
+ * - 源格式直出：按设备声明的动态混音端口条目申请专用输出流，输出格式与源逐字段一致，因而不发生重采样，
+ *   但音轨音量与音效按常规链路处理；
+ * - 系统混音：没有可承载当前格式的设备声明条目（或设备不可用）时交回系统混音器，输出采样率由系统决定，
+ *   与源不一致即发生重采样。
  */
-enum class AudioOutputMode { BIT_PERFECT, FORMAT_LOCKED, MIXER }
+enum class AudioOutputMode { FORMAT_LOCKED, MIXER }
 
 // 音频传输状态：由播放器的播放状态与起播意愿共同判定
 enum class AudioTransportState { PLAYING, BUFFERING, PAUSED, ENDED, IDLE }
@@ -86,7 +86,7 @@ enum class FloatOutputState {
  * 输出链路的 PCM 编码。
  *
  * 取音频轨被创建时的实际写出编码，不按源格式或变体推算：写出编码由生效变体与音频轨的实际能力共同
- * 决定，位完美流又只接纳与混音器属性一致的格式，推算值未必等于真正写出的编码。
+ * 决定，专用输出流又只接纳与混音器属性一致的格式，推算值未必等于真正写出的编码。
  */
 enum class OutputEncoding {
     PCM_8BIT,
@@ -102,7 +102,7 @@ enum class OutputEncoding {
 /**
  * 平台 PCM 编码 → 展示用编码枚举。
  *
- * 只认线性 PCM：位完美流与直通输出给出的编码可能不属任何位深，归不了类即返回 null，
+ * 只认线性 PCM：专用输出流与直通输出给出的编码可能不属任何位深，归不了类即返回 null，
  * 由调用方决定是跳过该行还是跳过该片段。
  */
 internal fun outputEncodingOf(pcmEncoding: Int): OutputEncoding? = when (pcmEncoding) {

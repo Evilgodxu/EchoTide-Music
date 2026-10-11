@@ -248,7 +248,7 @@ class PerDeviceAudioSink(
                         .setAudioTrackBufferSizeProvider(PlaybackBufferPolicy.provider)
                         // 低延迟只在系统混音路径上开启：该路径要求采样率对齐设备原生采样率、会引入
                         // 重采样，且音效处理在这条路径上不可用（与本应用的「禁用音效」诉求一致）；
-                        // 直出（位完美与源格式两档）追求按源格式输出，不应被重采样破坏，
+                        // 直出（源格式档）追求按源格式输出，不应被重采样破坏，
                         // 故直出成立时不设性能模式，退回平台默认路径。
                         .setAudioTrackBuilderModifier { builder, _ ->
                             if (directTarget() == null) {

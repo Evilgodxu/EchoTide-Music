@@ -249,7 +249,6 @@ private fun audioInfoGroups(
                     stringResource(R.string.audio_info_output_mode),
                     stringResource(
                         when (it) {
-                            AudioOutputMode.BIT_PERFECT -> R.string.audio_info_output_mode_bit_perfect
                             AudioOutputMode.FORMAT_LOCKED -> R.string.audio_info_output_mode_format_locked
                             AudioOutputMode.MIXER -> R.string.audio_info_output_mode_mixer
                         }

@@ -48,7 +48,7 @@ suspend fun Context.saveBackgroundFlowEnabled(enabled: Boolean) = withContext(Di
     settingsDataStore.edit { it[backgroundFlowEnabledKey] = enabled }
 }
 
-// USB 直出默认关闭：开启后按设备声明的条目为播放申请专用输出流，位完美与否取决于厂商声明，由播放服务读取生效
+// USB 直出默认关闭：开启后按设备声明的条目为播放申请止步于源格式的专用输出流，由播放服务读取生效
 fun Context.usbDirectOutputModeFlow(): Flow<Boolean> =
     settingsDataStore.data.map { it[usbDirectOutputModeKey] ?: false }
 

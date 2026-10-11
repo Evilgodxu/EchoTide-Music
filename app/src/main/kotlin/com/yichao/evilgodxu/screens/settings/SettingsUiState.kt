@@ -14,7 +14,7 @@ data class SettingsUiState(
     val swipeToChangeTrack: Boolean = true,
     // 背景流动：开启后首页封面衍生背景按固定默认值缓慢流动，关闭时只渲染一帧
     val backgroundFlow: Boolean = false,
-    // USB 直出：开启后按设备声明的条目为播放申请专用输出流，位完美与否取决于厂商声明
+    // USB 直出：开启后按设备声明的条目为播放申请止步于源格式的专用输出流
     val usbDirectOutput: Boolean = false,
     val version: String = "",
     // 已导入的代理音源列表
