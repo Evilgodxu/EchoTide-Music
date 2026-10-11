@@ -48,7 +48,7 @@ internal object LosslessContainerTags {
 
     // ---- 写 ----
 
-    // 字节入口（测试与字节级调用）：整段字节交回区间入口，判定与定位逻辑完全共用
+    // 兼容入口：以标题/艺术家/专辑/封面/歌词为字段集合的快捷形式
     fun write(
         source: ByteArray,
         title: String?,
@@ -56,14 +56,14 @@ internal object LosslessContainerTags {
         album: String?,
         cover: ByteArray?,
         lyrics: String?,
-    ): TagRewrite? = write(ByteArrayTagSource(source), title, artist, album, cover, lyrics)
+    ): TagRewrite? = write(source, TrackTagFields.build {
+        put(TagField.TITLE, title)
+        put(TagField.ARTIST, artist)
+        put(TagField.ALBUM, album)
+        put(TagField.LYRICS, lyrics)
+    }, cover)
 
-    /**
-     * 区间入口：块表按块头逐个定位，标签区与保留的块体定点读取，音频体只给出区间，交调用方搬运。
-     *
-     * 标签位置依赖文件末尾的容器（尾部标签、页脚）按 [TagSource.size] 判定，
-     * 长度不可知时无从定位，返回 null 交由调用方跳过本次重写。
-     */
+    // 兼容入口：区间源上的字段快捷形式
     fun write(
         source: TagSource,
         title: String?,
@@ -71,15 +71,32 @@ internal object LosslessContainerTags {
         album: String?,
         cover: ByteArray?,
         lyrics: String?,
-    ): TagRewrite? {
+    ): TagRewrite? = write(source, TrackTagFields.build {
+        put(TagField.TITLE, title)
+        put(TagField.ARTIST, artist)
+        put(TagField.ALBUM, album)
+        put(TagField.LYRICS, lyrics)
+    }, cover)
+
+    // 字节入口（测试与字节级调用）：整段字节交回区间入口，判定与定位逻辑完全共用
+    fun write(source: ByteArray, fields: TrackTagFields, cover: ByteArray?): TagRewrite? =
+        write(ByteArrayTagSource(source), fields, cover)
+
+    /**
+     * 区间入口：块表按块头逐个定位，标签区与保留的块体定点读取，音频体只给出区间，交调用方搬运。
+     *
+     * 标签位置依赖文件末尾的容器（尾部标签、页脚）按 [TagSource.size] 判定，
+     * 长度不可知时无从定位，返回 null 交由调用方跳过本次重写。
+     */
+    fun write(source: TagSource, fields: TrackTagFields, cover: ByteArray?): TagRewrite? {
         if (source.size == TagSource.UNKNOWN_SIZE) return null
         val magic = source.readAt(0, FORM_MAGIC_BYTES) ?: return null
         return when {
-            isAiff(magic) -> writeIff(source, AIFF_FORM, title, artist, album, cover, lyrics)
-            isDff(magic) -> writeIff(source, DFF_FORM, title, artist, album, cover, lyrics)
-            isWav(magic) -> writeWav(source, title, artist, album, cover, lyrics)
-            isDsf(magic) -> writeDsf(source, title, artist, album, cover, lyrics)
-            isApe(magic) -> writeApe(source, title, artist, album, cover, lyrics)
+            isAiff(magic) -> writeIff(source, AIFF_FORM, fields, cover)
+            isDff(magic) -> writeIff(source, DFF_FORM, fields, cover)
+            isWav(magic) -> writeWav(source, fields, cover)
+            isDsf(magic) -> writeDsf(source, fields, cover)
+            isApe(magic) -> writeApe(source, fields, cover)
             else -> null
         }
     }
@@ -90,11 +107,8 @@ internal object LosslessContainerTags {
     private fun writeIff(
         source: TagSource,
         form: IffForm,
-        title: String?,
-        artist: String?,
-        album: String?,
+        fields: TrackTagFields,
         cover: ByteArray?,
-        lyrics: String?,
     ): TagRewrite? {
         val formTypeOffset = 4L + form.sizeBytes
         val magic = source.readAt(0, (formTypeOffset + FORM_TYPE_BYTES).toInt()) ?: return null
@@ -107,7 +121,7 @@ internal object LosslessContainerTags {
         val existing = chunks.firstOrNull { it.id in form.tagChunkIds }
             ?.let { readChunkBody(source, it.bodyStart, it.size.toLong()) ?: return null }
         val version = Id3v2Tag.versionOf(existing)
-        val frames = Id3v2Tag.replaceFrames(existing, title, artist, album, cover, lyrics, version)
+        val frames = Id3v2Tag.replaceFrames(existing, fields, cover, version)
             ?: return null
         // 保留的块体先全部读出再写出：任一读取失败即整体放弃，不留半截结果
         val keptBefore = chunks.take(audioIndex).filter { it.id !in form.tagChunkIds }
@@ -138,11 +152,8 @@ internal object LosslessContainerTags {
     // 头部 28 字节整体读入回填，音频体按指针给出的边界搬运
     private fun writeDsf(
         source: TagSource,
-        title: String?,
-        artist: String?,
-        album: String?,
+        fields: TrackTagFields,
         cover: ByteArray?,
-        lyrics: String?,
     ): TagRewrite? {
         val fileSize = source.size
         if (fileSize < DSF_HEADER_BYTES) return null
@@ -160,7 +171,7 @@ internal object LosslessContainerTags {
             null
         }
         val version = Id3v2Tag.versionOf(existing)
-        val frames = Id3v2Tag.replaceFrames(existing, title, artist, album, cover, lyrics, version)
+        val frames = Id3v2Tag.replaceFrames(existing, fields, cover, version)
             ?: return null
         val tail = Id3v2Tag.buildTag(frames, version)
         writeU64LE(head, DSF_FILE_SIZE_OFFSET, audioEnd + tail.size)
@@ -171,18 +182,15 @@ internal object LosslessContainerTags {
     // APE：APEv2 标签位于音频之后、可选的 ID3v1 之前。仅重写标签区，音频体整段流式复制
     private fun writeApe(
         source: TagSource,
-        title: String?,
-        artist: String?,
-        album: String?,
+        fields: TrackTagFields,
         cover: ByteArray?,
-        lyrics: String?,
     ): TagRewrite? {
         val fileSize = source.size
         if (!(source.readAt(0, APE_MAGIC.length) ?: return null).startsWithAscii(APE_MAGIC, 0)) return null
         val id3v1 = hasId3v1(source, fileSize)
         val end = if (id3v1) fileSize - ID3V1_BYTES else fileSize
         val existing = findApeTag(source, end)
-        val items = mergeApeItems(existing?.items.orEmpty(), title, artist, album, cover, lyrics)
+        val items = mergeApeItems(existing?.items.orEmpty(), fields, cover)
         if (items.isEmpty()) return null
         val tail = ByteArrayOutputStream()
         tail.write(buildApeTag(items))
@@ -193,26 +201,55 @@ internal object LosslessContainerTags {
         return TagRewrite(ByteArray(0), 0L, existing?.audioEnd ?: end, tail.toByteArray())
     }
 
+    // APEv2 条目键：字段到键名的映射。键名大小写不敏感，此处取各工具通用写法
+    private val APE_KEYS: Map<TagField, String> = mapOf(
+        TagField.TITLE to "Title",
+        TagField.ARTIST to "Artist",
+        TagField.ALBUM_ARTIST to "Album Artist",
+        TagField.ALBUM to "Album",
+        TagField.DATE to "Date",
+        TagField.LANGUAGE to "Language",
+        TagField.GENRE to "Genre",
+        TagField.TRACK_NUMBER to "Track",
+        TagField.DISC_NUMBER to "Disc",
+        TagField.LYRICIST to "Lyricist",
+        TagField.COMPOSER to "Composer",
+        TagField.COPYRIGHT to "Copyright",
+        TagField.COMMENT to "Comment",
+        TagField.RATING to "Rating",
+        TagField.REPLAY_GAIN_TRACK_GAIN to "REPLAYGAIN_TRACK_GAIN",
+        TagField.REPLAY_GAIN_TRACK_PEAK to "REPLAYGAIN_TRACK_PEAK",
+        TagField.REPLAY_GAIN_ALBUM_GAIN to "REPLAYGAIN_ALBUM_GAIN",
+        TagField.REPLAY_GAIN_ALBUM_PEAK to "REPLAYGAIN_ALBUM_PEAK",
+        TagField.REPLAY_GAIN_REFERENCE_LOUDNESS to "REPLAYGAIN_REFERENCE_LOUDNESS",
+        TagField.LYRICS to "Lyrics",
+    )
+
+    // 同义键（小写）：写入某个字段时连同它们一并剔除，避免同一事实在标签里留下两份而读取端取值不定
+    private val APE_KEY_ALIASES: Map<TagField, List<String>> = mapOf(
+        TagField.DATE to listOf("year"),
+        TagField.TRACK_NUMBER to listOf("tracknumber"),
+        TagField.DISC_NUMBER to listOf("discnumber", "disk"),
+        TagField.ALBUM_ARTIST to listOf("albumartist"),
+        TagField.LYRICS to listOf("unsyncedlyrics", "syncedlyrics"),
+    )
+
     // APEv2 条目合并：键名大小写不敏感，被覆盖的键连同同义键一并剔除，其余条目原样保留
     private fun mergeApeItems(
         existing: List<ApeItem>,
-        title: String?,
-        artist: String?,
-        album: String?,
+        fields: TrackTagFields,
         cover: ByteArray?,
-        lyrics: String?,
     ): List<ApeItem> {
         val replaced = mutableSetOf<String>()
-        if (title != null) replaced += "title"
-        if (artist != null) replaced += "artist"
-        if (album != null) replaced += "album"
-        if (lyrics != null) replaced += LYRICS_KEYS
+        fields.entries().forEach { (field, _) ->
+            APE_KEYS[field]?.let { replaced += it.lowercase() }
+            APE_KEY_ALIASES[field]?.let { replaced += it }
+        }
         if (cover != null) replaced += COVER_KEYS
         val items = existing.filterNot { it.key.lowercase() in replaced }.toMutableList()
-        if (title != null) items += ApeItem("Title", false, title.toByteArray(StandardCharsets.UTF_8))
-        if (artist != null) items += ApeItem("Artist", false, artist.toByteArray(StandardCharsets.UTF_8))
-        if (album != null) items += ApeItem("Album", false, album.toByteArray(StandardCharsets.UTF_8))
-        if (lyrics != null) items += ApeItem("Lyrics", false, lyrics.toByteArray(StandardCharsets.UTF_8))
+        fields.entries().forEach { (field, value) ->
+            APE_KEYS[field]?.let { items += ApeItem(it, false, value.toByteArray(StandardCharsets.UTF_8)) }
+        }
         if (cover != null) {
             // 封面为二进制条目：值 = 文件名 + \0 + 图片数据，文件名仅用于标识图片类型
             val name = APE_COVER_NAMES[MusicMetadataWriter.sniffMimeType(cover)] ?: "cover.jpg"
@@ -228,11 +265,8 @@ internal object LosslessContainerTags {
     // 文本标签收敛为 data 之前的一个 LIST/INFO 块。块表只读块头，音频体按区间流式复制
     private fun writeWav(
         source: TagSource,
-        title: String?,
-        artist: String?,
-        album: String?,
+        fields: TrackTagFields,
         cover: ByteArray?,
-        lyrics: String?,
     ): TagRewrite? {
         val fileSize = source.size
         val magic = source.readAt(0, RIFF_HEADER_BYTES) ?: return null
@@ -254,7 +288,7 @@ internal object LosslessContainerTags {
         val info = infoChunk?.let { readChunkBody(source, it.payloadStart, it.size.toLong()) ?: return null }
         val version = Id3v2Tag.versionOf(existing)
         // 无既有标签且无字段可写时不落标签块：仍完成块序列重建，返回文件本身
-        val frames = Id3v2Tag.replaceFrames(existing, title, artist, album, cover, lyrics, version)
+        val frames = Id3v2Tag.replaceFrames(existing, fields, cover, version)
         // data 之前块体的读取先于写出：任一读取失败即整体放弃，不留半截结果
         val keptBefore = chunks.take(dataIndex).filter { it.id !in WAV_TAG_CHUNK_IDS && it !== infoChunk }
         val bodiesBefore = keptBefore.map { readChunkBody(source, it.payloadStart, it.size.toLong()) ?: return null }
@@ -271,7 +305,7 @@ internal object LosslessContainerTags {
             // 标签统一重写到 data 之后，避免容器内出现多份
             if (chunk.id in WAV_TAG_CHUNK_IDS) return@forEachIndexed
             if (chunk === infoChunk) {
-                buildListInfo(info, title, artist, album)?.let {
+                buildListInfo(info, fields)?.let {
                     writeRiffChunk(head, LIST_CHUNK_ID, it)
                     infoWritten = true
                 }
@@ -280,7 +314,7 @@ internal object LosslessContainerTags {
             writeRiffChunk(head, chunk.id, bodiesBefore[bodyIndex++])
         }
         if (!infoWritten) {
-            buildListInfo(info, title, artist, album)?.let { writeRiffChunk(head, LIST_CHUNK_ID, it) }
+            buildListInfo(info, fields)?.let { writeRiffChunk(head, LIST_CHUNK_ID, it) }
         }
         head.write(WAV_DATA_CHUNK_ID.toByteArray(StandardCharsets.US_ASCII))
         head.write(intBytesLE(data.size))
@@ -334,19 +368,29 @@ internal object LosslessContainerTags {
         return bytes.takeIf { it.size.toLong() == size }
     }
 
-    // 重建 LIST/INFO 内容：保留既有项原样，覆盖 INAM(标题)/IART(艺术家)/IPRD(专辑)。
+    // LIST/INFO 项标识：字段到 RIFF INFO 标识的映射。
+    // INFO 的项标识是有限集合，没有对应标识的字段（专辑艺术家、碟号、作词、作曲、评分、ReplayGain、语言）
+    // 由同步写入的 ID3 块承载，此处不强行造标识
+    private val INFO_IDS: Map<TagField, String> = mapOf(
+        TagField.TITLE to INFO_TITLE_ID,
+        TagField.ARTIST to INFO_ARTIST_ID,
+        TagField.ALBUM to INFO_ALBUM_ID,
+        TagField.DATE to INFO_DATE_ID,
+        TagField.GENRE to INFO_GENRE_ID,
+        TagField.COMMENT to INFO_COMMENT_ID,
+        TagField.COPYRIGHT to INFO_COPYRIGHT_ID,
+        TagField.TRACK_NUMBER to INFO_TRACK_ID,
+    )
+
+    // 重建 LIST/INFO 内容：保留既有项原样，覆盖本字段集合中有对应项标识的项。
     // INFO 值按 RIFF 惯例以单字节 0 结尾，新建项据此补齐
-    private fun buildListInfo(existing: ByteArray?, title: String?, artist: String?, album: String?): ByteArray? {
+    private fun buildListInfo(existing: ByteArray?, fields: TrackTagFields): ByteArray? {
         val kept = existing?.takeIf { it.size >= 4 }?.let { parseInfoItems(it, 4) }.orEmpty()
         val replaced = mutableSetOf<String>()
-        if (title != null) replaced += INFO_TITLE_ID
-        if (artist != null) replaced += INFO_ARTIST_ID
-        if (album != null) replaced += INFO_ALBUM_ID
+        fields.entries().forEach { (field, _) -> INFO_IDS[field]?.let { replaced += it } }
         // 被覆盖的键不进新块，其余项连同原标识原样保留
         val items = kept.filterNot { it.first.uppercase() in replaced }.toMutableList()
-        if (title != null) items += INFO_TITLE_ID to infoValue(title)
-        if (artist != null) items += INFO_ARTIST_ID to infoValue(artist)
-        if (album != null) items += INFO_ALBUM_ID to infoValue(album)
+        fields.entries().forEach { (field, value) -> INFO_IDS[field]?.let { items += it to infoValue(value) } }
         if (items.isEmpty()) return null
         val out = ByteArrayOutputStream()
         out.write(INFO_FORM_TYPE.toByteArray(StandardCharsets.US_ASCII))
@@ -452,6 +496,37 @@ internal object LosslessContainerTags {
         }
         if (title == null && artist == null && album == null) return null
         return TextTag(title, artist, album)
+    }
+
+    /**
+     * 取内嵌的全量字段。各来源按优先级依次补齐缺失字段，先取到的优先 ——
+     * 同一容器内 ID3、APEv2 与 LIST/INFO 由写入端同步维护，内容一致。
+     */
+    fun readFields(
+        header: ByteArray,
+        tail: ByteArray?,
+        tailOffset: Long,
+        readAt: ((Long, Int) -> ByteArray?)?,
+    ): TrackTagFields {
+        val result = LinkedHashMap<TagField, String>()
+        fun collect(field: TagField, value: String?) {
+            if (value != null && field !in result) result[field] = value
+        }
+        for (tag in collectTags(header, tail, tailOffset, readAt)) {
+            when (tag) {
+                is EmbeddedTag.Id3 -> Id3v2Tag.readFields(tag.bytes, 0)
+                    .entries()
+                    .forEach { (field, value) -> collect(field, value) }
+                is EmbeddedTag.Ape -> {
+                    APE_KEYS.forEach { (field, key) -> collect(field, apeText(tag.items, key.lowercase())) }
+                    APE_KEY_ALIASES.forEach { (field, aliases) ->
+                        aliases.forEach { alias -> collect(field, apeText(tag.items, alias)) }
+                    }
+                }
+                is EmbeddedTag.Info -> INFO_IDS.forEach { (field, id) -> collect(field, infoText(tag.items, id)) }
+            }
+        }
+        return TrackTagFields.build { result.forEach { (field, value) -> put(field, value) } }
     }
 
     // APE 文本条目：值为 UTF-8，可能带结尾 NUL
@@ -960,10 +1035,15 @@ internal object LosslessContainerTags {
     private const val WAV_DATA_CHUNK_ID = "data"
     private const val LIST_CHUNK_ID = "LIST"
     private const val INFO_FORM_TYPE = "INFO"
-    // LIST/INFO 的项标识：标题、艺术家、专辑
+    // LIST/INFO 的项标识：标题、艺术家、专辑、日期、流派、备注、版权、音轨号
     private const val INFO_TITLE_ID = "INAM"
     private const val INFO_ARTIST_ID = "IART"
     private const val INFO_ALBUM_ID = "IPRD"
+    private const val INFO_DATE_ID = "ICRD"
+    private const val INFO_GENRE_ID = "IGNR"
+    private const val INFO_COMMENT_ID = "ICMT"
+    private const val INFO_COPYRIGHT_ID = "ICOP"
+    private const val INFO_TRACK_ID = "IPRT"
     // ID3 文本帧：标题、艺术家、专辑
     private const val TITLE_FRAME_ID = "TIT2"
     private const val ARTIST_FRAME_ID = "TPE1"

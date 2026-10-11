@@ -1,17 +1,11 @@
 package com.yichao.evilgodxu.screens.metadata
 
+import com.yichao.evilgodxu.data.music.metadata.TagField
 import com.yichao.evilgodxu.data.music.model.LyricLine
 
-// 可编辑的基本信息字段：点击条目进入编辑态时用它标识正在改的是哪一行
-enum class MetadataField {
-    TITLE,
-    ARTIST,
-    ALBUM,
-}
-
-// 正在编辑的条目：基本信息字段与歌词行共用一个编辑位，同时只允许一行处于编辑态
+// 正在编辑的条目：字段与歌词行共用一个编辑位，同时只允许一行处于编辑态
 sealed interface MetadataEditTarget {
-    data class Field(val field: MetadataField) : MetadataEditTarget
+    data class Field(val field: TagField) : MetadataEditTarget
 
     // 歌词行按解析结果的下标标识：同一行的时间戳可能重复，文本也可重名，只有位置能唯一确定一行
     data class LyricLineAt(val index: Int) : MetadataEditTarget
@@ -23,12 +17,18 @@ sealed interface MetadataEditTarget {
     data object LyricsWhole : MetadataEditTarget
 }
 
-// 元数据编辑页状态：每次进入页面重新读取音频文件的内嵌标签回填表单，
-// 编辑中的字段与文件原值分列，使「未改动」与「改为空」可区分
+/**
+ * 元数据编辑页状态：每次进入页面重新读取音频文件的内嵌标签回填表单，
+ * 编辑中的字段与文件原值分列，使「未改动」与「改为空」可区分。
+ *
+ * 字段以映射承载而非逐个具名：字段清单会随容器能力增长，映射让新增字段不必再扩状态字段，
+ * 表单只需按 [TagField] 的分组顺序遍历渲染。
+ */
 data class MetadataUiState(
-    val title: String = "",
-    val artist: String = "",
-    val album: String = "",
+    // 目标曲目 id：浮层（在线刷新封面）需要据此取回对应曲目以驱动既有能力
+    val trackId: Long = 0L,
+    // 各字段的当前编辑值；未收录的字段按空串展示
+    val fields: Map<TagField, String> = emptyMap(),
     // 歌词按解析出的行分列展示：每行是独立条目，编辑也以行为单位进行
     val lyricLines: List<LyricLine> = emptyList(),
     // 文件里有歌词文本但解析不出行（时间戳格式不对）：与「本来就没有歌词」分开提示，
@@ -38,6 +38,8 @@ data class MetadataUiState(
     val coverBytes: ByteArray? = null,
     // 文件内是否已有内嵌封面：决定「移除封面」是否可用
     val coverPresent: Boolean = false,
+    // 封面相对文件原值是否被改动：驱动封面卡片的「撤销更改」
+    val coverDirty: Boolean = false,
     // 载入中：读取标签期间不展示表单，避免旧内容与新内容在界面上交叠
     val loading: Boolean = true,
     // 正在写回音频文件：期间不接受新的编辑入口，避免写入过程中的改动与已有写入交错。
@@ -58,6 +60,20 @@ data class MetadataUiState(
     // 正在单行补译的行下标：非空时该行显示补译中占位，其余行不再接受新的补译请求
     // （翻译接口按 IP 限流，同一时刻只允许一个补译任务）
     val translatingLine: Int? = null,
+    // 同专辑封面选择面板是否展开
+    val sameAlbumVisible: Boolean = false,
+    // 正在读取同专辑封面
+    val sameAlbumLoading: Boolean = false,
+    // 同专辑候选封面：取自同名专辑的其它本地曲目的内嵌封面
+    val sameAlbumCovers: List<ByteArray> = emptyList(),
+    // 在线刷新封面面板是否展开（复用首页既有的封面搜索能力）
+    val coverRefreshVisible: Boolean = false,
+    // 在线刷新选中的候选曲目 id
+    val coverRefreshSelectedId: Long? = null,
+    // 在线刷新正在写回封面
+    val coverRefreshSaving: Boolean = false,
+    // 正在把封面保存到相册
+    val exportingCover: Boolean = false,
     // 自动保存结果提示：成功或失败原因，显示后可被下次保存覆盖
     val message: String? = null,
     val messageIsError: Boolean = false,
@@ -67,19 +83,7 @@ data class MetadataUiState(
     override fun equals(other: Any?): Boolean = this === other
 
     override fun hashCode(): Int = System.identityHashCode(this)
-}
 
-// 表单初值快照：作为「哪些条目被改动过」的比较基准，写入成功后随之刷新。
-// 歌词按解析后的行保存而非原始文本：界面以行为编辑单位，原文本的换行与空白差异不构成改动
-data class MetadataFormSnapshot(
-    val title: String,
-    val artist: String,
-    val album: String,
-    val lyricLines: List<LyricLine>,
-) {
-    fun value(field: MetadataField): String = when (field) {
-        MetadataField.TITLE -> title
-        MetadataField.ARTIST -> artist
-        MetadataField.ALBUM -> album
-    }
+    /** 字段的当前编辑值：未收录即空串，供表单直接渲染 */
+    fun value(field: TagField): String = fields[field].orEmpty()
 }

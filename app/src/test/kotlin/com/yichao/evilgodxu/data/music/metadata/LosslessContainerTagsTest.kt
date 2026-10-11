@@ -273,6 +273,45 @@ class LosslessContainerTagsTest {
         assertNull(LosslessContainerTags.readLyrics(ByteArray(64), null, 0L, null))
     }
 
+    // ---- 扩展字段 ----
+
+    @Test
+    fun aiffExtendedFieldsRoundTrip() {
+        val fields = TrackTagFields.build {
+            put(TagField.ALBUM_ARTIST, "专辑艺术家")
+            put(TagField.DATE, "2008-10-22")
+            put(TagField.GENRE, "流派")
+            put(TagField.TRACK_NUMBER, "3")
+            put(TagField.COMMENT, "备注")
+            put(TagField.LYRICS, lyrics)
+        }
+        val rewritten = apply(aiff(), LosslessContainerTags.write(aiff(), fields, cover)!!)
+        val readBack = LosslessContainerTags.readFields(rewritten, null, 0L, null)
+        assertEquals("专辑艺术家", readBack[TagField.ALBUM_ARTIST])
+        assertEquals("2008-10-22", readBack[TagField.DATE])
+        assertEquals("流派", readBack[TagField.GENRE])
+        assertEquals("3", readBack[TagField.TRACK_NUMBER])
+        assertEquals("备注", readBack[TagField.COMMENT])
+        assertEquals(lyrics, readBack[TagField.LYRICS])
+    }
+
+    @Test
+    fun apeExtendedFieldsRoundTrip() {
+        val fields = TrackTagFields.build {
+            put(TagField.ALBUM_ARTIST, "专辑艺术家")
+            put(TagField.TRACK_NUMBER, "3")
+            put(TagField.DISC_NUMBER, "1")
+            put(TagField.LYRICS, lyrics)
+        }
+        val source = ape(withId3v1 = false)
+        val rewritten = apply(source, LosslessContainerTags.write(source, fields, null)!!)
+        val readBack = LosslessContainerTags.readFields(rewritten, rewritten, 0L, null)
+        assertEquals("专辑艺术家", readBack[TagField.ALBUM_ARTIST])
+        assertEquals("3", readBack[TagField.TRACK_NUMBER])
+        assertEquals("1", readBack[TagField.DISC_NUMBER])
+        assertEquals(lyrics, readBack[TagField.LYRICS])
+    }
+
     // ---- 合成文件 ----
 
     private class Builder {

@@ -25,9 +25,26 @@ internal object CoverExporter {
     suspend fun export(context: Context, track: MusicTrack): Result = withContext(Dispatchers.IO) {
         val bytes = EmbeddedCoverReader.readRawBytes(context, track.audioUri, track.path)
             ?: return@withContext Result.NoEmbeddedCover
+        writeToAlbum(context, track, bytes)
+    }
+
+    /**
+     * 将给定的封面字节存入系统相册。
+     *
+     * 供元数据编辑页在封面尚未落盘时使用：界面上展示的是「本次选定的封面」，
+     * 此时文件里仍是旧封面，按文件内嵌封面导出会保存到与用户所见不同的图。
+     */
+    suspend fun exportBytes(context: Context, track: MusicTrack, bytes: ByteArray): Result =
+        withContext(Dispatchers.IO) {
+            if (bytes.isEmpty()) return@withContext Result.NoEmbeddedCover
+            writeToAlbum(context, track, bytes)
+        }
+
+    // 按嗅探出的真实类型定名并写入相册
+    private fun writeToAlbum(context: Context, track: MusicTrack, bytes: ByteArray): Result {
         val mime = MusicMetadataWriter.sniffMimeType(bytes)
         val name = "${coverFileName(track)}.${extensionOf(mime)}"
-        if (AlbumImageStore.write(context, name, mime, bytes)) Result.Saved else Result.Failed
+        return if (AlbumImageStore.write(context, name, mime, bytes)) Result.Saved else Result.Failed
     }
 
     // 文件名与歌词/封面缓存的索引同规则：「标题 - 艺术家」，缺项自动省略；

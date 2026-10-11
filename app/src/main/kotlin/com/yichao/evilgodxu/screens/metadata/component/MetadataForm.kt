@@ -3,9 +3,11 @@ package com.yichao.evilgodxu.screens.metadata.component
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,11 +16,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,15 +36,19 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.data.music.metadata.TagField
+import com.yichao.evilgodxu.data.music.model.MusicSearchSource
+import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
+import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.screens.metadata.MetadataEditTarget
-import com.yichao.evilgodxu.screens.metadata.MetadataField
 import com.yichao.evilgodxu.screens.metadata.MetadataUiState
+import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 元数据编辑表单：内嵌封面 + 基本信息 + 歌词。
+ * 元数据编辑表单：内嵌封面 + 基本信息/曲目信息/参与人员/音量增益 + 歌词。
  *
  * 页面没有保存入口 —— 条目改动在输入停顿后自动写回音频文件，
  * 用户无需记住「改完要点保存」，也不会因切走页面而丢掉改动。
@@ -48,17 +56,26 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun MetadataForm(
     uiState: MetadataUiState,
+    playbackState: MusicPlaybackState,
     onEditStart: (MetadataEditTarget) -> Unit,
     onEditEnd: () -> Unit,
-    onTitleChange: (String) -> Unit,
-    onArtistChange: (String) -> Unit,
-    onAlbumChange: (String) -> Unit,
+    onFieldChange: (TagField, String) -> Unit,
     onLyricRawChange: (String) -> Unit,
     onLyricTranslationChange: (Int, String) -> Unit,
     onLyricLineTranslate: (Int) -> Unit,
     onLyricsWholeModeToggle: () -> Unit,
     onCoverSelected: (ByteArray) -> Unit,
     onCoverRemoved: () -> Unit,
+    onCoverRevert: () -> Unit,
+    onCoverExport: () -> Unit,
+    onSameAlbumRequest: () -> Unit,
+    onSameAlbumDismiss: () -> Unit,
+    onCoverRefreshOpen: () -> Unit,
+    onCoverRefreshSourceSelected: (MusicSearchSource) -> Unit,
+    onCoverRefreshReload: () -> Unit,
+    onCoverRefreshCandidateSelected: (NeteaseSongSearchResult) -> Unit,
+    onCoverRefreshConfirm: () -> Unit,
+    onCoverRefreshCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -91,6 +108,18 @@ internal fun MetadataForm(
         }
         return
     }
+    // 封面操作的浮层：同专辑选择与在线刷新，均以本页状态驱动
+    MetadataCoverOverlays(
+        uiState = uiState,
+        playbackState = playbackState,
+        onSameAlbumDismiss = onSameAlbumDismiss,
+        onSameAlbumSelected = onCoverSelected,
+        onCoverRefreshSourceSelected = onCoverRefreshSourceSelected,
+        onCoverRefreshReload = onCoverRefreshReload,
+        onCoverRefreshCandidateSelected = onCoverRefreshCandidateSelected,
+        onCoverRefreshConfirm = onCoverRefreshConfirm,
+        onCoverRefreshCancel = onCoverRefreshCancel,
+    )
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -115,13 +144,22 @@ internal fun MetadataForm(
             )
             return@Column
         }
-        // 封面不套分区卡片：直接展示，卡片背景只会压缩图片可用面积
+        val labels = tagFieldLabels()
+        // 封面不套分区卡片：它是本页唯一需要看清的内容，卡片背景与内边距只会压缩它的可用面积
         MetadataCoverEditor(
+            title = uiState.value(TagField.TITLE),
+            artist = uiState.value(TagField.ARTIST),
             coverBytes = uiState.coverBytes,
             coverPresent = uiState.coverPresent,
+            coverDirty = uiState.coverDirty,
             enabled = !uiState.saving,
+            exporting = uiState.exportingCover,
             onPickCover = { coverLauncher.launch("image/*") },
+            onSaveCover = onCoverExport,
+            onPickSameAlbum = onSameAlbumRequest,
+            onOnlineRefresh = onCoverRefreshOpen,
             onRemoveCover = onCoverRemoved,
+            onRevertCover = onCoverRevert,
         )
         MetadataFormHint(stringResource(R.string.metadata_edit_hint))
         MetadataStatusText(
@@ -130,36 +168,27 @@ internal fun MetadataForm(
             modifier = Modifier.fillMaxWidth(),
         )
         MetadataSection(title = stringResource(R.string.metadata_section_basic)) {
-            BasicField(
-                label = stringResource(R.string.metadata_field_title),
-                value = uiState.title,
-                field = MetadataField.TITLE,
-                editing = uiState.editing,
-                enabled = !uiState.saving,
-                onValueChange = onTitleChange,
-                onEditStart = onEditStart,
-                onEditEnd = onEditEnd,
-            )
-            BasicField(
-                label = stringResource(R.string.metadata_field_artist),
-                value = uiState.artist,
-                field = MetadataField.ARTIST,
-                editing = uiState.editing,
-                enabled = !uiState.saving,
-                onValueChange = onArtistChange,
-                onEditStart = onEditStart,
-                onEditEnd = onEditEnd,
-            )
-            BasicField(
-                label = stringResource(R.string.metadata_field_album),
-                value = uiState.album,
-                field = MetadataField.ALBUM,
-                editing = uiState.editing,
-                enabled = !uiState.saving,
-                onValueChange = onAlbumChange,
-                onEditStart = onEditStart,
-                onEditEnd = onEditEnd,
-            )
+            TagField.BASIC.forEach { FieldEntry(it, labels, uiState, onFieldChange, onEditStart, onEditEnd) }
+        }
+        MetadataSection(title = stringResource(R.string.metadata_section_track)) {
+            TagField.TRACK.forEach { FieldEntry(it, labels, uiState, onFieldChange, onEditStart, onEditEnd) }
+        }
+        MetadataSection(title = stringResource(R.string.metadata_section_credits)) {
+            TagField.CREDITS.forEach { field ->
+                if (field == TagField.RATING) {
+                    RatingEntry(
+                        label = labels.getValue(field),
+                        value = uiState.value(field),
+                        enabled = !uiState.saving,
+                        onValueChange = { onFieldChange(field, it) },
+                    )
+                } else {
+                    FieldEntry(field, labels, uiState, onFieldChange, onEditStart, onEditEnd)
+                }
+            }
+        }
+        MetadataSection(title = stringResource(R.string.metadata_section_replay_gain)) {
+            TagField.REPLAY_GAIN.forEach { FieldEntry(it, labels, uiState, onFieldChange, onEditStart, onEditEnd) }
         }
         LyricsSection(
             lines = uiState.lyricLines,
@@ -180,25 +209,101 @@ internal fun MetadataForm(
     }
 }
 
-// 基本信息条目：把字段枚举收在一处，避免三处重复判定当前编辑的是哪一行
+// 单个字段条目：把「取当前值 / 是否处于编辑态 / 回调」收在一处，避免各分组重复这套接线
 @Composable
-private fun BasicField(
-    label: String,
-    value: String,
-    field: MetadataField,
-    editing: MetadataEditTarget?,
-    enabled: Boolean,
-    onValueChange: (String) -> Unit,
+private fun FieldEntry(
+    field: TagField,
+    labels: Map<TagField, String>,
+    uiState: MetadataUiState,
+    onFieldChange: (TagField, String) -> Unit,
     onEditStart: (MetadataEditTarget) -> Unit,
     onEditEnd: () -> Unit,
 ) {
+    // 星标与数值字段仍按文本编辑，但取值统一在此收口
     MetadataEntry(
-        label = label,
-        value = value,
-        editing = editing == MetadataEditTarget.Field(field),
-        enabled = enabled,
-        onValueChange = onValueChange,
+        label = labels.getValue(field),
+        value = uiState.value(field),
+        editing = uiState.editing == MetadataEditTarget.Field(field),
+        enabled = !uiState.saving,
+        onValueChange = { onFieldChange(field, it) },
         onStartEdit = { onEditStart(MetadataEditTarget.Field(field)) },
         onEditDone = onEditEnd,
     )
 }
+
+// 评分条目：五颗星点选，点同一颗再次点击即清除评分
+@Composable
+private fun RatingEntry(
+    label: String,
+    value: String,
+    enabled: Boolean,
+    onValueChange: (String) -> Unit,
+) {
+    val rating = value.trim().toIntOrNull() ?: 0
+    MetadataRowContainer(enabled = enabled) {
+        Text(
+            text = label,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            modifier = Modifier.weight(0.9f),
+        )
+        Row(
+            modifier = Modifier.weight(1.3f),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (rating <= 0) {
+                Text(
+                    text = stringResource(R.string.metadata_field_empty),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 15.sp,
+                )
+            }
+            for (star in 1..RATING_MAX_STARS) {
+                Icon(
+                    imageVector = if (star <= rating) AppIcons.Favorite else AppIcons.FavoriteBorder,
+                    contentDescription = null,
+                    tint = if (star <= rating) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier
+                        .padding(start = 6.dp)
+                        .size(20.dp)
+                        .clickable(enabled = enabled) {
+                            onValueChange(if (rating == star) "" else star.toString())
+                        },
+                )
+            }
+        }
+    }
+}
+
+// 评分刻度：五颗星与容器内 POPM/rating 键的取值域一致
+private const val RATING_MAX_STARS = 5
+
+// 字段名文案：字段标识到界面文案的映射，供各分组统一取用
+@Composable
+private fun tagFieldLabels(): Map<TagField, String> = mapOf(
+    TagField.TITLE to stringResource(R.string.metadata_field_title),
+    TagField.ARTIST to stringResource(R.string.metadata_field_artist),
+    TagField.ALBUM_ARTIST to stringResource(R.string.metadata_field_album_artist),
+    TagField.ALBUM to stringResource(R.string.metadata_field_album),
+    TagField.DATE to stringResource(R.string.metadata_field_date),
+    TagField.LANGUAGE to stringResource(R.string.metadata_field_language),
+    TagField.GENRE to stringResource(R.string.metadata_field_genre),
+    TagField.TRACK_NUMBER to stringResource(R.string.metadata_field_track_number),
+    TagField.DISC_NUMBER to stringResource(R.string.metadata_field_disc_number),
+    TagField.LYRICIST to stringResource(R.string.metadata_field_lyricist),
+    TagField.COMPOSER to stringResource(R.string.metadata_field_composer),
+    TagField.COPYRIGHT to stringResource(R.string.metadata_field_copyright),
+    TagField.COMMENT to stringResource(R.string.metadata_field_comment),
+    TagField.RATING to stringResource(R.string.metadata_field_rating),
+    TagField.REPLAY_GAIN_TRACK_GAIN to stringResource(R.string.metadata_field_replay_gain_track_gain),
+    TagField.REPLAY_GAIN_TRACK_PEAK to stringResource(R.string.metadata_field_replay_gain_track_peak),
+    TagField.REPLAY_GAIN_ALBUM_GAIN to stringResource(R.string.metadata_field_replay_gain_album_gain),
+    TagField.REPLAY_GAIN_ALBUM_PEAK to stringResource(R.string.metadata_field_replay_gain_album_peak),
+    TagField.REPLAY_GAIN_REFERENCE_LOUDNESS to stringResource(R.string.metadata_field_replay_gain_reference_loudness),
+    TagField.LYRICS to stringResource(R.string.metadata_section_lyrics),
+)

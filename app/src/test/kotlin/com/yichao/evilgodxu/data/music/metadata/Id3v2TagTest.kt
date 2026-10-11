@@ -188,6 +188,92 @@ class Id3v2TagTest {
     }
 
     // -----------------------------------------------------------------------
+    // 扩展字段
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun extendedFieldsAreWrittenAsTheirStandardFrames() {
+        val fields = TrackTagFields.build {
+            put(TagField.ALBUM_ARTIST, "专辑艺术家")
+            put(TagField.DATE, "2008-10-22")
+            put(TagField.GENRE, "流派")
+            put(TagField.TRACK_NUMBER, "3/12")
+            put(TagField.DISC_NUMBER, "1/2")
+            put(TagField.LYRICIST, "作词人")
+            put(TagField.COMPOSER, "作曲人")
+            put(TagField.COPYRIGHT, "版权")
+            put(TagField.COMMENT, "备注")
+            put(TagField.RATING, "4")
+            put(TagField.REPLAY_GAIN_TRACK_GAIN, "-7.5 dB")
+        }
+        val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(null, fields, null, 4)!!, 4)
+
+        // 帧标识按 ID3v2 规范落位：文本帧、注释帧、评分帧与自定义文本帧各就各位
+        val ids = walkFrames(tag).map { it.first }
+        assertTrue(
+            ids.containsAll(
+                listOf("TPE2", "TDRC", "TCON", "TRCK", "TPOS", "TEXT", "TCOM", "TCOP", "COMM", "POPM", "TXXX"),
+            ),
+        )
+        // 应用读取端取回同样的值
+        val readBack = Id3v2Tag.readFields(tag, 0)
+        assertEquals("专辑艺术家", readBack[TagField.ALBUM_ARTIST])
+        assertEquals("2008-10-22", readBack[TagField.DATE])
+        assertEquals("流派", readBack[TagField.GENRE])
+        assertEquals("3/12", readBack[TagField.TRACK_NUMBER])
+        assertEquals("1/2", readBack[TagField.DISC_NUMBER])
+        assertEquals("作词人", readBack[TagField.LYRICIST])
+        assertEquals("作曲人", readBack[TagField.COMPOSER])
+        assertEquals("版权", readBack[TagField.COPYRIGHT])
+        assertEquals("备注", readBack[TagField.COMMENT])
+        assertEquals("4", readBack[TagField.RATING])
+        assertEquals("-7.5 dB", readBack[TagField.REPLAY_GAIN_TRACK_GAIN])
+    }
+
+    @Test
+    fun dateUsesYearFrameInV3AndReadsBack() {
+        val fields = TrackTagFields.build { put(TagField.DATE, "2008") }
+        val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(null, fields, null, 3)!!, 3)
+        // v2.3 没有 TDRC，日期落在 TYER 上；读取端两者都认
+        assertTrue(tag.asAscii().contains("TYER"))
+        assertEquals("2008", Id3v2Tag.readFields(tag, 0)[TagField.DATE])
+    }
+
+    @Test
+    fun replayGainReplacesOnlyItsOwnCustomFrame() {
+        // 既有 TXXX 描述符与本次写入不同：它不属于本次改动，须原样保留
+        val other = byteArrayOf(3) + "OTHER".toByteArray(StandardCharsets.UTF_8) + byteArrayOf(0) +
+            "保留值".toByteArray(StandardCharsets.UTF_8)
+        val existing = Id3v2Tag.buildTag(
+            ByteArrayOutputStream().also { Id3v2Tag.frame(it, "TXXX", other, 4) }.toByteArray(),
+            4,
+        )
+        val fields = TrackTagFields.build { put(TagField.REPLAY_GAIN_TRACK_GAIN, "-7.5 dB") }
+        val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(existing, fields, null, 4)!!, 4)
+
+        assertEquals("-7.5 dB", Id3v2Tag.readTxxx(tag, 0, "REPLAYGAIN_TRACK_GAIN"))
+        assertEquals("保留值", Id3v2Tag.readTxxx(tag, 0, "OTHER"))
+    }
+
+    @Test
+    fun untouchedFieldsKeepTheirOriginalFrames() {
+        // 只写标题：其余既有帧（含扩展字段）不得被抹掉
+        val existingFields = TrackTagFields.build {
+            put(TagField.TITLE, "旧标题")
+            put(TagField.GENRE, "流派")
+            put(TagField.COMMENT, "备注")
+        }
+        val existing = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(null, existingFields, null, 4)!!, 4)
+        val changed = TrackTagFields.build { put(TagField.TITLE, "新标题") }
+        val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(existing, changed, null, 4)!!, 4)
+
+        val readBack = Id3v2Tag.readFields(tag, 0)
+        assertEquals("新标题", readBack[TagField.TITLE])
+        assertEquals("流派", readBack[TagField.GENRE])
+        assertEquals("备注", readBack[TagField.COMMENT])
+    }
+
+    // -----------------------------------------------------------------------
 
     private fun frames(block: ByteArrayOutputStream.() -> Unit): ByteArray =
         ByteArrayOutputStream().apply(block).toByteArray()
@@ -223,4 +309,7 @@ class Id3v2TagTest {
         assertEquals(3, data[0].toInt() and 0xFF)
         return String(data, 1, data.size - 2, StandardCharsets.UTF_8)
     }
+
+    // 按单字节编码查看原始字节：帧标识等 ASCII 字段直接以文本搜索即可
+    private fun ByteArray.asAscii(): String = String(this, StandardCharsets.ISO_8859_1)
 }

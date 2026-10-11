@@ -35,38 +35,57 @@ internal object MusicMetadataEditor {
     // 歌词字段的候选键：各写入端与第三方工具落点不一，按序取首个非空值
     private val LYRICS_KEYS = listOf("LYRICS", "SYNCEDLYRICS", "UNSYNCEDLYRICS")
 
+    // 字段在 Vorbis 注释中的候选键：首项为写入端使用的键，其后为第三方工具的同义键
+    private val VORBIS_ALIASES: Map<TagField, List<String>> = mapOf(
+        TagField.TITLE to listOf("TITLE"),
+        TagField.ARTIST to listOf("ARTIST"),
+        TagField.ALBUM_ARTIST to listOf("ALBUMARTIST", "ALBUM ARTIST"),
+        TagField.ALBUM to listOf("ALBUM"),
+        TagField.DATE to listOf("DATE", "YEAR"),
+        TagField.LANGUAGE to listOf("LANGUAGE"),
+        TagField.GENRE to listOf("GENRE"),
+        TagField.TRACK_NUMBER to listOf("TRACKNUMBER", "TRACK"),
+        TagField.DISC_NUMBER to listOf("DISCNUMBER", "DISC"),
+        TagField.LYRICIST to listOf("LYRICIST", "WRITER"),
+        TagField.COMPOSER to listOf("COMPOSER"),
+        TagField.COPYRIGHT to listOf("COPYRIGHT"),
+        TagField.COMMENT to listOf("COMMENT", "DESCRIPTION"),
+        TagField.RATING to listOf("RATING"),
+        TagField.REPLAY_GAIN_TRACK_GAIN to listOf("REPLAYGAIN_TRACK_GAIN"),
+        TagField.REPLAY_GAIN_TRACK_PEAK to listOf("REPLAYGAIN_TRACK_PEAK"),
+        TagField.REPLAY_GAIN_ALBUM_GAIN to listOf("REPLAYGAIN_ALBUM_GAIN"),
+        TagField.REPLAY_GAIN_ALBUM_PEAK to listOf("REPLAYGAIN_ALBUM_PEAK"),
+        TagField.REPLAY_GAIN_REFERENCE_LOUDNESS to listOf("REPLAYGAIN_REFERENCE_LOUDNESS"),
+    )
+
+    // MP4 的容器原子：只有这些原子内部还嵌套子原子，其余按叶子解析
+    private val MP4_CONTAINER_TYPES = setOf("moov", "udta", "meta", "ilst")
+
     /**
-     * 表单回填内容。字段为 null 表示该容器/该文件未写入该项，
-     * 与「写入了空字符串」区分：未写入的项在保存时不参与重写，既有值原样保留。
+     * 表单回填内容。字段集合只含文本标签，内嵌歌词单独给出：
+     * 歌词有「缓存文件」与「文件内嵌」两份副本，两者并非总在同一次事务里落盘（内嵌写入可能失败），
+     * 故调用方需要歌词的写入时刻与缓存文件的修改时间择优。
      */
     class EditableTags(
-        val title: String?,
-        val artist: String?,
-        val album: String?,
+        val fields: TrackTagFields,
         val lyrics: String?,
         /**
-         * 内嵌歌词的写入时刻（毫秒），取音频文件的最后修改时间。
-         *
-         * 歌词有「缓存文件」与「文件内嵌」两份副本，两者并非总在同一次事务里落盘
-         * （内嵌写入可能失败），故调用方需要这个时刻与缓存文件的修改时间择优，
-         * 否则会拿旧的内嵌歌词盖掉刚刷新的缓存歌词。无内嵌歌词时为 0
+         * 内嵌歌词的写入时刻（毫秒），取音频文件的最后修改时间。无内嵌歌词时为 0
          */
         val lyricsModifiedMs: Long = 0L,
     )
 
     /**
-     * 读取音频文件当前的内嵌标签；文件不可读、容器不支持或无标签时返回 null。
+     * 读取音频文件当前的内嵌标签；文件不可读、容器不支持或无标签时返回空字段。
      * 调用方须在 IO 线程调用，本方法不做线程切换
      */
-    fun read(context: Context, track: MusicTrack): EditableTags? {
+    fun read(context: Context, track: MusicTrack): EditableTags {
         val prefix = LocalAudioSource.read(context, track.path, track.audioUri, 0L, CONTAINER_PROBE_BYTES)
-            ?: return null
-        val text = readTextTags(context, track, prefix)
+            ?: return EditableTags(TrackTagFields.EMPTY, null)
+        val fields = readTextTags(context, track, prefix) ?: TrackTagFields.EMPTY
         val lyrics = readLyrics(context, track, prefix)
         return EditableTags(
-            title = text?.title,
-            artist = text?.artist,
-            album = text?.album,
+            fields = fields,
             lyrics = lyrics,
             // 标签写在文件内，内嵌歌词的落盘时刻即文件的修改时间
             lyricsModifiedMs = if (lyrics != null) modifiedTimeMs(context, track) else 0L,
@@ -115,39 +134,48 @@ internal object MusicMetadataEditor {
         }
     }
 
-    // 文本标签：MP3 先按 ID3 声明长度取标签区，其余容器按头部窗口 + 尾部窗口的容器规则定位
+    // 文本标签：MP3 先按 ID3 声明长度取标签区，其余容器按头部窗口 + 尾部窗口的容器规则定位。
+    // 内嵌歌词不在本方法范围内，由 readLyrics 单独取回并附带写入时刻
     private fun readTextTags(
         context: Context,
         track: MusicTrack,
         prefix: ByteArray,
-    ): LosslessContainerTags.TextTag? = when {
-        // MP3/ID3 标签不在 LosslessContainerTags 的容器范围内，单独按文本帧解析取回
-        prefix.startsWith("ID3") -> readId3Text(context, track, "TIT2", "TPE1", "TALB")
-            ?.let { LosslessContainerTags.TextTag(it[0], it[1], it[2]) }
-            ?.takeIf { it.title != null || it.artist != null || it.album != null }
+    ): TrackTagFields? = when {
+        // MP3/ID3 标签不在 LosslessContainerTags 的容器范围内，单独按帧解析取回
+        prefix.startsWith("ID3") -> readId3Tag(context, track)
+            ?.let { withoutLyrics(Id3v2Tag.readFields(it, 0)) }
         LosslessContainerTags.matches(prefix) -> readFromWindows(context, track, prefix) { header, tail, tailOffset, readAt ->
-            LosslessContainerTags.readText(header, tail, tailOffset, readAt)
-        }
+            LosslessContainerTags.readFields(header, tail, tailOffset, readAt)
+        }?.let { withoutLyrics(it) }
         // FLAC 的 VORBIS_COMMENT、Ogg 的注释包与 M4A 的 ilst 都在头部窗口内，按各自结构解析
-        else -> readHeadTaggedText(context, track, prefix)
+        else -> readHeadTaggedFields(context, track, prefix)
+    }
+
+    // 歌词不由文本字段回填：它由 readLyrics 单独取回并附带写入时刻，避免两处各读一遍
+    private fun withoutLyrics(fields: TrackTagFields): TrackTagFields = TrackTagFields.build {
+        fields.entries().forEach { (field, value) -> if (field != TagField.LYRICS) put(field, value) }
     }
 
     // FLAC/Ogg 的 Vorbis 注释与 M4A 的 ilst 原子：头窗内的结构解析
-    private fun readHeadTaggedText(
+    private fun readHeadTaggedFields(
         context: Context,
         track: MusicTrack,
         prefix: ByteArray,
-    ): LosslessContainerTags.TextTag? {
+    ): TrackTagFields? {
         if (!prefix.startsWith("fLaC") && !prefix.startsWith("OggS") && !prefix.startsWith("ftyp", 4)) return null
         val header = LocalAudioSource.read(context, track.path, track.audioUri, 0L, HEADER_CAP) ?: return null
-        if (prefix.startsWith("ftyp", 4)) return readMp4Text(header)
+        if (prefix.startsWith("ftyp", 4)) return readMp4Fields(header)
         val comments = if (prefix.startsWith("fLaC")) flacComments(header) else oggComments(header)
-        if (comments == null) return null
-        val title = fieldValue(comments, listOf("TITLE"))
-        val artist = fieldValue(comments, listOf("ARTIST"))
-        val album = fieldValue(comments, listOf("ALBUM"))
-        if (title == null && artist == null && album == null) return null
-        return LosslessContainerTags.TextTag(title, artist, album)
+        return comments?.let { readVorbisFields(it) }
+    }
+
+    // Vorbis 注释中的字段读取：键名大小写不敏感，按候选键序取首个非空值
+    private fun readVorbisFields(comments: List<String>): TrackTagFields? {
+        val result = LinkedHashMap<TagField, String>()
+        VORBIS_ALIASES.forEach { (field, keys) ->
+            fieldValue(comments, keys)?.let { result[field] = it }
+        }
+        return result.takeIf { it.isNotEmpty() }?.let { TrackTagFields.build { it.forEach { (f, v) -> put(f, v) } } }
     }
 
     // Vorbis 注释中的字段取值：键名大小写不敏感，按给定键序取首个非空值
@@ -202,18 +230,10 @@ internal object MusicMetadataEditor {
         }
     }
 
-    // ID3v2 标签区：按标签头声明的长度精确读取（含封面帧），超出上限即放弃。
-    // 帧标识不区分大小写，同一标识出现多次时取首个非空值
-    private fun readId3Text(context: Context, track: MusicTrack, vararg frameIds: String): List<String?>? {
-        val tag = readId3Tag(context, track) ?: return null
-        return frameIds.map { frameId ->
-            Id3v2Tag.readTextFrame(tag, 0, frameId)
-        }
-    }
-
     private fun readId3Apic(context: Context, track: MusicTrack): ByteArray? =
         readId3Tag(context, track)?.let { Id3v2Tag.readApic(it, 0) }
 
+    // ID3v2 标签区：按标签头声明的长度精确读取（含封面帧），超出上限即放弃
     private fun readId3Tag(context: Context, track: MusicTrack): ByteArray? {
         val prefix = LocalAudioSource.read(context, track.path, track.audioUri, 0L, ID3_HEADER_BYTES) ?: return null
         if (!prefix.startsWith("ID3") || prefix.size < ID3_HEADER_BYTES) return null
@@ -273,50 +293,91 @@ internal object MusicMetadataEditor {
         return fields
     }
 
-    // M4A：递归遍历 moov/udta/meta/ilst，取 ©nam/©ART/©alb 三个文本原子
-    private fun readMp4Text(bytes: ByteArray): LosslessContainerTags.TextTag? {
-        val title = readMp4TextAtom(bytes, 0, bytes.size, false, "©nam", "©NAM")
-        val artist = readMp4TextAtom(bytes, 0, bytes.size, false, "©ART", "©art")
-        val album = readMp4TextAtom(bytes, 0, bytes.size, false, "©alb", "©ALB")
-        if (title == null && artist == null && album == null) return null
-        return LosslessContainerTags.TextTag(title, artist, album)
+    // M4A：递归遍历 ilst，取全量字段。普通文本原子按键名取值，音轨号/碟号为二进制，
+    // 其余字段以 ---- 自由格式原子承载
+    private fun readMp4Fields(bytes: ByteArray): TrackTagFields? {
+        val result = LinkedHashMap<TagField, String>()
+        val freeform = LinkedHashMap<String, String>()
+        walkMp4Atoms(bytes, 0, bytes.size, false) { type, payloadStart, payloadEnd ->
+            when {
+                type == MusicMetadataWriter.FREE_FORM_ATOM -> readMp4Freeform(bytes, payloadStart, payloadEnd)?.let { (key, value) -> freeform[key] = value }
+                else -> MusicMetadataWriter.MP4_ATOMS.entries.firstOrNull { it.value == type }?.let { entry ->
+                    val payload = readMp4DataPayload(bytes, payloadStart, payloadEnd) ?: return@walkMp4Atoms
+                    val value = if (entry.key == TagField.TRACK_NUMBER || entry.key == TagField.DISC_NUMBER) {
+                        mp4TrackNumber(payload)
+                    } else {
+                        String(payload, StandardCharsets.UTF_8).takeIf { it.isNotBlank() }
+                    }
+                    if (value != null && entry.key !in result) result[entry.key] = value
+                }
+            }
+        }
+        MusicMetadataWriter.MP4_FREEFORM_KEYS.forEach { (field, key) ->
+            freeform[key]?.let { if (field !in result) result[field] = it }
+        }
+        return result.takeIf { it.isNotEmpty() }?.let { TrackTagFields.build { it.forEach { (f, v) -> put(f, v) } } }
     }
 
-    private fun readMp4TextAtom(
+    // 遍历 MP4 原子树：只按盒子头定位，meta 原子在子原子之前另有 4 字节版本与标志
+    private fun walkMp4Atoms(
         bytes: ByteArray,
         start: Int,
         end: Int,
-        isMeta: Boolean,
-        vararg types: String,
-    ): String? {
-        var p = start + if (isMeta) 4 else 0
+        skipHeader: Boolean,
+        visit: (type: String, payloadStart: Int, payloadEnd: Int) -> Unit,
+    ) {
+        var p = start + if (skipHeader) 4 else 0
         while (p + 8 <= end) {
             val size = int32BE(bytes, p)
-            if (size < 8 || p + size > end) return null
+            if (size < 8 || p + size > end) return
             val type = String(bytes, p + 4, 4, StandardCharsets.ISO_8859_1)
-            when {
-                type in types -> decodeMp4DataAtom(bytes, p + 8, p + size)?.let { return it }
-                type == "moov" || type == "udta" || type == "meta" || type == "ilst" ->
-                    readMp4TextAtom(bytes, p + 8, p + size, type == "meta", *types)?.let { return it }
-            }
+            val payloadStart = p + 8
+            val payloadEnd = p + size
+            visit(type, payloadStart, payloadEnd)
+            if (type in MP4_CONTAINER_TYPES) walkMp4Atoms(bytes, payloadStart, payloadEnd, type == "meta", visit)
             p += size
         }
-        return null
     }
 
-    // data 子原子的载荷：头 16 字节（4 类型 + 4 区域 + 8 版本标志）之后为 UTF-8 文本
-    private fun decodeMp4DataAtom(bytes: ByteArray, start: Int, end: Int): String? {
+    // data 子原子的载荷：头 16 字节（4 类型 + 4 区域 + 8 版本标志）之后为数据
+    private fun readMp4DataPayload(bytes: ByteArray, start: Int, end: Int): ByteArray? {
         var p = start
         while (p + 8 <= end) {
             val size = int32BE(bytes, p)
             if (size < 8 || p + size > end) return null
             if (String(bytes, p + 4, 4, StandardCharsets.ISO_8859_1) == "data") {
                 if (size <= 16) return null
-                return String(bytes, p + 16, size - 16, StandardCharsets.UTF_8).takeIf { it.isNotBlank() }
+                return bytes.copyOfRange(p + 16, p + size)
             }
             p += size
         }
         return null
+    }
+
+    // 音轨号/碟号的二进制载荷：2 字节保留 + 编号(2) + 总数(2)，编号为 0 时视为未写入
+    private fun mp4TrackNumber(payload: ByteArray): String? {
+        if (payload.size < 4) return null
+        val number = ((payload[2].toInt() and 0xff) shl 8) or (payload[3].toInt() and 0xff)
+        if (number <= 0) return null
+        val total = if (payload.size >= 6) ((payload[4].toInt() and 0xff) shl 8) or (payload[5].toInt() and 0xff) else 0
+        return if (total > 0) "$number/$total" else number.toString()
+    }
+
+    // 自由格式原子：name 子原子给出键名，data 子原子给出值
+    private fun readMp4Freeform(bytes: ByteArray, start: Int, end: Int): Pair<String, String>? {
+        var key: String? = null
+        var value: String? = null
+        var p = start
+        while (p + 8 <= end) {
+            val size = int32BE(bytes, p)
+            if (size < 8 || p + size > end) return null
+            when (String(bytes, p + 4, 4, StandardCharsets.ISO_8859_1)) {
+                "name" -> if (size > 12) key = String(bytes, p + 12, size - 12, StandardCharsets.UTF_8)
+                "data" -> if (size > 16) value = String(bytes, p + 16, size - 16, StandardCharsets.UTF_8)
+            }
+            p += size
+        }
+        return if (key != null && value != null && value.isNotBlank()) key to value else null
     }
 
     private fun ByteArray.startsWith(value: String): Boolean =
@@ -341,7 +402,7 @@ internal object MusicMetadataEditor {
  * 元数据编辑页的数据门面：读取表单初值并把用户改动写回音频文件。
  *
  * 写入是整批一次完成 —— 各容器的标签重写都要重建容器结构，逐字段写入会把文件重写多遍，
- * 每遍都是一次全量复制。字段为 null 表示本次不改该项，由写入端保留既有值。
+ * 每遍都是一次全量复制。缺失字段表示本次不改该项，由写入端保留既有值。
  */
 internal object TrackMetadataEditor {
 
@@ -380,22 +441,19 @@ internal object TrackMetadataEditor {
     }
 
     /**
-     * 把编辑结果写回音频文件。仅在字段非 null 时覆盖该项，留空的字段保持文件原值。
+     * 把编辑结果写回音频文件。只在字段集合中出现的项被覆盖，其余保持文件原值。
      *
      * 返回是否写入成功：容器不支持、超出解析上限或文件不可写时返回 false，由页面提示用户。
      */
     suspend fun save(
         context: Context,
         track: MusicTrack,
-        title: String?,
-        artist: String?,
-        album: String?,
+        fields: TrackTagFields,
         cover: ByteArray?,
-        lyrics: String?,
     ): Boolean = withContext(Dispatchers.IO) {
         if (!track.isLocalAudioSource) return@withContext false
         try {
-            MusicMetadataWriter.writeFields(context, track, title, artist, album, cover, lyrics)
+            MusicMetadataWriter.writeFields(context, track, fields, cover)
         } catch (e: Exception) {
             CrashLogManager.logException(
                 "TrackMetadataEditor",

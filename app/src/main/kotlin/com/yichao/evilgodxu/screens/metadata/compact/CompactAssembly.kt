@@ -8,7 +8,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.data.music.metadata.TagField
+import com.yichao.evilgodxu.data.music.model.MusicSearchSource
+import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.screens.metadata.MetadataEditTarget
 import com.yichao.evilgodxu.screens.metadata.MetadataUiState
 import com.yichao.evilgodxu.screens.metadata.component.MetadataForm
@@ -24,17 +28,26 @@ internal fun CompactAssembly(
     onBack: () -> Unit,
     onEditStart: (MetadataEditTarget) -> Unit,
     onEditEnd: () -> Unit,
-    onTitleChange: (String) -> Unit,
-    onArtistChange: (String) -> Unit,
-    onAlbumChange: (String) -> Unit,
+    onFieldChange: (TagField, String) -> Unit,
     onLyricRawChange: (String) -> Unit,
     onLyricTranslationChange: (Int, String) -> Unit,
     onLyricLineTranslate: (Int) -> Unit,
     onLyricsWholeModeToggle: () -> Unit,
     onCoverSelected: (ByteArray) -> Unit,
     onCoverRemoved: () -> Unit,
+    onCoverRevert: () -> Unit,
+    onCoverExport: () -> Unit,
+    onSameAlbumRequest: () -> Unit,
+    onSameAlbumDismiss: () -> Unit,
+    onCoverRefreshOpen: () -> Unit,
+    onCoverRefreshSourceSelected: (MusicSearchSource) -> Unit,
+    onCoverRefreshReload: () -> Unit,
+    onCoverRefreshCandidateSelected: (NeteaseSongSearchResult) -> Unit,
+    onCoverRefreshConfirm: () -> Unit,
+    onCoverRefreshCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val playbackState = LocalMusicPanelStateHolder.current.state
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -44,17 +57,26 @@ internal fun CompactAssembly(
     ) { innerPadding ->
         MetadataForm(
             uiState = uiState,
+            playbackState = playbackState,
             onEditStart = onEditStart,
             onEditEnd = onEditEnd,
-            onTitleChange = onTitleChange,
-            onArtistChange = onArtistChange,
-            onAlbumChange = onAlbumChange,
+            onFieldChange = onFieldChange,
             onLyricRawChange = onLyricRawChange,
             onLyricTranslationChange = onLyricTranslationChange,
             onLyricLineTranslate = onLyricLineTranslate,
             onLyricsWholeModeToggle = onLyricsWholeModeToggle,
             onCoverSelected = onCoverSelected,
             onCoverRemoved = onCoverRemoved,
+            onCoverRevert = onCoverRevert,
+            onCoverExport = onCoverExport,
+            onSameAlbumRequest = onSameAlbumRequest,
+            onSameAlbumDismiss = onSameAlbumDismiss,
+            onCoverRefreshOpen = onCoverRefreshOpen,
+            onCoverRefreshSourceSelected = onCoverRefreshSourceSelected,
+            onCoverRefreshReload = onCoverRefreshReload,
+            onCoverRefreshCandidateSelected = onCoverRefreshCandidateSelected,
+            onCoverRefreshConfirm = onCoverRefreshConfirm,
+            onCoverRefreshCancel = onCoverRefreshCancel,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
