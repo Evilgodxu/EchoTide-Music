@@ -117,7 +117,8 @@ internal fun PlaylistSheet(
     val isPortrait = !rememberWindowLandscape()
     val sheetHeightFraction = if (isPortrait) 0.5f else 1f
     // 排序菜单高度上限：面板高度（窗口高度 × 展开比例）的 80%，超出部分在菜单内滚动，
-    // 使朝下展开的菜单不会盖过整块面板
+    // 使朝下展开的菜单不会盖过整块面板；组件还会按锚点下方的可用空间再收紧，
+    // 保证窗口较矮时菜单不翻转到排序按钮上方
     val sortMenuMaxHeight =
         LocalWindowInfo.current.containerDpSize.height * sheetHeightFraction * 0.8f
     // 歌单副标题点击后的快捷切换弹层

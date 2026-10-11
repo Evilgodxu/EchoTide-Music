@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -33,7 +34,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -62,6 +66,8 @@ enum class ExpandDirection { Up, Down, Right }
  *
  * [maxMenuHeight] 限制菜单容器的高度上限（null 表示不限制）：锚定在高度有限的面板内时，
  * 传入按面板高度换算出的上限可避免菜单盖过整块面板；超出上限的选项改为在菜单内滚动查看。
+ * 限高菜单的实际高度不超过锚点这一侧的可用空间，放不下时在本侧收缩滚动，不翻转到对侧——
+ * 否则窗口高度不同会翻转展开方向（同一按钮在部分设备上变成向上展开）。
  */
 @Composable
 fun <T> ExpandPicker(
@@ -93,8 +99,32 @@ fun <T> ExpandPicker(
     val visibleState = remember { MutableTransitionState(false) }
     visibleState.targetState = expanded
 
+    // 触发区域在窗口中的上下缘：限高菜单据此把上限收进锚点这一侧的可用空间
+    var triggerTopPx by remember { mutableFloatStateOf(0f) }
+    var triggerBottomPx by remember { mutableFloatStateOf(0f) }
+    val windowHeightPx = LocalWindowInfo.current.containerSize.height
+    val density = LocalDensity.current
+    // 限高菜单的实际上限：调用方上限与锚点这一侧可用空间取小，使菜单恒放得下、位置不随窗口高度变化。
+    // 窗口几何尚未测得（可用空间非正）时保持调用方上限
+    val anchoredMaxHeight = maxMenuHeight?.let { cap ->
+        val gapPx = with(density) { MENU_GAP_DP.toPx() }
+        val marginPx = with(density) { HORIZONTAL_MARGIN_DP.toPx() }
+        val availablePx = when (expandDirection) {
+            ExpandDirection.Down -> windowHeightPx - triggerBottomPx - gapPx - marginPx
+            ExpandDirection.Up -> triggerTopPx - gapPx - marginPx
+            ExpandDirection.Right -> Float.MAX_VALUE
+        }
+        val available = with(density) { availablePx.toDp() }
+        if (available > 0.dp && available < cap) available else cap
+    }
+
     Box(
         modifier = modifier
+            .onGloballyPositioned {
+                val bounds = it.boundsInWindow()
+                triggerTopPx = bounds.top
+                triggerBottomPx = bounds.bottom
+            }
             .combinedClickable(
                 enabled = enabled,
                 onClick = { expanded = !expanded },
@@ -110,6 +140,8 @@ fun <T> ExpandPicker(
                     horizontalAlignment = horizontalAlignment,
                     verticalAlignment = verticalAlignment,
                     clampToWindow = clampToWindow,
+                    // 限高菜单须留在本侧（高度上限已保证放得下），不参与空间不足时的翻转
+                    allowFlip = anchoredMaxHeight == null,
                 ),
                 properties = PopupProperties(
                     focusable = true,
@@ -123,7 +155,7 @@ fun <T> ExpandPicker(
                     options = options,
                     selected = selected,
                     header = header,
-                    maxMenuHeight = maxMenuHeight,
+                    maxMenuHeight = anchoredMaxHeight,
                     containerColor = containerColor,
                     containerShape = containerShape,
                     itemShape = itemShape,
@@ -298,17 +330,25 @@ private fun ExpandMenuRow(
     }
 }
 
-// 展开式菜单的定位：按方向贴触发区域对应侧，空间不足时翻转到对侧；水平/垂直按传入对齐方式落位，
-// 并按需夹在锚定窗口内，避免贴边触发时菜单溢出屏幕
+// 展开式菜单的定位：按方向贴触发区域对应侧，空间不足时翻转到对侧（[allowFlip] 为假者除外）；
+// 水平/垂直按传入对齐方式落位，并按需夹在锚定窗口内，避免贴边触发时菜单溢出屏幕
 @Composable
 private fun expandPositionProvider(
     direction: ExpandDirection,
     horizontalAlignment: Alignment.Horizontal,
     verticalAlignment: Alignment.Vertical,
     clampToWindow: Boolean,
+    allowFlip: Boolean,
 ): PopupPositionProvider {
     val density = LocalDensity.current
-    return remember(density, direction, horizontalAlignment, verticalAlignment, clampToWindow) {
+    return remember(
+        density,
+        direction,
+        horizontalAlignment,
+        verticalAlignment,
+        clampToWindow,
+        allowFlip,
+    ) {
         object : PopupPositionProvider {
             override fun calculatePosition(
                 anchorBounds: IntRect,
@@ -344,13 +384,16 @@ private fun expandPositionProvider(
                 val y: Int
                 when (direction) {
                     ExpandDirection.Up -> {
-                        y = if (anchorBounds.top - height - gapPx >= 0) anchorBounds.top - height - gapPx
-                        else anchorBounds.bottom + gapPx
+                        val above = anchorBounds.top - height - gapPx
+                        y = if (above >= 0 || !allowFlip) above else anchorBounds.bottom + gapPx
                         x = horizontalX
                     }
                     ExpandDirection.Down -> {
-                        y = if (anchorBounds.bottom + height + gapPx <= windowSize.height || !clampToWindow) {
-                            anchorBounds.bottom + gapPx
+                        val below = anchorBounds.bottom + gapPx
+                        // 下方放不下且允许翻转时改到触发区域上方；不允许翻转者留在下方，
+                        // 由高度上限保证放得下，超出部分在菜单内滚动
+                        y = if (below + height <= windowSize.height || !clampToWindow || !allowFlip) {
+                            below
                         } else {
                             anchorBounds.top - height - gapPx
                         }
