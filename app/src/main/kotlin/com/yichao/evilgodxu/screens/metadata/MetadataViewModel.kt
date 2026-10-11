@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.metadata.CoverExporter
+import com.yichao.evilgodxu.data.music.metadata.CoverUpdate
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.metadata.TagField
 import com.yichao.evilgodxu.data.music.metadata.TrackMetadataEditor
@@ -55,9 +56,13 @@ class MetadataViewModel(
     // 文件内嵌标签的原值：作为「哪些字段被改动过」的比较基准，写入成功后随之刷新
     private var snapshot = TrackTagFields.EMPTY
 
-    // 用户选择的本地封面：已选新图时保存写入，已移除时为 null 表示删除内嵌封面
-    private var pendingCover: ByteArray? = null
-    private var coverChanged = false
+    // 本次待落盘的封面改动：不改 / 写入给定图 / 删除既有封面
+    private var pendingCover: CoverUpdate = CoverUpdate.Keep
+    // 进入页面时文件里的封面：撤销更改的落点。存在状态之外，避免界面层拿到一份自己的副本
+    private var originalCover: ByteArray? = null
+    // 本次会话是否已有封面改动落盘：决定撤销时要不要把原封面写回文件，
+    // 避免「只选了图但尚未落盘」也白白重写一遍音频
+    private var coverSavedToFile = false
 
     // 待落盘的字段改动：同一字段的连续输入只保留最后一次，避免排队重写多遍文件
     private var pending: MutableMap<TagField, String>? = null
@@ -119,8 +124,9 @@ class MetadataViewModel(
         translateJob?.cancel()
         translateJob = null
         pending = null
-        pendingCover = null
-        coverChanged = false
+        pendingCover = CoverUpdate.Keep
+        originalCover = null
+        coverSavedToFile = false
         snapshot = TrackTagFields.EMPTY
     }
 
@@ -157,13 +163,15 @@ class MetadataViewModel(
             }
             val cover = TrackMetadataEditor.readCover(context, target)
             snapshot = initial
+            // 记下进入页面时的封面作为撤销落点：本次会话的封面改动都以它为「原值」
+            originalCover = cover
+            coverSavedToFile = false
             _uiState.update {
                 it.copy(
                     fields = initial.entries().associate { (field, value) -> field to value },
                     lyricLines = lines,
                     lyricsUnparsable = lyricsUnparsable,
                     coverBytes = cover,
-                    coverPresent = cover != null,
                     coverDirty = false,
                     loading = false,
                 )
@@ -338,12 +346,10 @@ class MetadataViewModel(
     // ---- 封面 ----
 
     fun onCoverSelected(bytes: ByteArray) {
-        pendingCover = bytes
-        coverChanged = true
+        pendingCover = CoverUpdate.Set(bytes)
         _uiState.update {
             it.copy(
                 coverBytes = bytes,
-                coverPresent = true,
                 coverDirty = true,
                 sameAlbumVisible = false,
                 message = null,
@@ -354,23 +360,29 @@ class MetadataViewModel(
     }
 
     fun onCoverRemoved() {
-        pendingCover = null
-        coverChanged = true
-        _uiState.update { it.copy(coverBytes = null, coverPresent = false, coverDirty = true, message = null) }
+        pendingCover = CoverUpdate.Remove
+        _uiState.update { it.copy(coverBytes = null, coverDirty = true, message = null) }
         scheduleSave()
     }
 
-    // 撤销封面改动：丢弃本次选定的封面，回到音频文件里的内嵌封面
+    /**
+     * 撤销封面改动：回到进入本页时文件里的那张封面。
+     *
+     * 覆盖整段编辑过程而不仅是「尚未落盘的那一次」——封面改动在停顿后即自动写盘，
+     * 只回滚未落盘的部分，用户在改动已被写入后再点撤销会看到封面纹丝不动。
+     * 因此再落盘时按需把原封面写回：尚未写盘过就只丢弃待写改动，已写盘过才重写文件。
+     */
     fun onCoverRevert() {
-        val target = findTrack() ?: return
-        viewModelScope.launch {
-            val bytes = TrackMetadataEditor.readCover(getApplication(), target)
-            pendingCover = null
-            coverChanged = false
-            _uiState.update {
-                it.copy(coverBytes = bytes, coverPresent = bytes != null, coverDirty = false, message = null)
-            }
+        val original = originalCover
+        // 尚未写盘过：原封面仍在文件里，这次撤销只需丢弃待写改动，不必重写音频；
+        // 已写盘过才按「写回原图」或「原本来就没有封面则删掉」再落一次盘
+        pendingCover = when {
+            !coverSavedToFile -> CoverUpdate.Keep
+            original != null -> CoverUpdate.Set(original)
+            else -> CoverUpdate.Remove
         }
+        _uiState.update { it.copy(coverBytes = original, coverDirty = false, message = null) }
+        if (pendingCover !is CoverUpdate.Keep) scheduleSave()
     }
 
     // 保存封面：把界面当前展示的封面存入系统相册（未落盘的选定封面也能保存）
@@ -487,8 +499,9 @@ class MetadataViewModel(
         viewModelScope.launch {
             val success = applyCoverCandidate(getApplication(), playbackState, target, candidate)
             if (success) {
-                pendingCover = null
-                coverChanged = false
+                // 在线刷新已把新封面写进文件：本次会话也就有了落盘过的封面改动，撤销须走写回原图
+                pendingCover = CoverUpdate.Keep
+                coverSavedToFile = true
                 val cover = TrackMetadataEditor.readCover(getApplication(), target)
                 _uiState.update {
                     it.copy(
@@ -496,8 +509,7 @@ class MetadataViewModel(
                         coverRefreshVisible = false,
                         coverRefreshSelectedId = null,
                         coverBytes = cover,
-                        coverPresent = cover != null,
-                        coverDirty = false,
+                        coverDirty = true,
                         messageIsError = false,
                         message = message(R.string.metadata_cover_refresh_done),
                     )
@@ -531,7 +543,7 @@ class MetadataViewModel(
         } else {
             (pending ?: mutableMapOf<TagField, String>().also { pending = it })[field] = newValue
         }
-        if ((pending?.isEmpty() != false) && !coverChanged) return
+        if (pending.isNullOrEmpty() && pendingCover is CoverUpdate.Keep) return
         scheduleSave()
     }
 
@@ -550,7 +562,7 @@ class MetadataViewModel(
             (pending ?: mutableMapOf<TagField, String>().also { pending = it })[TagField.LYRICS] =
                 MusicMetadataCache.encodeLyrics(newValue)
         }
-        if ((pending?.isEmpty() != false) && !coverChanged) return
+        if (pending.isNullOrEmpty() && pendingCover is CoverUpdate.Keep) return
         scheduleSave()
     }
 
@@ -591,7 +603,7 @@ class MetadataViewModel(
         commitLyricDraft()
         saveJob?.cancel()
         saveJob = null
-        if (pending.isNullOrEmpty() && !coverChanged) return
+        if (pending.isNullOrEmpty() && pendingCover is CoverUpdate.Keep) return
         stateHolder.state.playbackScope.launch { flush() }
     }
 
@@ -613,8 +625,8 @@ class MetadataViewModel(
     private suspend fun drain() {
         while (true) {
             val changes = pending
-            val coverChangedNow = coverChanged
-            if (changes.isNullOrEmpty() && !coverChangedNow) return
+            val coverEdit = pendingCover
+            if (changes.isNullOrEmpty() && coverEdit is CoverUpdate.Keep) return
             pending = null
             val target = findTrack() ?: return
             val fields = TrackTagFields.build { changes?.forEach { (field, value) -> put(field, value) } }
@@ -623,11 +635,11 @@ class MetadataViewModel(
                 context = getApplication(),
                 track = target,
                 fields = fields,
-                cover = pendingCover.takeIf { coverChangedNow },
+                cover = coverEdit,
             )
             if (!success) {
                 // 失败时把改动退回待写入集：用户仍停留在编辑态，下一次输入或离开页面时再试
-                requeue(changes, coverChangedNow)
+                requeue(changes, coverEdit)
                 _uiState.update {
                     it.copy(saving = false, messageIsError = true, message = message(R.string.metadata_save_failed))
                 }
@@ -637,14 +649,15 @@ class MetadataViewModel(
                 target = target,
                 fields = fields,
                 lyrics = changes?.get(TagField.LYRICS),
-                coverChangedNow = coverChangedNow,
+                coverChanged = coverEdit !is CoverUpdate.Keep,
             )
             // 写入成功后以本批内容为新基准：此后不再有未落盘改动。
             // 快照按批推进而非取当前界面值 —— 界面可能已被用户继续改过，那是下一轮要写的
             snapshot = TrackTagFields.overlay(snapshot) { fields.entries().forEach { (field, value) -> put(field, value) } }
-            if (coverChangedNow) {
-                pendingCover = null
-                coverChanged = false
+            if (coverEdit !is CoverUpdate.Keep) {
+                pendingCover = CoverUpdate.Keep
+                // 文件里的封面已变，撤销从此需要重写文件才能回到原图
+                coverSavedToFile = true
             }
             _uiState.update { state ->
                 state.copy(
@@ -658,20 +671,19 @@ class MetadataViewModel(
                         val batch = fields[field]
                         if (batch != null && current.trim() == batch) batch else current
                     },
-                    coverDirty = false,
                 )
             }
         }
     }
 
     // 写入失败后把本批改动放回待写入集：与写入期间产生的新改动合并，不覆盖新值
-    private fun requeue(changes: Map<TagField, String>?, coverChangedNow: Boolean) {
+    private fun requeue(changes: Map<TagField, String>?, coverEdit: CoverUpdate) {
         if (changes != null) {
             val current = pending ?: mutableMapOf<TagField, String>().also { pending = it }
             changes.forEach { (field, value) -> current.putIfAbsent(field, value) }
         }
-        // 封面写入失败时保留待写入标记，用户下次改动会连同封面一起重试
-        if (coverChangedNow && !coverChanged) coverChanged = true
+        // 封面写入失败时保留待写入状态，用户下次改动会连同封面一起重试
+        if (coverEdit !is CoverUpdate.Keep && pendingCover is CoverUpdate.Keep) pendingCover = coverEdit
     }
 
     /**
@@ -684,7 +696,7 @@ class MetadataViewModel(
         target: MusicTrack,
         fields: TrackTagFields,
         lyrics: String?,
-        coverChangedNow: Boolean,
+        coverChanged: Boolean,
     ) {
         val state = stateHolder.state
         var updated = target
@@ -706,7 +718,7 @@ class MetadataViewModel(
         state.updateTrack(updated)
         // 封面字节随文件重写而变（写入新图或移除内嵌封面），作废显示端的封面缓存，
         // 使列表与播放器取到新图而不是旧缩略图
-        if (coverChangedNow) state.bumpCoverRevision()
+        if (coverChanged) state.bumpCoverRevision()
     }
 
     private fun message(resId: Int): String = getApplication<Application>().getString(resId)

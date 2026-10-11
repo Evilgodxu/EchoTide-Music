@@ -312,6 +312,36 @@ class LosslessContainerTagsTest {
         assertEquals(lyrics, readBack[TagField.LYRICS])
     }
 
+    @Test
+    fun aiffCoverIsKeptWhenUntouchedAndDroppedWhenRemoved() {
+        val withCover = apply(aiff(), LosslessContainerTags.write(aiff(), TrackTagFields.EMPTY, cover, removeCover = false)!!)
+        assertArrayEquals(cover, LosslessContainerTags.readCover(withCover, null, 0L, null))
+
+        // 未涉及封面时既有封面原样保留
+        val kept = apply(
+            withCover,
+            LosslessContainerTags.write(withCover, TrackTagFields.build { put(TagField.TITLE, "新标题") }, null, removeCover = false)!!,
+        )
+        assertArrayEquals(cover, LosslessContainerTags.readCover(kept, null, 0L, null))
+
+        val dropped = apply(kept, LosslessContainerTags.write(kept, TrackTagFields.EMPTY, null, removeCover = true)!!)
+        assertNull(LosslessContainerTags.readCover(dropped, null, 0L, null))
+        // 移除封面只丢封面，其余标签照常保留
+        assertEquals("新标题", LosslessContainerTags.readFields(dropped, null, 0L, null)[TagField.TITLE])
+    }
+
+    @Test
+    fun apeCoverOnlyTagIsDroppedEntirelyWhenCoverRemoved() {
+        val source = ape(withId3v1 = false)
+        val withCover = apply(source, LosslessContainerTags.write(source, TrackTagFields.EMPTY, cover, removeCover = false)!!)
+        assertArrayEquals(cover, LosslessContainerTags.readCover(withCover, withCover, 0L, null))
+
+        // 标签里只有这张封面：删掉它等于没有标签可留，整个标签区随之去掉，音频体保持不变
+        val dropped = apply(withCover, LosslessContainerTags.write(withCover, TrackTagFields.EMPTY, null, removeCover = true)!!)
+        assertNull(LosslessContainerTags.readCover(dropped, dropped, 0L, null))
+        assertArrayEquals(AudioMetaProbe.audioRegion(withCover), AudioMetaProbe.audioRegion(dropped))
+    }
+
     // ---- 合成文件 ----
 
     private class Builder {

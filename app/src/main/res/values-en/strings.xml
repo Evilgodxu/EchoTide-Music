@@ -320,10 +320,11 @@
     <string name="metadata_cover_title">Embedded cover</string>
     <string name="metadata_cover_label">Cover</string>
     <string name="metadata_cover_empty">No cover</string>
-    <string name="metadata_cover_pick">Choose image</string>
+    <string name="metadata_cover_actions">Cover options</string>
+    <string name="metadata_cover_pick">Pick local image</string>
     <string name="metadata_cover_remove">Remove cover</string>
     <string name="metadata_cover_save">Save cover</string>
-    <string name="metadata_cover_same_album">Pick from album</string>
+    <string name="metadata_cover_same_album">From same album</string>
     <string name="metadata_cover_online">Refresh online</string>
     <string name="metadata_cover_revert">Undo changes</string>
     <string name="metadata_cover_edit_hint">Tap to change</string>

@@ -2,6 +2,7 @@ package com.yichao.evilgodxu.data.music.metadata
 
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -206,7 +207,7 @@ class Id3v2TagTest {
             put(TagField.RATING, "4")
             put(TagField.REPLAY_GAIN_TRACK_GAIN, "-7.5 dB")
         }
-        val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(null, fields, null, 4)!!, 4)
+        val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(null, fields, null, removeCover = false, version = 4)!!, 4)
 
         // 帧标识按 ID3v2 规范落位：文本帧、注释帧、评分帧与自定义文本帧各就各位
         val ids = walkFrames(tag).map { it.first }
@@ -233,7 +234,7 @@ class Id3v2TagTest {
     @Test
     fun dateUsesYearFrameInV3AndReadsBack() {
         val fields = TrackTagFields.build { put(TagField.DATE, "2008") }
-        val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(null, fields, null, 3)!!, 3)
+        val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(null, fields, null, removeCover = false, version = 3)!!, 3)
         // v2.3 没有 TDRC，日期落在 TYER 上；读取端两者都认
         assertTrue(tag.asAscii().contains("TYER"))
         assertEquals("2008", Id3v2Tag.readFields(tag, 0)[TagField.DATE])
@@ -249,7 +250,7 @@ class Id3v2TagTest {
             4,
         )
         val fields = TrackTagFields.build { put(TagField.REPLAY_GAIN_TRACK_GAIN, "-7.5 dB") }
-        val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(existing, fields, null, 4)!!, 4)
+        val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(existing, fields, null, removeCover = false, version = 4)!!, 4)
 
         assertEquals("-7.5 dB", Id3v2Tag.readTxxx(tag, 0, "REPLAYGAIN_TRACK_GAIN"))
         assertEquals("保留值", Id3v2Tag.readTxxx(tag, 0, "OTHER"))
@@ -263,14 +264,57 @@ class Id3v2TagTest {
             put(TagField.GENRE, "流派")
             put(TagField.COMMENT, "备注")
         }
-        val existing = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(null, existingFields, null, 4)!!, 4)
+        val existing = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(null, existingFields, null, removeCover = false, version = 4)!!, 4)
         val changed = TrackTagFields.build { put(TagField.TITLE, "新标题") }
-        val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(existing, changed, null, 4)!!, 4)
+        val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(existing, changed, null, removeCover = false, version = 4)!!, 4)
 
         val readBack = Id3v2Tag.readFields(tag, 0)
         assertEquals("新标题", readBack[TagField.TITLE])
         assertEquals("流派", readBack[TagField.GENRE])
         assertEquals("备注", readBack[TagField.COMMENT])
+    }
+
+    @Test
+    fun coverIsKeptWhenUntouchedAndDroppedWhenRemoved() {
+        val cover = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe0.toByte(), 1, 2, 3, 4)
+        val withCover = Id3v2Tag.buildTag(
+            Id3v2Tag.replaceFrames(
+                null,
+                TrackTagFields.build { put(TagField.TITLE, "标题") },
+                cover,
+                removeCover = false,
+                version = 4,
+            )!!,
+            4,
+        )
+        assertArrayEquals(cover, Id3v2Tag.readApic(withCover, 0))
+
+        // 本次未涉及封面（没有新图、也不删除）：既有封面必须原样保留 —— 这正是「移除封面」早先失效的成因
+        val kept = Id3v2Tag.buildTag(
+            Id3v2Tag.replaceFrames(
+                withCover,
+                TrackTagFields.build { put(TagField.TITLE, "改标题") },
+                null,
+                removeCover = false,
+                version = 4,
+            )!!,
+            4,
+        )
+        assertArrayEquals(cover, Id3v2Tag.readApic(kept, 0))
+
+        // 删除封面：APIC 帧整帧丢弃，其余帧照常保留
+        val dropped = Id3v2Tag.buildTag(
+            Id3v2Tag.replaceFrames(
+                withCover,
+                TrackTagFields.build { put(TagField.TITLE, "改标题") },
+                null,
+                removeCover = true,
+                version = 4,
+            )!!,
+            4,
+        )
+        assertNull(Id3v2Tag.readApic(dropped, 0))
+        assertEquals("改标题", Id3v2Tag.readTextFrame(dropped, 0, "TIT2"))
     }
 
     // -----------------------------------------------------------------------

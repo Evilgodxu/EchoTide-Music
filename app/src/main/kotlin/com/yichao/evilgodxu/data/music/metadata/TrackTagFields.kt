@@ -1,6 +1,28 @@
 package com.yichao.evilgodxu.data.music.metadata
 
 /**
+ * 本次对封面要做的改动。
+ *
+ * 用三态而非「字节或 null」：null 只表示「没有新封面」，无法区分「不改封面」与「删除封面」——
+ * 前者要保留文件里的既有封面，后者要把它连同既有封面一并删掉。二者混用会让「移除封面」静默失效：
+ * 写入端只看到 null，按「未参与本次改动」处理，封面原样留着。
+ */
+sealed interface CoverUpdate {
+    /** 本次不改封面，保留文件里的既有值 */
+    data object Keep : CoverUpdate
+
+    /**
+     * 写入这张封面。
+     *
+     * 非数据类：封面字节可达数 MB，逐字节相等判定既无调用方需要，也会在比较时白读一遍。
+     */
+    class Set(val bytes: ByteArray) : CoverUpdate
+
+    /** 删除内嵌封面 */
+    data object Remove : CoverUpdate
+}
+
+/**
  * 内嵌标签字段的身份标识。
  *
  * 读写两侧共用同一组标识：读取端把各容器的异构键统一收敛到它，写入端再由它分派回各容器的键。

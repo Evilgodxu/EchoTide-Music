@@ -61,7 +61,7 @@ internal object LosslessContainerTags {
         put(TagField.ARTIST, artist)
         put(TagField.ALBUM, album)
         put(TagField.LYRICS, lyrics)
-    }, cover)
+    }, cover, removeCover = false)
 
     // 兼容入口：区间源上的字段快捷形式
     fun write(
@@ -76,27 +76,39 @@ internal object LosslessContainerTags {
         put(TagField.ARTIST, artist)
         put(TagField.ALBUM, album)
         put(TagField.LYRICS, lyrics)
-    }, cover)
+    }, cover, removeCover = false)
 
     // 字节入口（测试与字节级调用）：整段字节交回区间入口，判定与定位逻辑完全共用
-    fun write(source: ByteArray, fields: TrackTagFields, cover: ByteArray?): TagRewrite? =
-        write(ByteArrayTagSource(source), fields, cover)
+    fun write(
+        source: ByteArray,
+        fields: TrackTagFields,
+        cover: ByteArray? = null,
+        removeCover: Boolean = false,
+    ): TagRewrite? = write(ByteArrayTagSource(source), fields, cover, removeCover)
 
     /**
      * 区间入口：块表按块头逐个定位，标签区与保留的块体定点读取，音频体只给出区间，交调用方搬运。
      *
      * 标签位置依赖文件末尾的容器（尾部标签、页脚）按 [TagSource.size] 判定，
      * 长度不可知时无从定位，返回 null 交由调用方跳过本次重写。
+     *
+     * @param cover 新的封面图；为 null 且 [removeCover] 为真时删除既有封面
+     * @param removeCover 本次要删除内嵌封面，与「cover 为 null（不改封面）」区分
      */
-    fun write(source: TagSource, fields: TrackTagFields, cover: ByteArray?): TagRewrite? {
+    fun write(
+        source: TagSource,
+        fields: TrackTagFields,
+        cover: ByteArray? = null,
+        removeCover: Boolean = false,
+    ): TagRewrite? {
         if (source.size == TagSource.UNKNOWN_SIZE) return null
         val magic = source.readAt(0, FORM_MAGIC_BYTES) ?: return null
         return when {
-            isAiff(magic) -> writeIff(source, AIFF_FORM, fields, cover)
-            isDff(magic) -> writeIff(source, DFF_FORM, fields, cover)
-            isWav(magic) -> writeWav(source, fields, cover)
-            isDsf(magic) -> writeDsf(source, fields, cover)
-            isApe(magic) -> writeApe(source, fields, cover)
+            isAiff(magic) -> writeIff(source, AIFF_FORM, fields, cover, removeCover)
+            isDff(magic) -> writeIff(source, DFF_FORM, fields, cover, removeCover)
+            isWav(magic) -> writeWav(source, fields, cover, removeCover)
+            isDsf(magic) -> writeDsf(source, fields, cover, removeCover)
+            isApe(magic) -> writeApe(source, fields, cover, removeCover)
             else -> null
         }
     }
@@ -109,6 +121,7 @@ internal object LosslessContainerTags {
         form: IffForm,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
     ): TagRewrite? {
         val formTypeOffset = 4L + form.sizeBytes
         val magic = source.readAt(0, (formTypeOffset + FORM_TYPE_BYTES).toInt()) ?: return null
@@ -121,8 +134,8 @@ internal object LosslessContainerTags {
         val existing = chunks.firstOrNull { it.id in form.tagChunkIds }
             ?.let { readChunkBody(source, it.bodyStart, it.size.toLong()) ?: return null }
         val version = Id3v2Tag.versionOf(existing)
-        val frames = Id3v2Tag.replaceFrames(existing, fields, cover, version)
-            ?: return null
+        val frames = Id3v2Tag.replaceFrames(existing, fields, cover, removeCover, version)
+            ?: if (removeCover) ByteArray(0) else return null
         // 保留的块体先全部读出再写出：任一读取失败即整体放弃，不留半截结果
         val keptBefore = chunks.take(audioIndex).filter { it.id !in form.tagChunkIds }
         val keptAfter = chunks.drop(audioIndex + 1).filter { it.id !in form.tagChunkIds }
@@ -154,6 +167,7 @@ internal object LosslessContainerTags {
         source: TagSource,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
     ): TagRewrite? {
         val fileSize = source.size
         if (fileSize < DSF_HEADER_BYTES) return null
@@ -171,8 +185,8 @@ internal object LosslessContainerTags {
             null
         }
         val version = Id3v2Tag.versionOf(existing)
-        val frames = Id3v2Tag.replaceFrames(existing, fields, cover, version)
-            ?: return null
+        val frames = Id3v2Tag.replaceFrames(existing, fields, cover, removeCover, version)
+            ?: if (removeCover) ByteArray(0) else return null
         val tail = Id3v2Tag.buildTag(frames, version)
         writeU64LE(head, DSF_FILE_SIZE_OFFSET, audioEnd + tail.size)
         writeU64LE(head, DSF_METADATA_POINTER_OFFSET, audioEnd)
@@ -184,21 +198,29 @@ internal object LosslessContainerTags {
         source: TagSource,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
     ): TagRewrite? {
         val fileSize = source.size
         if (!(source.readAt(0, APE_MAGIC.length) ?: return null).startsWithAscii(APE_MAGIC, 0)) return null
         val id3v1 = hasId3v1(source, fileSize)
         val end = if (id3v1) fileSize - ID3V1_BYTES else fileSize
         val existing = findApeTag(source, end)
-        val items = mergeApeItems(existing?.items.orEmpty(), fields, cover)
-        if (items.isEmpty()) return null
+        val items = mergeApeItems(existing?.items.orEmpty(), fields, cover, removeCover)
+        val audioEnd = existing?.audioEnd ?: end
+        if (items.isEmpty()) {
+            // 既有条目被删空（例如标签里只有一张封面，用户又移除了它）：整个 APEv2 标签区一并去掉，
+            // 音频体与可选的 ID3v1 保持原样。若无既有条目则本就无事可做，跳过本次重写
+            if (existing?.items.isNullOrEmpty()) return null
+            val id3v1Bytes = if (id3v1) source.readAt(fileSize - ID3V1_BYTES, ID3V1_BYTES) ?: return null else null
+            return TagRewrite(ByteArray(0), 0L, audioEnd, id3v1Bytes ?: ByteArray(0))
+        }
         val tail = ByteArrayOutputStream()
         tail.write(buildApeTag(items))
         if (id3v1) {
             val id3v1Bytes = source.readAt(fileSize - ID3V1_BYTES, ID3V1_BYTES) ?: return null
             tail.write(id3v1Bytes)
         }
-        return TagRewrite(ByteArray(0), 0L, existing?.audioEnd ?: end, tail.toByteArray())
+        return TagRewrite(ByteArray(0), 0L, audioEnd, tail.toByteArray())
     }
 
     // APEv2 条目键：字段到键名的映射。键名大小写不敏感，此处取各工具通用写法
@@ -239,13 +261,16 @@ internal object LosslessContainerTags {
         existing: List<ApeItem>,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
     ): List<ApeItem> {
         val replaced = mutableSetOf<String>()
         fields.entries().forEach { (field, _) ->
             APE_KEYS[field]?.let { replaced += it.lowercase() }
             APE_KEY_ALIASES[field]?.let { replaced += it }
         }
-        if (cover != null) replaced += COVER_KEYS
+        // 删除封面同样要剔除既有封面条目，否则它会被当作「未涉及」原样保留
+        val coverChanged = cover != null || removeCover
+        if (coverChanged) replaced += COVER_KEYS
         val items = existing.filterNot { it.key.lowercase() in replaced }.toMutableList()
         fields.entries().forEach { (field, value) ->
             APE_KEYS[field]?.let { items += ApeItem(it, false, value.toByteArray(StandardCharsets.UTF_8)) }
@@ -267,6 +292,7 @@ internal object LosslessContainerTags {
         source: TagSource,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
     ): TagRewrite? {
         val fileSize = source.size
         val magic = source.readAt(0, RIFF_HEADER_BYTES) ?: return null
@@ -287,8 +313,10 @@ internal object LosslessContainerTags {
         val infoChunk = chunks.firstOrNull { it.isInfoChunk(source) }
         val info = infoChunk?.let { readChunkBody(source, it.payloadStart, it.size.toLong()) ?: return null }
         val version = Id3v2Tag.versionOf(existing)
-        // 无既有标签且无字段可写时不落标签块：仍完成块序列重建，返回文件本身
-        val frames = Id3v2Tag.replaceFrames(existing, fields, cover, version)
+        // 无既有标签且无字段可写时不落标签块：仍完成块序列重建，返回文件本身。
+        // 删除封面是例外：标签块须落盘（哪怕帧区为空），否则封面块会被原样保留下来
+        val frames = Id3v2Tag.replaceFrames(existing, fields, cover, removeCover, version)
+            ?: if (removeCover) ByteArray(0) else null
         // data 之前块体的读取先于写出：任一读取失败即整体放弃，不留半截结果
         val keptBefore = chunks.take(dataIndex).filter { it.id !in WAV_TAG_CHUNK_IDS && it !== infoChunk }
         val bodiesBefore = keptBefore.map { readChunkBody(source, it.payloadStart, it.size.toLong()) ?: return null }

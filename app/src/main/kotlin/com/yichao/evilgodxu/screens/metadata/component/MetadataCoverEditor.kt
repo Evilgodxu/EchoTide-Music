@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
@@ -37,10 +38,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.ui.component.menuEdgePositionProvider
+import com.yichao.evilgodxu.ui.component.AppDialog
+import com.yichao.evilgodxu.ui.component.DialogOption
+import com.yichao.evilgodxu.ui.icons.AppIcons
 
 // 封面卡片高度：与参考实现一致，给背景大图与前景信息行留出同一档高度
 private val COVER_CARD_HEIGHT = 208.dp
@@ -53,20 +54,21 @@ private val BADGE_BACKGROUND = Color.Black.copy(alpha = 0.6f)
 private val BADGE_TEXT = Color.White
 
 /**
- * 内嵌封面编辑区：整幅封面卡片（模糊背景 + 封面缩略图 + 标题/艺术家），点击后弹出操作菜单。
+ * 内嵌封面编辑区：整幅封面卡片（压暗背景 + 封面缩略图 + 标题/艺术家），点击后弹出操作对话框。
  *
  * 预览由内嵌封面字节直接解码：此处要展示的正是「音频文件里当前存的是哪张图」，
  * 与显示端按系统略缩图取图的路径不同，不复用封面加载器。
  *
- * 信息与角标布局对齐参考实现：缩略图上方标出「封面」「尺寸」与操作提示，改动后角标变成撤销入口，
+ * 信息与角标布局对齐参考实现：缩略图上标出「封面」「尺寸」与操作提示，改动后角标变成撤销入口，
  * 使「当前存的是哪张图」「是否改过」「能对它做什么」在同一屏内可读。
+ *
+ * 操作入口用对话框而非贴边浮层：选项有六项且文案较长，浮层在窄屏上会被迫横向挤压或折行
  */
 @Composable
 internal fun MetadataCoverEditor(
     title: String,
     artist: String,
     coverBytes: ByteArray?,
-    coverPresent: Boolean,
     coverDirty: Boolean,
     enabled: Boolean,
     exporting: Boolean,
@@ -77,7 +79,7 @@ internal fun MetadataCoverEditor(
     onRemoveCover: () -> Unit,
     onRevertCover: () -> Unit,
 ) {
-    var showMenu by remember { mutableStateOf(false) }
+    var showActions by remember { mutableStateOf(false) }
     // 解码结果与像素尺寸随字节数组引用变化重算：编辑器同一曲目内不会原地改写字节
     val bitmap = remember(coverBytes) {
         coverBytes?.let { bytes ->
@@ -127,7 +129,7 @@ internal fun MetadataCoverEditor(
                 coverDirty = coverDirty,
                 sizeText = sizeText,
                 enabled = enabled,
-                onClick = { showMenu = true },
+                onClick = { showActions = true },
                 onRevertClick = onRevertCover,
             )
             Column(
@@ -154,28 +156,92 @@ internal fun MetadataCoverEditor(
                 }
             }
         }
-        if (showMenu) {
-            CoverActionMenu(
-                canRemove = coverPresent,
-                canSave = coverBytes != null || coverPresent,
-                canRevert = coverDirty,
-                saving = exporting,
-                onPick = { showMenu = false; onPickCover() },
-                onSave = { showMenu = false; onSaveCover() },
-                onSameAlbum = { showMenu = false; onPickSameAlbum() },
-                onOnlineRefresh = { showMenu = false; onOnlineRefresh() },
-                onRemove = { showMenu = false; onRemoveCover() },
-                onRevert = { showMenu = false; onRevertCover() },
-                onDismiss = { showMenu = false },
-            )
-        }
+        CoverActionDialog(
+            visible = showActions,
+            hasCover = coverBytes != null,
+            coverDirty = coverDirty,
+            exporting = exporting,
+            onPick = { showActions = false; onPickCover() },
+            onSave = { showActions = false; onSaveCover() },
+            onSameAlbum = { showActions = false; onPickSameAlbum() },
+            onOnlineRefresh = { showActions = false; onOnlineRefresh() },
+            onRemove = { showActions = false; onRemoveCover() },
+            onRevert = { showActions = false; onRevertCover() },
+            onDismiss = { showActions = false },
+        )
     }
 }
 
-// 封面缩略图：方形封面 + 四角角标（左上「封面」、左下尺寸、右中「点击更换」、右上「撤销更改」）
+/**
+ * 封面操作对话框：本页封面可做的六项操作，按使用频度与破坏性排序。
+ *
+ * 置灰规则按「当前是否做得了」定：
+ *  - 保存与移除需要有封面；
+ *  - 撤销需要有尚未回退的改动 —— 它回退的是进入本页时的封面，改动一旦落盘也照样能回退。
+ */
+@Composable
+private fun CoverActionDialog(
+    visible: Boolean,
+    hasCover: Boolean,
+    coverDirty: Boolean,
+    exporting: Boolean,
+    onPick: () -> Unit,
+    onSave: () -> Unit,
+    onSameAlbum: () -> Unit,
+    onOnlineRefresh: () -> Unit,
+    onRemove: () -> Unit,
+    onRevert: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (!visible) return
+    AppDialog(
+        onDismiss = onDismiss,
+        title = stringResource(R.string.metadata_cover_actions),
+    ) {
+        DialogOption(
+            icon = AppIcons.Refresh,
+            label = stringResource(R.string.metadata_cover_online),
+            enabled = !exporting,
+            onClick = onOnlineRefresh,
+        )
+        DialogOption(
+            icon = AppIcons.Image,
+            label = stringResource(R.string.metadata_cover_pick),
+            enabled = !exporting,
+            onClick = onPick,
+        )
+        DialogOption(
+            icon = AppIcons.Album,
+            label = stringResource(R.string.metadata_cover_same_album),
+            enabled = !exporting,
+            onClick = onSameAlbum,
+        )
+        DialogOption(
+            icon = AppIcons.Share,
+            label = stringResource(R.string.metadata_cover_save),
+            enabled = hasCover && !exporting,
+            loading = exporting,
+            onClick = onSave,
+        )
+        DialogOption(
+            icon = AppIcons.Delete,
+            label = stringResource(R.string.metadata_cover_remove),
+            enabled = hasCover && !exporting,
+            onClick = onRemove,
+        )
+        DialogOption(
+            icon = AppIcons.History,
+            label = stringResource(R.string.metadata_cover_revert),
+            enabled = coverDirty && !exporting,
+            onClick = onRevert,
+        )
+    }
+}
+
+// 封面缩略图：方形封面 + 角标（左上「封面」、左下尺寸、右下「点击更换」、右上「撤销更改」）
 @Composable
 private fun CoverThumbnail(
-    bitmap: androidx.compose.ui.graphics.ImageBitmap?,
+    bitmap: ImageBitmap?,
     coverDirty: Boolean,
     sizeText: String?,
     enabled: Boolean,
@@ -220,7 +286,7 @@ private fun CoverThumbnail(
             modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
         )
         if (coverDirty) {
-            // 改动后角标即撤销入口：点它回到音频文件里的原封面
+            // 改动后角标即撤销入口：点它回到进入本页时的那张封面
             Surface(
                 shape = RoundedCornerShape(6.dp),
                 color = MaterialTheme.colorScheme.primary,
@@ -248,95 +314,6 @@ private fun CoverBadge(text: String, modifier: Modifier = Modifier) {
             .padding(horizontal = 6.dp, vertical = 2.dp),
     ) {
         Text(text = text, color = BADGE_TEXT, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-    }
-}
-
-/**
- * 封面操作菜单：竖向排列的纯文字项，紧贴封面卡片下缘弹出。
- *
- * 条目较多，竖排可容纳而不会横向溢出；外观与定位沿用本页与首页的同一套浮层样式。
- */
-@Composable
-private fun CoverActionMenu(
-    canRemove: Boolean,
-    canSave: Boolean,
-    canRevert: Boolean,
-    saving: Boolean,
-    onPick: () -> Unit,
-    onSave: () -> Unit,
-    onSameAlbum: () -> Unit,
-    onOnlineRefresh: () -> Unit,
-    onRemove: () -> Unit,
-    onRevert: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    Popup(
-        properties = PopupProperties(
-            focusable = true,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true,
-        ),
-        onDismissRequest = onDismiss,
-        popupPositionProvider = menuEdgePositionProvider(atTop = false),
-    ) {
-        Surface(
-            shape = RoundedCornerShape(10.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            tonalElevation = 4.dp,
-            modifier = Modifier.padding(top = 4.dp),
-        ) {
-            Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                CoverMenuItem(stringResource(R.string.metadata_cover_pick), onClick = onPick)
-                CoverMenuItem(
-                    text = stringResource(R.string.metadata_cover_save),
-                    enabled = canSave && !saving,
-                    onClick = onSave,
-                )
-                CoverMenuItem(stringResource(R.string.metadata_cover_same_album), onClick = onSameAlbum)
-                CoverMenuItem(stringResource(R.string.metadata_cover_online), onClick = onOnlineRefresh)
-                CoverMenuItem(
-                    text = stringResource(R.string.metadata_cover_remove),
-                    enabled = canRemove,
-                    onClick = onRemove,
-                )
-                CoverMenuItem(
-                    text = stringResource(R.string.metadata_cover_revert),
-                    // 撤销的可达性只看「是否改过」：把封面移除后已无封面可保存，
-                    // 但那次移除同样需要可撤销
-                    enabled = canRevert,
-                    onClick = onRevert,
-                )
-            }
-        }
-    }
-}
-
-// 菜单项：文字居中，置灰项不可点击
-@Composable
-private fun CoverMenuItem(
-    text: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-) {
-    Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = Color.Transparent,
-        enabled = enabled,
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(
-            text = text,
-            color = if (enabled) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-            },
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 9.dp),
-        )
     }
 }
 

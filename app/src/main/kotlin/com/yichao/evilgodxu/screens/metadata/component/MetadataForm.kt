@@ -150,7 +150,6 @@ internal fun MetadataForm(
             title = uiState.value(TagField.TITLE),
             artist = uiState.value(TagField.ARTIST),
             coverBytes = uiState.coverBytes,
-            coverPresent = uiState.coverPresent,
             coverDirty = uiState.coverDirty,
             enabled = !uiState.saving,
             exporting = uiState.exportingCover,

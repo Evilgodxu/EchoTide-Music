@@ -84,21 +84,25 @@ internal object Id3v2Tag {
             put(TagField.LYRICS, lyrics)
         },
         cover = cover,
+        removeCover = false,
         version = version,
     )
 
     /**
-     * 以既有标签的帧区为底，覆盖 [fields] 声明的字段与 [cover]，保留其余帧。
+     * 以既有标签的帧区为底，覆盖 [fields] 声明的字段与封面，保留其余帧。
      *
      * 同一帧标识的重复帧只在首次出现处替换，其后同名帧原样保留 —— 保留既有帧的语义优先于去重，
      * 这既避免改写丢失第三方工具写入的附加信息，也让「重复帧是否该合并」的判断留给上层。
      *
+     * @param cover 新的封面图；为 null 且 [removeCover] 为真时删除既有封面
+     * @param removeCover 本次要删除内嵌封面。与「cover 为 null」区分：后者只是没有新图，封面须原样保留
      * @return 帧区字节（不含标签头与 footer）；无既有标签且无字段可写时返回 null
      */
     fun replaceFrames(
         existing: ByteArray?,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
         version: Int,
     ): ByteArray? {
         // 待写入帧按帧标识归并：一个标识一个结果，首次出现处替换
@@ -115,7 +119,9 @@ internal object Id3v2Tag {
                 else -> TEXT_FRAME_IDS[field]?.let { pending[it] = textFrameBytes(it, value, version) }
             }
         }
-        if (cover != null) pending[COVER_FRAME_ID] = apicFrameBytes(cover, version)
+        // 封面状态：读取端也据此决定既有 APIC 帧是替换还是原样保留
+        val newCoverFrame = cover?.let { apicFrameBytes(it, version) }
+        val coverChanged = newCoverFrame != null || removeCover
 
         val frames = ByteArrayOutputStream()
         // 已被新值顶替的帧标识：同名帧只在首次出现处写新值，其后原样保留
@@ -124,6 +130,14 @@ internal object Id3v2Tag {
             forEachFrame(existing, 0) { frameStart, id, bodyStart, length ->
                 val raw = existing.copyOfRange(frameStart, bodyStart + length)
                 when {
+                    // 封面独立处理：删除时首个 APIC 帧整帧丢弃（不写新帧即等于删掉），其余重复帧按同一状态处理
+                    id == COVER_FRAME_ID -> {
+                        if (!coverChanged) {
+                            frames.write(raw)
+                        } else if (replaced.add(COVER_FRAME_ID) && newCoverFrame != null) {
+                            frames.write(newCoverFrame)
+                        }
+                    }
                     id == TXXX_FRAME_ID -> {
                         // TXXX 以描述符区分具体项：只有描述符命中待写入项时才替换
                         val descriptor = decodeTxxxDescription(existing, bodyStart, length)
@@ -144,6 +158,7 @@ internal object Id3v2Tag {
         }
         pending.forEach { (id, bytes) -> if (replaced.add(id)) frames.write(bytes) }
         pendingTxxx.forEach { (descriptor, bytes) -> if (replaced.add("$TXXX_FRAME_ID:$descriptor")) frames.write(bytes) }
+        if (newCoverFrame != null && replaced.add(COVER_FRAME_ID)) frames.write(newCoverFrame)
         return frames.toByteArray().takeIf { it.isNotEmpty() }
     }
 

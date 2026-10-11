@@ -86,20 +86,27 @@ internal object MusicMetadataWriter {
     private const val CRC_FIELD_OFFSET = 22
 
     suspend fun writeCover(context: Context, track: MusicTrack, coverBytes: ByteArray): Boolean =
-        writeToTrack(context, track) { source -> plan(source, TrackTagFields.EMPTY, coverBytes) }
+        writeToTrack(context, track) { source -> plan(source, TrackTagFields.EMPTY, coverBytes, removeCover = false) }
 
     /**
      * 一次写入整批字段与封面，供元数据编辑页保存使用。
      *
-     * 缺失字段表示不改该项，由容器解析保留文件中的既有值；一次调用只重写一遍文件 ——
+     * 缺失字段表示不改该项，由容器解析保留文件中的既有值；封面另以 [CoverUpdate] 表达三态
+     * （不改 / 写入 / 删除），使「移除封面」能与「本次未涉及封面」区分开。一次调用只重写一遍文件 ——
      * 各容器的标签重建都要搬运音频躯干，逐字段分别写入会把同一份音频复制多遍。
      */
     suspend fun writeFields(
         context: Context,
         track: MusicTrack,
         fields: TrackTagFields,
-        cover: ByteArray?,
-    ): Boolean = writeToTrack(context, track) { source -> plan(source, fields, cover) }
+        cover: CoverUpdate,
+    ): Boolean = writeToTrack(context, track) { source ->
+        when (cover) {
+            CoverUpdate.Keep -> plan(source, fields, null, removeCover = false)
+            is CoverUpdate.Set -> plan(source, fields, cover.bytes, removeCover = false)
+            CoverUpdate.Remove -> plan(source, fields, null, removeCover = true)
+        }
+    }
 
     // 一次性写入标题/艺术家/封面：本地文件走文件路径重建，在线缓存歌走 content URI 就地重写
     suspend fun writeMetadataToSource(
@@ -254,14 +261,15 @@ internal object MusicMetadataWriter {
         source: TagSource,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean = false,
     ): RewritePlan? {
         val head = source.readAt(0, SNIFF_WINDOW_BYTES) ?: return null
         return when {
-            isMp3(head) -> mp3Plan(source, head, fields, cover)
-            isFlac(head) -> flacPlan(source, fields, cover)
-            isMp4(head) -> mp4Plan(source, fields, cover)
-            isOpus(head) -> oggPlan(source, fields, cover)
-            LosslessContainerTags.matches(head) -> losslessPlan(source, fields, cover)
+            isMp3(head) -> mp3Plan(source, head, fields, cover, removeCover)
+            isFlac(head) -> flacPlan(source, fields, cover, removeCover)
+            isMp4(head) -> mp4Plan(source, fields, cover, removeCover)
+            isOpus(head) -> oggPlan(source, fields, cover, removeCover)
+            LosslessContainerTags.matches(head) -> losslessPlan(source, fields, cover, removeCover)
             else -> null
         }
     }
@@ -330,13 +338,14 @@ internal object MusicMetadataWriter {
         head: ByteArray,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
     ): RewritePlan? {
         if (!head.startsWith("ID3") || head.size < ID3_HEADER_BYTES) {
-            return writeMp3(head, fields, cover)?.toPlan(source)
+            return writeMp3(head, fields, cover, removeCover)?.toPlan(source)
         }
         val tagEnd = ID3_HEADER_BYTES + Id3v2Tag.syncsafe(head, 6)
         val window = readParseWindow(source, 0L, tagEnd.toLong(), "MP3 标签区") ?: return null
-        return writeMp3(window, fields, cover)?.toPlan(source)
+        return writeMp3(window, fields, cover, removeCover)?.toPlan(source)
     }
 
     // FLAC：元数据块区从头部窗口起增量扩窗，读到末块标记即止，音频帧不参与解析
@@ -344,12 +353,13 @@ internal object MusicMetadataWriter {
         source: TagSource,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
     ): RewritePlan? {
         var window = source.readAt(0, SNIFF_WINDOW_BYTES) ?: return null
         while (true) {
             val metadataEnd = flacMetadataEnd(window)
             if (metadataEnd != null) {
-                return writeFlac(window.copyOf(metadataEnd), fields, cover)?.toPlan(source)
+                return writeFlac(window.copyOf(metadataEnd), fields, cover, removeCover)?.toPlan(source)
             }
             val grown = minOf(window.size.toLong() * 2, MAX_IN_MEMORY_BYTES.toLong()).toInt()
             if (grown <= window.size) {
@@ -402,6 +412,7 @@ internal object MusicMetadataWriter {
         source: TagSource,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
     ): RewritePlan? {
         val boxes = readMp4TopBoxes(source) ?: return null
         val mdat = boxes.firstOrNull { it.type == "mdat" } ?: return null
@@ -409,7 +420,7 @@ internal object MusicMetadataWriter {
         val moovBytes = readParseWindow(source, moov.offset, moov.size, "MP4 moov 盒") ?: return null
         val parsed = Mp4Atom.parseAll(moovBytes)?.singleOrNull()?.takeIf { it.type == "moov" } ?: return null
         val originalSize = parsed.build().size
-        parsed.replaceMetadata(fields, cover)
+        parsed.replaceMetadata(fields, cover, removeCover)
         val sizeDelta = parsed.build().size - originalSize
         if (sizeDelta != 0 && moov.offset < mdat.offset) parsed.adjustChunkOffsets(sizeDelta)
         val rebuiltMoov = parsed.build()
@@ -474,8 +485,9 @@ internal object MusicMetadataWriter {
         source: TagSource,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
     ): RewritePlan? {
-        val rewrite = LosslessContainerTags.write(source, fields, cover) ?: return null
+        val rewrite = LosslessContainerTags.write(source, fields, cover, removeCover) ?: return null
         return RewritePlan(rewrite.head, rewrite.bodyStart, rewrite.bodyEnd, rewrite.tail)
     }
 
@@ -488,6 +500,7 @@ internal object MusicMetadataWriter {
         source: TagSource,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
     ): RewritePlan? {
         if (source.size > OGG_PARSE_LIMIT_BYTES) {
             CrashLogManager.logException(
@@ -498,7 +511,7 @@ internal object MusicMetadataWriter {
         }
         val bytes = source.readAt(0, source.size.toInt()) ?: return null
         if (bytes.size.toLong() < source.size) return null
-        return writeOpus(bytes, fields, cover)?.toPlan(ByteArrayTagSource(bytes))
+        return writeOpus(bytes, fields, cover, removeCover)?.toPlan(ByteArrayTagSource(bytes))
     }
 
     // 把整文件解析结果转为重写方案：音频体区间落在给定的字节源上，写出时按区间搬运
@@ -535,7 +548,8 @@ internal object MusicMetadataWriter {
         bytes: ByteArray,
         fields: TrackTagFields,
         cover: ByteArray?,
-    ): ByteArray? = plan(ByteArrayTagSource(bytes), fields, cover)?.materialize(bytes)
+        removeCover: Boolean = false,
+    ): ByteArray? = plan(ByteArrayTagSource(bytes), fields, cover, removeCover)?.materialize(bytes)
 
     /**
      * 按文件源重写并返回结果字节（测试入口）：与线上写盘共用同一套方案与区间搬运实现，
@@ -545,9 +559,10 @@ internal object MusicMetadataWriter {
         file: File,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean = false,
     ): ByteArray? {
         val source = FileTagSource(file)
-        val rewrite = plan(source, fields, cover) ?: return null
+        val rewrite = plan(source, fields, cover, removeCover) ?: return null
         val out = ByteArrayOutputStream()
         writeRewrite(rewrite, source, out)
         return out.toByteArray()
@@ -587,6 +602,7 @@ internal object MusicMetadataWriter {
         source: ByteArray,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
     ): WriteResult? {
         val hasId3 = source.startsWith("ID3") && source.size >= 10
         val version = if (hasId3) source[3].toInt() and 0xff else 4
@@ -599,7 +615,9 @@ internal object MusicMetadataWriter {
         } else 0
         val outputVersion = if (hasId3 && version == 3) 3 else 4
         val existing = if (hasId3) source.copyOfRange(0, tagEnd) else null
-        val frames = Id3v2Tag.replaceFrames(existing, fields, cover, outputVersion) ?: return null
+        // 删除封面时标签仍须落盘（哪怕帧区为空），否则原有 APIC 帧会被整段保留下来
+        val frames = Id3v2Tag.replaceFrames(existing, fields, cover, removeCover, outputVersion)
+            ?: if (removeCover) ByteArray(0) else return null
         // 头部为重建的 ID3 标签，音频躯干按原标签结束偏移流式复制，避免整曲二次驻留内存。
         // 扩展头不随帧区保留：新标签不再声明它，故一并省去，避免头尾声明与实际结构不符
         val tag = Id3v2Tag.buildTag(frames, outputVersion)
@@ -610,6 +628,7 @@ internal object MusicMetadataWriter {
         source: ByteArray,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
     ): WriteResult? {
         if (!source.startsWith("fLaC")) return null
         val blocks = mutableListOf<FlacBlock>()
@@ -635,11 +654,12 @@ internal object MusicMetadataWriter {
             )
             if (commentIndex >= 0) blocks[commentIndex] = FlacBlock(4, comments) else blocks.add(FlacBlock(4, comments))
         }
-        if (cover != null) {
+        // 封面有改动（写入或删除）时先移除既有的前置封面块（类型 3），再按需放入新图
+        if (cover != null || removeCover) {
             blocks.removeAll { block ->
                 block.type == 6 && block.data.size >= 4 && int32(block.data, 0) == 3
             }
-            blocks.add(FlacBlock(6, pictureBlock(cover)))
+            if (cover != null) blocks.add(FlacBlock(6, pictureBlock(cover)))
         }
         // 头部为重建的元数据块，音频帧按原偏移流式复制
         return WriteResult.HeadAndTail(buildFlac(blocks), p.toLong())
@@ -694,12 +714,13 @@ internal object MusicMetadataWriter {
         source: ByteArray,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
     ): WriteResult? {
         val parsed = OggFile.parse(source) ?: return null
         val tagsIndex = parsed.packets.indexOfFirst { it.data.startsWith("OpusTags") }
         if (tagsIndex < 0) return null
         parsed.packets[tagsIndex] = parsed.packets[tagsIndex].copy(
-            data = updateOpusTags(parsed.packets[tagsIndex].data, fields, cover),
+            data = updateOpusTags(parsed.packets[tagsIndex].data, fields, cover, removeCover),
         )
         return WriteResult.Full(OggFile.build(parsed))
     }
@@ -708,10 +729,11 @@ internal object MusicMetadataWriter {
         original: ByteArray,
         fields: TrackTagFields,
         cover: ByteArray?,
+        removeCover: Boolean,
     ): ByteArray {
         val replacedKeys = mutableSetOf<String>()
         fields.entries().forEach { (field, _) -> VORBIS_KEYS[field]?.let { replacedKeys += it } }
-        if (cover != null) replacedKeys += "METADATA_BLOCK_PICTURE"
+        if (cover != null || removeCover) replacedKeys += "METADATA_BLOCK_PICTURE"
         val values = mutableListOf<String>(); var p = 8
         var vendor = "EdgeGesture".toByteArray()
         if (p + 4 <= original.size) {
@@ -758,20 +780,20 @@ internal object MusicMetadataWriter {
             return intBytes(body.size + 8) + type.toByteArray(StandardCharsets.ISO_8859_1) + body
         }
 
-        fun replaceMetadata(fields: TrackTagFields, cover: ByteArray?): Mp4Atom {
+        fun replaceMetadata(fields: TrackTagFields, cover: ByteArray?, removeCover: Boolean): Mp4Atom {
             if (type == "moov") {
                 val udta = children?.firstOrNull { it.type == "udta" }
-                if (udta != null) udta.replaceMetadata(fields, cover) else children?.add(Mp4Atom("udta", ByteArray(0), mutableListOf(metaAtom(fields, cover))))
+                if (udta != null) udta.replaceMetadata(fields, cover, removeCover) else children?.add(Mp4Atom("udta", ByteArray(0), mutableListOf(metaAtom(fields, cover))))
             } else if (type == "udta") {
                 val meta = children?.firstOrNull { it.type == "meta" }
-                if (meta != null) meta.replaceMetadata(fields, cover) else children?.add(metaAtom(fields, cover))
+                if (meta != null) meta.replaceMetadata(fields, cover, removeCover) else children?.add(metaAtom(fields, cover))
             } else if (type == "meta") {
                 if (children?.none { it.type == "hdlr" } == true) {
                     children.add(0, hdlrAtom())
                 }
                 val ilst = children?.firstOrNull { it.type == "ilst" }
                 if (ilst != null) {
-                    ilst.replaceItems(fields, cover)
+                    ilst.replaceItems(fields, cover, removeCover)
                 } else {
                     children?.add(ilstAtom(fields, cover))
                 }
@@ -806,7 +828,7 @@ internal object MusicMetadataWriter {
 
         // ©lyr 为歌词原子；此处不把它列入解析时的容器类型，避免历史文件中格式异常的
         // ©lyr 让整个 atom 树解析失败（进而导致封面/标题写入整体失败），按整块丢弃重建即可
-        private fun replaceItems(fields: TrackTagFields, cover: ByteArray?) {
+        private fun replaceItems(fields: TrackTagFields, cover: ByteArray?, removeCover: Boolean) {
             val replacedTypes = mutableSetOf<String>()
             val replacedFreeform = mutableSetOf<String>()
             fields.entries().forEach { (field, _) ->
@@ -814,7 +836,8 @@ internal object MusicMetadataWriter {
                 MP4_FREEFORM_KEYS[field]?.let { replacedFreeform += it }
             }
             val mp4Cover = cover?.let { toMp4Cover(it) }
-            if (mp4Cover != null) replacedTypes += "covr"
+            // 删除封面同样要剔除既有 covr 原子，否则它会被当作「未涉及」原样保留
+            if (mp4Cover != null || removeCover) replacedTypes += "covr"
             val kept = children.orEmpty().filterNot { child ->
                 child.type in replacedTypes ||
                     (child.type == FREE_FORM_ATOM && child.freeformName() in replacedFreeform)
@@ -863,6 +886,7 @@ internal object MusicMetadataWriter {
                 if (p != payloadEnd) return null
                 return Mp4Atom(type, bytes.copyOfRange(payloadStart, payloadStart + head), children, offset)
             }
+            // 新建 ilst 时无需「删除封面」：容器里本就没有既有封面可删
             private fun metaAtom(fields: TrackTagFields, cover: ByteArray?) =
                 Mp4Atom("meta", byteArrayOf(0, 0, 0, 0), mutableListOf(hdlrAtom(), ilstAtom(fields, cover)))
 

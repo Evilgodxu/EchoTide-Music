@@ -443,13 +443,16 @@ internal object TrackMetadataEditor {
     /**
      * 把编辑结果写回音频文件。只在字段集合中出现的项被覆盖，其余保持文件原值。
      *
+     * [cover] 为三态：不改 / 写入给定图 / 删除既有封面 —— 用三态而非可空字节，
+     * 才能把「本次不动封面」与「本次要删掉封面」区分开。
+     *
      * 返回是否写入成功：容器不支持、超出解析上限或文件不可写时返回 false，由页面提示用户。
      */
     suspend fun save(
         context: Context,
         track: MusicTrack,
         fields: TrackTagFields,
-        cover: ByteArray?,
+        cover: CoverUpdate,
     ): Boolean = withContext(Dispatchers.IO) {
         if (!track.isLocalAudioSource) return@withContext false
         try {

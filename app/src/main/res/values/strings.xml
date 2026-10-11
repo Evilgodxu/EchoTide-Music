@@ -316,10 +316,11 @@
     <string name="metadata_cover_title">内嵌封面</string>
     <string name="metadata_cover_label">封面</string>
     <string name="metadata_cover_empty">无封面</string>
-    <string name="metadata_cover_pick">选择图片</string>
+    <string name="metadata_cover_actions">封面操作</string>
+    <string name="metadata_cover_pick">选择本地</string>
     <string name="metadata_cover_remove">移除封面</string>
     <string name="metadata_cover_save">保存封面</string>
-    <string name="metadata_cover_same_album">从同专辑选择</string>
+    <string name="metadata_cover_same_album">选同专辑</string>
     <string name="metadata_cover_online">在线刷新</string>
     <string name="metadata_cover_revert">撤销更改</string>
     <string name="metadata_cover_edit_hint">点击更换</string>

@@ -34,11 +34,9 @@ data class MetadataUiState(
     // 文件里有歌词文本但解析不出行（时间戳格式不对）：与「本来就没有歌词」分开提示，
     // 否则用户会把格式问题当成歌词丢失
     val lyricsUnparsable: Boolean = false,
-    // 封面预览：进入页面时从文件内嵌封面取回，用户选择新图或移除后替换
+    // 封面预览：进入页面时从文件内嵌封面取回，用户选择新图或移除后替换；为 null 表示当前无封面
     val coverBytes: ByteArray? = null,
-    // 文件内是否已有内嵌封面：决定「移除封面」是否可用
-    val coverPresent: Boolean = false,
-    // 封面相对文件原值是否被改动：驱动封面卡片的「撤销更改」
+    // 封面相对进入页面时的原封面是否被改动：驱动封面卡片的「撤销更改」
     val coverDirty: Boolean = false,
     // 载入中：读取标签期间不展示表单，避免旧内容与新内容在界面上交叠
     val loading: Boolean = true,
