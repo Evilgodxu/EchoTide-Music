@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.TextUnit
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.model.LyricLine
+import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
 import com.yichao.evilgodxu.data.settings.wordByWordRenderingFlow
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.seekToAndPlay
@@ -93,6 +94,8 @@ internal fun LyricsPanel(
     fontSize: TextUnit = 12.sp,
     contentColor: Color? = null,
     visibleLines: Int = DEFAULT_VISIBLE_LINES,
+    // 相邻歌词行之间的纵向留白：由排版设置按场景传入（音乐面板、首页竖屏、首页横屏各自独立）
+    lineSpacing: Dp = LyricLayoutDefaults.LINE_SPACING_DEFAULT_DP.dp,
     // 上下边缘处理方式：true 用渐隐蒙层（首页竖屏/横屏）；false 改为逐行降低边缘行透明度（音乐面板）
     edgeFadeMask: Boolean = true,
     // 纵向快速滑动的切歌出口（true 为下一曲）：由首页提供，用于把「一甩即走」的滑动归给切歌——
@@ -180,6 +183,8 @@ internal fun LyricsPanel(
     // 视口固定为 N 行标准高，超出部分交由边缘渐隐与裁剪处理
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
+    // 行间距像素值：视口高度、兜底行距与纵向布局三处共用同一份换算，口径不会漂移
+    val lineSpacingPx = with(density) { lineSpacing.roundToPx() }
     // 标准单行高度（含行内上下内边距）：视口上限与窗口内占位行共用，使滚动基准线不随占位行变化。
     // 必须与 LyricChar/Text 的实际渲染同口径——沿用 LocalTextStyle（bodyLarge 自带 24.sp 行高）合并，
     // 否则裸 TextStyle 测出的高度偏小，视口按偏小行距排布会被实际更高的行撑出裁剪，可见行数少于设定值
@@ -190,14 +195,13 @@ internal fun LyricsPanel(
             lyricTextStyle.merge(TextStyle(fontSize = fontSize, fontWeight = FontWeight.Normal)),
         ).size.height
     }
-    val maxViewportHeight = remember(visibleLines, lyricLineHeightPx, density) {
+    val maxViewportHeight = remember(visibleLines, lyricLineHeightPx, lineSpacingPx) {
         val slotPx = lyricLineHeightPx + with(density) { 4.dp.roundToPx() }
-        val spacingPx = with(density) { LYRIC_LINE_SPACING.roundToPx() }
-        slotPx * visibleLines + spacingPx * (visibleLines - 1)
+        slotPx * visibleLines + lineSpacingPx * (visibleLines - 1)
     }
     val standardSlotHeight = with(density) { (lyricLineHeightPx + 4.dp.roundToPx()).toDp() }
     // 拖拽换算的兜底行距：仅在窗口尚无实测行高时使用，正常路径均由实测行高换算
-    val fallbackSlotPx = with(density) { standardSlotHeight.toPx() + LYRIC_LINE_SPACING.toPx() }
+    val fallbackSlotPx = with(density) { standardSlotHeight.toPx() } + lineSpacingPx
 
     // 显示位置（浮点行号）：正常播放由跟随动画推进，拖拽与回弹期间由手势/回弹动画驱动。
     // 用普通状态直接承载动画输出，释放瞬间即可同步写入，避免显示回退到过期的动画值
@@ -451,6 +455,7 @@ internal fun LyricsPanel(
                     animatedPosition = displayPosition,
                     maxViewportHeight = maxViewportHeight,
                     geometry = dragGeometry,
+                    spacingPx = lineSpacingPx,
                     fallbackSlotPx = fallbackSlotPx,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -597,11 +602,12 @@ private fun LyricColumnLayout(
     animatedPosition: Float,
     maxViewportHeight: Int,
     geometry: LyricScrollGeometry,
+    // 行间距像素值：由 LyricsPanel 按场景设置换算后传入，与视口高度、兜底行距同源
+    spacingPx: Int,
     fallbackSlotPx: Float,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    val spacingPx = with(LocalDensity.current) { LYRIC_LINE_SPACING.roundToPx() }
     Layout(
         modifier = modifier,
         content = content,
@@ -664,7 +670,8 @@ internal fun LyricText(
     modifier: Modifier = Modifier,
 ) {
     var contentWidthPx by remember { mutableIntStateOf(0) }
-    // 所有行统一按当前行的放大预留宽度分行：未唱/已唱和正在唱的行数一致，避免换行跳变
+    // 所有行统一按当前行的放大预留宽度分行：未唱/已唱和正在唱行数一致，避免换行跳变。
+    // 与分行用的固定字重（LYRIC_WRAP_FONT_WEIGHT）配合，折行点只由文本与可用宽度决定，对高亮态不敏感
     val wrapWidthPx = if (contentWidthPx <= 0) 0 else (contentWidthPx / LYRIC_ROW_SCALE_MAX).roundToInt()
     // 各行的水平缩放余量同样全行统一，保证分行宽度与主歌词排版一致
     val reserveWidthPx = (contentWidthPx * (LYRIC_ROW_SCALE_MAX - 1f) / (2f * LYRIC_ROW_SCALE_MAX)).roundToInt()
@@ -680,7 +687,7 @@ internal fun LyricText(
                 fontWeight = fontWeight,
                 activeColor = activeColor,
                 pendingColor = pendingColor,
-                reserveWidthPx = reserveWidthPx,
+                widthPx = wrapWidthPx,
             )
         } else if (line.words.isNotEmpty()) {
             WordSplitLyricText(
@@ -730,7 +737,9 @@ internal fun LyricText(
     }
 }
 
-// 关闭逐字渲染：整行统一着色，不逐字填充也不跳动
+// 关闭逐字渲染：整行统一着色，不逐字填充也不跳动。
+// 折行不交给 Text 软换行——软换行按当前渲染字重计算，行被高亮加粗时会重新折行、行数跳变；
+// 改为与逐字/逐词路径同一套手写分行、同一固定折行字重，再逐行按单行渲染，折行点不随高亮态变化
 @Composable
 private fun WholeLineLyricText(
     line: LyricLine,
@@ -739,20 +748,34 @@ private fun WholeLineLyricText(
     fontWeight: FontWeight,
     activeColor: Color,
     pendingColor: Color,
-    reserveWidthPx: Int,
+    widthPx: Int,
     modifier: Modifier = Modifier,
 ) {
-    Text(
-        text = line.text,
-        fontSize = fontSize,
-        fontWeight = fontWeight,
-        color = if (isCurrent) activeColor else pendingColor,
-        textAlign = TextAlign.Center,
-        softWrap = true,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = with(LocalDensity.current) { reserveWidthPx.toDp() }),
+    val textMeasurer = rememberTextMeasurer()
+    val wrapStyle = LocalTextStyle.current.merge(
+        TextStyle(fontSize = fontSize, fontWeight = LYRIC_WRAP_FONT_WEIGHT),
     )
+    val rows = remember(line.text, widthPx, wrapStyle) {
+        if (widthPx <= 0) listOf(line.text) else wrapLyricText(line.text, widthPx, textMeasurer, wrapStyle)
+    }
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        rows.forEach { row ->
+            Text(
+                text = row,
+                fontSize = fontSize,
+                fontWeight = fontWeight,
+                color = if (isCurrent) activeColor else pendingColor,
+                textAlign = TextAlign.Center,
+                // 折行已由上面手动完成，这里按单行呈现，避免按渲染字重再排一次
+                softWrap = false,
+                maxLines = 1,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
 }
 
 // 播放中位置回退容差：小于该值视为锚点抖动，大于视为真实跳变（拖动进度条、歌词拖拽跳转、切曲回卷）
@@ -763,11 +786,6 @@ private const val DEFAULT_VISIBLE_LINES = 5
 
 // 切歌时歌词窗口的淡入时长：短于封面与背景的过渡，歌词作为主体先立住
 private const val LYRIC_SWITCH_FADE_MS = 260
-
-// 歌词行间距：相邻歌词行之间的纵向间距，独立于行内上下内边距（4.dp）单独可调。
-// 取 3.dp 是行距与紧凑度的折中——行内内边距只撑开相邻行字形，行间留白靠它拉开，
-// 间距过小会让多行歌词挤成一片、边缘渐隐也难把行界分开；用于视口高度、兜底行距与纵向布局三处一致换算
-private val LYRIC_LINE_SPACING = 3.dp
 
 // 窗口上下各多渲染的行数：滚动时新行已在窗口内、被移除的行已完全移出视口，
 // 两者在同一坐标系整体平移，因此只会连续上移，不会出现边缘闪现或整块替换

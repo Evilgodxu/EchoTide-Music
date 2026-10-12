@@ -173,12 +173,13 @@ internal fun PortraitPlayer(
             initialValue = LyricLayoutParams(
                 LyricLayoutDefaults.HOME_PORTRAIT_FONT_SIZE_SP,
                 LyricLayoutDefaults.HOME_PORTRAIT_VISIBLE_LINES,
+                LyricLayoutDefaults.LINE_SPACING_DEFAULT_DP,
             ),
         )
 
-    // 歌词区高度随可见行数与字号自适应：每行占行高与上下 2dp 内边距，行间 1dp 固定间距，
+    // 歌词区高度随可见行数、字号与行间距自适应：每行占行高与上下 2dp 内边距，行间留出设置的行间距，
     // 末尾补足歌词面板顶部 4dp 内边距，使外层高度与内部歌词窗口一致。
-    // 行高必须与 LyricsPanel/LyricChar 同口径（沿用 LocalTextStyle 的 24sp 行高），否则外层偏矮裁剪歌词
+    // 行高与行间距都必须与 LyricsPanel 同口径（行高沿用 LocalTextStyle 的 24sp 行高），否则外层偏矮裁剪歌词
     val textMeasurer = rememberTextMeasurer()
     val lyricTextStyle = LocalTextStyle.current
     val lyricLineHeight = with(LocalDensity.current) {
@@ -188,7 +189,7 @@ internal fun PortraitPlayer(
         ).size.height.toDp()
     }
     val lyricsAreaHeight = (lyricLineHeight + 4.dp) * homePortraitLayout.visibleLines +
-        1.dp * (homePortraitLayout.visibleLines - 1) + 4.dp
+        homePortraitLayout.lineSpacingDp.dp * (homePortraitLayout.visibleLines - 1) + 4.dp
 
     // 长按功能状态：复用音乐面板的封面/歌词刷新与标题/艺人重命名能力
     val scope = rememberCoroutineScope()
@@ -402,6 +403,7 @@ internal fun PortraitPlayer(
                                 },
                                 fontSize = homePortraitLayout.fontSizeSp.sp,
                                 visibleLines = homePortraitLayout.visibleLines,
+                                lineSpacing = homePortraitLayout.lineSpacingDp.dp,
                                 contentColor = Color.White,
                                 onVerticalFling = onVerticalFling,
                             )

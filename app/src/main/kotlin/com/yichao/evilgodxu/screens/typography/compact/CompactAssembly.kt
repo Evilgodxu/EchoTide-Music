@@ -17,10 +17,13 @@ internal fun CompactAssembly(
     onBack: () -> Unit,
     onMusicPanelFontSizeChange: (Int) -> Unit,
     onMusicPanelLinesChange: (Int) -> Unit,
+    onMusicPanelLineSpacingChange: (Int) -> Unit,
     onHomePortraitFontSizeChange: (Int) -> Unit,
     onHomePortraitLinesChange: (Int) -> Unit,
+    onHomePortraitLineSpacingChange: (Int) -> Unit,
     onLandscapeFontSizeChange: (Int) -> Unit,
     onLandscapeLinesChange: (Int) -> Unit,
+    onLandscapeLineSpacingChange: (Int) -> Unit,
     onLandscape3DChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -36,10 +39,13 @@ internal fun CompactAssembly(
             innerPadding = innerPadding,
             onMusicPanelFontSizeChange = onMusicPanelFontSizeChange,
             onMusicPanelLinesChange = onMusicPanelLinesChange,
+            onMusicPanelLineSpacingChange = onMusicPanelLineSpacingChange,
             onHomePortraitFontSizeChange = onHomePortraitFontSizeChange,
             onHomePortraitLinesChange = onHomePortraitLinesChange,
+            onHomePortraitLineSpacingChange = onHomePortraitLineSpacingChange,
             onLandscapeFontSizeChange = onLandscapeFontSizeChange,
             onLandscapeLinesChange = onLandscapeLinesChange,
+            onLandscapeLineSpacingChange = onLandscapeLineSpacingChange,
             onLandscape3DChange = onLandscape3DChange,
         )
     }

@@ -31,7 +31,7 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 import kotlin.math.roundToInt
 
-// 排版分组：音乐面板、首页竖屏、首页横屏三场景独立调节字号与行数，横屏额外调节 3D 强度
+// 排版分组：音乐面板、首页竖屏、首页横屏三场景独立调节字号、行数、行间距，横屏额外调节 3D 强度
 @Composable
 internal fun TypographyGroups(
     uiState: TypographyUiState,
@@ -39,10 +39,13 @@ internal fun TypographyGroups(
     innerPadding: PaddingValues,
     onMusicPanelFontSizeChange: (Int) -> Unit,
     onMusicPanelLinesChange: (Int) -> Unit,
+    onMusicPanelLineSpacingChange: (Int) -> Unit,
     onHomePortraitFontSizeChange: (Int) -> Unit,
     onHomePortraitLinesChange: (Int) -> Unit,
+    onHomePortraitLineSpacingChange: (Int) -> Unit,
     onLandscapeFontSizeChange: (Int) -> Unit,
     onLandscapeLinesChange: (Int) -> Unit,
+    onLandscapeLineSpacingChange: (Int) -> Unit,
     onLandscape3DChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -79,6 +82,14 @@ internal fun TypographyGroups(
                 onDecrease = { onMusicPanelLinesChange(-1) },
                 onIncrease = { onMusicPanelLinesChange(1) },
             )
+            StepperRow(
+                title = stringResource(R.string.typography_line_spacing),
+                valueText = "${uiState.musicPanel.lineSpacingDp} dp",
+                decreaseEnabled = uiState.musicPanel.lineSpacingDp > LyricLayoutDefaults.LINE_SPACING_MIN_DP,
+                increaseEnabled = uiState.musicPanel.lineSpacingDp < LyricLayoutDefaults.LINE_SPACING_MAX_DP,
+                onDecrease = { onMusicPanelLineSpacingChange(-1) },
+                onIncrease = { onMusicPanelLineSpacingChange(1) },
+            )
         }
         // 首页竖屏：独立调节
         GroupCard(title = stringResource(R.string.typography_section_home_portrait)) {
@@ -102,6 +113,14 @@ internal fun TypographyGroups(
                 onDecrease = { onHomePortraitLinesChange(-1) },
                 onIncrease = { onHomePortraitLinesChange(1) },
             )
+            StepperRow(
+                title = stringResource(R.string.typography_line_spacing),
+                valueText = "${uiState.homePortrait.lineSpacingDp} dp",
+                decreaseEnabled = uiState.homePortrait.lineSpacingDp > LyricLayoutDefaults.LINE_SPACING_MIN_DP,
+                increaseEnabled = uiState.homePortrait.lineSpacingDp < LyricLayoutDefaults.LINE_SPACING_MAX_DP,
+                onDecrease = { onHomePortraitLineSpacingChange(-1) },
+                onIncrease = { onHomePortraitLineSpacingChange(1) },
+            )
         }
         // 首页横屏：独立调节，含 3D 强度
         GroupCard(title = stringResource(R.string.typography_section_home_landscape)) {
@@ -124,6 +143,14 @@ internal fun TypographyGroups(
                 ),
                 onDecrease = { onLandscapeLinesChange(-1) },
                 onIncrease = { onLandscapeLinesChange(1) },
+            )
+            StepperRow(
+                title = stringResource(R.string.typography_line_spacing),
+                valueText = "${uiState.homeLandscape.lineSpacingDp} dp",
+                decreaseEnabled = uiState.homeLandscape.lineSpacingDp > LyricLayoutDefaults.LINE_SPACING_MIN_DP,
+                increaseEnabled = uiState.homeLandscape.lineSpacingDp < LyricLayoutDefaults.LINE_SPACING_MAX_DP,
+                onDecrease = { onLandscapeLineSpacingChange(-1) },
+                onIncrease = { onLandscapeLineSpacingChange(1) },
             )
             StepperRow(
                 title = stringResource(R.string.typography_3d_intensity),

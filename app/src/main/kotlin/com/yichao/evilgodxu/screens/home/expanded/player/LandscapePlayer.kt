@@ -245,6 +245,7 @@ private fun LyricsPerspectiveZone(
             initialValue = LandscapeLyricLayoutParams(
                 LyricLayoutDefaults.LANDSCAPE_FONT_SIZE_SP,
                 LyricLayoutDefaults.LANDSCAPE_VISIBLE_LINES,
+                LyricLayoutDefaults.LINE_SPACING_DEFAULT_DP,
                 LyricLayoutDefaults.LANDSCAPE_3D_INTENSITY,
             ),
         )
@@ -271,6 +272,7 @@ private fun LyricsPerspectiveZone(
             fontSize = landscapeLayout.fontSizeSp.sp,
             contentColor = Color.White,
             visibleLines = landscapeLayout.visibleLines,
+            lineSpacing = landscapeLayout.lineSpacingDp.dp,
             onVerticalFling = onVerticalFling,
         )
     }

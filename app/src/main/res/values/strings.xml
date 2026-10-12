@@ -299,7 +299,7 @@
     <string name="settings_usb_direct_output_title">USB 音频直出</string>
     <string name="settings_usb_direct_output_desc">系统原生接口，动态适应设备</string>
     <string name="settings_typography_title">排版</string>
-    <string name="settings_typography_desc">歌词字号与显示行数</string>
+    <string name="settings_typography_desc">歌词排版</string>
 
     <!-- 播放列表滑动操作 -->
     <string name="playlist_advanced_menu_title">高级菜单</string>
@@ -447,6 +447,7 @@
     <string name="typography_section_home_landscape">首页横屏</string>
     <string name="typography_font_size">字号</string>
     <string name="typography_visible_lines">显示行数</string>
+    <string name="typography_line_spacing">行间距</string>
     <string name="typography_3d_intensity">3D 强度</string>
 
     <!-- 首页歌单 -->

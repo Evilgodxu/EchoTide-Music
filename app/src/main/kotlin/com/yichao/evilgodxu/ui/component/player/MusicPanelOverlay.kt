@@ -114,6 +114,7 @@ fun MusicPanelOverlay(
             initialValue = LyricLayoutParams(
                 LyricLayoutDefaults.MUSIC_PANEL_FONT_SIZE_SP,
                 LyricLayoutDefaults.MUSIC_PANEL_VISIBLE_LINES,
+                LyricLayoutDefaults.LINE_SPACING_DEFAULT_DP,
             ),
         )
     // 音乐面板的 USB 直出开关与设置页共用同一偏好，播放服务监听该偏好切换输出，这里只做读写
@@ -314,6 +315,7 @@ fun MusicPanelOverlay(
                                             onClick = { playbackState.setLyricsVisible(false) },
                                             fontSize = musicPanelLayout.fontSizeSp.sp,
                                             visibleLines = musicPanelLayout.visibleLines,
+                                            lineSpacing = musicPanelLayout.lineSpacingDp.dp,
                                             // 音乐面板不用渐隐蒙层，改为逐行降低上下边缘行透明度
                                             edgeFadeMask = false,
                                         )

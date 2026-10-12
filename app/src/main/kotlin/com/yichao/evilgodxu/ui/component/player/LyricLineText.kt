@@ -43,6 +43,12 @@ internal const val LYRIC_ROW_SCALE_BASE = 0.98f
 internal const val LYRIC_ROW_SCALE_AMPLITUDE = 0.16f
 internal const val LYRIC_ROW_SCALE_MAX = 1.35f
 
+// 折行测量专用的固定字重：折行点只应由文本内容与可用宽度决定。
+// 渲染字重随高亮态在 Medium/Normal 间切换，若折行也沿用渲染字重，同一行在高亮前后会量出不同的
+// 折行点，表现为行被高亮放大时重新折行、行数跳变。固定字重后折行结果对高亮态不敏感，
+// 放大余量由 LYRIC_ROW_SCALE_MAX 预留的宽度承担，故此处取基准字重即可
+internal val LYRIC_WRAP_FONT_WEIGHT = FontWeight.Normal
+
 // 普通歌词（无逐字时序）：按字均分时间整行顺序点亮，正在演唱的字高亮从左到右扫过并叠加弹簧跳动；
 // 点亮时长留出行尾提前量，末字在切到下一行前完整亮满
 @Composable
@@ -82,9 +88,11 @@ internal fun LineFillLyricText(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         val textMeasurer = rememberTextMeasurer()
-        val style = LocalTextStyle.current.merge(TextStyle(fontSize = fontSize, fontWeight = fontWeight))
-        val rows = remember(line.text, widthPx, style) {
-            if (widthPx <= 0) listOf(line.text) else wrapLyricText(line.text, widthPx, textMeasurer, style)
+        val wrapStyle = LocalTextStyle.current.merge(
+            TextStyle(fontSize = fontSize, fontWeight = LYRIC_WRAP_FONT_WEIGHT),
+        )
+        val rows = remember(line.text, widthPx, wrapStyle) {
+            if (widthPx <= 0) listOf(line.text) else wrapLyricText(line.text, widthPx, textMeasurer, wrapStyle)
         }
         var globalIdx = 0
         rows.forEach { row ->
@@ -334,9 +342,12 @@ internal fun WordSplitLyricText(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         val textMeasurer = rememberTextMeasurer()
-        val style = LocalTextStyle.current.merge(TextStyle(fontSize = fontSize, fontWeight = fontWeight))
-        val rows = remember(line.words, widthPx, style) {
-            if (widthPx <= 0) listOf(line.words) else wrapLyricWords(line.words, widthPx, textMeasurer, style)
+        // 与按字分行同口径：折行量宽用固定字重，不随当前行加粗而改变折行点
+        val wrapStyle = LocalTextStyle.current.merge(
+            TextStyle(fontSize = fontSize, fontWeight = LYRIC_WRAP_FONT_WEIGHT),
+        )
+        val rows = remember(line.words, widthPx, wrapStyle) {
+            if (widthPx <= 0) listOf(line.words) else wrapLyricWords(line.words, widthPx, textMeasurer, wrapStyle)
         }
         var globalIdx = 0
         rows.forEach { rowWords ->

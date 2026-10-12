@@ -303,7 +303,7 @@
     <string name="settings_usb_direct_output_title">USB audio direct output</string>
     <string name="settings_usb_direct_output_desc">System-native interface, dynamically adapts to the device</string>
     <string name="settings_typography_title">Typography</string>
-    <string name="settings_typography_desc">Lyric font size and visible lines</string>
+    <string name="settings_typography_desc">Lyric font size, line spacing and visible lines</string>
 
     <!-- Playlist swipe actions -->
     <string name="playlist_advanced_menu_title">Advanced menu</string>
@@ -454,6 +454,7 @@
     <string name="typography_section_home_landscape">Home landscape</string>
     <string name="typography_font_size">Font size</string>
     <string name="typography_visible_lines">Visible lines</string>
+    <string name="typography_line_spacing">Line spacing</string>
     <string name="typography_3d_intensity">3D intensity</string>
 
     <!-- Home playlists -->

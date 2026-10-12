@@ -48,7 +48,11 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
         val next = adjustFontSize(state.musicPanel.fontSizeSp, delta)
         _uiState.update { it.copy(musicPanel = it.musicPanel.copy(fontSizeSp = next)) }
         viewModelScope.launch {
-            context.saveMusicPanelLyricLayout(next, _uiState.value.musicPanel.visibleLines)
+            context.saveMusicPanelLyricLayout(
+                next,
+                _uiState.value.musicPanel.visibleLines,
+                _uiState.value.musicPanel.lineSpacingDp,
+            )
         }
     }
 
@@ -57,7 +61,24 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
         val next = adjustLines(LyricLayoutDefaults.PORTRAIT_LINE_PRESETS, state.musicPanel.visibleLines, delta)
         _uiState.update { it.copy(musicPanel = it.musicPanel.copy(visibleLines = next)) }
         viewModelScope.launch {
-            context.saveMusicPanelLyricLayout(_uiState.value.musicPanel.fontSizeSp, next)
+            context.saveMusicPanelLyricLayout(
+                _uiState.value.musicPanel.fontSizeSp,
+                next,
+                _uiState.value.musicPanel.lineSpacingDp,
+            )
+        }
+    }
+
+    fun adjustMusicPanelLineSpacing(delta: Int) {
+        val state = _uiState.value
+        val next = adjustLineSpacing(state.musicPanel.lineSpacingDp, delta)
+        _uiState.update { it.copy(musicPanel = it.musicPanel.copy(lineSpacingDp = next)) }
+        viewModelScope.launch {
+            context.saveMusicPanelLyricLayout(
+                _uiState.value.musicPanel.fontSizeSp,
+                _uiState.value.musicPanel.visibleLines,
+                next,
+            )
         }
     }
 
@@ -66,7 +87,11 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
         val next = adjustFontSize(state.homePortrait.fontSizeSp, delta)
         _uiState.update { it.copy(homePortrait = it.homePortrait.copy(fontSizeSp = next)) }
         viewModelScope.launch {
-            context.saveHomePortraitLyricLayout(next, _uiState.value.homePortrait.visibleLines)
+            context.saveHomePortraitLyricLayout(
+                next,
+                _uiState.value.homePortrait.visibleLines,
+                _uiState.value.homePortrait.lineSpacingDp,
+            )
         }
     }
 
@@ -75,7 +100,24 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
         val next = adjustLines(LyricLayoutDefaults.HOME_PORTRAIT_LINE_PRESETS, state.homePortrait.visibleLines, delta)
         _uiState.update { it.copy(homePortrait = it.homePortrait.copy(visibleLines = next)) }
         viewModelScope.launch {
-            context.saveHomePortraitLyricLayout(_uiState.value.homePortrait.fontSizeSp, next)
+            context.saveHomePortraitLyricLayout(
+                _uiState.value.homePortrait.fontSizeSp,
+                next,
+                _uiState.value.homePortrait.lineSpacingDp,
+            )
+        }
+    }
+
+    fun adjustHomePortraitLineSpacing(delta: Int) {
+        val state = _uiState.value
+        val next = adjustLineSpacing(state.homePortrait.lineSpacingDp, delta)
+        _uiState.update { it.copy(homePortrait = it.homePortrait.copy(lineSpacingDp = next)) }
+        viewModelScope.launch {
+            context.saveHomePortraitLyricLayout(
+                _uiState.value.homePortrait.fontSizeSp,
+                _uiState.value.homePortrait.visibleLines,
+                next,
+            )
         }
     }
 
@@ -87,6 +129,7 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
             context.saveLandscapeLyricLayout(
                 next,
                 _uiState.value.homeLandscape.visibleLines,
+                _uiState.value.homeLandscape.lineSpacingDp,
                 _uiState.value.homeLandscape.threeDIntensity,
             )
         }
@@ -99,6 +142,21 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             context.saveLandscapeLyricLayout(
                 _uiState.value.homeLandscape.fontSizeSp,
+                next,
+                _uiState.value.homeLandscape.lineSpacingDp,
+                _uiState.value.homeLandscape.threeDIntensity,
+            )
+        }
+    }
+
+    fun adjustLandscapeLineSpacing(delta: Int) {
+        val state = _uiState.value
+        val next = adjustLineSpacing(state.homeLandscape.lineSpacingDp, delta)
+        _uiState.update { it.copy(homeLandscape = it.homeLandscape.copy(lineSpacingDp = next)) }
+        viewModelScope.launch {
+            context.saveLandscapeLyricLayout(
+                _uiState.value.homeLandscape.fontSizeSp,
+                _uiState.value.homeLandscape.visibleLines,
                 next,
                 _uiState.value.homeLandscape.threeDIntensity,
             )
@@ -118,6 +176,7 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
             context.saveLandscapeLyricLayout(
                 _uiState.value.homeLandscape.fontSizeSp,
                 _uiState.value.homeLandscape.visibleLines,
+                _uiState.value.homeLandscape.lineSpacingDp,
                 next,
             )
         }
@@ -131,4 +190,10 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
         if (index < 0) return current
         return presets[(index + delta).coerceIn(0, presets.lastIndex)]
     }
+
+    private fun adjustLineSpacing(current: Int, delta: Int): Int =
+        (current + delta * LyricLayoutDefaults.LINE_SPACING_STEP_DP).coerceIn(
+            LyricLayoutDefaults.LINE_SPACING_MIN_DP,
+            LyricLayoutDefaults.LINE_SPACING_MAX_DP,
+        )
 }
