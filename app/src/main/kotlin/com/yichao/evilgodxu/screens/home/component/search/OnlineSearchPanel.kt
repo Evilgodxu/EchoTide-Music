@@ -358,21 +358,14 @@ private fun SearchResultList(
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 11.sp
             )
-            IconButton(
-                onClick = {
-                    if (!playbackState.isSearching) {
-                        scope.launch { performSearch(playbackState, context) }
-                    }
-                },
-                modifier = Modifier.size(28.dp)
-            ) {
-                Icon(
-                    imageVector = AppIcons.Refresh,
-                    contentDescription = null,
-                    tint = if (playbackState.isSearching) Color.White.copy(alpha = 0.5f)
-                    else Color.White
-                )
-            }
+            // 与历史区块的「清空」同一款动作按钮：图标尺寸、配色、内边距由组件统一
+            SearchPanelAction(
+                icon = AppIcons.Refresh,
+                label = stringResource(R.string.music_panel_search_refresh),
+                // 搜索进行中禁用：此时仍可点会让同一查询被反复发起
+                enabled = !playbackState.isSearching,
+                onClick = { scope.launch { performSearch(playbackState, context) } },
+            )
         }
         // 加载/空/结果间淡入淡出过渡，避免搜索结果生硬插入
         AnimatedContent(
