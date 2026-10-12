@@ -101,14 +101,6 @@ internal fun CompactAssembly(
         playbackState = playbackState,
         sheetVisible = panelState.playlistVisible || panelState.audioInfoVisible,
     )
-    // 逐字对齐转入后台后的进度：在标题区居中的展示，实时反映已对齐行数
-    val wordAlignCenterTitle = if (!panelState.lyricsAlignment.visible && panelState.lyricsAlignment.aligning) {
-        panelState.lyricsAlignment.progress?.let { (done, total) ->
-            stringResource(R.string.music_panel_word_align_progress, done, total)
-        } ?: stringResource(R.string.music_panel_word_align_decoding)
-    } else {
-        null
-    }
 
     // 底部弹层（播放列表、音频信息）与曲库分析对话框置顶：展开期间它们占住面板区域，
     // 标题栏整体让位，避免与面板内容相互遮挡
@@ -163,7 +155,6 @@ internal fun CompactAssembly(
                 playbackState = playbackState,
                 isLiked = isLiked,
                 favoriteEnabled = currentTrackId != null,
-                centerTitle = wordAlignCenterTitle,
                 onShowTimer = { panelState.showTimer = true },
                 onToggleFavorite = { currentTrackId?.let { playbackState.toggleFavorite(it) } },
                 onToggleLandscape = onToggleLandscape,
@@ -206,7 +197,6 @@ internal fun CompactAssembly(
                     // 歌词区快速滑动同样按切歌处理，复用整页纵向切歌的判定与偏好
                     onVerticalFling = trackSwipe::switchTrack,
                     libraryAnalysis = panelState.libraryAnalysis,
-                    lyricsAlignment = panelState.lyricsAlignment,
                     playlistVisible = panelState.playlistVisible,
                     onPlaylistVisibilityChange = { panelState.playlistVisible = it },
                     // 播放按钮上滑唤出的音频信息弹窗

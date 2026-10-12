@@ -28,6 +28,25 @@ private val CHINESE_PATTERN = Regex("[\\u4e00-\\u9fff]")
 // 日文假名与韩文谚文区间：出现即说明该行的汉字是日文汉字或韩文汉字的借字，不算中文
 private val KANA_HANGUL_PATTERN = Regex("[\\u3040-\\u30ff\\uac00-\\ud7af]")
 
+// 曲目标题行的判定窗口：LRC 习惯把「歌手 - 歌名」放在曲首，其时间戳绑定的是整段前奏
+private const val TITLE_LINE_WINDOW_MS = 2_000L
+
+// 制作信息行：以署名键开头。这些行的时间戳标注的是前奏/间奏的长度，补译会产出「制作人：xxx」这类无意义的译文。
+// 键名后允许跟随「/xxx」，用于「词/曲：xxx」这类合并写法
+private val CREDIT_LINE = Regex(
+    "^\\s*(?:作词|作曲|编曲|填词|词曲|词|曲|制作人|监制|出品人|出品|录音师|录音|混音师|混音|" +
+        "母带师|母带|吉他|贝斯|鼓|键盘|弦乐|和声|统筹|企划|发行|版权|混音|翻译|校对|策划|" +
+        "封面|视觉|导演|总策划|音乐总监|演唱|原唱|旁白|by|op|sp|isrc|lrc)\\s*(?:/[^:：]{1,8})?\\s*[:：]",
+    RegexOption.IGNORE_CASE,
+)
+
+// 无唱词的占位行：整行只由括号与这些词构成，才视为占位
+private val PLACEHOLDER_LINE = Regex(
+    "^\\s*[\\[（(【]?\\s*(?:此歌曲为没有填词的纯音乐|没有填词|纯音乐|请欣赏|间奏|前奏|尾奏|music)" +
+        "\\s*[\\]）)】]?\\s*[，,。.、！!~～]*\\s*$",
+    RegexOption.IGNORE_CASE,
+)
+
 /** 自动补译的结局：三种「没做」的原因给用户的提示不同，故分开返回 */
 internal sealed interface TranslateOutcome {
     /** 补译完成，[translated] 为本次写入译文的歌词行数 */
@@ -213,6 +232,21 @@ private fun isMostlyChinese(texts: List<String>): Boolean {
     if (counted.isEmpty()) return false
     val chinese = counted.count { CHINESE_PATTERN.containsMatchIn(it) && !KANA_HANGUL_PATTERN.containsMatchIn(it) }
     return chinese * 2 >= counted.size
+}
+
+/**
+ * 判断该行是否是歌词正文（而非署名、占位或曲目标题）。
+ *
+ * 纯标点或空白的行没有可处理的内容；制作信息行与曲首的标题行虽然有字，但其时间戳标注的是
+ * 伴奏长度而非演唱 —— 补译会产出「制作人：xxx」这类无意义的译文，故一并排除。
+ */
+internal fun isLyricBodyLine(line: LyricLine, isFirst: Boolean): Boolean {
+    val text = line.text.trim()
+    if (text.isBlank()) return false
+    if (CREDIT_LINE.containsMatchIn(text)) return false
+    if (PLACEHOLDER_LINE.matches(text)) return false
+    if (isFirst && line.timeMs <= TITLE_LINE_WINDOW_MS && text.contains(" - ")) return false
+    return true
 }
 
 /** 补译结果：[added] 为本次新写入译文的行数 */

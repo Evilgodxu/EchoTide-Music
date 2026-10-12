@@ -17,7 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
@@ -36,9 +35,7 @@ internal fun HomeTopBar(
     onToggleLandscape: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
-    // 居中标题内容：对话框收起后展示后台曲库分析进度
-    centerTitle: String? = null,
-    // 居中标题自定义内容：优先于 centerTitle，用于承载需自行排版的内容（如横屏曲名与艺术家两行）
+    // 居中标题自定义内容：用于承载需自行排版的内容（如横屏曲名与艺术家两行）
     centerContent: (@Composable () -> Unit)? = null,
     // 收起动画期间置为 false：控件不可见时不响应点击，避免误触
     interactive: Boolean = true,
@@ -49,14 +46,6 @@ internal fun HomeTopBar(
         title = {
             if (centerContent != null) {
                 centerContent()
-            } else if (centerTitle != null) {
-                Text(
-                    text = centerTitle,
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         },
         windowInsets = windowInsets,

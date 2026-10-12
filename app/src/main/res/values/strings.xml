@@ -101,7 +101,6 @@
     <string name="music_panel_lyrics_refresh_failed">歌词刷新失败，请重试</string>
     <string name="music_panel_local_lyrics">本地歌词</string>
     <string name="music_panel_local_lyrics_failed">歌词导入失败，请重试</string>
-    <string name="music_panel_edit">编辑歌词</string>
     <string name="music_panel_edit_lyrics_title">编辑歌词原文</string>
     <string name="music_panel_edit_lyrics_invalid">格式无效，请保留 [时间戳] 前缀</string>
     <string name="music_panel_edit_lyrics_failed">歌词保存失败，请重试</string>
@@ -117,13 +116,6 @@
     <string name="music_panel_auto_translate_nothing">没有需要补译的歌词行</string>
     <string name="music_panel_auto_translate_same_language">歌词已是中文，无需补译</string>
     <string name="music_panel_auto_translate_failed">自动补译失败，请重试</string>
-    <string name="music_panel_word_align">逐字对齐</string>
-    <string name="music_panel_word_align_title">逐字歌词对齐</string>
-    <string name="music_panel_word_align_progress">正在对齐第 %1$d / %2$d 行</string>
-    <string name="music_panel_word_align_decoding">正在解码音频…</string>
-    <string name="music_panel_word_align_background">后台继续</string>
-    <string name="music_panel_word_align_failed">逐字对齐失败，请重试</string>
-    <string name="music_panel_word_align_no_target">全部歌词已是逐字歌词</string>
     <string name="music_panel_cover_no_candidates">暂无可用封面</string>
     <string name="music_panel_cover_replace_title">是否覆盖为新封面</string>
     <string name="music_panel_cover_save_failed">封面保存失败，请重试</string>

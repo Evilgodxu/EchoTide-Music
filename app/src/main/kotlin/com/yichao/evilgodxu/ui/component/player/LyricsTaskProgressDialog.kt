@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.ui.component.DialogCard
 
 /**
- * 歌词后台任务的进度对话框，供逐字对齐与自动补译共用。
+ * 歌词后台任务的进度对话框，供自动补译使用。
  *
  * 这类任务耗时随歌词行数增长，收起对话框只隐藏展示、不中断任务，故按钮语义是「后台继续」而不是「取消」。
  *
