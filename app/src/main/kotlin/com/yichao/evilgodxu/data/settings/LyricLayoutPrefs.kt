@@ -13,7 +13,7 @@ import kotlinx.coroutines.withContext
 // 歌词排版默认值与可调范围
 object LyricLayoutDefaults {
     const val MUSIC_PANEL_FONT_SIZE_SP = 12
-    const val HOME_PORTRAIT_FONT_SIZE_SP = 20
+    const val HOME_PORTRAIT_FONT_SIZE_SP = 18
     const val LANDSCAPE_FONT_SIZE_SP = 18
     const val MUSIC_PANEL_VISIBLE_LINES = 3
     const val HOME_PORTRAIT_VISIBLE_LINES = 9
@@ -30,7 +30,7 @@ object LyricLayoutDefaults {
     const val THREE_D_STEP = 0.25f
     // 歌词行间距（dp）：相邻歌词行之间的纵向留白，三场景共用同一默认值与范围。
     // 默认 12dp 是行距与紧凑度的折中——行内上下内边距只撑开相邻行字形，行间留白靠它拉开
-    const val LINE_SPACING_DEFAULT_DP = 12
+    const val LINE_SPACING_DEFAULT_DP = 10
     const val LINE_SPACING_MIN_DP = 0
     const val LINE_SPACING_MAX_DP = 18
     const val LINE_SPACING_STEP_DP = 1
