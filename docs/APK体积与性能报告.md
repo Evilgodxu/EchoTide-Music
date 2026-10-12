@@ -1,6 +1,6 @@
-# APK 体检报告：EchoTideMusic-4.9.0-arm64-v8a.apk
+# APK 体检报告：EchoTideMusic-5.0.0-arm64-v8a.apk
 
-- 应用：`com.yichao.evilgodxu` 4.9.0
+- 应用：`com.yichao.evilgodxu` 5.0.0
 - 体积：5.35 MiB（5610851 字节）
 - 条目：40，容器开销 36.9 KiB
 - 构建工具：build-tools 37.0.0
