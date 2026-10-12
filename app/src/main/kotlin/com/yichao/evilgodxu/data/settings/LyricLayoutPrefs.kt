@@ -13,8 +13,8 @@ import kotlinx.coroutines.withContext
 // 歌词排版默认值与可调范围
 object LyricLayoutDefaults {
     const val MUSIC_PANEL_FONT_SIZE_SP = 12
-    const val HOME_PORTRAIT_FONT_SIZE_SP = 16
-    const val LANDSCAPE_FONT_SIZE_SP = 14
+    const val HOME_PORTRAIT_FONT_SIZE_SP = 20
+    const val LANDSCAPE_FONT_SIZE_SP = 18
     const val MUSIC_PANEL_VISIBLE_LINES = 3
     const val HOME_PORTRAIT_VISIBLE_LINES = 9
     const val LANDSCAPE_VISIBLE_LINES = 11
