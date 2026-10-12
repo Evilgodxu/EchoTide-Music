@@ -40,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
@@ -208,14 +209,16 @@ private fun PlaylistStackedPanel(
         go(backStack + PlaylistPage.Tracks(created))
         onPendingCreatedHandled()
     }
+    // 逐级回退的统一出口：系统返回键、内容列右滑、歌手页「歌曲」标签上的右滑都走这里
+    fun goBack() {
+        if (backStack.size > 1) go(backStack.dropLast(1))
+    }
     // 二级/三级详情页系统返回键逐级回退；顶层页面由首页 BackHandler 关闭面板
     BackHandler(enabled = visible && backStack.size > 1) {
-        go(backStack.dropLast(1))
+        goBack()
     }
     // 下钻层级的右滑回退：与返回键同一出口，两者都只在有上一级可退时生效
-    val backSwipe = Modifier.playlistBackSwipe(enabled = visible && backStack.size > 1) {
-        go(backStack.dropLast(1))
-    }
+    val backSwipe = Modifier.playlistBackSwipe(enabled = { visible && backStack.size > 1 }, onBack = { goBack() })
 
     // 页面栈按方向滑动：下钻时新页自右滑入、旧页向左让位，回退时旧页向右滑出、上一级自左侧补位，
     // 与首页翻页同一观感。两页同速整宽位移，故透明页面在过渡中始终相邻而不叠放
@@ -247,6 +250,8 @@ private fun PlaylistStackedPanel(
                 onOpenAlbum = { album ->
                     go(backStack + PlaylistPage.GroupTracks(SmartPlaylistType.ALBUM, album))
                 },
+                // 该页「歌曲」标签上的右滑：与内容列右滑、返回键同一出口
+                onSwipeBack = { goBack() },
             )
         } else {
             // 透明全屏布局，与在线搜索面板一致，透出首页沉浸渐变背景
@@ -355,7 +360,15 @@ private const val PlaylistPageTransitionMillis = 300
 // 只在有上一级可退时启用——此时首页横向翻页已关闭（见 HomePanels），一层滑动只对应一个去向；
 // 纵向主导时让出，列表照常滚动
 @Composable
-private fun Modifier.playlistBackSwipe(enabled: Boolean, onBack: () -> Unit): Modifier {
+internal fun Modifier.playlistBackSwipe(
+    // 按需读而非由组合期传值：歌手页的启用条件含标签分页的实时状态，读取须落在手势发生时
+    enabled: () -> Boolean,
+    // 判定所据的事件阶段。内容列自身没有横向滑动，Main 阶段即可——此时分页已先看过事件，
+    // 本手势只收无人认领的位移；歌手页的标签分页占着横向滑动，须在 Initial 阶段抢先判定并消费，
+    // 否则这段位移会被分页吃下，本手势再收到时就已是「已消费」
+    pass: PointerEventPass = PointerEventPass.Main,
+    onBack: () -> Unit,
+): Modifier {
     val currentOnBack by rememberUpdatedState(onBack)
     val currentEnabled by rememberUpdatedState(enabled)
     val thresholdPx = with(LocalDensity.current) { BackSwipeDistance.toPx() }
@@ -364,15 +377,15 @@ private fun Modifier.playlistBackSwipe(enabled: Boolean, onBack: () -> Unit): Mo
             Modifier.pointerInput(thresholdPx) {
                 val slop = viewConfiguration.touchSlop
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    if (!currentEnabled) return@awaitEachGesture
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = pass)
+                    if (!currentEnabled()) return@awaitEachGesture
                     // 方向锁定：累计位移直到任一轴越过触摸阈值，横向主导才由本手势接管
                     var accX = 0f
                     var accY = 0f
                     var locked = false
                     var horizontal = false
                     while (!locked) {
-                        val event = awaitPointerEvent()
+                        val event = awaitPointerEvent(pass)
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (!change.pressed || change.isConsumed) break
                         accX += change.positionChange().x
@@ -380,13 +393,16 @@ private fun Modifier.playlistBackSwipe(enabled: Boolean, onBack: () -> Unit): Mo
                         if (abs(accX) >= slop || abs(accY) >= slop) {
                             horizontal = abs(accX) > abs(accY)
                             locked = true
+                            // 锁定这一帧即一并消费：Initial 阶段下分页尚未看过它，
+                            // 留给分页会被当作分页自己的滑动起点
+                            if (horizontal && accX > 0f) change.consume()
                         }
                     }
                     // 纵向主导让给列表滚动；向左拖不回退
                     if (!locked || !horizontal || accX <= 0f) return@awaitEachGesture
                     var swipeX = accX
                     while (true) {
-                        val event = awaitPointerEvent()
+                        val event = awaitPointerEvent(pass)
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (!change.pressed || change.isConsumed) break
                         swipeX += change.positionChange().x

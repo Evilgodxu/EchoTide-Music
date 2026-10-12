@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -70,6 +71,7 @@ private enum class ArtistTab(@StringRes val labelRes: Int) {
  *
  * 标签由本页自己的分页承载：左右滑动在歌曲与专辑之间切换，首页那层翻页在该页关闭
  * （见 HomePanels 的翻页开关）——一层滑动只对应一个去向，滑动落在哪个列表上都不该同时换标签又换页。
+ * 歌曲是首个标签，右滑在它上面没有可切换的目标，故转为回退一级（见 onSwipeBack）：去向仍然唯一。
  *
  * 歌曲顺序 = 曲库顺序套上该歌手的存档曲序（见 ArtistOrderStore）：分组由曲库即时解析，
  * 次序本身没有落脚点，故拖拽落定即写档，离开再进仍保持。头图封面、沉浸背景取色与歌曲列表
@@ -79,8 +81,8 @@ private enum class ArtistTab(@StringRes val labelRes: Int) {
  * 整页自带骨架而非套在面板的标题栏内容列里：沉浸头图与沉浸背景都要铺到状态栏后方，
  * 与播放页的同名处理一致（见 [PlaylistPanel] 的页面分派）。标题栏在该页始终隐藏
  * （首页组装器按 HomePanelState.playlistImmersive 收起），页面因此不从顶部取任何基准，
- * 也不设页内返回入口——顶部整条让给头图，退出该页走系统返回键（面板的 BackHandler
- * 逐级回退）；横向滑动已被标签分页占用，不再兼作收回面板。
+ * 也不设页内返回入口——顶部整条让给头图，退出该页走系统返回键（面板的 BackHandler 逐级回退）
+ * 与「歌曲」标签上的右滑。
  *
  * 沉浸背景的流动帧随本页在合成树上存亡（面板离开当前页即把回退栈复位到总览页，
  * 见 [PlaylistPanel]），故不必再按可见性门控：滑入动画期间它已随本页一同铺开，
@@ -95,6 +97,8 @@ internal fun ArtistPlaylistPage(
     group: PlaylistGroup,
     playbackState: MusicPlaybackState,
     onOpenAlbum: (PlaylistGroup) -> Unit,
+    // 「歌曲」标签上继续右滑：该标签已是首个标签，右滑没有可切换的目标，转由面板回退一级
+    onSwipeBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -116,9 +120,23 @@ internal fun ArtistPlaylistPage(
     // 不该因为用户调整了歌曲次序而改换；顺带让这份分组缓存不在拖拽过程中逐次重算
     val albums = remember(tracks, unknownAlbum) { albumGroups(tracks, unknownAlbum) }
     // 标签分页：左右滑动即切换歌曲与专辑（首页那层翻页在该页已关闭，见 HomePanels），
-    // 跟手拖动、吸附与回弹由系统结算，本页不自行判定滑动
+    // 标签切换的跟手拖动、吸附与回弹由系统结算，本页不自行判定
     val tabPagerState = rememberPagerState { ArtistTab.entries.size }
-    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    // 右滑回退只在「歌曲」标签已归位时接管：该标签是首个标签，右滑在此没有分页去向；
+    // 「专辑」标签上的右滑归分页（切回歌曲），分页正在滑动或归位时也不该被本手势截走
+    val backSwipeEnabled = {
+        tabPagerState.currentPage == ArtistTab.SONGS.ordinal && !tabPagerState.isScrollInProgress
+    }
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            // 分页占着横向滑动，本手势须在其之前判定（见 playlistBackSwipe 的 pass 参数）
+            .playlistBackSwipe(
+                enabled = backSwipeEnabled,
+                pass = PointerEventPass.Initial,
+                onBack = onSwipeBack,
+            ),
+    ) {
         val headerHeight = (maxHeight * ARTIST_HEADER_HEIGHT_RATIO).coerceAtMost(ArtistHeaderMaxHeight)
         // 整屏沉浸背景：与头图同源，下缘渐隐的封面正是融入它
         SongImmersiveBackground(track = orderedTracks.firstOrNull(), modifier = Modifier.fillMaxSize())
