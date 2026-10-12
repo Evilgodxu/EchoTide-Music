@@ -1,5 +1,6 @@
 package com.yichao.evilgodxu.screens.home.component.playlist.expanded
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -49,6 +50,8 @@ private val PlaylistRailWidth = 300.dp
 // 不设整屏沉浸页；仅专辑/歌手分组列表的下钻在右栏内保留一层回退
 @Composable
 internal fun PlaylistWidePanel(
+    // 面板是否停在歌单页：返回键的下钻回退只在本页在场时接管，否则会抢走其它页面自己的返回处理
+    visible: Boolean,
     playbackState: MusicPlaybackState,
     playlistStore: PlaylistStore,
     menuBackgroundColor: Color,
@@ -70,6 +73,10 @@ internal fun PlaylistWidePanel(
     }
     // 右栏内的一层下钻：从专辑/歌手分组列表进入该分组的曲目
     var drilledGroup by remember { mutableStateOf<PlaylistGroup?>(null) }
+    // 下钻进入分组曲目后，系统返回键先退回分组列表，再退才由首页收起面板
+    BackHandler(enabled = visible && drilledGroup != null) { drilledGroup = null }
+    // 离开歌单页即退出下钻：与窄屏面板「离开即复位页面栈」同口径，回来落在类目列表而非上次的分组里
+    LaunchedEffect(visible) { if (!visible) drilledGroup = null }
     // 宽屏面板无整屏沉浸页：标题栏始终在场，不为本面板让位
     LaunchedEffect(Unit) { onImmersivePageChange(false) }
     // 点击播放器歌手信息直达该歌手：选中歌手类目并直接下钻到该歌手

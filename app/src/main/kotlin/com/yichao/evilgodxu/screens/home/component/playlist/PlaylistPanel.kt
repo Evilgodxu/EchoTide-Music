@@ -100,6 +100,7 @@ internal fun PlaylistPanel(
     Box(modifier = modifier) {
         if (rememberExpandedForm()) {
             PlaylistWidePanel(
+                visible = visible,
                 playbackState = playbackState,
                 playlistStore = playlistStore,
                 menuBackgroundColor = menuBackgroundColor,
