@@ -332,7 +332,9 @@ internal fun PlaylistSmartTracksPage(
 ) {
     val scope = rememberCoroutineScope()
     val library = playbackState.libraryTracks
-    val tracks = remember(library, playbackState.recentPlayedIds, playbackState.likedIds) {
+    // type 必须参与缓存键：结果为按 type 分叉的曲目集，而宽屏面板的右栏在同一个调用点切换类目，
+    // 曲库与两张 id 表都没变时只按它们缓存，会把空类目（如收藏为 0）的结果留给下一个类目
+    val tracks = remember(library, playbackState.recentPlayedIds, playbackState.likedIds, type) {
         when (type) {
             SmartPlaylistType.RECENT -> recentTracks(library, playbackState.recentPlayedIds)
             SmartPlaylistType.FAVORITE -> library.filter { it.id in playbackState.likedIds }

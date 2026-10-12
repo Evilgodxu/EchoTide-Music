@@ -32,6 +32,7 @@ import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.screens.home.component.bar.HomeTopBar
 import com.yichao.evilgodxu.screens.home.component.dialog.ArtistPickerDialog
 import com.yichao.evilgodxu.screens.home.component.dialog.HomeDialogs
+import com.yichao.evilgodxu.screens.home.component.panel.HomePage
 import com.yichao.evilgodxu.screens.home.component.panel.HomePanels
 import com.yichao.evilgodxu.screens.home.component.panel.HomePanelState
 import com.yichao.evilgodxu.screens.home.component.player.MarqueeInfoLine
@@ -88,6 +89,10 @@ internal fun ExpandedAssembly(
     LaunchedEffect(panelState.playlistVisible) {
         if (panelState.playlistVisible) chromeVisible = false
     }
+    // 离开播放页即收起：标题栏只在播放页出现，带走展开态可避免回到播放页时残留一次唤出
+    LaunchedEffect(panelState.currentPage) {
+        if (panelState.currentPage != HomePage.PLAYER) chromeVisible = false
+    }
     // 进入 3D 封面轮播时同样收起标题栏与控制栏，沉浸层独占全屏
     LaunchedEffect(coverCarouselVisible) {
         if (coverCarouselVisible) chromeVisible = false
@@ -125,10 +130,11 @@ internal fun ExpandedAssembly(
                 )
             }
         }
-        // 横屏标题栏悬浮于内容顶部，随控制栏一起显隐，不挤压播放器布局。
-        // 歌手页自带沉浸头图，标题栏浮在顶上会与头图争顶部，故该页始终不显示
+        // 横屏标题栏悬浮于播放页顶部，随控制栏一起显隐，不挤压播放器布局。
+        // 只属于播放页：在线搜索页与歌单页各有自己的顶部内容，悬浮标题栏压在其上会与之争位；
+        // 歌手页的沉浸头图同理，该页也始终不显示
         AnimatedVisibility(
-            visible = chromeVisible && !panelState.playlistImmersive,
+            visible = chromeVisible && panelState.currentPage == HomePage.PLAYER,
             modifier = Modifier.align(Alignment.TopCenter),
             enter = slideInVertically(animationSpec = tween(300)) { -it } + fadeIn(),
             exit = slideOutVertically(animationSpec = tween(300)) { -it } + fadeOut(),
