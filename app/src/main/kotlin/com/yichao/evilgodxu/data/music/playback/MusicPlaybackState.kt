@@ -19,6 +19,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
+import com.yichao.evilgodxu.data.music.metadata.CoverBackgroundColors
 import com.yichao.evilgodxu.data.music.metadata.CoverColorCache
 import com.yichao.evilgodxu.data.music.metadata.CoverSkipRegistry
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
@@ -104,10 +105,14 @@ class MusicPlaybackState(
     private val savedPositionKey = longPreferencesKey("music_saved_position")
     private val savedModeKey = intPreferencesKey("music_saved_mode")
     // 首页背景取色结果持久化键：与播放快照同库写入，冷启动恢复后首帧即可渲染。
-    // 键名沿用历史取值：早期版本按渐变的两个色标落盘，主色存在 edge 键下，
-    // 改键名会让已装机用户的取色结果读不到而多闪一次默认背景
+    // 三段色统一落盘（top / middle / bottom），静态渐变与流动帧的色调同取这一份，
+    // 下次播放直接复用而不必再从封面边缘重算。
+    // 键名沿用历史取值：早期版本只有一个代表色存在 edge 键下，改键名会让已装机用户的取色结果读不到
+    // 而多闪一次默认背景；历史数据只有 edge 一项，读回时按单色展开成三段同色
     private val savedBackgroundColorUriKey = stringPreferencesKey("music_saved_gradient_uri")
     private val savedBackgroundColorKey = intPreferencesKey("music_saved_gradient_edge")
+    private val savedBackgroundTopKey = intPreferencesKey("music_saved_gradient_top")
+    private val savedBackgroundBottomKey = intPreferencesKey("music_saved_gradient_bottom")
     private val playlistCacheKey = "music_playlist_cache"
     private val playlistCachePreferences = "music_playlist_cache_preferences"
     // 当前歌单来源与默认库备份持久化键，重启后恢复选中状态
@@ -1064,7 +1069,9 @@ class MusicPlaybackState(
         val savedPosition = preferences[savedPositionKey] ?: 0L
         val savedMode = preferences[savedModeKey] ?: PlayMode.RepeatAll.ordinal
         val restoredColorUri = preferences[savedBackgroundColorUriKey]
-        val restoredColor = preferences[savedBackgroundColorKey]
+        val restoredEdge = preferences[savedBackgroundColorKey]
+        val restoredTop = preferences[savedBackgroundTopKey]
+        val restoredBottom = preferences[savedBackgroundBottomKey]
         withContext(Dispatchers.Main) {
             // 无保存来源时处于全量播放列表
             playlistSource = savedSource
@@ -1091,8 +1098,18 @@ class MusicPlaybackState(
             // 启动镜像已为同一曲目预置取色时不覆盖：两者写入点相同，镜像可能领先一次
             // （取色落盘与状态落盘之间存在进程被杀窗口），覆盖会让首帧背景色回退
             if (restoredColorUri != savedBackgroundColorUri) {
-                savedBackgroundColor = restoredColor?.let { Color(it) }
+                // 历史数据只有代表色（edge）一项：按单色展开成三段同色，观感等同旧版整幅铺色
+                savedBackgroundColors = restoredColorUri?.let { uri ->
+                    restoredEdge?.let { edge ->
+                        CoverBackgroundColors(
+                            top = Color(restoredTop ?: edge),
+                            middle = Color(edge),
+                            bottom = Color(restoredBottom ?: edge),
+                        )
+                    }
+                }
                 savedBackgroundColorUri = restoredColorUri
+                adoptSavedBackgroundColors()
             }
             if (currentTrack == null) {
                 currentPosition = savedPosition
@@ -1319,43 +1336,59 @@ class MusicPlaybackState(
 
     var pendingSavedUri: String? = null
     var pendingResumePosition: Long = 0L
-    // 已持久化的首页背景取色结果及其所属曲目 URI：冷启动首帧、略缩图就绪前供背景直接使用
-    var savedBackgroundColor: Color? by mutableStateOf(null)
+    // 已持久化的首页背景取色结果（封面边缘三段色）及其所属曲目 URI：
+    // 冷启动首帧、略缩图就绪前供背景直接渲染，静态渐变与流动帧的色调同取这一份
+    internal var savedBackgroundColors: CoverBackgroundColors? by mutableStateOf(null)
         private set
     var savedBackgroundColorUri: String? by mutableStateOf(null)
         private set
 
     // 仅当曲目与取色结果同源时返回，避免运行时切歌后旧曲目的恢复色闪帧
     fun restoredBackgroundColorFor(track: MusicTrack?): Color? =
-        if (track != null && track.audioUri == savedBackgroundColorUri) savedBackgroundColor else null
+        restoredBackgroundColorsFor(track)?.representative
+
+    private fun restoredBackgroundColorsFor(track: MusicTrack?): CoverBackgroundColors? =
+        if (track != null && track.audioUri == savedBackgroundColorUri) savedBackgroundColors else null
+
+    // 把已持久化的取色结果交给内存取色缓存：显示端与流动帧代现算命中后即视为「已取色」，
+    // 静态渐变与流动帧的色调直接复用，不再从封面边缘重算
+    private fun adoptSavedBackgroundColors() {
+        val uri = savedBackgroundColorUri ?: return
+        val colors = savedBackgroundColors ?: return
+        CoverColorCache.put(uri, colors)
+    }
 
     // 无损升级替换音频文件时 URI 变化但封面/背景不变：把已持久化的取色结果改指到新 URI，
     // 避免升级后背景回落默认色（新文件系统略缩图未就绪前也保持既有背景）
     fun remapBackgroundColorUri(fromUri: String, toUri: String) {
         if (savedBackgroundColorUri != fromUri) return
         savedBackgroundColorUri = toUri
-        val color = savedBackgroundColor ?: return
+        val colors = savedBackgroundColors ?: return
         val context = appContext ?: return
         playbackScope.launch {
             withContext(Dispatchers.IO) {
                 context.settingsDataStore.edit { preferences ->
                     preferences[savedBackgroundColorUriKey] = toUri
-                    preferences[savedBackgroundColorKey] = color.toArgb()
+                    preferences[savedBackgroundColorKey] = colors.representative.toArgb()
+                    preferences[savedBackgroundTopKey] = colors.top.toArgb()
+                    preferences[savedBackgroundBottomKey] = colors.bottom.toArgb()
                 }
             }
         }
     }
 
-    // 首页背景真实取色成功后持久化，供下次冷启动恢复
-    fun saveBackgroundColor(color: Color) {
+    // 首页背景真实取色成功后持久化，供下次播放直接复用
+    internal fun saveBackgroundColors(colors: CoverBackgroundColors) {
         val uri = currentTrack?.audioUri ?: return
-        saveBackgroundColorFor(uri, color)
+        saveBackgroundColorsFor(uri, colors)
     }
 
     // 取色结果按所属曲目落盘：显示端取色与切歌后台取色共用，避免退出时才保存而丢失
-    private fun saveBackgroundColorFor(uri: String, color: Color) {
-        savedBackgroundColor = color
+    private fun saveBackgroundColorsFor(uri: String, colors: CoverBackgroundColors) {
+        savedBackgroundColors = colors
         savedBackgroundColorUri = uri
+        // 内存缓存同步回填：同一曲目的其余显示端与流动帧代现算直接复用，不再从封面重算
+        CoverColorCache.put(uri, colors)
         // 启动镜像同步更新取色结果：冷启动首帧的背景色同样只能来自镜像
         if (currentTrack?.audioUri == uri) persistBootMirror()
         val context = appContext ?: return
@@ -1363,7 +1396,29 @@ class MusicPlaybackState(
             withContext(Dispatchers.IO) {
                 context.settingsDataStore.edit { preferences ->
                     preferences[savedBackgroundColorUriKey] = uri
-                    preferences[savedBackgroundColorKey] = color.toArgb()
+                    preferences[savedBackgroundColorKey] = colors.representative.toArgb()
+                    preferences[savedBackgroundTopKey] = colors.top.toArgb()
+                    preferences[savedBackgroundBottomKey] = colors.bottom.toArgb()
+                }
+            }
+        }
+    }
+
+    // 作废已持久化的背景取色结果：封面变更后旧色调不再成立，等重取后再落盘
+    private fun clearSavedBackgroundColors() {
+        if (savedBackgroundColorUri == null && savedBackgroundColors == null) return
+        savedBackgroundColors = null
+        savedBackgroundColorUri = null
+        // 启动镜像同步清掉：镜像仍持旧色调，冷启动首帧会由它预置出旧背景
+        persistBootMirror()
+        val context = appContext ?: return
+        playbackScope.launch {
+            withContext(Dispatchers.IO) {
+                context.settingsDataStore.edit { preferences ->
+                    preferences.remove(savedBackgroundColorUriKey)
+                    preferences.remove(savedBackgroundColorKey)
+                    preferences.remove(savedBackgroundTopKey)
+                    preferences.remove(savedBackgroundBottomKey)
                 }
             }
         }
@@ -1382,12 +1437,12 @@ class MusicPlaybackState(
             } ?: return@launch
             // 异步取图期间可能已切走：非当前曲目的取色结果落盘会顶掉当前曲目的恢复色
             if (currentTrack?.audioUri != track.audioUri) return@launch
-            // 取色优先用预取结果：它与首页大图同源，落盘的代表色因此与显示端实时背景完全一致；
+            // 取色优先用预取结果：它与首页大图同源，落盘的三段色因此与显示端实时背景完全一致；
             // 预取未就绪（首曲、快速连切）时再由这张落盘缩略图现算，两条路径共用同一取色入口
             val colors = CoverColorCache.get(track.audioUri)
                 ?: extractCoverBackgroundColors(bitmap)
                 ?: return@launch
-            saveBackgroundColorFor(track.audioUri, colors.representative)
+            saveBackgroundColorsFor(track.audioUri, colors)
         }
         // 预取高清封面：先取消上一轮，再等曲目稳定后开始。
         // 取消的是等待中的那次解码（见 LargeCoverStore.get 的等待方语义），
@@ -1500,11 +1555,17 @@ class MusicPlaybackState(
         currentPosition = snapshot.optLong("position", 0L)
         duration = track.duration
         playMode = PlayMode.entries.getOrElse(snapshot.optInt("mode", -1)) { PlayMode.RepeatAll }
-        // 背景取色：封面边缘取色的代表色，镜像未记录时缺省 0
+        // 背景取色：封面边缘三段色，历史镜像只记录代表色（coverGradientEdge），读回时按单色展开
         val colorUri = snapshot.optString("coverGradientUri", "")
         if (colorUri.isNotBlank()) {
+            val edge = snapshot.optInt("coverGradientEdge")
             savedBackgroundColorUri = colorUri
-            savedBackgroundColor = Color(snapshot.optInt("coverGradientEdge"))
+            savedBackgroundColors = CoverBackgroundColors(
+                top = Color(snapshot.optInt("coverGradientTop", edge)),
+                middle = Color(edge),
+                bottom = Color(snapshot.optInt("coverGradientBottom", edge)),
+            )
+            adoptSavedBackgroundColors()
         }
         pendingSavedUri = track.audioUri
         pendingResumePosition = currentPosition
@@ -1535,7 +1596,7 @@ class MusicPlaybackState(
         val position = persistablePositionMs
         val mode = playMode.ordinal
         val colorUri = savedBackgroundColorUri.orEmpty()
-        val color = savedBackgroundColor
+        val colors = savedBackgroundColors
         bootMirrorJob = playbackScope.launch(Dispatchers.IO) {
             runCatching {
                 val snapshot = JSONObject()
@@ -1543,7 +1604,9 @@ class MusicPlaybackState(
                     .put("position", position)
                     .put("mode", mode)
                     .put("coverGradientUri", colorUri)
-                    .put("coverGradientEdge", color?.toArgb() ?: 0)
+                    .put("coverGradientEdge", colors?.representative?.toArgb() ?: 0)
+                    .put("coverGradientTop", colors?.top?.toArgb() ?: 0)
+                    .put("coverGradientBottom", colors?.bottom?.toArgb() ?: 0)
                 context.getSharedPreferences(bootMirrorPreferences, Context.MODE_PRIVATE)
                     .edit(commit = true) {
                         putString(bootMirrorKey, snapshot.toString())
@@ -1754,8 +1817,8 @@ class MusicPlaybackState(
     }
 
     // 封面写入成功后自增，通知封面组件强制重载最新封面；
-    // 同时作废索引曲目的系统略缩图缓存、非索引曲目的内嵌封面缓存、首页大封面缓存、背景取色缓存
-    // 与当前曲目的落盘封面，并解除「无封面可取」的跳过标记：旧图、旧色调与旧结论均已失效。
+    // 同时作废索引曲目的系统略缩图缓存、非索引曲目的内嵌封面缓存、首页大封面缓存、背景取色缓存与
+    // 落盘的背景取色结果、当前曲目的落盘封面，并解除「无封面可取」的跳过标记：旧图、旧色调与旧结论均已失效。
     //
     // 全部作废完成后才自增版本号：显示端的重新取图由版本号驱动，若把落盘档的清除丢到后台与版本号并发，
     // 重新取图会命中尚未删净的旧档（大封面的内存驻留被逐出后正好回落到这一档），封面停在旧图不再刷新。
@@ -1765,6 +1828,9 @@ class MusicPlaybackState(
         EmbeddedCoverCache.clear()
         CoverSkipRegistry.clear()
         CoverColorCache.clear()
+        // 持久化的取色结果同样出自被重写的封面：一并作废，避免冷启动仍按旧色调铺底；
+        // 新色调由显示端或切歌预取重取后重新落盘
+        clearSavedBackgroundColors()
         withContext(NonCancellable) {
             // 落盘封面同样是旧图：一并作废，避免冷启动拿旧封面顶出（新封面由下次切歌重新落盘）
             appContext?.let { context ->

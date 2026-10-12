@@ -89,7 +89,7 @@ private enum class ArtistTab(@StringRes val labelRes: Int) {
  * 中途才补上反而会让整屏底色跳一次。
  *
  * 背景取色只用于本页画面，不向外回报：取色持久化与菜单底色都锚定当前播放曲目
- * （见 MusicPlaybackState.saveBackgroundColor 与 HomeShell 的回调），
+ * （见 MusicPlaybackState.saveBackgroundColors 与 HomeShell 的回调），
  * 此处取的是歌手首曲，回报会把这位歌手的底色写到正在播放的那一首名下。
  */
 @Composable

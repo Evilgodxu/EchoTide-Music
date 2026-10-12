@@ -217,7 +217,9 @@ private data class BackgroundBase(
 // 帧上的压暗层与蒙层随底色的明度收敛（见 [dimScaleOf]）：浅色封面叠出的浅色背景只轻度压暗，
 // 保持与封面外缘同色调，封面渐隐带上不出现暗色差带；收敛后各层强度由 [DIM_MIN_ALPHA] 兜底，
 // 静态底色压暗层恒定按该强度铺开——浅色底同样要留出前景文字与状态栏的对比。
-// 三段取色未就绪时先回落 [restoredColor]（上次持久化的取色结果）整幅铺色，避免冷启动首帧闪默认色。
+// 取色同源且已持久化：命中缓存（切歌预取、或冷启动时由持久化结果回填）即视为已取色，
+// 三段渐变与流动帧的色调直接复用；缓存未命中才从略缩图现算并回传落盘。
+// 三段取色未就绪时先回落 [restoredColor]（上次持久化结果的代表色）整幅铺色，避免冷启动首帧闪默认色。
 // 底色有变时上一份底色与当前底色交叠一处：切歌按方向整屏横移，同曲取色落地则原地淡出，
 // 两种情形都不会瞬间跳变。
 // 回前台不补播过渡：应用不可见期间发生的换色谁也没看见，重新可见时才被应用的那一次若补播横移，
@@ -225,7 +227,8 @@ private data class BackgroundBase(
 // 取色尚未定论、暂时沿用上一份底色的兜底不受此影响（回落时机不属于一次换色）。
 // 流动帧同样不等显示端：相位自本曲起播按帧累加（可见期间才推进），切歌起播即由代现算备好零点那一帧
 // （见 [CoverFlowFrameStore]），回前台首帧铺出的就是它，与显示端随后现算的帧同源同相位。
-// 首页与 3D 封面轮播共用，随传入曲目实时变化；背景代表色经回调暴露供浮层容器复用。
+// 首页与 3D 封面轮播共用，随传入曲目实时变化；背景代表色经回调暴露供浮层容器复用，
+// 新算出的三段取色经 [onExtractedColors] 回传，由调用方持久化供下次播放直接复用。
 @Composable
 internal fun SongImmersiveBackground(
     track: MusicTrack?,
@@ -235,7 +238,7 @@ internal fun SongImmersiveBackground(
     switchKind: TrackSwitchKind? = null,
     restoredColor: Color? = null,
     onBackgroundColor: ((Color) -> Unit)? = null,
-    onExtractedColor: ((Color) -> Unit)? = null,
+    onExtractedColors: ((CoverBackgroundColors) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val audioUri = track?.audioUri
@@ -249,12 +252,14 @@ internal fun SongImmersiveBackground(
     // 那是与页面底色同为近黑的一条，换曲时整屏瞬间发黑
     var resolved by remember(audioUri, coverRevision) { mutableStateOf(cachedColors != null) }
     LaunchedEffect(audioUri, coverRevision, thumbnail) {
-        // 取色优先用预取结果：它与高清封面同源，且不依赖略缩图是否已解码
-        val colors = CoverColorCache.get(audioUri.orEmpty())
-            ?: thumbnail?.asAndroidBitmap()?.let { extractCoverBackgroundColors(it) }
+        // 取色优先用缓存结果：它或来自预取、或来自持久化恢复，都与高清封面同源，
+        // 且不依赖略缩图是否已解码；两者都没有才由这张略缩图现算
+        val cached = CoverColorCache.get(audioUri.orEmpty())
+        val colors = cached ?: thumbnail?.asAndroidBitmap()?.let { extractCoverBackgroundColors(it) }
         extracted = colors
         resolved = true
-        if (colors != null) onExtractedColor?.invoke(colors.representative)
+        // 只回传新算出的结果：缓存命中说明这份取色已经落过盘（或由持久化结果回填），重复回传只会白写一次偏好
+        if (colors != null && cached == null) onExtractedColors?.invoke(colors)
     }
     val colors = extracted
     val background = colors?.representative ?: restoredColor ?: md_theme_dark_surface
@@ -290,12 +295,14 @@ internal fun SongImmersiveBackground(
         }
     }
     val visibleSession = rememberVisibleSession()
-    var lastBase by remember { mutableStateOf<BackgroundBase?>(null) }
-    // 铺下上一份底色时的可见会话：与当前会话不同，说明这份底色与本次换色之间隔着一段页面不可见的时间，
+    // 铺下当前这份底色时的可见会话：与当前会话不同，说明这份底色与本次换色之间隔着一段页面不可见的时间，
     // 即本次换色发生在后台。这类换色回前台时才被应用，不是「刚刚发生」的事件，见下方过渡判定
     var lastBaseSession by remember { mutableIntStateOf(visibleSession) }
-    // 实际铺开的底色：取色未定论时仍是当前这份；连一份都还没有（冷启动首帧）才回落历史取色与默认渐变
-    val base = targetBase ?: lastBase ?: BackgroundBase(colors = null, solid = restoredColor)
+    // 实际铺开的底色：只在下方换色效果里随退场层一同换到新值。
+    // 不能直接铺 [targetBase]——换色效果的状态写入要到下一次组合才生效，而渲染就在这次写入与下次组合之间：
+    // 那一帧上新底色已在铺、退场层却还没立起来，于是先闪一次新色（横移时当前层已移出视口，闪的是空屏）。
+    // 两者在同一次效果里落定，底色与退场层因此永远同帧出现，任何一次换色都不留这一帧的破绽
+    var base by remember { mutableStateOf(targetBase ?: BackgroundBase(colors = null, solid = restoredColor)) }
     // 流动帧各层压暗共用的明度系数：底色越浅压得越轻（见 dimScaleOf），强度由 dimAlpha 兜住下限
     val dimScale = remember(base) { dimScaleOf(base.tone) }
     // 当前铺开的底色是否沿用自上一曲：取色未定论期间为真，落地后归假。
@@ -304,20 +311,28 @@ internal fun SongImmersiveBackground(
     var switching by remember { mutableStateOf<BackgroundSwitchState?>(null) }
     // 过渡进度：1 为过渡起点（当前底色尚未入场），0 为过渡结束（当前底色完全落位）
     val switchProgress = remember { Animatable(0f) }
-    LaunchedEffect(targetBase, base, visibleSession) {
-        val previous = lastBase
+    LaunchedEffect(targetBase, visibleSession) {
+        val next = targetBase
+        val previous = base
         val previousInherited = baseInherited
         // 页面刚重新可见（会话切换）：不可见期间谁也没看见画面，回前台不该补播任何过渡。
         // 上一轮未走完的过渡连同进度一并作废——动画在不可见期间停摆，接着走等于把半途的横移补出来；
         // 同时据此识别下方「本次换色发生在后台」的情形
         val resumed = lastBaseSession != visibleSession
         if (resumed) switching = null
-        lastBase = base
         lastBaseSession = visibleSession
-        baseInherited = targetBase == null && previous != null
-        if (previous == null || previous == base) return@LaunchedEffect
+        // 取色还没定论：不发新底色，画面沿用当前这份（回落默认渐变会让整屏先黑一下再变彩）
+        if (next == null) {
+            baseInherited = true
+            return@LaunchedEffect
+        }
+        baseInherited = false
+        if (previous == next) return@LaunchedEffect
         // 本次换色发生在页面不可见期间：底色照常换成新曲目的取色，只是补播横移会读成刚切歌，直接落位
-        if (resumed) return@LaunchedEffect
+        if (resumed) {
+            base = next
+            return@LaunchedEffect
+        }
         // 上一份是回落色（无取色）或沿用自上一曲，说明本次是取色落地：先后关系不可读，只做淡出；
         // 两份都持真实取色时才谈方向，方向由变更类型给出——选曲播放与内容同源的变更都没有方向，
         // 不做过渡，底色原地换掉
@@ -331,12 +346,15 @@ internal fun SongImmersiveBackground(
         }
         if (sweep == null) {
             switching = null
+            base = next
             return@LaunchedEffect
         }
         // 冻结的是此刻铺在画面上的那一帧（frame 的所有者仍是被切走的那一首）：本曲目的帧要么等
         // 本效果之后的现算，要么由代现算备好，都不属于切歌那一刻的画面，退场层要复现的只有前者
         switching = BackgroundSwitchState(base = previous, switch = sweep, frame = frame)
         switchProgress.snapTo(1f)
+        // 退场层立起后再换底色：两次写入落在同一次效果里，下一次组合取到的是「新底色 + 退场层」的完整一帧
+        base = next
         switchProgress.animateTo(
             targetValue = 0f,
             animationSpec = tween(

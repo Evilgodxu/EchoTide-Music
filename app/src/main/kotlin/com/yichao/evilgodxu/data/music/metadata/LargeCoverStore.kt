@@ -120,6 +120,7 @@ internal object LargeCoverStore {
      * 高清档落盘的同时顺手算出各曲目的背景渲染取色并记入 [CoverColorCache]：
      * 取色与高清封面同源，显示端切歌首帧就能同步拿到新曲目的色调，
      * 不必再等背景自己的 64px 略缩图解码 —— 否则封面已换、背景还停在上一首。
+     * 已有取色结果（持久化恢复或先前预取）的曲目直接复用，不再从封面重算。
      *
      * 取完即把落盘产出裁剪到这几张，磁盘占用与内存驻留保持同一口径。
      */
@@ -127,6 +128,8 @@ internal object LargeCoverStore {
         if (tracks.isEmpty()) return
         tracks.forEach { track ->
             val cover = get(context, track) ?: return@forEach
+            // 命中缓存说明该曲目的取色已定，重算只会白烧一遍边缘环采样
+            if (CoverColorCache.get(track.audioUri) != null) return@forEach
             extractCoverBackgroundColors(cover)?.let { CoverColorCache.put(track.audioUri, it) }
         }
         prune(context, tracks.map { it.audioUri }.toSet())
