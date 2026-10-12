@@ -295,7 +295,7 @@ internal object Id3v2Tag {
         // 描述符非空：非整曲注释，跳过
         if (textStart != descriptionStart + terminatorWidth(encoding)) return null
         return decodeText(data.copyOfRange(textStart, end), encoding, utf16LittleEndian(data, textStart, end, encoding))
-            ?.trimEnd('\u0000')
+            .trimEnd('\u0000')
     }
 
     // 取 POPM（评分）帧的星级：帧体为「邮箱(空结尾) + 评分(1) + 计数(可选)」。
@@ -355,7 +355,7 @@ internal object Id3v2Tag {
         val end = offset + length
         val textStart = skipTerminated(data, offset + 1, end, encoding)
         if (textStart > end) return null
-        return decodeText(data.copyOfRange(textStart, end), encoding, null)?.trimEnd('\u0000')
+        return decodeText(data.copyOfRange(textStart, end), encoding, null).trimEnd('\u0000')
     }
 
     // ID3v2 文本编码：0=ISO-8859-1、1=UTF-16(带 BOM)、2=UTF-16BE、3=UTF-8

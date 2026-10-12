@@ -44,6 +44,25 @@ private fun fadeOutStops(color: Color, start: Float, end: Float): Array<Pair<Flo
 }
 
 /**
+ * 单边渐入色标：0 处全透明，0 到 [end] 按 [smoothFadeAlpha] 的镜像采样渐现至 [color] 实色，[end] 以下为实色段。
+ * 镜像采样沿 [smoothFadeAlpha] 的自变量取补，与单边渐隐的轮廓互为镜像。
+ * [end] 为 0（没有可过渡的距离）时退化为整幅实色。
+ */
+private fun fadeInStops(color: Color, end: Float): Array<Pair<Float, Color>> {
+    val span = end.coerceIn(0f, 1f)
+    if (span <= 0f) return arrayOf(0f to color, 1f to color)
+    val stops = ArrayList<Pair<Float, Color>>(FADE_SAMPLE_SEGMENTS + 2)
+    stops += 0f to color.copy(alpha = 0f)
+    for (segment in 1..FADE_SAMPLE_SEGMENTS) {
+        val t = segment.toFloat() / FADE_SAMPLE_SEGMENTS
+        stops += (span * t) to color.copy(alpha = smoothFadeAlpha(1f - t))
+    }
+    // span 取 1 时末档采样即实色，无需再补
+    if (span < 1f) stops += 1f to color
+    return stops.toTypedArray()
+}
+
+/**
  * 双边渐隐色标：轴线两端各留 [ratio] 的渐隐带，中间为实色段，得到贴靠两侧的对称羽化。
  * 起始带按 1 - t 采样而非另取曲线：[smoothFadeAlpha] 关于带中心对称（f(1 - t) = 1 - f(t)），
  * 两侧的过渡轮廓因此互为镜像，同一轴向的两条边观感一致。
@@ -72,6 +91,13 @@ private fun edgeFeatherStops(color: Color, ratio: Float): Array<Pair<Float, Colo
  */
 internal fun coverFadeBrush(color: Color, start: Float, end: Float): Brush =
     Brush.verticalGradient(colorStops = fadeOutStops(color, start, end))
+
+/**
+ * 构造顶边渐入渐变：0 处全透明，0 到 [end] 渐现至 [color] 实色，[end] 以下为实色段。
+ * 与 [coverFadeBrush] 的单边渐隐互为镜像，用于内容自顶边渐现（如展开列表的顶边渐隐蒙层）。
+ */
+internal fun edgeFadeInBrush(color: Color, end: Float): Brush =
+    Brush.verticalGradient(colorStops = fadeInStops(color, end))
 
 /** 构造上下边缘羽化渐变：顶边与底边各按 [ratio] 的带宽渐隐，供四边羽化的竖直方向使用。 */
 internal fun coverTopBottomFadeBrush(color: Color, ratio: Float = COVER_FADE_RATIO): Brush =

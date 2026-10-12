@@ -23,3 +23,6 @@ internal const val MINI_PLAYLIST_ROW_SPACING_DP = 2
 internal const val MINI_PLAYLIST_CONTENT_PADDING_V_DP = 6
 // 展开后恰好完整露出的曲目行数；窗口高度按整行数推算，不随屏幕最短边变化
 internal const val MINI_PLAYLIST_VISIBLE_ROWS = 5
+
+// 列表顶边渐隐带宽度：列表视口紧贴控制栏，行在顶边前按此长度淡出，滚动到顶部的行自控制栏下方渐隐没入
+internal const val MINI_PLAYLIST_TOP_FADE_DP = 10

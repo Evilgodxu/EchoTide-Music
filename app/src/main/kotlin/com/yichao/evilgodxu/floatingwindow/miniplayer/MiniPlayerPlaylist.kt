@@ -27,7 +27,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,6 +44,7 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.PlaylistArt
+import com.yichao.evilgodxu.ui.component.edgeFadeInBrush
 import com.yichao.evilgodxu.ui.component.scrollPlaylistTo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -78,7 +85,7 @@ internal fun MiniPlayerPlaylist(
 
     LazyColumn(
         state = listState,
-        modifier = modifier,
+        modifier = modifier.topFadeMask(),
         contentPadding = PaddingValues(
             horizontal = 4.dp,
             vertical = MINI_PLAYLIST_CONTENT_PADDING_V_DP.dp,
@@ -95,6 +102,23 @@ internal fun MiniPlayerPlaylist(
                 onClick = { scope.launch { playTrackAt(context, playbackState, index) } },
             )
         }
+    }
+}
+
+// 列表顶边渐隐蒙层：列表视口紧贴控制栏，行在顶边被硬裁会像被切断，故按平滑曲线把顶边淡出。
+// 蒙层由 saveLayer 限定在本节点内，DstIn 只作用于列表内容，不波及控制栏与卡片底色
+private fun Modifier.topFadeMask(): Modifier = drawWithCache {
+    val band = MINI_PLAYLIST_TOP_FADE_DP.dp.toPx()
+    // DstIn 只取蒙层的透明度，RGB 不参与合成，实色段用黑色即可
+    val brush = edgeFadeInBrush(
+        color = Color.Black,
+        end = if (size.height > 0f) (band / size.height).coerceIn(0f, 1f) else 0f,
+    )
+    onDrawWithContent {
+        drawIntoCanvas { canvas -> canvas.saveLayer(Rect(Offset.Zero, size), Paint()) }
+        drawContent()
+        drawRect(brush = brush, size = size, blendMode = BlendMode.DstIn)
+        drawIntoCanvas { canvas -> canvas.restore() }
     }
 }
 
