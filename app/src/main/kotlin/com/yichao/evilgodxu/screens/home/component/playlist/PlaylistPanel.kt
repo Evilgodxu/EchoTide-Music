@@ -1,6 +1,11 @@
 package com.yichao.evilgodxu.screens.home.component.playlist
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,6 +49,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.model.MusicTrack
@@ -202,9 +208,6 @@ private fun PlaylistStackedPanel(
         go(backStack + PlaylistPage.Tracks(created))
         onPendingCreatedHandled()
     }
-    val page = backStack.last()
-    // 当前页即歌手页时的页面自身：非空即该页在场，标题栏须让位、内容也不再套标题栏内边距
-    val immersiveArtist = page.artistGroupPage
     // 二级/三级详情页系统返回键逐级回退；顶层页面由首页 BackHandler 关闭面板
     BackHandler(enabled = visible && backStack.size > 1) {
         go(backStack.dropLast(1))
@@ -214,58 +217,83 @@ private fun PlaylistStackedPanel(
         go(backStack.dropLast(1))
     }
 
-    if (immersiveArtist != null) {
-        // 歌手页自带整页骨架（沉浸头图 + 歌曲/专辑标签页，见 ArtistPlaylistPage）：
-        // 头图与沉浸背景要铺到标题栏后方，故不套下方内容列的顶部内边距
-        ArtistPlaylistPage(
-            group = immersiveArtist.group,
-            playbackState = playbackState,
-            onOpenAlbum = { album ->
-                go(backStack + PlaylistPage.GroupTracks(SmartPlaylistType.ALBUM, album))
-            },
-        )
-    } else {
-        // 透明全屏布局，与在线搜索面板一致，透出首页沉浸渐变背景
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = topInset)
-                .then(backSwipe),
-        ) {
-            PanelHeader(title = page.title())
-            when (page) {
-                is PlaylistPage.Overview -> PlaylistOverview(
-                    playlistStore = playlistStore,
-                    playbackState = playbackState,
-                    menuBackgroundColor = menuBackgroundColor,
-                    onOpenSmart = { type ->
-                        go(
-                            backStack + if (type == SmartPlaylistType.ALBUM || type == SmartPlaylistType.ARTIST) {
-                                PlaylistPage.Groups(type)
-                            } else {
-                                PlaylistPage.SmartTracks(type)
-                            }
-                        )
-                    },
-                    onOpenCustom = { playlist -> go(backStack + PlaylistPage.Tracks(playlist)) },
-                    onCreatePlaylist = onCreatePlaylist,
-                    onRename = onRename,
-                    onDelete = onDelete,
-                )
-                is PlaylistPage.Groups -> PlaylistGroupsPage(
-                    type = page.type,
-                    playbackState = playbackState,
-                    onOpenGroup = { group -> go(backStack + PlaylistPage.GroupTracks(page.type, group)) },
-                )
-                is PlaylistPage.SmartTracks -> PlaylistSmartTracksPage(
-                    type = page.type,
-                    playbackState = playbackState,
-                )
-                is PlaylistPage.Tracks -> PlaylistTracksPage(playlist = page.playlist, playbackState = playbackState)
-                is PlaylistPage.GroupTracks -> PlaylistAlbumTracksPage(
-                    group = page.group,
-                    playbackState = playbackState,
-                )
+    // 页面栈按方向滑动：下钻时新页自右滑入、旧页向左让位，回退时旧页向右滑出、上一级自左侧补位，
+    // 与首页翻页同一观感。两页同速整宽位移，故透明页面在过渡中始终相邻而不叠放
+    AnimatedContent(
+        targetState = backStack,
+        transitionSpec = {
+            val forward = targetState.size > initialState.size
+            val spec = tween<IntOffset>(PlaylistPageTransitionMillis)
+            if (forward) {
+                slideInHorizontally(animationSpec = spec) { it } togetherWith
+                    slideOutHorizontally(animationSpec = spec) { -it }
+            } else {
+                slideInHorizontally(animationSpec = spec) { -it } togetherWith
+                    slideOutHorizontally(animationSpec = spec) { it }
+            }
+        },
+        modifier = Modifier.fillMaxSize(),
+        label = "playlist_page",
+    ) { stack ->
+        val page = stack.last()
+        // 当前页即歌手页时的页面自身：非空即该页在场，标题栏须让位、内容也不再套标题栏内边距
+        val immersiveArtist = page.artistGroupPage
+        if (immersiveArtist != null) {
+            // 歌手页自带整页骨架（沉浸头图 + 歌曲/专辑标签页，见 ArtistPlaylistPage）：
+            // 头图与沉浸背景要铺到标题栏后方，故不套下方内容列的顶部内边距
+            ArtistPlaylistPage(
+                group = immersiveArtist.group,
+                playbackState = playbackState,
+                onOpenAlbum = { album ->
+                    go(backStack + PlaylistPage.GroupTracks(SmartPlaylistType.ALBUM, album))
+                },
+            )
+        } else {
+            // 透明全屏布局，与在线搜索面板一致，透出首页沉浸渐变背景
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = topInset)
+                    .then(backSwipe),
+            ) {
+                PanelHeader(title = page.title())
+                when (page) {
+                    is PlaylistPage.Overview -> PlaylistOverview(
+                        playlistStore = playlistStore,
+                        playbackState = playbackState,
+                        menuBackgroundColor = menuBackgroundColor,
+                        onOpenSmart = { type ->
+                            go(
+                                backStack + if (type == SmartPlaylistType.ALBUM || type == SmartPlaylistType.ARTIST) {
+                                    PlaylistPage.Groups(type)
+                                } else {
+                                    PlaylistPage.SmartTracks(type)
+                                }
+                            )
+                        },
+                        onOpenCustom = { playlist -> go(backStack + PlaylistPage.Tracks(playlist)) },
+                        onCreatePlaylist = onCreatePlaylist,
+                        onRename = onRename,
+                        onDelete = onDelete,
+                    )
+                    is PlaylistPage.Groups -> PlaylistGroupsPage(
+                        type = page.type,
+                        playbackState = playbackState,
+                        onOpenGroup = { group -> go(backStack + PlaylistPage.GroupTracks(page.type, group)) },
+                    )
+                    is PlaylistPage.SmartTracks -> PlaylistSmartTracksPage(
+                        type = page.type,
+                        playbackState = playbackState,
+                    )
+                    is PlaylistPage.Tracks -> PlaylistTracksPage(
+                        playlist = page.playlist,
+                        playbackState = playbackState,
+                    )
+                    is PlaylistPage.GroupTracks -> PlaylistAlbumTracksPage(
+                        group = page.group,
+                        playbackState = playbackState,
+                    )
+                }
             }
         }
     }
@@ -319,6 +347,9 @@ private fun PanelHeader(title: String) {
 
 // 右滑回退的判定距离：横向拖过该距离松手即回退一级
 private val BackSwipeDistance = 72.dp
+
+// 页面栈切换的滑动时长：进退同长，回退与下钻互为一对镜像
+private const val PlaylistPageTransitionMillis = 300
 
 // 下钻层级的右滑回退：向右拖过阈值即回退一级，向左拖不动。
 // 只在有上一级可退时启用——此时首页横向翻页已关闭（见 HomePanels），一层滑动只对应一个去向；
