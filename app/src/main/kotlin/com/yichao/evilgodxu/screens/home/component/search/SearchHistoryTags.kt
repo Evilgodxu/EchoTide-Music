@@ -38,7 +38,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
@@ -97,11 +96,8 @@ internal fun SearchHistoryTags(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
+            SearchSectionLabel(
                 text = stringResource(R.string.music_panel_search_history_recent),
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
             )
             // 此处与单条删除同处一个面板，仅凭图标无法区分清空与删除
             SearchPanelAction(

@@ -58,7 +58,7 @@
     <string name="music_panel_delete_confirm">删除</string>
     <string name="music_panel_no_lyrics">暂无歌词</string>
     <plurals name="music_panel_track_count">
-        <item quantity="other">找到 %d 首</item>
+        <item quantity="other">%d 首</item>
     </plurals>
     <string name="music_panel_search_history">搜索历史</string>
     <string name="music_panel_search_history_clear">清理全部历史</string>
@@ -70,6 +70,13 @@
     <string name="music_panel_search_empty_hint">输入关键词后，结果将显示在此区域</string>
     <!-- 结果区的刷新动作 -->
     <string name="music_panel_search_refresh">刷新</string>
+    <!-- 搜索结果区块标题的曲目数。
+         语义：本次搜索已返回并载入列表的条数 —— 上拉加载更多后该数会随之增大，不代表平台上的总量。
+         单列一条而不复用 music_panel_track_count：后者是通用曲目计数，被播放列表、歌手页、
+         曲库分析等十余处引用，写入「找到」这类搜索专有措辞会让那些页面也变成「找到 N 首」 -->
+    <plurals name="music_panel_search_result_count">
+        <item quantity="other">找到 %d 首</item>
+    </plurals>
     <string name="music_panel_search_no_results">未找到相关歌曲</string>
     <string name="music_panel_search_loading">正在搜索…</string>
     <string name="music_panel_search_loading_more">加载中…</string>

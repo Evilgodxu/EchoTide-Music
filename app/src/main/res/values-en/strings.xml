@@ -68,6 +68,10 @@
     <string name="music_panel_search_history_clear_action">Clear</string>
     <string name="music_panel_search_empty_hint">Results will appear here</string>
     <string name="music_panel_search_refresh">Refresh</string>
+    <plurals name="music_panel_search_result_count">
+        <item quantity="one">Found %d song</item>
+        <item quantity="other">Found %d songs</item>
+    </plurals>
     <string name="music_panel_search_no_results">No songs found</string>
     <string name="music_panel_search_loading">Searching…</string>
     <string name="music_panel_search_loading_more">Loading…</string>

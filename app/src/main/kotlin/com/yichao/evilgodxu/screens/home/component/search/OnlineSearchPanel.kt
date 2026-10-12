@@ -348,15 +348,18 @@ private fun SearchResultList(
             // 上边距取统一区块间距：结果排在历史标签或搜索条之后，与上方保持同一档间距
             .padding(start = 12.dp, end = 12.dp, top = SearchPanelSectionGap)
     ) {
+        val resultCount = playbackState.searchResults.size
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                // 标题贴住自己的内容，间距与历史区块同一规则
+                .padding(bottom = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = pluralStringResource(R.plurals.music_panel_track_count, playbackState.searchResults.size, playbackState.searchResults.size),
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 11.sp
+            // 结果区块标题：与「最近搜索」共用同一款标题样式
+            SearchSectionLabel(
+                text = pluralStringResource(R.plurals.music_panel_search_result_count, resultCount, resultCount),
             )
             // 与历史区块的「清空」同一款动作按钮：图标尺寸、配色、内边距由组件统一
             SearchPanelAction(
