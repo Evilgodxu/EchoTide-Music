@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -57,14 +56,17 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalArtistOrderStore
 import com.yichao.evilgodxu.LocalPlaylistStore
-import com.yichao.evilgodxu.ui.icons.AppIcons
+import com.yichao.evilgodxu.screens.home.component.playlist.expanded.PlaylistWidePanel
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.ExpandDirection
 import com.yichao.evilgodxu.ui.component.ExpandPicker
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
+import com.yichao.evilgodxu.ui.icons.AppIcons
+import com.yichao.evilgodxu.windowsize.rememberExpandedForm
 
-// 首页左滑呼出的歌单面板：系统歌单 + 自定义歌单，支持页面栈导航
+// 首页左滑呼出的歌单面板：按形态分派——窄屏逐级下钻，宽屏左栏导航 + 右栏内容。
+// 共享部分（歌单存储预读、新建/重命名/删除弹窗）收在此处，两形态各自组装自己的布局
 @Composable
 internal fun PlaylistPanel(
     visible: Boolean,
@@ -88,6 +90,79 @@ internal fun PlaylistPanel(
         playlistStore.awaitLoaded(context)
         artistOrderStore.awaitLoaded(context)
     }
+    // 新建/重命名/删除歌单弹窗
+    var showCreate by remember { mutableStateOf(false) }
+    var renameTarget by remember { mutableStateOf<Playlist?>(null) }
+    var deleteTarget by remember { mutableStateOf<Playlist?>(null) }
+    // 新建成功后待进入的歌单：窄屏推进页面栈，宽屏切换左栏选中项，两形态各自消费后置空
+    var createdPlaylist by remember { mutableStateOf<Playlist?>(null) }
+
+    Box(modifier = modifier) {
+        if (rememberExpandedForm()) {
+            PlaylistWidePanel(
+                playbackState = playbackState,
+                playlistStore = playlistStore,
+                menuBackgroundColor = menuBackgroundColor,
+                topInset = topInset,
+                onImmersivePageChange = onImmersivePageChange,
+                pendingArtist = pendingArtist,
+                onPendingArtistHandled = onPendingArtistHandled,
+                pendingCreated = createdPlaylist,
+                onPendingCreatedHandled = { createdPlaylist = null },
+                onCreatePlaylist = { showCreate = true },
+                onRename = { renameTarget = it },
+                onDelete = { deleteTarget = it },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            PlaylistStackedPanel(
+                visible = visible,
+                playbackState = playbackState,
+                playlistStore = playlistStore,
+                menuBackgroundColor = menuBackgroundColor,
+                topInset = topInset,
+                onImmersivePageChange = onImmersivePageChange,
+                pendingArtist = pendingArtist,
+                onPendingArtistHandled = onPendingArtistHandled,
+                pendingCreated = createdPlaylist,
+                onPendingCreatedHandled = { createdPlaylist = null },
+                onCreatePlaylist = { showCreate = true },
+                onRename = { renameTarget = it },
+                onDelete = { deleteTarget = it },
+            )
+        }
+    }
+    CreatePlaylistDialog(
+        visible = showCreate,
+        // 创建后直接进入新歌单，便于立即添加歌曲；进入方式随形态不同，交由两个面板消费
+        onCreated = { playlist ->
+            showCreate = false
+            createdPlaylist = playlist
+        },
+        onDismiss = { showCreate = false },
+    )
+    RenamePlaylistDialog(playlist = renameTarget, onDismiss = { renameTarget = null })
+    DeletePlaylistDialog(playlist = deleteTarget, onDismiss = { deleteTarget = null })
+}
+
+// 窄屏歌单面板：标题栏 + 页面栈逐级下钻（总览 → 分组/曲目列表）。
+// 歌手分组页自带整屏骨架，整页铺满，标题栏在该页让位
+@Composable
+private fun PlaylistStackedPanel(
+    visible: Boolean,
+    playbackState: MusicPlaybackState,
+    playlistStore: PlaylistStore,
+    menuBackgroundColor: Color,
+    topInset: Dp,
+    onImmersivePageChange: (Boolean) -> Unit,
+    pendingArtist: String?,
+    onPendingArtistHandled: () -> Unit,
+    pendingCreated: Playlist?,
+    onPendingCreatedHandled: () -> Unit,
+    onCreatePlaylist: () -> Unit,
+    onRename: (Playlist) -> Unit,
+    onDelete: (Playlist) -> Unit,
+) {
     var backStack by remember { mutableStateOf(listOf<PlaylistPage>(PlaylistPage.Overview)) }
     // 页面栈的唯一写入口：栈变化与「当前页是否要标题栏让位」必须同一次写入。
     // 歌手页的标题栏始终隐藏，而标题栏归首页组装器管——挪到组合之后的副作用上报，
@@ -108,6 +183,12 @@ internal fun PlaylistPanel(
         )
         onPendingArtistHandled()
     }
+    // 新建成功后进入该歌单，便于立即添加歌曲
+    LaunchedEffect(pendingCreated) {
+        val created = pendingCreated ?: return@LaunchedEffect
+        go(backStack + PlaylistPage.Tracks(created))
+        onPendingCreatedHandled()
+    }
     val page = backStack.last()
     // 当前页即歌手页时的页面自身：非空即该页在场，标题栏须让位、内容也不再套标题栏内边距
     val immersiveArtist = page.artistGroupPage
@@ -115,82 +196,65 @@ internal fun PlaylistPanel(
     BackHandler(enabled = visible && backStack.size > 1) {
         go(backStack.dropLast(1))
     }
-    // 新建/重命名/删除歌单弹窗
-    var showCreate by remember { mutableStateOf(false) }
-    var renameTarget by remember { mutableStateOf<Playlist?>(null) }
-    var deleteTarget by remember { mutableStateOf<Playlist?>(null) }
 
-    Box(modifier = modifier) {
-        if (immersiveArtist != null) {
-            // 歌手页自带整页骨架（沉浸头图 + 歌曲/专辑标签页，见 ArtistPlaylistPage）：
-            // 头图与沉浸背景要铺到标题栏后方，故不套下方内容列的顶部内边距
-            ArtistPlaylistPage(
-                group = immersiveArtist.group,
-                playbackState = playbackState,
-                onOpenAlbum = { album ->
-                    go(backStack + PlaylistPage.GroupTracks(SmartPlaylistType.ALBUM, album))
-                },
+    if (immersiveArtist != null) {
+        // 歌手页自带整页骨架（沉浸头图 + 歌曲/专辑标签页，见 ArtistPlaylistPage）：
+        // 头图与沉浸背景要铺到标题栏后方，故不套下方内容列的顶部内边距
+        ArtistPlaylistPage(
+            group = immersiveArtist.group,
+            playbackState = playbackState,
+            onOpenAlbum = { album ->
+                go(backStack + PlaylistPage.GroupTracks(SmartPlaylistType.ALBUM, album))
+            },
+        )
+    } else {
+        // 透明全屏布局，与在线搜索面板一致，透出首页沉浸渐变背景
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = topInset),
+        ) {
+            PanelHeader(
+                title = page.title(),
+                showBack = backStack.size > 1,
+                onBack = { go(backStack.dropLast(1)) },
             )
-        } else {
-            // 透明全屏布局，与在线搜索面板一致，透出首页沉浸渐变背景
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = topInset),
-            ) {
-                PanelHeader(
-                    title = page.title(),
-                    showBack = backStack.size > 1,
-                    onBack = { go(backStack.dropLast(1)) },
+            when (page) {
+                is PlaylistPage.Overview -> PlaylistOverview(
+                    playlistStore = playlistStore,
+                    playbackState = playbackState,
+                    menuBackgroundColor = menuBackgroundColor,
+                    onOpenSmart = { type ->
+                        go(
+                            backStack + if (type == SmartPlaylistType.ALBUM || type == SmartPlaylistType.ARTIST) {
+                                PlaylistPage.Groups(type)
+                            } else {
+                                PlaylistPage.SmartTracks(type)
+                            }
+                        )
+                    },
+                    onOpenCustom = { playlist -> go(backStack + PlaylistPage.Tracks(playlist)) },
+                    onCreatePlaylist = onCreatePlaylist,
+                    onRename = onRename,
+                    onDelete = onDelete,
                 )
-                when (page) {
-                    is PlaylistPage.Overview -> PlaylistOverview(
-                        playlistStore = playlistStore,
-                        playbackState = playbackState,
-                        menuBackgroundColor = menuBackgroundColor,
-                        onOpenSmart = { type ->
-                            go(
-                                backStack + if (type == SmartPlaylistType.ALBUM || type == SmartPlaylistType.ARTIST) {
-                                    PlaylistPage.Groups(type)
-                                } else {
-                                    PlaylistPage.SmartTracks(type)
-                                }
-                            )
-                        },
-                        onOpenCustom = { playlist -> go(backStack + PlaylistPage.Tracks(playlist)) },
-                        onCreatePlaylist = { showCreate = true },
-                        onRename = { renameTarget = it },
-                        onDelete = { deleteTarget = it },
-                    )
-                    is PlaylistPage.Groups -> PlaylistGroupsPage(
-                        type = page.type,
-                        playbackState = playbackState,
-                        onOpenGroup = { group -> go(backStack + PlaylistPage.GroupTracks(page.type, group)) },
-                    )
-                    is PlaylistPage.SmartTracks -> PlaylistSmartTracksPage(
-                        type = page.type,
-                        playbackState = playbackState,
-                    )
-                    is PlaylistPage.Tracks -> PlaylistTracksPage(playlist = page.playlist, playbackState = playbackState)
-                    is PlaylistPage.GroupTracks -> PlaylistAlbumTracksPage(
-                        group = page.group,
-                        playbackState = playbackState,
-                    )
-                }
+                is PlaylistPage.Groups -> PlaylistGroupsPage(
+                    type = page.type,
+                    playbackState = playbackState,
+                    onOpenGroup = { group -> go(backStack + PlaylistPage.GroupTracks(page.type, group)) },
+                )
+                is PlaylistPage.SmartTracks -> PlaylistSmartTracksPage(
+                    type = page.type,
+                    playbackState = playbackState,
+                )
+                is PlaylistPage.Tracks -> PlaylistTracksPage(playlist = page.playlist, playbackState = playbackState)
+                is PlaylistPage.GroupTracks -> PlaylistAlbumTracksPage(
+                    group = page.group,
+                    playbackState = playbackState,
+                )
             }
         }
     }
-    CreatePlaylistDialog(
-        visible = showCreate,
-        onCreated = { playlist ->
-            showCreate = false
-            // 创建后直接进入新歌单，便于立即添加歌曲
-            go(backStack + PlaylistPage.Tracks(playlist))
-        },
-        onDismiss = { showCreate = false },
-    )
-    RenamePlaylistDialog(playlist = renameTarget, onDismiss = { renameTarget = null })
-    DeletePlaylistDialog(playlist = deleteTarget, onDismiss = { deleteTarget = null })
 }
 
 // 面板页面：总览 / 智能分组列表 / 智能曲目 / 自定义歌单曲目 / 分组曲目。
@@ -252,6 +316,30 @@ private fun PanelHeader(
     }
 }
 
+// 系统歌单计数：常听/收藏按可播放曲目数，专辑/歌手按去重分组数
+internal data class SmartPlaylistCounts(
+    val recent: Int,
+    val favorite: Int,
+    val album: Int,
+    val artist: Int,
+)
+
+// 全库扫描计数：总览卡片与宽屏左栏读同一份口径，且都缓存到曲库或相应 id 表变化为止
+@Composable
+internal fun rememberSmartPlaylistCounts(playbackState: MusicPlaybackState): SmartPlaylistCounts {
+    val library = playbackState.libraryTracks
+    val recentIds = playbackState.recentPlayedIds
+    val likedIds = playbackState.likedIds
+    return remember(library, recentIds, likedIds) {
+        SmartPlaylistCounts(
+            recent = smartTrackCount(library, recentIds),
+            favorite = smartTrackCount(library, likedIds),
+            album = distinctAlbumCount(library),
+            artist = distinctArtistCount(library),
+        )
+    }
+}
+
 // 总览页：系统歌单卡片 + 我的歌单列表 + 新建歌单入口
 @Composable
 private fun PlaylistOverview(
@@ -265,6 +353,7 @@ private fun PlaylistOverview(
     onDelete: (Playlist) -> Unit,
 ) {
     val allTracks = playbackState.libraryTracks
+    val counts = rememberSmartPlaylistCounts(playbackState)
     // 本面板常驻合成树（仅靠位移移出屏幕，不做可见性短路），全库分组与计数必须缓存：
     // 否则每次重组都要重扫全库，扫描期的封面批量回写会把它放大成持续卡顿
     val unknownAlbum = stringResource(R.string.playlist_unknown_album)
@@ -277,14 +366,6 @@ private fun PlaylistOverview(
     val firstArtistCover = remember(allTracks, unknownArtist) {
         artistGroups(allTracks, unknownArtist).firstOrNull()?.trackIds?.firstOrNull()
     }?.let { id -> libraryById[id] }
-    val recentCount = remember(allTracks, playbackState.recentPlayedIds) {
-        smartTrackCount(allTracks, playbackState.recentPlayedIds)
-    }
-    val favoriteCount = remember(allTracks, playbackState.likedIds) {
-        smartTrackCount(allTracks, playbackState.likedIds)
-    }
-    val albumCount = remember(allTracks) { distinctAlbumCount(allTracks) }
-    val artistCount = remember(allTracks) { distinctArtistCount(allTracks) }
     val listState = rememberLazyListState()
     // 歌单行封面取歌单首曲：可视区邻域提前取图，滚动/曲库回填后不再先闪占位符。
     // 歌单行由 [OVERVIEW_HEADER_ITEM_COUNT] 之后开始，故列表下标需先扣除头部项
@@ -307,13 +388,13 @@ private fun PlaylistOverview(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     SmartPlaylistCard(
                         type = SmartPlaylistType.RECENT,
-                        countText = pluralStringResource(R.plurals.music_panel_track_count, recentCount, recentCount),
+                        countText = pluralStringResource(R.plurals.music_panel_track_count, counts.recent, counts.recent),
                         onClick = { onOpenSmart(SmartPlaylistType.RECENT) },
                         modifier = Modifier.weight(1f),
                     )
                     SmartPlaylistCard(
                         type = SmartPlaylistType.FAVORITE,
-                        countText = pluralStringResource(R.plurals.music_panel_track_count, favoriteCount, favoriteCount),
+                        countText = pluralStringResource(R.plurals.music_panel_track_count, counts.favorite, counts.favorite),
                         onClick = { onOpenSmart(SmartPlaylistType.FAVORITE) },
                         modifier = Modifier.weight(1f),
                     )
@@ -321,14 +402,14 @@ private fun PlaylistOverview(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     SmartPlaylistCard(
                         type = SmartPlaylistType.ALBUM,
-                        countText = pluralStringResource(R.plurals.playlist_album_count, albumCount, albumCount),
+                        countText = pluralStringResource(R.plurals.playlist_album_count, counts.album, counts.album),
                         onClick = { onOpenSmart(SmartPlaylistType.ALBUM) },
                         modifier = Modifier.weight(1f),
                         coverTrack = firstAlbumCover,
                     )
                     SmartPlaylistCard(
                         type = SmartPlaylistType.ARTIST,
-                        countText = pluralStringResource(R.plurals.playlist_artist_count, artistCount, artistCount),
+                        countText = pluralStringResource(R.plurals.playlist_artist_count, counts.artist, counts.artist),
                         onClick = { onOpenSmart(SmartPlaylistType.ARTIST) },
                         modifier = Modifier.weight(1f),
                         coverTrack = firstArtistCover,
@@ -367,8 +448,9 @@ private fun PlaylistOverview(
     }
 }
 
+// 分节标题：窄屏总览与宽屏左栏共用，两处的分节口径与字号一致
 @Composable
-private fun SectionLabel(text: String) {
+internal fun SectionLabel(text: String) {
     Text(
         text = text,
         color = Color.White,
@@ -431,14 +513,15 @@ private fun SmartPlaylistCard(
 }
 
 // 自定义歌单行的操作项：重命名 / 删除
-private enum class PlaylistRowAction(val labelRes: Int) {
+internal enum class PlaylistRowAction(val labelRes: Int) {
     Rename(R.string.playlist_rename),
     Delete(R.string.playlist_delete),
 }
 
-// 自定义歌单行：无背景 + 小圆角 + 封面或图标与主次文字，对齐在线搜索结果行
+// 自定义歌单行：无背景 + 小圆角 + 封面或图标与主次文字，对齐在线搜索结果行。
+// 窄屏总览列表与宽屏左栏导航共用一份实现，两处的行高、封面档位与菜单口径因此一致
 @Composable
-private fun PlaylistListRow(
+internal fun PlaylistListRow(
     playlist: Playlist,
     count: Int,
     onClick: () -> Unit,
@@ -446,11 +529,13 @@ private fun PlaylistListRow(
     onDelete: () -> Unit,
     menuBackgroundColor: Color,
     coverTrack: MusicTrack? = null,
+    selected: Boolean = false,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
+            .then(if (selected) Modifier.background(Color.White.copy(alpha = 0.13f)) else Modifier)
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -527,11 +612,14 @@ private fun PlaylistListRow(
     }
 }
 
-// 新建歌单入口：白色描边圆角卡片，与系统歌单卡片一致
+// 新建歌单入口：白色描边圆角卡片，与系统歌单卡片一致。窄屏总览与宽屏左栏共用
 @Composable
-private fun CreatePlaylistRow(onClick: () -> Unit) {
+internal fun CreatePlaylistRow(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
             .border(
@@ -553,7 +641,8 @@ private fun CreatePlaylistRow(onClick: () -> Unit) {
     }
 }
 
-private fun smartTypeIcon(type: SmartPlaylistType): ImageVector = when (type) {
+// 系统歌单类型的图标：窄屏总览卡片与宽屏左栏导航共用
+internal fun smartTypeIcon(type: SmartPlaylistType): ImageVector = when (type) {
     SmartPlaylistType.RECENT -> AppIcons.History
     SmartPlaylistType.FAVORITE -> AppIcons.Favorite
     SmartPlaylistType.ALBUM -> AppIcons.Album

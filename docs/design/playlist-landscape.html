@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>首页横屏 · 智能歌单 UI 重设计 · 4 版方案</title>
+<style>
+:root{
+  --page:#0a0d13; --ink:#e8edf5; --ink-dim:rgba(232,237,245,.62); --ink-dim2:rgba(232,237,245,.38);
+  --line:rgba(255,255,255,.12); --accent:#8fa6ff; --ok:#7ee0a8;
+  --r-card:20px; --r-tile:24px; --r-sm:8px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--page);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;line-height:1.55;}
+.page{max-width:1200px;margin:0 auto;padding:44px 24px 96px}
+.kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600}
+h1{font-size:26px;line-height:1.3;margin:10px 0 8px;font-weight:700}
+.lede{color:var(--ink-dim);font-size:14px;max-width:820px;margin:0}
+.lede code{background:rgba(255,255,255,.08);border-radius:5px;padding:1px 6px;font-size:12.5px}
+
+.problem{margin-top:28px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.pcard{border:1px solid var(--line);background:#10141d;border-radius:16px;padding:16px 18px}
+.pcard h3{margin:0 0 8px;font-size:14px;font-weight:600}
+.pcard ul{margin:0;padding-left:18px;color:var(--ink-dim);font-size:13px}
+.pcard li{margin:3px 0}
+.pcard.bad h3{color:#ff9a9a}
+.pcard.good h3{color:var(--ok)}
+
+.variant{margin-top:52px;padding-top:28px;border-top:1px solid var(--line)}
+.vhead{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.vnum{font-size:13px;font-weight:700;color:var(--accent);border:1px solid rgba(143,166,255,.5);
+  border-radius:999px;padding:3px 11px;letter-spacing:.06em}
+.vhead h2{margin:0;font-size:20px;font-weight:700}
+.vhead .tag{font-size:12px;color:var(--ink-dim2)}
+.notes{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:16px 0 18px}
+.note{border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:#0e121a}
+.note b{display:block;font-size:12px;letter-spacing:.05em;color:var(--accent);margin-bottom:5px}
+.note p{margin:0;font-size:13px;color:var(--ink-dim)}
+.note.trade b{color:#ffcf8a}
+
+.stage-wrap{width:100%;overflow:hidden;margin-top:6px}
+.stage{position:relative;width:1120px;height:700px;transform-origin:top left;
+  display:flex;flex-direction:column;border-radius:16px;overflow:hidden;color:var(--ink);
+  background:
+    radial-gradient(120% 95% at 16% 10%, rgba(96,140,255,.30), transparent 62%),
+    radial-gradient(95% 85% at 90% 88%, rgba(148,96,255,.22), transparent 60%),
+    linear-gradient(118deg,#0a1830 0%,#0e2246 46%,#14315c 100%);
+  box-shadow:0 24px 60px rgba(0,0,0,.5);}
+.stage::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(60% 50% at 78% 22%, rgba(255,255,255,.05), transparent 70%)}
+
+.phead{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:18px 26px 6px}
+.phead .title{font-size:17px;font-weight:600}
+.phead .spacer{flex:1}
+.phead .back{width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:var(--ink-dim)}
+
+.canvas{flex:1;min-height:0;padding:6px 26px 26px}
+.canvas.row{display:flex;gap:22px}
+.canvas.col{display:flex;flex-direction:column}
+
+.ic{width:20px;height:20px;flex:0 0 auto;fill:currentColor}
+.ic.line{fill:none}
+.ic.sm{width:16px;height:16px}
+.dim{color:var(--ink-dim2)}
+.dim2{color:var(--ink-dim)}
+
+.group-label{font-size:12px;font-weight:500;color:var(--ink);letter-spacing:.02em;margin:2px 0 10px}
+.group-label.tight{margin-bottom:8px}
+
+.cov{border-radius:7px;background:linear-gradient(135deg,#3b4a7a,#1b2a4a);position:relative;overflow:hidden;flex:0 0 auto}
+.cov::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.38),transparent 58%)}
+.c1{background:linear-gradient(135deg,#5b7cff,#1d2a55)}
+.c2{background:linear-gradient(135deg,#ff7ab6,#3a1d55)}
+.c3{background:linear-gradient(135deg,#4fd1c5,#123a4a)}
+.c4{background:linear-gradient(135deg,#f6c177,#4a2f1d)}
+.c5{background:linear-gradient(135deg,#a78bfa,#241b4a)}
+.c6{background:linear-gradient(135deg,#60a5fa,#0f2748)}
+.c7{background:linear-gradient(135deg,#f98080,#4a1f2a)}
+.c8{background:linear-gradient(135deg,#7ee0a8,#123a2c)}
+
+/* ---- A: 双栏 ---- */
+.rail{width:302px;flex:0 0 auto;border-right:1px solid var(--line);padding-right:18px;overflow:hidden}
+.detail{flex:1;min-width:0;padding-left:22px;overflow:hidden}
+.nav{display:flex;align-items:center;gap:12px;height:48px;padding:0 12px;border-radius:12px;color:var(--ink)}
+.nav .nm{font-size:14px}
+.nav .ct{margin-left:auto;font-size:11.5px;color:var(--ink-dim)}
+.nav.sel{background:rgba(255,255,255,.13);box-shadow:inset 3px 0 0 var(--accent)}
+.nav.sel .ct{color:rgba(143,166,255,.9)}
+.plrow{display:flex;align-items:center;gap:11px;height:44px;padding:0 12px;border-radius:12px}
+.plrow .cov{width:30px;height:30px}
+.plrow .meta{flex:1;min-width:0}
+.plrow .meta b{display:block;font-size:13px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plrow .meta i{font-style:normal;font-size:10.5px;color:var(--ink-dim)}
+.addrow{display:flex;align-items:center;justify-content:center;gap:8px;height:44px;margin-top:6px;
+  border:1px solid rgba(255,255,255,.45);border-radius:20px;font-size:13px}
+.dhead{display:flex;align-items:flex-end;gap:16px;padding-bottom:12px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.dhead h3{margin:0;font-size:19px;font-weight:700}
+.dhead p{margin:2px 0 0;font-size:11.5px;color:var(--ink-dim)}
+.pill{display:flex;align-items:center;gap:7px;margin-left:auto;border:1px solid rgba(255,255,255,.45);
+  border-radius:999px;padding:7px 16px;font-size:13px;font-weight:500}
+.pill .ic{width:15px;height:15px}
+.trow{display:flex;align-items:center;gap:12px;height:44px;padding:0 10px;border-radius:10px}
+.trow .cov{width:30px;height:30px}
+.trow .meta{flex:1;min-width:0}
+.trow .meta b{display:block;font-size:13px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trow .meta i{font-style:normal;font-size:10.5px;color:var(--ink-dim)}
+.trow.active .meta b{color:var(--accent)}
+
+/* ---- B: 自适应网格 ---- */
+.ghost{display:flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.45);border-radius:999px;
+  padding:6px 14px;font-size:12.5px;color:var(--ink)}
+.ghost .ic{width:14px;height:14px}
+.chips{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.chip{display:flex;align-items:center;gap:13px;border:1px solid rgba(255,255,255,.45);border-radius:20px;
+  padding:14px;background:rgba(255,255,255,.05)}
+.chip .cov{width:54px;height:54px;border-radius:12px}
+.chip b{display:block;font-size:14.5px;font-weight:600}
+.chip i{font-style:normal;font-size:11px;color:var(--ink-dim)}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.gcard{border:1px solid rgba(255,255,255,.14);border-radius:18px;overflow:hidden;background:rgba(255,255,255,.04)}
+.gcard .cover{height:104px;position:relative}
+.gcard .cover .cov{position:absolute;inset:0;border-radius:0}
+.gcard .cover::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 34% 28%,rgba(255,255,255,.34),transparent 58%)}
+.gcard .body{padding:9px 12px 11px}
+.gcard b{display:block;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gcard i{font-style:normal;font-size:10.5px;color:var(--ink-dim)}
+.gcard.add{display:flex;align-items:center;justify-content:center;border-style:dashed;color:var(--ink-dim);font-size:12.5px;min-height:150px}
+
+/* ---- C: 封面货架 ---- */
+.shelf{display:grid;gap:16px}
+.shelf.four{grid-template-columns:repeat(4,1fr)}
+.shelf.six{grid-template-columns:repeat(6,1fr);gap:14px}
+.poster{position:relative;border-radius:22px;overflow:hidden;box-shadow:0 10px 26px rgba(0,0,0,.35)}
+.shelf.four .poster{height:252px}
+.shelf.six .poster{height:176px;border-radius:18px}
+.mosaic{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
+.mosaic .cov{border-radius:0}
+.poster .veil{position:absolute;inset:0;background:linear-gradient(to top,rgba(4,8,18,.88) 8%,rgba(4,8,18,.25) 52%,transparent 78%)}
+.poster .cap{position:absolute;left:0;right:0;bottom:0;padding:15px 16px}
+.poster .cap b{display:block;font-size:16px;font-weight:700}
+.poster .cap i{font-style:normal;font-size:11px;color:var(--ink-dim)}
+.shelf.six .poster .cap{padding:11px 12px}
+.shelf.six .poster .cap b{font-size:13px;font-weight:600}
+.badge{position:absolute;top:13px;right:13px;width:34px;height:34px;border-radius:999px;
+  background:rgba(255,255,255,.92);color:#10141d;display:flex;align-items:center;justify-content:center}
+.badge .ic{width:16px;height:16px}
+.shelf.six .badge{display:none}
+
+/* ---- D: 主推 + 磁贴 ---- */
+.hero{width:470px;flex:0 0 auto;border-radius:24px;overflow:hidden;position:relative;
+  background:linear-gradient(150deg,#28407a,#101c38 55%,#0a1226)}
+.hero .art{position:absolute;inset:0;background:
+  radial-gradient(70% 60% at 30% 26%,rgba(122,160,255,.55),transparent 62%),
+  radial-gradient(60% 60% at 82% 78%,rgba(190,120,255,.4),transparent 62%)}
+.hero .veil{position:absolute;inset:0;background:linear-gradient(to top,rgba(4,8,18,.9) 6%,rgba(4,8,18,.3) 58%,transparent 82%)}
+.hero .cap{position:absolute;left:0;right:0;bottom:0;padding:26px 28px 24px}
+.hero .eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:rgba(143,166,255,.95);font-weight:600}
+.hero h3{margin:8px 0 4px;font-size:30px;font-weight:700;letter-spacing:.02em}
+.hero .sub{font-size:12.5px;color:var(--ink-dim)}
+.hero .acts{display:flex;gap:12px;margin-top:18px}
+.hero .btn{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;border-radius:999px;padding:10px 20px}
+.hero .btn.primary{background:#f2f5ff;color:#10141d}
+.hero .btn.ghost{border:1px solid rgba(255,255,255,.42)}
+.hero .btn .ic{width:15px;height:15px}
+.hero .thumbs{display:flex;gap:8px;margin-top:20px}
+.hero .thumbs .cov{width:44px;height:44px;border-radius:10px;opacity:.9}
+.side{flex:1;min-width:0}
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.tile{display:flex;align-items:center;gap:13px;border:1px solid rgba(255,255,255,.45);border-radius:20px;
+  padding:16px 16px;background:rgba(255,255,255,.05)}
+.tile .ic{width:26px;height:26px}
+.tile b{display:block;font-size:15px;font-weight:600}
+.tile i{font-style:normal;font-size:11px;color:var(--ink-dim)}
+
+.cmp{margin-top:56px;padding-top:28px;border-top:1px solid var(--line)}
+.cmp h2{font-size:18px;margin:0 0 14px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--accent);font-size:12px;font-weight:600;letter-spacing:.04em}
+td:first-child{font-weight:600;white-space:nowrap}
+td{color:var(--ink-dim)}
+.ask{margin-top:40px;border:1px solid rgba(143,166,255,.4);background:rgba(143,166,255,.07);
+  border-radius:18px;padding:20px 22px}
+.ask h3{margin:0 0 8px;font-size:15px}
+.ask p{margin:0;color:var(--ink-dim);font-size:13.5px}
+
+@media (max-width:860px){
+  .problem,.notes{grid-template-columns:1fr}
+  .page{padding:28px 16px 64px}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" class="line" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v5l3.6 2.1" class="line" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-9.3A4.2 4.2 0 0 1 12 8.1 4.2 4.2 0 0 1 19 10.7C19 15.6 12 20 12 20z" class="line" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+  <symbol id="i-disc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" class="line" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.6" class="line" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="8.4" r="3.5" class="line" stroke="currentColor" stroke-width="1.8"/><path d="M5.6 19.4c1.2-3.4 3.6-5 6.4-5s5.2 1.6 6.4 5" class="line" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" class="line" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="18.5" r="1.7"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.4v13.2L19 12z"/></symbol>
+  <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M16.5 4H20v3.5M20 4l-6.6 6.6M16.5 20H20v-3.5M20 20l-6.6-6.6M3.6 6.8h2.9l2.1 2.1M3.6 17.2h2.9l3.2-3.2" class="line" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-drag" viewBox="0 0 24 24"><path d="M8 9h8M8 12h8M8 15h8" class="line" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M9.5 16.8V5.6l8.2-1.8v11" class="line" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="7" cy="17.2" r="2.5" class="line" stroke="currentColor" stroke-width="1.7"/><circle cx="15.2" cy="15.2" r="2.5" class="line" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M14.5 6 9 12l5.5 6" class="line" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<div class="page">
+  <div class="kicker">YiChao Music · Layout Redesign</div>
+  <h1>首页横屏 · 智能歌单 UI 重设计</h1>
+  <p class="lede">横屏下歌单页是整屏 Pager 页；当前总览把智能歌单铺成固定 2×2 卡片网格，卡片随宽度被拉伸到近乎空壳，且横屏高度紧张、需要大量纵向滚动。下面 4 版都在解决同一组问题：<b>用满横向宽度、限制卡片尺度、压缩纵向滚动</b>，并适配 7″–13″ 平板。四版均沿用现有深色沉浸底 + 白色描边卡的语言，不改动视觉基调。</p>
+
+  <div class="problem">
+    <div class="pcard bad">
+      <h3>当前实现的问题</h3>
+      <ul>
+        <li>2×2 卡片网格铺满全宽，平板上单卡约 600dp，图标与文字悬在空卡里</li>
+        <li>系统歌单与我的歌单纵向串成一条长列表，横屏可视高度不足</li>
+        <li>进入任一类目都要跳二级页，横向空间未被用作导航</li>
+        <li>卡片尺度不随窗口变化，手机横屏过挤、平板过空</li>
+      </ul>
+    </div>
+    <div class="pcard good">
+      <h3>四版共同的设计约束</h3>
+      <ul>
+        <li>卡片宽度设上限（约 200–260dp），列数随可用宽度增长而非拉伸卡片</li>
+        <li>智能歌单优先在横屏一屏内呈现，减少纵向滚动</li>
+        <li>沿用白色 45% 描边、24dp 圆角、系统图标与计数字号口径</li>
+        <li>按窗口宽度类自适应，不新增依赖、复用现有分组与计数逻辑</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ A ============ -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="vnum">方案 A</span>
+      <h2>双栏分栏（导航 + 内容）</h2>
+      <span class="tag">Master-Detail · 平板标准模式</span>
+    </div>
+    <div class="notes">
+      <div class="note"><b>结构</b><p>左栏 300dp 固定宽：系统歌单四项（带计数、选中高亮）+ 我的歌单列表 + 新建。右栏随选择切换内容（曲目列表 / 专辑歌手分组网格）。</p></div>
+      <div class="note"><b>优势</b><p>一次点击直达内容，取消二级跳转；横向宽度直接变成常驻导航；信息可达性最高，最贴合平板使用习惯。</p></div>
+      <div class="note trade"><b>取舍</b><p>左栏常占宽度，7″ 横屏时内容区偏窄；导航态需要引入「当前选中项」的概念（现有实现无此状态）。</p></div>
+    </div>
+    <div class="stage-wrap"><div class="stage">
+      <div class="phead"><span class="back"><svg class="ic sm"><use href="#i-left"/></svg></span><span class="title">歌单</span></div>
+      <div class="canvas row">
+        <aside class="rail">
+          <div class="group-label tight">系统歌单</div>
+          <div class="nav sel"><svg class="ic"><use href="#i-clock"/></svg><span class="nm">常听</span><span class="ct">128 首</span></div>
+          <div class="nav"><svg class="ic"><use href="#i-heart"/></svg><span class="nm">收藏</span><span class="ct">236 首</span></div>
+          <div class="nav"><svg class="ic"><use href="#i-disc"/></svg><span class="nm">专辑</span><span class="ct">42 张</span></div>
+          <div class="nav"><svg class="ic"><use href="#i-person"/></svg><span class="nm">歌手</span><span class="ct">31 位</span></div>
+          <div class="group-label tight" style="margin-top:18px">我的歌单</div>
+          <div class="plrow"><span class="cov c1"></span><span class="meta"><b>夜跑</b><i>24 首</i></span><svg class="ic sm dim"><use href="#i-more"/></svg></div>
+          <div class="plrow"><span class="cov c3"></span><span class="meta"><b>通勤</b><i>58 首</i></span><svg class="ic sm dim"><use href="#i-more"/></svg></div>
+          <div class="plrow"><span class="cov c5"></span><span class="meta"><b>深夜电台</b><i>41 首</i></span><svg class="ic sm dim"><use href="#i-more"/></svg></div>
+          <div class="plrow"><span class="cov c4"></span><span class="meta"><b>日语学习</b><i>96 首</i></span><svg class="ic sm dim"><use href="#i-more"/></svg></div>
+          <div class="plrow"><span class="cov c8"></span><span class="meta"><b>钢琴纯音</b><i>33 首</i></span><svg class="ic sm dim"><use href="#i-more"/></svg></div>
+          <div class="addrow"><svg class="ic sm"><use href="#i-plus"/></svg>新建歌单</div>
+        </aside>
+        <section class="detail">
+          <div class="dhead">
+            <div><h3>常听</h3><p>128 首 · 按最近播放排序</p></div>
+            <div class="pill"><svg class="ic"><use href="#i-play"/></svg>播放全部</div>
+          </div>
+          <div class="trow active"><span class="cov c2"></span><span class="meta"><b>夜航星</b><i>不才</i></span><svg class="ic sm dim2"><use href="#i-drag"/></svg><svg class="ic sm"><use href="#i-heart"/></svg></div>
+          <div class="trow"><span class="cov c1"></span><span class="meta"><b>光るなら</b><i>Goose house</i></span><svg class="ic sm dim2"><use href="#i-drag"/></svg><svg class="ic sm"><use href="#i-heart"/></svg></div>
+          <div class="trow"><span class="cov c5"></span><span class="meta"><b>なんでもないや</b><i>RADWIMPS</i></span><svg class="ic sm dim2"><use href="#i-drag"/></svg><svg class="ic sm"><use href="#i-heart"/></svg></div>
+          <div class="trow"><span class="cov c4"></span><span class="meta"><b>Lemon</b><i>米津玄師</i></span><svg class="ic sm dim2"><use href="#i-drag"/></svg><svg class="ic sm"><use href="#i-heart"/></svg></div>
+          <div class="trow"><span class="cov c3"></span><span class="meta"><b>打上花火</b><i>DAOKO × 米津玄師</i></span><svg class="ic sm dim2"><use href="#i-drag"/></svg><svg class="ic sm"><use href="#i-heart"/></svg></div>
+          <div class="trow"><span class="cov c6"></span><span class="meta"><b>前前前世</b><i>RADWIMPS</i></span><svg class="ic sm dim2"><use href="#i-drag"/></svg><svg class="ic sm"><use href="#i-heart"/></svg></div>
+          <div class="trow"><span class="cov c7"></span><span class="meta"><b>残酷な天使のテーゼ</b><i>高橋洋子</i></span><svg class="ic sm dim2"><use href="#i-drag"/></svg><svg class="ic sm"><use href="#i-heart"/></svg></div>
+          <div class="trow"><span class="cov c8"></span><span class="meta"><b>千本桜</b><i>初音ミク</i></span><svg class="ic sm dim2"><use href="#i-drag"/></svg><svg class="ic sm"><use href="#i-heart"/></svg></div>
+        </section>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ============ B ============ -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="vnum">方案 B</span>
+      <h2>自适应卡片网格</h2>
+      <span class="tag">保留总览 · 卡片限宽多列</span>
+    </div>
+    <div class="notes">
+      <div class="note"><b>结构</b><p>保留现有总览结构，只改排布：系统歌单压成一行 4 张横向卡（封面 54dp + 名称计数），我的歌单改为按宽度自适应的多列网格，卡片带封面顶图。</p></div>
+      <div class="note"><b>优势</b><p>改动量最小、与竖屏心智一致；卡片宽度被限制后不再被拉伸；列数随窗口增长，手机横屏 2 列、平板 4–6 列。</p></div>
+      <div class="note trade"><b>取舍</b><p>仍需纵向滚动浏览我的歌单；封面顶图会让单卡变高，一屏能看到的歌单数少于 A/C；视觉焦点较平。</p></div>
+    </div>
+    <div class="stage-wrap"><div class="stage">
+      <div class="phead"><span class="title">歌单</span><span class="spacer"></span><span class="ghost"><svg class="ic"><use href="#i-plus"/></svg>新建</span></div>
+      <div class="canvas col">
+        <div class="group-label tight">系统歌单</div>
+        <div class="chips">
+          <div class="chip"><span class="cov c1"></span><span><b>常听</b><i>128 首</i></span></div>
+          <div class="chip"><span class="cov c2"></span><span><b>收藏</b><i>236 首</i></span></div>
+          <div class="chip"><span class="cov c5"></span><span><b>专辑</b><i>42 张</i></span></div>
+          <div class="chip"><span class="cov c3"></span><span><b>歌手</b><i>31 位</i></span></div>
+        </div>
+        <div class="group-label tight" style="margin-top:20px">我的歌单</div>
+        <div class="grid4">
+          <div class="gcard"><div class="cover"><span class="cov c1"></span></div><div class="body"><b>夜跑</b><i>24 首</i></div></div>
+          <div class="gcard"><div class="cover"><span class="cov c3"></span></div><div class="body"><b>通勤</b><i>58 首</i></div></div>
+          <div class="gcard"><div class="cover"><span class="cov c5"></span></div><div class="body"><b>深夜电台</b><i>41 首</i></div></div>
+          <div class="gcard"><div class="cover"><span class="cov c4"></span></div><div class="body"><b>日语学习</b><i>96 首</i></div></div>
+          <div class="gcard"><div class="cover"><span class="cov c8"></span></div><div class="body"><b>钢琴纯音</b><i>33 首</i></div></div>
+          <div class="gcard"><div class="cover"><span class="cov c6"></span></div><div class="body"><b>电影原声</b><i>52 首</i></div></div>
+          <div class="gcard"><div class="cover"><span class="cov c7"></span></div><div class="body"><b>摇滚现场</b><i>18 首</i></div></div>
+          <div class="gcard add"><svg class="ic sm" style="margin-right:6px"><use href="#i-plus"/></svg>新建歌单</div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ============ C ============ -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="vnum">方案 C</span>
+      <h2>封面货架（两行平铺）</h2>
+      <span class="tag">封面主导 · 一屏不滚动</span>
+    </div>
+    <div class="notes">
+      <div class="note"><b>结构</b><p>上下两行「货架」：上行 4 张智能海报卡（四图拼贴封面 + 底部渐隐标题与计数 + 播放圆钮），下行我的歌单 6 张封面小卡，两行均在平板上一屏排满。</p></div>
+      <div class="note"><b>优势</b><p>封面成为绝对主角、视觉冲击最强；横屏高度被精确利用，平板与手机横屏都无需纵向滚动。</p></div>
+      <div class="note trade"><b>取舍</b><p>卡片内文字可读宽度变小，长歌单名需截断；封面拼贴要新增「取多首曲目封面」的取图逻辑；交互密度低于 A。</p></div>
+    </div>
+    <div class="stage-wrap"><div class="stage">
+      <div class="phead"><span class="title">歌单</span><span class="spacer"></span><span class="ghost"><svg class="ic"><use href="#i-plus"/></svg>新建</span></div>
+      <div class="canvas col">
+        <div class="group-label tight">系统歌单</div>
+        <div class="shelf four">
+          <div class="poster"><div class="mosaic"><span class="cov c1"></span><span class="cov c5"></span><span class="cov c3"></span><span class="cov c6"></span></div><div class="veil"></div><div class="cap"><b>常听</b><i>128 首</i></div><div class="badge"><svg class="ic"><use href="#i-play"/></svg></div></div>
+          <div class="poster"><div class="mosaic"><span class="cov c2"></span><span class="cov c7"></span><span class="cov c4"></span><span class="cov c5"></span></div><div class="veil"></div><div class="cap"><b>收藏</b><i>236 首</i></div><div class="badge"><svg class="ic"><use href="#i-play"/></svg></div></div>
+          <div class="poster"><div class="mosaic"><span class="cov c4"></span><span class="cov c8"></span><span class="cov c1"></span><span class="cov c3"></span></div><div class="veil"></div><div class="cap"><b>专辑</b><i>42 张</i></div><div class="badge"><svg class="ic"><use href="#i-disc"/></svg></div></div>
+          <div class="poster"><div class="mosaic"><span class="cov c6"></span><span class="cov c3"></span><span class="cov c2"></span><span class="cov c7"></span></div><div class="veil"></div><div class="cap"><b>歌手</b><i>31 位</i></div><div class="badge"><svg class="ic"><use href="#i-person"/></svg></div></div>
+        </div>
+        <div class="group-label tight" style="margin-top:20px">我的歌单</div>
+        <div class="shelf six">
+          <div class="poster"><span class="cov c1" style="position:absolute;inset:0;border-radius:0"></span><div class="veil"></div><div class="cap"><b>夜跑</b><i>24 首</i></div></div>
+          <div class="poster"><span class="cov c3" style="position:absolute;inset:0;border-radius:0"></span><div class="veil"></div><div class="cap"><b>通勤</b><i>58 首</i></div></div>
+          <div class="poster"><span class="cov c5" style="position:absolute;inset:0;border-radius:0"></span><div class="veil"></div><div class="cap"><b>深夜电台</b><i>41 首</i></div></div>
+          <div class="poster"><span class="cov c4" style="position:absolute;inset:0;border-radius:0"></span><div class="veil"></div><div class="cap"><b>日语学习</b><i>96 首</i></div></div>
+          <div class="poster"><span class="cov c8" style="position:absolute;inset:0;border-radius:0"></span><div class="veil"></div><div class="cap"><b>钢琴纯音</b><i>33 首</i></div></div>
+          <div class="poster"><span class="cov c6" style="position:absolute;inset:0;border-radius:0"></span><div class="veil"></div><div class="cap"><b>电影原声</b><i>52 首</i></div></div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ============ D ============ -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="vnum">方案 D</span>
+      <h2>主推大卡 + 磁贴侧栏</h2>
+      <span class="tag">突出焦点 · 继续收听</span>
+    </div>
+    <div class="notes">
+      <div class="note"><b>结构</b><p>左侧一张贯通全高的主推卡（默认「常听」，含封面渐变、播放/随机、最近曲目缩略图）；右侧 2×2 系统磁贴（收藏/专辑/歌手/新建）+ 我的歌单紧凑列表。</p></div>
+      <div class="note"><b>优势</b><p>有唯一明确的视觉焦点，主推卡天然承载「继续收听」；右侧保留完整操作可达性与列表密度。</p></div>
+      <div class="note trade"><b>取舍</b><p>主推哪一类需要规则（固定常听 / 按最近播放），且占用近一半宽度；布局最复杂，改动量最大。</p></div>
+    </div>
+    <div class="stage-wrap"><div class="stage">
+      <div class="phead"><span class="title">歌单</span><span class="spacer"></span><span class="ghost"><svg class="ic"><use href="#i-plus"/></svg>新建</span></div>
+      <div class="canvas row">
+        <div class="hero">
+          <div class="art"></div><div class="veil"></div>
+          <div class="cap">
+            <div class="eyebrow">继续收听</div>
+            <h3>常听</h3>
+            <div class="sub">128 首 · 最近播放</div>
+            <div class="acts">
+              <div class="btn primary"><svg class="ic"><use href="#i-play"/></svg>播放</div>
+              <div class="btn ghost"><svg class="ic"><use href="#i-shuffle"/></svg>随机</div>
+            </div>
+            <div class="thumbs"><span class="cov c2"></span><span class="cov c1"></span><span class="cov c5"></span><span class="cov c4"></span></div>
+          </div>
+        </div>
+        <section class="side">
+          <div class="group-label tight">系统歌单</div>
+          <div class="tiles">
+            <div class="tile"><svg class="ic"><use href="#i-heart"/></svg><span><b>收藏</b><i>236 首</i></span></div>
+            <div class="tile"><svg class="ic"><use href="#i-disc"/></svg><span><b>专辑</b><i>42 张</i></span></div>
+            <div class="tile"><svg class="ic"><use href="#i-person"/></svg><span><b>歌手</b><i>31 位</i></span></div>
+            <div class="tile"><svg class="ic"><use href="#i-plus"/></svg><span><b>新建歌单</b><i>&nbsp;</i></span></div>
+          </div>
+          <div class="group-label tight" style="margin-top:18px">我的歌单</div>
+          <div class="plrow"><span class="cov c1"></span><span class="meta"><b>夜跑</b><i>24 首</i></span><svg class="ic sm dim"><use href="#i-more"/></svg></div>
+          <div class="plrow"><span class="cov c3"></span><span class="meta"><b>通勤</b><i>58 首</i></span><svg class="ic sm dim"><use href="#i-more"/></svg></div>
+          <div class="plrow"><span class="cov c5"></span><span class="meta"><b>深夜电台</b><i>41 首</i></span><svg class="ic sm dim"><use href="#i-more"/></svg></div>
+          <div class="plrow"><span class="cov c4"></span><span class="meta"><b>日语学习</b><i>96 首</i></span><svg class="ic sm dim"><use href="#i-more"/></svg></div>
+          <div class="plrow"><span class="cov c8"></span><span class="meta"><b>钢琴纯音</b><i>33 首</i></span><svg class="ic sm dim"><use href="#i-more"/></svg></div>
+        </section>
+      </div>
+    </div></div>
+  </section>
+
+  <section class="cmp">
+    <h2>四版对照</h2>
+    <table>
+      <tr><th>方案</th><th>横向空间用法</th><th>纵向滚动</th><th>改动量</th><th>最佳场景</th></tr>
+      <tr><td>A 双栏分栏</td><td>左栏常驻导航 + 右栏内容</td><td>极少（内容区滚动）</td><td>中（需引入选中态）</td><td>平板横屏，重操作效率</td></tr>
+      <tr><td>B 自适应网格</td><td>卡片限宽、列数随宽增长</td><td>我的歌单需滚动</td><td>小（纯排布调整）</td><td>手机横屏到平板通吃</td></tr>
+      <tr><td>C 封面货架</td><td>两行平铺填满宽度</td><td>无</td><td>中（新增封面拼贴取图）</td><td>视觉表现、封面党</td></tr>
+      <tr><td>D 主推大卡</td><td>左主推 + 右磁贴列表</td><td>无</td><td>大（新布局 + 主推规则）</td><td>平板横屏，突出继续收听</td></tr>
+    </table>
+  </section>
+
+  <div class="ask">
+    <h3>请挑选一版推进</h3>
+    <p>回复方案代号（A / B / C / D），或指出想合并的点（例如「A 的导航 + C 的封面卡」），我据此给出 Compose 侧的实现方案与改动清单。</p>
+  </div>
+</div>
+
+<script>
+(function(){
+  function fit(){
+    document.querySelectorAll('.stage-wrap').forEach(function(w){
+      var st = w.querySelector('.stage');
+      if(!st) return;
+      var s = Math.min(1, w.clientWidth / 1120);
+      st.style.transform = 'scale(' + s + ')';
+      w.style.height = (700 * s) + 'px';
+    });
+  }
+  fit();
+  window.addEventListener('resize', fit);
+})();
+</script>
+</body>
+</html>

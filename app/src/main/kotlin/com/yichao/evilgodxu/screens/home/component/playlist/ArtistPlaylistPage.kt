@@ -98,7 +98,6 @@ internal fun ArtistPlaylistPage(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     val artistOrderStore = LocalArtistOrderStore.current
     // 与分组列表同一口径：按分组保存的 trackIds 解析，避免多歌手曲目（如 "A / B"）
     // 因 artist 整串不等于歌手名而被过滤，导致详情曲目少于列表展示数
@@ -142,16 +141,10 @@ internal fun ArtistPlaylistPage(
                 key = { ArtistTab.entries[it] },
             ) { index ->
                 when (ArtistTab.entries[index]) {
-                    ArtistTab.SONGS -> TracksContent(
-                        tracks = orderedTracks,
-                        source = PlaylistSource(group.key, group.name),
+                    ArtistTab.SONGS -> ArtistSongsContent(
+                        group = group,
+                        orderedTracks = orderedTracks,
                         playbackState = playbackState,
-                        scope = scope,
-                        trailingAction = {},
-                        onTrackLongClick = {},
-                        // 歌手分组的次序无处存放（分组由曲库即时解析），拖拽落定即写进本歌手的存档，
-                        // 离开再进仍按它铺列表
-                        onReorder = { ordered -> artistOrderStore.setOrder(context, group.name, ordered.map { it.id }) },
                     )
                     ArtistTab.ALBUMS -> ArtistAlbumList(
                         albums = albums,
@@ -280,4 +273,43 @@ private fun ArtistAlbumList(
             )
         }
     }
+}
+
+// 歌手歌曲列表：曲序按该歌手的存档次序铺开——分组由曲库即时解析，次序本身没有落脚点，
+// 故拖拽落定即写档。沉浸歌手页的「歌曲」标签与宽屏歌单面板的歌手详情共用这一份实现，
+// 两处的曲序与拖拽口径因此一致
+@Composable
+internal fun ArtistSongsContent(
+    group: PlaylistGroup,
+    orderedTracks: List<MusicTrack>,
+    playbackState: MusicPlaybackState,
+) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val artistOrderStore = LocalArtistOrderStore.current
+    TracksContent(
+        tracks = orderedTracks,
+        source = PlaylistSource(group.key, group.name),
+        playbackState = playbackState,
+        scope = scope,
+        trailingAction = {},
+        onTrackLongClick = {},
+        onReorder = { ordered -> artistOrderStore.setOrder(context, group.name, ordered.map { it.id }) },
+    )
+}
+
+// 宽屏歌单面板的歌手详情：与沉浸歌手页的「歌曲」标签同源，仅呈现该歌手的歌曲列表。
+// 专辑浏览在宽屏由左栏的专辑类目承担，故此处不重复提供专辑标签
+@Composable
+internal fun PlaylistArtistTracksPage(
+    group: PlaylistGroup,
+    playbackState: MusicPlaybackState,
+) {
+    val artistOrderStore = LocalArtistOrderStore.current
+    val tracks = remember(playbackState.libraryTracks, group.key) {
+        resolveTracks(playbackState.libraryTracks, group.trackIds)
+    }
+    val savedOrder = artistOrderStore.orders[group.name].orEmpty()
+    val orderedTracks = remember(tracks, savedOrder) { applySavedTrackOrder(tracks, savedOrder) }
+    ArtistSongsContent(group = group, orderedTracks = orderedTracks, playbackState = playbackState)
 }
