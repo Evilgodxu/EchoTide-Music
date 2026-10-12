@@ -39,7 +39,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yichao.evilgodxu.data.settings.usbDirectOutputModeFlow
-import com.yichao.evilgodxu.permission.bluetoothConnectPermission
 import com.yichao.evilgodxu.permission.isBatteryOptimizationIgnored
 import com.yichao.evilgodxu.permission.mediaAudioPermission
 import com.yichao.evilgodxu.permission.mediaImagePermission
@@ -78,7 +77,7 @@ fun PermissionDialog(
         }
     }
 
-    // 运行时权限（音乐访问、图片、蓝牙、通知）申请结果回调后统一刷新状态
+    // 运行时权限（音乐访问、图片、通知）申请结果回调后统一刷新状态
     val runtimePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
@@ -229,23 +228,8 @@ fun PermissionDialog(
                             },
                         )
                     }
-                    // 蓝牙、通知与电池优化白名单同样仅在缺失时列出，但三者都不参与对话框关闭判定：
+                    // 通知与电池优化白名单同样仅在缺失时列出，但两者都不参与对话框关闭判定：
                     // 否则用户拒绝其一就会让首页被权限对话框永久占用
-                    if (!uiState.bluetoothConnectGranted) {
-                        PermissionCardRow(
-                            icon = {
-                                Icon(
-                                    AppIcons.Bluetooth,
-                                    null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            },
-                            title = stringResource(R.string.permission_bluetooth_title),
-                            onRequest = {
-                                runtimePermissionLauncher.launch(arrayOf(bluetoothConnectPermission()))
-                            },
-                        )
-                    }
                     if (!uiState.notificationGranted) {
                         PermissionCardRow(
                             icon = {

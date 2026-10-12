@@ -163,7 +163,7 @@ A few decisions shape the rest of the codebase:
 | Install packages (`REQUEST_INSTALL_PACKAGES`) | Launching the system installer for an in-app update |
 | Write settings (`WRITE_SETTINGS`) | Setting a track as the default ringtone / alarm sound |
 
-Permissions are requested one at a time from the onboarding dialog: the three library permissions are required, while Bluetooth, notifications and the battery whitelist are optional and shown only when missing. A partial photo grant (Android 14 *selected photos*) counts as image access, since the query still returns the pictures the user picked. The audio info panel additionally requests Bluetooth permission on the spot when the output is a Bluetooth device.
+Permissions are requested one at a time from the onboarding dialog: the three library permissions are required, while notifications and the battery whitelist are optional and shown only when missing. A partial photo grant (Android 14 *selected photos*) counts as image access, since the query still returns the pictures the user picked. Bluetooth is kept out of onboarding: the audio info panel requests it on the spot once the current output is a Bluetooth device, so users who never open that panel are never asked for it.
 
 ## Getting Started
 

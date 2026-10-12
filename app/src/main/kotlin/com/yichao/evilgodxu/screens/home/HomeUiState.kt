@@ -6,7 +6,6 @@ data class HomeUiState(
     val allFilesGranted: Boolean = false,
     val mediaAudioGranted: Boolean = false,
     val mediaImageGranted: Boolean = false,
-    val bluetoothConnectGranted: Boolean = false,
     val notificationGranted: Boolean = false,
     val batteryWhitelistGranted: Boolean = false,
     // 免打扰访问：仅 USB 直出时用得到，故不计入 allPermissionsSatisfied——它的权限行只在直出开关
@@ -18,9 +17,10 @@ data class HomeUiState(
         get() = allFilesGranted && mediaAudioGranted && mediaImageGranted
 
     // 任一权限缺失都要以对话框形式呈现，启动时不直接弹系统权限窗。
-    // 蓝牙、通知与电池优化白名单只影响局部能力（设备名、通知展示、熄屏后台播放），
-    // 不计入 blockingPermissionsGranted：用户拒绝其一时对话框仍可关闭，否则首页会被永久占用
+    // 通知与电池优化白名单只影响局部能力（通知展示、熄屏后台播放），
+    // 不计入 blockingPermissionsGranted：用户拒绝其一时对话框仍可关闭，否则首页会被永久占用。
+    // 蓝牙不属首启范围：它只供音频信息面板读取蓝牙输出设备的名称与编解码器，
+    // 由该面板在当前输出为蓝牙时就地申请，故此处不参与
     val allPermissionsSatisfied: Boolean
-        get() = blockingPermissionsGranted && bluetoothConnectGranted &&
-            notificationGranted && batteryWhitelistGranted
+        get() = blockingPermissionsGranted && notificationGranted && batteryWhitelistGranted
 }

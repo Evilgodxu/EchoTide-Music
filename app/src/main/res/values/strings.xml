@@ -36,7 +36,6 @@
     <string name="permission_all_files_title">全部文件</string>
     <string name="permission_music_title">音乐访问</string>
     <string name="permission_image_title">图片访问</string>
-    <string name="permission_bluetooth_title">蓝牙设备</string>
     <string name="permission_notification_title">通知</string>
     <string name="permission_battery_title">后台播放</string>
     <string name="permission_dnd_title">免打扰</string>

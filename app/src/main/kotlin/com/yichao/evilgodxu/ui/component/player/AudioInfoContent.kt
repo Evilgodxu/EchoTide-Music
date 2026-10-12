@@ -628,10 +628,11 @@ private fun rememberOutputLatencyReading(
  *
  * 远端设备名与真实地址都受 BLUETOOTH_CONNECT 保护，未授权时两者都读不到（地址还会被平台匿名化），
  * 故在当前输出是蓝牙且名称读不到时就地申请，省去用户自行去系统设置里翻找。
+ * 蓝牙授权只服务于本面板，不列入首启引导，这里是它唯一的申请入口。
  * 每次打开面板至多申请一次，避免反复打扰。
  *
  * 悬浮窗宿主没有 Activity（系统授权对话框会落在悬浮窗之下，用户无从操作），此处不申请，
- * 该场景交由首页权限对话框覆盖。
+ * 该场景下设备名与编解码器留空，用户可在主界面打开同一面板时授权。
  */
 @Composable
 private fun BluetoothConnectPermissionRequest(currentOutput: OutputDeviceInfo?) {
