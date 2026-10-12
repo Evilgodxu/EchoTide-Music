@@ -25,8 +25,11 @@ internal fun HomePanels(
         modifier = modifier.fillMaxSize(),
         // 底部播放列表面板是全屏遮罩式弹层：显示期间关闭翻页，面板内的横向滑动与屏幕边缘滑动都不会切页。
         // 歌手页同样关闭本层翻页——该页的左右滑动用于切换歌曲/专辑标签（见 ArtistPlaylistPage），
+        // 歌单页的下钻层级也关闭——右滑在该层用于回退一级（见 PlaylistPanel），
         // 一层滑动只该有一个去向
-        userScrollEnabled = !panelState.playlistVisible && !panelState.playlistImmersive,
+        userScrollEnabled = !panelState.playlistVisible &&
+            !panelState.playlistImmersive &&
+            !panelState.playlistSwipeBack,
         // 三页均为重量级常驻视图（歌单页持有全库分组缓存与页面栈），全部保留在合成树，避免切页重建
         beyondViewportPageCount = HomePage.entries.size,
         key = { HomePage.entries[it] },
@@ -49,6 +52,8 @@ internal fun HomePanels(
                 topInset = topInset,
                 // 歌手页在场时标题栏让位：面板随页面栈同步上报，组装器据此收起标题栏
                 onImmersivePageChange = { panelState.playlistImmersive = it },
+                // 下钻层级接管横向滑动：面板随页面栈同步上报，首页翻页据此让位
+                onSwipeBackChange = { panelState.playlistSwipeBack = it },
                 // 点击播放器歌手信息后请求打开的歌手歌单
                 pendingArtist = panelState.pendingArtistPlaylist,
                 onPendingArtistHandled = { panelState.pendingArtistPlaylist = null },

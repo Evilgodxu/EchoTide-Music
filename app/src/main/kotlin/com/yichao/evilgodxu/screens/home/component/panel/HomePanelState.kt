@@ -44,6 +44,10 @@ internal class HomePanelState(
     // 由歌单面板随页面栈在同一次事件回调里写入——挪到组合之后的副作用上报，
     // 进入该页的首帧会先亮出标题栏再收回去
     var playlistImmersive by mutableStateOf(false)
+    // 歌单面板当前是否停在可逐级回退的下钻页：该状态下右滑用于回退一级，
+    // 首页横向翻页须关闭（一层滑动只对应一个去向）。与 playlistImmersive 分开，
+    // 是因为下钻页仍要看得到标题栏，只是不再让首页翻页参与横向滑动
+    var playlistSwipeBack by mutableStateOf(false)
 
     // 当前落点页面
     val currentPage: HomePage

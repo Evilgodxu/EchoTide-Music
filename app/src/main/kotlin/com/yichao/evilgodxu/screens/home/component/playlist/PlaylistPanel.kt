@@ -4,6 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,13 +28,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +69,7 @@ import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.windowsize.rememberExpandedForm
+import kotlin.math.abs
 
 // 首页左滑呼出的歌单面板：按形态分派——窄屏逐级下钻，宽屏左栏导航 + 右栏内容。
 // 共享部分（歌单存储预读、新建/重命名/删除弹窗）收在此处，两形态各自组装自己的布局
@@ -76,6 +82,8 @@ internal fun PlaylistPanel(
     topInset: Dp,
     // 当前页是否需要标题栏让位（歌手页自带整屏骨架）：由本面板随页面栈同步上报
     onImmersivePageChange: (Boolean) -> Unit,
+    // 当前页是否接管横向滑动（下钻层级以右滑回退）：同样随页面栈上报，首页翻页据此让位
+    onSwipeBackChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     // 点击播放器歌手信息后请求打开的歌手名：非空时跳转到该歌手的曲目列表
     pendingArtist: String? = null,
@@ -106,6 +114,7 @@ internal fun PlaylistPanel(
                 menuBackgroundColor = menuBackgroundColor,
                 topInset = topInset,
                 onImmersivePageChange = onImmersivePageChange,
+                onSwipeBackChange = onSwipeBackChange,
                 pendingArtist = pendingArtist,
                 onPendingArtistHandled = onPendingArtistHandled,
                 pendingCreated = createdPlaylist,
@@ -123,6 +132,7 @@ internal fun PlaylistPanel(
                 menuBackgroundColor = menuBackgroundColor,
                 topInset = topInset,
                 onImmersivePageChange = onImmersivePageChange,
+                onSwipeBackChange = onSwipeBackChange,
                 pendingArtist = pendingArtist,
                 onPendingArtistHandled = onPendingArtistHandled,
                 pendingCreated = createdPlaylist,
@@ -156,6 +166,7 @@ private fun PlaylistStackedPanel(
     menuBackgroundColor: Color,
     topInset: Dp,
     onImmersivePageChange: (Boolean) -> Unit,
+    onSwipeBackChange: (Boolean) -> Unit,
     pendingArtist: String?,
     onPendingArtistHandled: () -> Unit,
     pendingCreated: Playlist?,
@@ -165,12 +176,13 @@ private fun PlaylistStackedPanel(
     onDelete: (Playlist) -> Unit,
 ) {
     var backStack by remember { mutableStateOf(listOf<PlaylistPage>(PlaylistPage.Overview)) }
-    // 页面栈的唯一写入口：栈变化与「当前页是否要标题栏让位」必须同一次写入。
+    // 页面栈的唯一写入口：栈变化、标题栏让位与横向滑动接管必须同一次写入。
     // 歌手页的标题栏始终隐藏，而标题栏归首页组装器管——挪到组合之后的副作用上报，
     // 进入该页的首帧会先亮出标题栏再淡出
     fun go(stack: List<PlaylistPage>) {
         backStack = stack
         onImmersivePageChange(stack.last().artistGroupPage != null)
+        onSwipeBackChange(stack.size > 1)
     }
     LaunchedEffect(visible) { if (!visible) go(listOf(PlaylistPage.Overview)) }
     // 点击歌手信息直达该歌手的曲目列表：与艺术家分组页同构，保留总览页作为回退目标
@@ -197,6 +209,10 @@ private fun PlaylistStackedPanel(
     BackHandler(enabled = visible && backStack.size > 1) {
         go(backStack.dropLast(1))
     }
+    // 下钻层级的右滑回退：与返回键同一出口，两者都只在有上一级可退时生效
+    val backSwipe = Modifier.playlistBackSwipe(enabled = visible && backStack.size > 1) {
+        go(backStack.dropLast(1))
+    }
 
     if (immersiveArtist != null) {
         // 歌手页自带整页骨架（沉浸头图 + 歌曲/专辑标签页，见 ArtistPlaylistPage）：
@@ -213,13 +229,10 @@ private fun PlaylistStackedPanel(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = topInset),
+                .padding(top = topInset)
+                .then(backSwipe),
         ) {
-            PanelHeader(
-                title = page.title(),
-                showBack = backStack.size > 1,
-                onBack = { go(backStack.dropLast(1)) },
-            )
+            PanelHeader(title = page.title())
             when (page) {
                 is PlaylistPage.Overview -> PlaylistOverview(
                     playlistStore = playlistStore,
@@ -282,29 +295,16 @@ private fun PlaylistPage.title(): String = when (this) {
     is PlaylistPage.GroupTracks -> group.name
 }
 
-// 面板顶部栏：返回按钮 + 标题，关闭统一走系统返回键
+// 面板顶部栏：仅承载当前页标题。下钻页的返回交给右滑与系统返回键（见 [playlistBackSwipe]），
+// 页内不再设返回入口
 @Composable
-private fun PanelHeader(
-    title: String,
-    showBack: Boolean,
-    onBack: () -> Unit,
-) {
+private fun PanelHeader(title: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 2.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (showBack) {
-            IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
-                Icon(
-                    imageVector = AppIcons.ChevronLeft,
-                    contentDescription = stringResource(R.string.back),
-                    tint = Color.White,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
-        }
         Text(
             text = title,
             color = Color.White,
@@ -315,6 +315,57 @@ private fun PanelHeader(
             modifier = Modifier.weight(1f),
         )
     }
+}
+
+// 右滑回退的判定距离：横向拖过该距离松手即回退一级
+private val BackSwipeDistance = 72.dp
+
+// 下钻层级的右滑回退：向右拖过阈值即回退一级，向左拖不动。
+// 只在有上一级可退时启用——此时首页横向翻页已关闭（见 HomePanels），一层滑动只对应一个去向；
+// 纵向主导时让出，列表照常滚动
+@Composable
+private fun Modifier.playlistBackSwipe(enabled: Boolean, onBack: () -> Unit): Modifier {
+    val currentOnBack by rememberUpdatedState(onBack)
+    val currentEnabled by rememberUpdatedState(enabled)
+    val thresholdPx = with(LocalDensity.current) { BackSwipeDistance.toPx() }
+    return then(
+        remember(thresholdPx) {
+            Modifier.pointerInput(thresholdPx) {
+                val slop = viewConfiguration.touchSlop
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    if (!currentEnabled) return@awaitEachGesture
+                    // 方向锁定：累计位移直到任一轴越过触摸阈值，横向主导才由本手势接管
+                    var accX = 0f
+                    var accY = 0f
+                    var locked = false
+                    var horizontal = false
+                    while (!locked) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed || change.isConsumed) break
+                        accX += change.positionChange().x
+                        accY += change.positionChange().y
+                        if (abs(accX) >= slop || abs(accY) >= slop) {
+                            horizontal = abs(accX) > abs(accY)
+                            locked = true
+                        }
+                    }
+                    // 纵向主导让给列表滚动；向左拖不回退
+                    if (!locked || !horizontal || accX <= 0f) return@awaitEachGesture
+                    var swipeX = accX
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed || change.isConsumed) break
+                        swipeX += change.positionChange().x
+                        change.consume()
+                    }
+                    if (swipeX >= thresholdPx) currentOnBack()
+                }
+            }
+        }
+    )
 }
 
 // 系统歌单计数：常听/收藏按可播放曲目数，专辑/歌手按去重分组数
