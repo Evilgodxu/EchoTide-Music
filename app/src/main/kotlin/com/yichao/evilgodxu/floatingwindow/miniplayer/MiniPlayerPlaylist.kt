@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -37,6 +39,7 @@ import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.scrollPlaylistTo
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -53,13 +56,22 @@ internal fun MiniPlayerPlaylist(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    // 展开即定位一次：本列表仅在展开时进入组合，故首次组合等同于展开
+    val pendingCenter = remember { mutableStateOf(true) }
 
-    // 展开与切歌都跟随当前曲目：展开时从当前项开始看，切歌后当前项不在可视区才滚动过去
+    // 展开时当前曲目滚至列表中央；切歌后仅当当前项不在可视区才滚动过去，避免反复滚动
     LaunchedEffect(playbackState.currentTrack?.id) {
         val index = playbackState.currentIndex
-        if (index >= 0 && playbackState.playlist.isNotEmpty()) {
-            listState.scrollPlaylistTo(index.coerceIn(0, playbackState.playlist.lastIndex))
+        if (index < 0 || playbackState.playlist.isEmpty()) return@LaunchedEffect
+        val target = index.coerceIn(0, playbackState.playlist.lastIndex)
+        if (!pendingCenter.value) {
+            listState.scrollPlaylistTo(target)
+            return@LaunchedEffect
         }
+        pendingCenter.value = false
+        // 窗口高度正在补间，视口未定；等动画结束后再居中，否则偏移按中途视口算出会偏位
+        delay(MINI_PLAYLIST_ANIM_MS)
+        listState.scrollPlaylistTo(target, forceCenter = true)
     }
     // 封面提前取图：窄列里一屏也有十余行，滚动进入视口时不再先闪占位符
     CoverPrefetch(listState) { index -> playbackState.playlist.getOrNull(index) }
@@ -67,8 +79,11 @@ internal fun MiniPlayerPlaylist(
     LazyColumn(
         state = listState,
         modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        contentPadding = PaddingValues(
+            horizontal = 4.dp,
+            vertical = MINI_PLAYLIST_CONTENT_PADDING_V_DP.dp,
+        ),
+        verticalArrangement = Arrangement.spacedBy(MINI_PLAYLIST_ROW_SPACING_DP.dp),
     ) {
         itemsIndexed(
             items = playbackState.playlist,
@@ -93,6 +108,7 @@ private fun MiniPlayerPlaylistRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .height(MINI_PLAYLIST_ROW_HEIGHT_DP.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(
                 if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)

@@ -8,9 +8,6 @@ internal const val MINI_BUTTON_COUNT = 5
 // 下滑隐藏播放器的垂直滑动阈值
 internal const val MINI_SWIPE_VERTICAL_THRESHOLD_DP = 56
 
-// 展开播放列表时窗口高度占屏幕最窄边的比例：横竖屏取同一物理边长，
-// 展开后的列表在两种朝向下大小相当，不会随朝向忽高忽低
-internal const val MINI_PLAYLIST_HEIGHT_FRACTION = 0.9f
 // 展开/收起的高度动画时长
 internal const val MINI_PLAYLIST_ANIM_MS = 260L
 
@@ -18,3 +15,11 @@ internal const val MINI_PLAYLIST_ANIM_MS = 260L
 internal const val MINI_PLAYLIST_ART_DP = 28
 internal const val MINI_PLAYLIST_ROW_PADDING_H_DP = 4
 internal const val MINI_PLAYLIST_ROW_PADDING_V_DP = 3
+
+// 行高由封面与上下内边距固定：文本在此高度内垂直居中，行高不随文本行数浮动
+internal const val MINI_PLAYLIST_ROW_HEIGHT_DP = MINI_PLAYLIST_ART_DP + MINI_PLAYLIST_ROW_PADDING_V_DP * 2
+// 行间距与列表上下留白，与行的固定高度一起决定窗口展开高度
+internal const val MINI_PLAYLIST_ROW_SPACING_DP = 2
+internal const val MINI_PLAYLIST_CONTENT_PADDING_V_DP = 6
+// 展开后恰好完整露出的曲目行数；窗口高度按整行数推算，不随屏幕最短边变化
+internal const val MINI_PLAYLIST_VISIBLE_ROWS = 5
