@@ -37,6 +37,10 @@ import kotlinx.coroutines.withContext
 // 以停顿为界合并连续输入，用户停止输入后统一写一次
 private const val AUTO_SAVE_DEBOUNCE_MS = 600L
 
+// 同专辑封面候选的数量上限：面板是横向排列的缩略图，取满一屏可看完的数量即可，
+// 继续读图只是把已被裁掉的候选也算一遍
+private const val SAME_ALBUM_COVER_LIMIT = 5
+
 // 同专辑封面候选的扫描上限：同专辑曲目通常只有十几首，上限用于挡住专辑名判等过宽时的大范围遍历
 private const val SAME_ALBUM_SCAN_LIMIT = 60
 
@@ -401,7 +405,8 @@ class MetadataViewModel(
         _uiState.update { it.copy(sameAlbumVisible = false, sameAlbumCovers = emptyList(), sameAlbumLoading = false) }
     }
 
-    // 同名专辑的其它本地曲目的内嵌封面：按内容去重，避免同专辑曲目共用一张图时列出一排相同的候选
+    // 同名专辑的其它本地曲目的内嵌封面：按内容去重，避免同专辑曲目共用一张图时列出一排相同的候选。
+    // 取满候选上限即停，不再继续读后面的曲目 —— 多读的图最终也要被裁掉
     private suspend fun loadSameAlbumCovers(target: MusicTrack): List<ByteArray> = withContext(Dispatchers.IO) {
         val album = target.albumName.trim()
         if (album.isEmpty()) return@withContext emptyList()
@@ -411,11 +416,14 @@ class MetadataViewModel(
             .distinctBy { it.id }
             .take(SAME_ALBUM_SCAN_LIMIT)
         val seen = mutableSetOf<Long>()
-        candidates.mapNotNull { track ->
-            val bytes = TrackMetadataEditor.readCover(getApplication(), track) ?: return@mapNotNull null
+        val covers = mutableListOf<ByteArray>()
+        for (track in candidates) {
+            if (covers.size >= SAME_ALBUM_COVER_LIMIT) break
+            val bytes = TrackMetadataEditor.readCover(getApplication(), track) ?: continue
             val key = (bytes.size.toLong() shl 32) or (bytes.contentHashCode().toLong() and 0xffffffffL)
-            if (!seen.add(key)) null else bytes
+            if (seen.add(key)) covers += bytes
         }
+        covers
     }
 
     // ---- 在线刷新封面（复用首页既有的封面搜索与写回能力）----

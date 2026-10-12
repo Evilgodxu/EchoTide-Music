@@ -138,7 +138,7 @@ internal fun MetadataForm(
         if (uiState.loading) {
             Spacer(Modifier.height(48.dp))
             CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.CenterHorizontally).height(28.dp),
+                modifier = Modifier.align(Alignment.CenterHorizontally).size(28.dp),
                 strokeWidth = 2.dp,
             )
             return@Column
