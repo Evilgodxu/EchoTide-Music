@@ -64,6 +64,9 @@
     <string name="music_panel_search_history">Search history</string>
     <string name="music_panel_search_history_clear">Clear history</string>
     <string name="music_panel_search_history_delete">Delete</string>
+    <string name="music_panel_search_history_recent">Recent</string>
+    <string name="music_panel_search_history_clear_action">Clear</string>
+    <string name="music_panel_search_empty_hint">Results will appear here</string>
     <string name="music_panel_search_no_results">No songs found</string>
     <string name="music_panel_search_loading">Searching…</string>
     <string name="music_panel_search_loading_more">Loading…</string>

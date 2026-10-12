@@ -1,0 +1,197 @@
+package com.yichao.evilgodxu.screens.home.component.search
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.data.music.panel.performSearch
+import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.ui.icons.AppIcons
+import kotlinx.coroutines.launch
+
+// 单个历史标签的最大宽度：超长关键词截断，避免一枚标签独占整行、把其余历史挤出视野
+private val TagMaxWidth = 180.dp
+
+// 标签外形：10dp 微圆角 + 12% 白填充 + 18% 白描边。
+// 半透明取白而非取底色：首页底色是随封面变化的沉浸渐变，只有半透明白能在任意底色上成立
+private val TagShape = RoundedCornerShape(10.dp)
+private val TagHeight = 32.dp
+private val TagFill = Color.White.copy(alpha = 0.12f)
+private val TagBorder = Color.White.copy(alpha = 0.18f)
+private val TagTextColor = Color.White.copy(alpha = 0.92f)
+private val TagCloseColor = Color.White.copy(alpha = 0.6f)
+private val TagActionColor = Color.White.copy(alpha = 0.85f)
+
+// 右缘渐隐宽度：只在右侧还有未展示的历史时绘制，作为「还能横滑」的提示
+private val TagFadeWidth = 40.dp
+
+// 搜索历史：单行横向滚动的半透明标签流。
+// 历史条数只改变横向内容长度、不改变本区块高度，结果区的位置不随历史增减而跳动
+@Composable
+internal fun SearchHistoryTags(
+    playbackState: MusicPlaybackState,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                // 上边距即搜索条与本区块的间距，取面板统一的区块间距（下边距 4dp 是标签紧跟标题的距离，不属区块间距）
+                .padding(start = 12.dp, end = 8.dp, top = SearchPanelSectionGap, bottom = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.music_panel_search_history_recent),
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            // 清空全部历史：图标配文字。此处与单条删除同处一个面板，仅凭图标无法区分清空与删除
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { playbackState.clearSearchHistory() }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = AppIcons.Delete,
+                    contentDescription = null,
+                    tint = TagActionColor,
+                    modifier = Modifier.size(15.dp),
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = stringResource(R.string.music_panel_search_history_clear_action),
+                    color = TagActionColor,
+                    fontSize = 12.sp,
+                )
+            }
+        }
+        val listState = rememberLazyListState()
+        val fadeWidthPx = with(LocalDensity.current) { TagFadeWidth.toPx() }
+        // 历史已全部在视野内时不再渐隐：此时渐隐只会凭空压暗最后一枚标签
+        val faded = listState.canScrollForward
+        LazyRow(
+            state = listState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    if (faded) {
+                        // 用 DstOut 直接抹掉内容自身的透明度，而不是叠一层底色渐变：
+                        // 面板底色是沉浸渐变，任何固定颜色的渐变都会在标签下方留下一条色带
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(Color.Transparent, Color.Black),
+                                startX = size.width - fadeWidthPx,
+                                endX = size.width,
+                            ),
+                            blendMode = BlendMode.DstOut,
+                        )
+                    }
+                },
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(playbackState.searchHistory, key = { it }) { query ->
+                SearchHistoryTag(
+                    query = query,
+                    onClick = {
+                        playbackState.setSearchQuery(query)
+                        scope.launch { performSearch(playbackState, context) }
+                    },
+                    onRemove = { playbackState.removeSearchHistory(query) },
+                )
+            }
+        }
+    }
+}
+
+// 单枚历史标签：点正文发起检索，点右侧关闭图标只删除该条
+@Composable
+private fun SearchHistoryTag(
+    query: String,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .widthIn(max = TagMaxWidth)
+            .height(TagHeight)
+            .clip(TagShape)
+            .background(TagFill)
+            .border(width = 1.dp, color = TagBorder, shape = TagShape)
+            .clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = query,
+            color = TagTextColor,
+            fontSize = 12.5.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            // fill = false：短关键词按内容收窄，标签宽度贴合文字而不是撑到上限
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .padding(start = 12.dp),
+        )
+        // 关闭用 Box 而非 IconButton：IconButton 会强制 48dp 最小交互尺寸，把标签整体撑高
+        Box(
+            modifier = Modifier
+                .padding(start = 2.dp, end = 4.dp)
+                .size(24.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onRemove),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = AppIcons.Close,
+                contentDescription = stringResource(R.string.music_panel_search_history_delete),
+                tint = TagCloseColor,
+                modifier = Modifier.size(14.dp),
+            )
+        }
+    }
+}

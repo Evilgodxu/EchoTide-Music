@@ -58,11 +58,16 @@
     <string name="music_panel_delete_confirm">删除</string>
     <string name="music_panel_no_lyrics">暂无歌词</string>
     <plurals name="music_panel_track_count">
-        <item quantity="other">%d 首</item>
+        <item quantity="other">结果 %d 首</item>
     </plurals>
     <string name="music_panel_search_history">搜索历史</string>
     <string name="music_panel_search_history_clear">清理全部历史</string>
     <string name="music_panel_search_history_delete">删除历史</string>
+    <!-- 搜索历史标签流的区块标题与其右侧的清空动作 -->
+    <string name="music_panel_search_history_recent">最近搜索</string>
+    <string name="music_panel_search_history_clear_action">清空</string>
+    <!-- 无历史也无结果时，结果区的占位说明 -->
+    <string name="music_panel_search_empty_hint">输入关键词后，结果将显示在此区域</string>
     <string name="music_panel_search_no_results">未找到相关歌曲</string>
     <string name="music_panel_search_loading">正在搜索…</string>
     <string name="music_panel_search_loading_more">加载中…</string>
@@ -298,8 +303,8 @@
     <string name="settings_background_flow_desc">开启后首页背景缓慢流动</string>
     <string name="settings_usb_direct_output_title">USB 音频直出</string>
     <string name="settings_usb_direct_output_desc">系统原生接口，动态适应设备</string>
-    <string name="settings_typography_title">排版</string>
-    <string name="settings_typography_desc">歌词排版</string>
+    <string name="settings_typography_title">排版设置</string>
+    <string name="settings_typography_desc">调整歌词区域排版设置</string>
 
     <!-- 播放列表滑动操作 -->
     <string name="playlist_advanced_menu_title">高级菜单</string>
@@ -441,7 +446,7 @@
     <string name="cache_category_preference">用户偏好</string>
 
     <!-- 卡片与排版设置 -->
-    <string name="typography_screen_title">排版设置</string>
+    <string name="typography_screen_title">歌词排版设置</string>
     <string name="typography_section_music_panel">音乐面板</string>
     <string name="typography_section_home_portrait">首页竖屏</string>
     <string name="typography_section_home_landscape">首页横屏</string>

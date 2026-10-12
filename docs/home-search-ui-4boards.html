@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>首页 · 在线搜索与搜索历史 UI 改版 · 4 板设计</title>
+<style>
+:root{
+  --bg:#0b0b10;
+  --panel:#121218;
+  --line:rgba(255,255,255,.09);
+  --txt:#f2f2f5;
+  --dim:rgba(255,255,255,.62);
+  --dim2:rgba(255,255,255,.40);
+  --accent:#7f77dd;
+  --scale:.9;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;padding:40px 28px 80px;
+  background:var(--bg);color:var(--txt);
+  font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+  font-size:13px;line-height:1.65;
+}
+h1{font-size:22px;font-weight:600;margin:0 0 6px}
+h2{font-size:15px;font-weight:600;margin:0}
+h3{font-size:13px;font-weight:600;margin:0 0 6px;color:var(--dim)}
+p{margin:0}
+.sub{color:var(--dim);font-size:13px}
+.lede{max-width:1180px;margin:0 auto 26px}
+.tokens{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.token{
+  display:inline-flex;align-items:center;gap:7px;
+  border:1px solid var(--line);border-radius:8px;padding:6px 10px;
+  font-size:12px;color:var(--dim);background:var(--panel);
+}
+.swatch{width:14px;height:14px;border-radius:4px;border:1px solid rgba(255,255,255,.22)}
+
+.board{
+  max-width:1180px;margin:0 auto 40px;
+  border:1px solid var(--line);border-radius:16px;background:var(--panel);
+  padding:22px 22px 18px;
+}
+.board-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.tag{
+  flex:0 0 auto;background:rgba(127,119,221,.16);color:#b3adf0;
+  border-radius:7px;padding:3px 9px;font-size:12px;font-weight:600;letter-spacing:.4px;
+}
+.board-head .desc{color:var(--dim);font-size:12.5px;max-width:760px;margin-top:3px}
+
+.frames{display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start;margin:20px 0 4px}
+figure{margin:0}
+figcaption{font-size:11.5px;color:var(--dim2);margin-top:9px;letter-spacing:.3px}
+
+.clip{overflow:hidden;border-radius:16px;border:1px solid rgba(255,255,255,.12)}
+.clip.p{width:324px;height:576px}
+.clip.l{width:720px;height:324px}
+.screen{
+  transform:scale(var(--scale));transform-origin:top left;
+  overflow:hidden;position:relative;color:#fff;
+}
+.screen.p{width:360px;height:640px}
+.screen.l{width:800px;height:360px}
+
+.bg{position:absolute;inset:0}
+.bg.a{background:radial-gradient(120% 70% at 30% 0%,#3b3260 0%,#1a1630 45%,#0a0912 100%)}
+.bg.b{background:radial-gradient(120% 70% at 30% 0%,#1d4a41 0%,#10241f 45%,#070f0d 100%)}
+.bg.c{background:radial-gradient(120% 70% at 30% 0%,#5a3d1d 0%,#241a10 45%,#0c0805 100%)}
+.bg.d{background:radial-gradient(120% 70% at 30% 0%,#1f3f66 0%,#122236 45%,#070b11 100%)}
+.stage{position:relative;height:100%;display:flex;flex-direction:column}
+
+.title{font-size:16px;font-weight:600;margin:10px 0 2px 16px;letter-spacing:.2px}
+
+.searchbar{
+  margin:0 12px;height:48px;border-radius:24px;
+  display:flex;align-items:center;flex:0 0 auto;
+}
+.searchbar.outline{border:1px solid rgba(255,255,255,.45)}
+.searchbar.fill{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.22)}
+.searchbar.compact{height:44px;margin:0 12px}
+.plat{display:flex;align-items:center;padding:0 6px 0 14px;flex:0 0 auto}
+.plat svg{width:20px;height:20px;color:#fff}
+.plat b{font-size:12px;font-weight:400;color:rgba(255,255,255,.75);margin-left:4px}
+.ipt{flex:1;min-width:0;font-size:14px;color:rgba(255,255,255,.5);padding-left:2px}
+.ipt.filled{color:#fff}
+.ipt em{font-style:normal;color:rgba(255,255,255,.6)}
+.caret{display:inline-block;width:1.5px;height:15px;background:#fff;vertical-align:-2px;margin-right:1px}
+.iptx{width:32px;height:32px;display:flex;align-items:center;justify-content:center;color:#fff;flex:0 0 32px}
+.iptx svg{width:18px;height:18px}
+
+.hist{margin:0 15px;flex:1;min-height:0}
+.hhead{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 4px 4px 12px;
+}
+.hhead .lbl{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500}
+.hhead .lbl svg{width:14px;height:14px;color:rgba(255,255,255,.65)}
+.hhead .act{display:flex;align-items:center;gap:4px;color:rgba(255,255,255,.8);font-size:12px}
+.hhead .act svg{width:16px;height:16px}
+.iconbtn{width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:#fff}
+.iconbtn svg{width:16px;height:16px}
+
+.chips{display:flex;flex-wrap:wrap;gap:8px;padding:4px 0 0}
+.chip{
+  display:inline-flex;align-items:center;height:32px;border-radius:10px;
+  padding-left:12px;padding-right:4px;max-width:200px;
+  font-size:12.5px;color:rgba(255,255,255,.92);
+}
+.chip>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip .x{
+  width:24px;height:24px;flex:0 0 24px;margin-left:2px;
+  display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.6);
+}
+.chip .x svg{width:14px;height:14px}
+.chip.tint{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18)}
+.chip.ghost{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14)}
+.chip.plain{background:rgba(255,255,255,.14)}
+.chip .x.strong{color:rgba(255,255,255,.85)}
+
+.rowscroll{position:relative;margin-top:4px}
+.rowscroll .chips{flex-wrap:nowrap;overflow:hidden}
+.rowscroll .chips .chip{flex:0 0 auto}
+.fade{
+  position:absolute;top:0;right:0;bottom:0;width:56px;pointer-events:none;
+  background:linear-gradient(to right,rgba(0,0,0,0),rgba(10,9,18,.85));
+}
+
+.hcard{
+  margin-top:2px;border-radius:16px;padding:2px 12px 12px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);
+}
+.hcard .hhead{padding-left:0}
+
+.hint{
+  margin:14px 15px 0;font-size:11.5px;color:rgba(255,255,255,.38);line-height:1.6;
+}
+.empty{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;color:rgba(255,255,255,.3);font-size:12px;
+}
+.empty svg{width:34px;height:34px}
+.split{display:flex;flex:1;min-height:0}
+.pane-l{width:340px;flex:0 0 340px;border-right:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column}
+.pane-r{flex:1;min-width:0;display:flex}
+.pane-l .searchbar{margin:0 14px}
+.pane-l .hist{margin:0 14px}
+.limited{max-width:640px;margin:0 auto;width:100%}
+
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-top:18px}
+.note{border-top:1px solid var(--line);padding-top:10px}
+.note h3{font-size:12px;color:#b3adf0;margin-bottom:5px}
+.note ul{margin:0;padding-left:16px;color:var(--dim);font-size:12.5px}
+.note li{margin-bottom:3px}
+
+table{width:100%;border-collapse:collapse;max-width:1180px;margin:44px auto 0;font-size:12.5px}
+caption{text-align:left;font-size:15px;font-weight:600;padding-bottom:12px}
+th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+th{background:rgba(255,255,255,.04);font-weight:600;color:var(--dim);white-space:nowrap}
+td:first-child{font-weight:600;white-space:nowrap}
+td{color:rgba(255,255,255,.78)}
+.tagcell{color:#b3adf0;font-weight:600}
+</style>
+</head>
+<body>
+
+<div class="lede">
+  <h1>首页 · 在线搜索与搜索历史 UI 改版</h1>
+  <p class="sub">4 个设计方向（板 A–D）· 竖屏 360dp / 横屏 800dp 对照 · 供讨论后定一板再实施</p>
+  <div style="margin-top:14px;border:1px solid rgba(127,119,221,.5);background:rgba(127,119,221,.12);border-radius:10px;padding:10px 14px;font-size:12.5px;color:#c9c4f5">
+    <b>已采纳：板 C 单行横滑。</b>
+    按实施反馈调整为：历史常驻搜索条下方，搜索结果排在历史之后（不做分栏常驻，保留单列上下堆叠）；
+    面板内标题、搜索条、历史、结果四处统一取 12dp 区块间距。横竖屏共用同一套布局。
+  </div>
+  <p class="sub" style="margin-top:10px">
+    共同前提：面板落在封面衍生的深色沉浸背景上，前景一律白色系；历史统一改为
+    <b style="color:var(--txt)">半透明微圆角标签卡</b>（填充 白 12% / 描边 白 18% / 圆角 10dp / 高 32dp），
+    差异集中在「标签如何组织」「搜索条怎么处理」「横屏怎么用横向空间」。
+  </p>
+  <div class="tokens">
+    <span class="token"><i class="swatch" style="background:rgba(255,255,255,.12)"></i>标签底 白12%</span>
+    <span class="token"><i class="swatch" style="background:rgba(255,255,255,.18)"></i>描边 白18%</span>
+    <span class="token"><i class="swatch" style="background:rgba(255,255,255,.45)"></i>搜索条描边 白45%</span>
+    <span class="token"><i class="swatch" style="background:#fff"></i>文字 白92%</span>
+    <span class="token">圆角 10dp · 高 32dp · 间距 8dp</span>
+    <span class="token">关闭 14dp / 热区 24dp</span>
+    <span class="token">历史上限 10 条</span>
+  </div>
+</div>
+
+<!-- ============ 板 A ============ -->
+<section class="board">
+  <div class="board-head">
+    <span class="tag">板 A</span>
+    <div>
+      <h2>轻量胶囊流</h2>
+      <p class="desc">最小改动方向：搜索条加半透明填充、描边柔化；历史由竖向列表改为流式标签，清空沿用标题行尾部图标。</p>
+    </div>
+  </div>
+  <div class="frames">
+    <figure>
+      <div class="clip p"><div class="screen p">
+        <div class="bg a"></div>
+        <div class="stage">
+          <div class="title">在线搜索</div>
+          <div class="searchbar fill">
+            <div class="plat"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><b>网易</b></div>
+            <div class="ipt">搜索歌曲</div>
+          </div>
+          <div class="hist">
+            <div class="hhead">
+              <div class="lbl">搜索历史</div>
+              <div class="iconbtn"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg></div>
+            </div>
+            <div class="chips tint" data-chips></div>
+          </div>
+        </div>
+      </div></div>
+      <figcaption>竖屏 360×640dp · 内容通栏</figcaption>
+    </figure>
+    <figure>
+      <div class="clip l"><div class="screen l">
+        <div class="bg a"></div>
+        <div class="stage">
+          <div class="limited">
+            <div class="title">在线搜索</div>
+            <div class="searchbar fill">
+              <div class="plat"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><b>网易</b></div>
+              <div class="ipt">搜索歌曲</div>
+            </div>
+            <div class="hist">
+              <div class="hhead">
+                <div class="lbl">搜索历史</div>
+                <div class="iconbtn"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg></div>
+              </div>
+              <div class="chips tint" data-chips="l"></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <figcaption>横屏 800×360dp · 内容限宽 640dp 居中</figcaption>
+    </figure>
+  </div>
+  <div class="notes">
+    <div class="note"><h3>要点</h3><ul>
+      <li>历史由「竖排 10 行」变「2–3 行标签」，省下大量纵向空间给结果区</li>
+      <li>搜索条加 8% 白填充，与标签同一套半透明语言</li>
+      <li>横屏限宽居中，避免 800dp 拉条</li>
+    </ul></div>
+    <div class="note"><h3>代价</h3><ul>
+      <li>清空仍是纯图标，含义靠约定</li>
+      <li>横屏限宽后两侧留白较多，右侧未利用</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ============ 板 B ============ -->
+<section class="board">
+  <div class="board-head">
+    <span class="tag">板 B</span>
+    <div>
+      <h2>历史卡片容器</h2>
+      <p class="desc">历史整体收进一张半透明圆角卡片，卡内抬头带时钟图标与「清空」文字按钮；标签填充更淡，以在卡片内仍可辨层次。</p>
+    </div>
+  </div>
+  <div class="frames">
+    <figure>
+      <div class="clip p"><div class="screen p">
+        <div class="bg b"></div>
+        <div class="stage">
+          <div class="title">在线搜索</div>
+          <div class="searchbar outline">
+            <div class="plat"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><b>网易</b></div>
+            <div class="ipt">搜索歌曲</div>
+          </div>
+          <div class="hist">
+            <div class="hcard">
+              <div class="hhead">
+                <div class="lbl"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8z"/></svg>搜索历史</div>
+                <div class="act">清空</div>
+              </div>
+              <div class="chips ghost" data-chips></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <figcaption>竖屏 360×640dp</figcaption>
+    </figure>
+    <figure>
+      <div class="clip l"><div class="screen l">
+        <div class="bg b"></div>
+        <div class="stage">
+          <div class="limited">
+            <div class="title">在线搜索</div>
+            <div class="searchbar outline">
+              <div class="plat"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><b>网易</b></div>
+              <div class="ipt">搜索歌曲</div>
+            </div>
+            <div class="hist">
+              <div class="hcard">
+                <div class="hhead">
+                  <div class="lbl"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8z"/></svg>搜索历史</div>
+                  <div class="act">清空</div>
+                </div>
+                <div class="chips ghost" data-chips="l"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <figcaption>横屏 800×360dp · 限宽 640dp 居中</figcaption>
+    </figure>
+  </div>
+  <div class="notes">
+    <div class="note"><h3>要点</h3><ul>
+      <li>「清空」由图标改文字按钮，误触代价高，语义显式</li>
+      <li>卡片把历史与下方结果区分开，层次更清楚</li>
+      <li>卡内标签 8% 填充，卡片 6% 填充，两级透明度</li>
+    </ul></div>
+    <div class="note"><h3>代价</h3><ul>
+      <li>多一层容器，历史少时（1–2 条）卡片显得空</li>
+      <li>比板 A 多约 20dp 纵向占用</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ============ 板 C ============ -->
+<section class="board">
+  <div class="board-head">
+    <span class="tag">板 C</span>
+    <div>
+      <h2>单行横滑</h2>
+      <p class="desc">历史压成一行横向滚动标签，行尾渐隐提示可滑；配合更矮的搜索条，把纵向空间几乎全留给结果。</p>
+    </div>
+  </div>
+  <div class="frames">
+    <figure>
+      <div class="clip p"><div class="screen p">
+        <div class="bg c"></div>
+        <div class="stage">
+          <div class="title">在线搜索</div>
+          <div class="searchbar compact fill">
+            <div class="plat"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><b>网易</b></div>
+            <div class="ipt">搜索歌曲</div>
+          </div>
+          <div class="hist">
+            <div class="hhead">
+              <div class="lbl">最近搜索</div>
+              <div class="act"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg>清空</div>
+            </div>
+            <div class="rowscroll">
+              <div class="chips tint" data-chips="row"></div>
+              <div class="fade"></div>
+            </div>
+            <div class="hint">输入关键词后，结果将显示在此区域</div>
+          </div>
+        </div>
+      </div></div>
+      <figcaption>竖屏 360×640dp · 单行横滑</figcaption>
+    </figure>
+    <figure>
+      <div class="clip l"><div class="screen l">
+        <div class="bg c"></div>
+        <div class="stage">
+          <div class="limited">
+            <div class="title">在线搜索</div>
+            <div class="searchbar compact fill">
+              <div class="plat"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><b>网易</b></div>
+              <div class="ipt">搜索歌曲</div>
+            </div>
+            <div class="hist">
+              <div class="hhead">
+                <div class="lbl">最近搜索</div>
+                <div class="act"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg>清空</div>
+              </div>
+              <div class="rowscroll">
+                <div class="chips tint" data-chips="row"></div>
+              </div>
+              <div class="hint">输入关键词后，结果将显示在此区域</div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <figcaption>横屏 800×360dp · 10 条一屏可见，无需渐隐</figcaption>
+    </figure>
+  </div>
+  <div class="notes">
+    <div class="note"><h3>要点</h3><ul>
+      <li>历史常占位固定（约 68dp），历史 0 条到 10 条都不跳动</li>
+      <li>横屏天然适配：一行能放完全部 10 条，不用渐隐和限宽</li>
+      <li>搜索条降到 44dp，与单行历史的紧凑节奏一致</li>
+    </ul></div>
+    <div class="note"><h3>代价</h3><ul>
+      <li>竖屏只能看到约 3 条，其余要横滑，可发现性差</li>
+      <li>横滑手势与 Pager 横向翻页同向，需确认不冲突</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ============ 板 D ============ -->
+<section class="board">
+  <div class="board-head">
+    <span class="tag">板 D</span>
+    <div>
+      <h2>横屏双栏</h2>
+      <p class="desc">竖屏同板 A；横屏改左右分栏——左栏固定 340dp 收搜索条与历史，右栏整块留给搜索结果，横向空间真正被用起来。</p>
+    </div>
+  </div>
+  <div class="frames">
+    <figure>
+      <div class="clip p"><div class="screen p">
+        <div class="bg d"></div>
+        <div class="stage">
+          <div class="title">在线搜索</div>
+          <div class="searchbar fill">
+            <div class="plat"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><b>网易</b></div>
+            <div class="ipt">搜索歌曲</div>
+          </div>
+          <div class="hist">
+            <div class="hhead">
+              <div class="lbl">搜索历史</div>
+              <div class="iconbtn"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg></div>
+            </div>
+            <div class="chips tint" data-chips></div>
+          </div>
+        </div>
+      </div></div>
+      <figcaption>竖屏 360×640dp · 与板 A 一致</figcaption>
+    </figure>
+    <figure>
+      <div class="clip l"><div class="screen l">
+        <div class="bg d"></div>
+        <div class="stage">
+          <div class="split">
+            <div class="pane-l">
+              <div class="title">在线搜索</div>
+              <div class="searchbar fill">
+                <div class="plat"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><b>网易</b></div>
+                <div class="ipt">搜索歌曲</div>
+              </div>
+              <div class="hist">
+                <div class="hhead">
+                  <div class="lbl">历史</div>
+                  <div class="iconbtn"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg></div>
+                </div>
+                <div class="chips tint" data-chips="narrow"></div>
+              </div>
+            </div>
+            <div class="pane-r">
+              <div class="empty">
+                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                <div>搜索结果将显示在此栏</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <figcaption>横屏 800×360dp · 左 340dp 输入区 + 右结果区</figcaption>
+    </figure>
+  </div>
+  <div class="notes">
+    <div class="note"><h3>要点</h3><ul>
+      <li>横屏结果列表与输入区分栏，边搜边看，不用上下找</li>
+      <li>历史标签在窄栏内自动折行，竖屏/横屏同源同款</li>
+      <li>结果区变窄后单条曲目信息需要重新排版（横屏可用横向布局）</li>
+    </ul></div>
+    <div class="note"><h3>代价</h3><ul>
+      <li>改动最大：结果列表也要按形态分栏，等于横屏重做一版</li>
+      <li>右栏在「只看历史」时是空的，需要一块引导态</li>
+    </ul></div>
+  </div>
+</section>
+
+<table>
+  <caption>4 板对照</caption>
+  <tr>
+    <th>维度</th><th class="tagcell">板 A 轻量胶囊流</th><th class="tagcell">板 B 历史卡片</th><th class="tagcell">板 C 单行横滑</th><th class="tagcell">板 D 横屏双栏</th>
+  </tr>
+  <tr><td>历史形态</td><td>流式标签，自动折行</td><td>卡片内流式标签</td><td>单行横滑标签</td><td>竖屏同 A；横屏窄栏内折行</td></tr>
+  <tr><td>清空入口</td><td>标题行图标</td><td>卡内「清空」文字按钮</td><td>标题行「清空」文字按钮</td><td>标题行图标</td></tr>
+  <tr><td>搜索条</td><td>48dp，白 8% 填充</td><td>48dp，保持描边</td><td>44dp，白 8% 填充</td><td>48dp，白 8% 填充</td></tr>
+  <tr><td>横屏策略</td><td>限宽 640dp 居中</td><td>限宽 640dp 居中</td><td>不限宽，单行正好铺满</td><td>左右分栏 + 结果区分栏</td></tr>
+  <tr><td>纵向占用</td><td>中（2–3 行标签）</td><td>较大（多卡片内边距）</td><td>最小（固定 1 行）</td><td>竖屏中 / 横屏几乎为零</td></tr>
+  <tr><td>改动量</td><td>小，仅 OnlineSearchPanel</td><td>小，仅 OnlineSearchPanel</td><td>小，需确认横滑与翻页手势</td><td>大，横屏结果页一并调整</td></tr>
+  <tr><td>主要风险</td><td>横屏右侧留白</td><td>历史少时卡片显空</td><td>竖屏可见条目少</td><td>工作量大、分栏宽度需反复调</td></tr>
+</table>
+
+<script>
+(function(){
+  var ITEMS = ['起风了','周杰伦 晴天','海阔天空 Beyond 1993 演唱会现场版','夜曲','Lofi 学习歌单','孤勇者','五月天 倔强'];
+  var CLOSE = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>';
+  document.querySelectorAll('[data-chips]').forEach(function(box){
+    var mode = box.getAttribute('data-chips') || '';
+    var n = mode === 'row' ? ITEMS.length : (mode === 'narrow' ? 4 : (mode === 'l' ? ITEMS.length : 6));
+    var max = mode === 'l' ? 240 : (mode === 'narrow' ? 148 : 200);
+    for (var i = 0; i < n; i++) {
+      var chip = document.createElement('div');
+      chip.className = 'chip ' + (box.classList.contains('ghost') ? 'ghost' : 'tint');
+      chip.style.maxWidth = max + 'px';
+      if (mode === 'row') chip.style.maxWidth = '170px';
+      chip.innerHTML = '<span>' + ITEMS[i % ITEMS.length] + '</span><div class="x">' + CLOSE + '</div>';
+      box.appendChild(chip);
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -8,7 +8,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -27,8 +26,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -82,6 +79,17 @@ import com.yichao.evilgodxu.ui.component.rememberOnlinePlatformOptions
 import com.yichao.evilgodxu.ui.component.dialog.SearchResultsLazyList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+
+// 搜索条外形：44dp 胶囊 + 8% 白填充 + 22% 白描边。
+// 填充取半透明白，使搜索条与下方的历史标签处在同一套质感语言里（配色不依赖封面底色）
+private val SearchBarHeight = 44.dp
+private val SearchBarShape = RoundedCornerShape(22.dp)
+private val SearchBarFill = Color.White.copy(alpha = 0.08f)
+private val SearchBarBorder = Color.White.copy(alpha = 0.22f)
+
+// 面板内相邻区块的统一纵向间距：标题、搜索条、历史标签、搜索结果一律取这一档。
+// 四处各写一个数会让间距参差，故收敛成一个共用值，由本面板与其组件共同引用
+internal val SearchPanelSectionGap = 12.dp
 
 // 首页专属在线搜索面板：搜索输入/历史/结果逻辑与其样式在此独立封装
 @Composable
@@ -140,18 +148,20 @@ internal fun OnlineSearchPanel(
                 scope = scope,
                 onFocusChanged = { searchInputFocused = it },
             )
+            // 历史常驻搜索条下方：搜索结果不再顶掉历史，而是排在历史之后
+            if (playbackState.searchHistory.isNotEmpty()) {
+                SearchHistoryTags(playbackState = playbackState)
+            }
             if (playbackState.showSearchResults) {
                 SearchResultList(
                     playbackState = playbackState,
                     context = context,
                     scope = scope,
+                    modifier = Modifier.weight(1f),
                 )
-            } else if (playbackState.searchHistory.isNotEmpty()) {
-                SearchHistoryList(
-                    playbackState = playbackState,
-                    context = context,
-                    scope = scope,
-                )
+            } else if (playbackState.searchHistory.isEmpty()) {
+                // 既无历史也无结果：输入框下方整片空白，交代此处将出现什么
+                SearchEmptyHint(modifier = Modifier.weight(1f))
             }
             // 音质选择对话框（独立窗口，不参与面板布局）
             SearchQualityDialog(
@@ -163,7 +173,8 @@ internal fun OnlineSearchPanel(
     }
 }
 
-// 面板标题栏：仅显示标题，关闭操作通过父级手势左滑或系统返回键完成
+// 面板标题栏：仅显示标题，关闭操作通过父级手势左滑或系统返回键完成。
+// 下边距取统一区块间距，使标题与搜索条之间的间距同「搜索条与历史标签」一致
 @Composable
 private fun PanelHeader() {
     Text(
@@ -171,7 +182,7 @@ private fun PanelHeader() {
         color = Color.White,
         fontSize = 16.sp,
         fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp)
+        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = SearchPanelSectionGap)
     )
 }
 
@@ -195,13 +206,13 @@ private fun SearchInput(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 12.dp, end = 12.dp)
-            .height(48.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(Color.Transparent)
+            .height(SearchBarHeight)
+            .clip(SearchBarShape)
+            .background(SearchBarFill)
             .border(
                 width = 1.dp,
-                color = Color.White.copy(alpha = 0.45f),
-                shape = RoundedCornerShape(24.dp)
+                color = SearchBarBorder,
+                shape = SearchBarShape
             ),
         contentAlignment = Alignment.CenterStart
     ) {
@@ -308,83 +319,18 @@ private fun SearchInput(
     }
 }
 
-// 搜索历史列表
+// 结果区空态：既无历史也无结果时输入框下方整片留白，交代此处将出现什么
 @Composable
-private fun SearchHistoryList(
-    playbackState: MusicPlaybackState,
-    context: Context,
-    scope: CoroutineScope,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 15.dp)
-    ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 12.dp, end = 4.dp, top = 12.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+private fun SearchEmptyHint(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = stringResource(R.string.music_panel_search_history),
-            color = Color.White,
+            text = stringResource(R.string.music_panel_search_empty_hint),
+            color = Color.White.copy(alpha = 0.35f),
             fontSize = 12.sp,
-            fontWeight = FontWeight.Medium
         )
-        IconButton(
-            onClick = { playbackState.clearSearchHistory() },
-            modifier = Modifier.size(28.dp)
-        ) {
-            Icon(
-                imageVector = AppIcons.Delete,
-                contentDescription = stringResource(R.string.music_panel_search_history_clear),
-                tint = Color.White,
-                modifier = Modifier.size(16.dp)
-            )
-        }
-    }
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxWidth()
-            .weight(1f),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        items(playbackState.searchHistory, key = { it }) { query ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable {
-                        playbackState.setSearchQuery(query)
-                        scope.launch { performSearch(playbackState, context) }
-                    }
-                    .padding(start = 8.dp, end = 2.dp, top = 4.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = query,
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(
-                    onClick = { playbackState.removeSearchHistory(query) },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = AppIcons.Close,
-                        contentDescription = stringResource(R.string.music_panel_search_history_delete),
-                        tint = Color.White,
-                        modifier = Modifier.size(15.dp)
-                    )
-                }
-            }
-        }
-    }
     }
 }
 
@@ -394,11 +340,13 @@ private fun SearchResultList(
     playbackState: MusicPlaybackState,
     context: Context,
     scope: CoroutineScope,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 12.dp)
+            // 上边距取统一区块间距：结果排在历史标签或搜索条之后，与上方保持同一档间距
+            .padding(start = 12.dp, end = 12.dp, top = SearchPanelSectionGap)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -558,5 +506,3 @@ private fun SearchQualityDialog(
         }
     }
 }
-
-
