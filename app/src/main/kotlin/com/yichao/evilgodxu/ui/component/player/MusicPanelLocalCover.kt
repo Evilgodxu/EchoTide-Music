@@ -90,7 +90,7 @@ internal suspend fun applyLocalCover(
 @Composable
 internal fun LocalCoverOverlay(
     visible: Boolean,
-    playbackState: MusicPlaybackState,
+    candidates: List<RecentCover>,
     selected: RecentCover?,
     saving: Boolean,
     onSelected: (RecentCover) -> Unit,
@@ -104,7 +104,7 @@ internal fun LocalCoverOverlay(
         verticalArrangement = Arrangement.Center
     ) {
         LocalCoverContent(
-            playbackState = playbackState,
+            candidates = candidates,
             selected = selected,
             saving = saving,
             onSelected = onSelected,
@@ -117,7 +117,7 @@ internal fun LocalCoverOverlay(
 @Composable
 internal fun LocalCoverDialog(
     visible: Boolean,
-    playbackState: MusicPlaybackState,
+    candidates: List<RecentCover>,
     selected: RecentCover?,
     saving: Boolean,
     onSelected: (RecentCover) -> Unit,
@@ -127,7 +127,7 @@ internal fun LocalCoverDialog(
     if (!visible) return
     DialogCard(onDismiss = onCancel) {
         LocalCoverContent(
-            playbackState = playbackState,
+            candidates = candidates,
             selected = selected,
             saving = saving,
             onSelected = onSelected,
@@ -141,7 +141,7 @@ internal fun LocalCoverDialog(
 // 本地封面共享主体：标题 + 候选列表 + 按钮，供全屏蒙层与对话框复用
 @Composable
 private fun LocalCoverContent(
-    playbackState: MusicPlaybackState,
+    candidates: List<RecentCover>,
     selected: RecentCover?,
     saving: Boolean,
     onSelected: (RecentCover) -> Unit,
@@ -156,7 +156,7 @@ private fun LocalCoverContent(
     ) {
         Text(stringResource(R.string.music_panel_local_cover), color = MaterialTheme.colorScheme.onSurface)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            items(playbackState.localCoverCandidates, key = { it.id }) { cover ->
+            items(candidates, key = { it.id }) { cover ->
                 Box(
                     modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp)).clickable { onSelected(cover) },
                     contentAlignment = Alignment.Center

@@ -1,8 +1,5 @@
 package com.yichao.evilgodxu.screens.metadata.component
 
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -26,7 +23,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -39,9 +40,12 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.metadata.TagField
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
+import com.yichao.evilgodxu.data.music.model.RecentCover
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.screens.metadata.MetadataEditTarget
 import com.yichao.evilgodxu.screens.metadata.MetadataUiState
+import com.yichao.evilgodxu.ui.component.player.LocalCoverDialog
+import com.yichao.evilgodxu.ui.component.player.loadRecentCovers
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -79,18 +83,11 @@ internal fun MetadataForm(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // 图片选择统一按 image/* 过滤，选中后读回原始字节交给状态持有者
-    val coverLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val bytes = withContext(Dispatchers.IO) {
-                runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
-            }
-            if (bytes != null && bytes.isNotEmpty()) onCoverSelected(bytes)
-        }
-    }
+    // 本地封面候选：与播放面板同源（系统最近图片），选中后读回原始字节交给状态持有者自动落盘
+    var localCovers by remember { mutableStateOf<List<RecentCover>>(emptyList()) }
+    var showLocalCover by remember { mutableStateOf(false) }
+    var selectedLocalCover by remember { mutableStateOf<RecentCover?>(null) }
+    var localCoverSaving by remember { mutableStateOf(false) }
     // 无可写目标的曲目（纯在线流）不展示表单：编辑一份不会落盘的字段只会误导用户
     if (!uiState.editable) {
         Column(
@@ -118,6 +115,37 @@ internal fun MetadataForm(
         onCoverRefreshCandidateSelected = onCoverRefreshCandidateSelected,
         onCoverRefreshConfirm = onCoverRefreshConfirm,
         onCoverRefreshCancel = onCoverRefreshCancel,
+    )
+    // 本地封面候选：复用播放面板的候选选择控件，选中结果仍进入本页的自动落盘路径
+    LocalCoverDialog(
+        visible = showLocalCover,
+        candidates = localCovers,
+        selected = selectedLocalCover,
+        saving = localCoverSaving,
+        onSelected = { selectedLocalCover = it },
+        onConfirm = {
+            val cover = selectedLocalCover
+            if (cover != null && !localCoverSaving) {
+                localCoverSaving = true
+                scope.launch {
+                    val bytes = withContext(Dispatchers.IO) {
+                        runCatching { context.contentResolver.openInputStream(cover.uri)?.use { it.readBytes() } }.getOrNull()
+                    }
+                    localCoverSaving = false
+                    if (bytes != null && bytes.isNotEmpty()) {
+                        onCoverSelected(bytes)
+                        showLocalCover = false
+                        selectedLocalCover = null
+                        localCovers = emptyList()
+                    }
+                }
+            }
+        },
+        onCancel = {
+            showLocalCover = false
+            selectedLocalCover = null
+            localCovers = emptyList()
+        },
     )
     Column(
         modifier = modifier
@@ -151,7 +179,12 @@ internal fun MetadataForm(
             coverBytes = uiState.coverBytes,
             enabled = !uiState.saving,
             exporting = uiState.exportingCover,
-            onPickCover = { coverLauncher.launch("image/*") },
+            // 选择本地封面：打开候选列表，候选与播放面板同源（系统最近图片）
+            onPickCover = {
+                selectedLocalCover = null
+                showLocalCover = true
+                scope.launch { localCovers = loadRecentCovers(context) }
+            },
             onSaveCover = onCoverExport,
             onPickSameAlbum = onSameAlbumRequest,
             onOnlineRefresh = onCoverRefreshOpen,

@@ -777,7 +777,7 @@ internal fun PortraitPlayer(
 
         LocalCoverDialog(
             visible = showLocalCover,
-            playbackState = playbackState,
+            candidates = playbackState.localCoverCandidates,
             selected = selectedLocalCover,
             saving = coverSaving,
             onSelected = { selectedLocalCover = it },
