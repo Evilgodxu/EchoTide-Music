@@ -31,15 +31,12 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 import kotlin.math.roundToInt
 
-// 排版分组：音乐面板、首页竖屏、首页横屏三场景独立调节字号、行数、行间距，横屏额外调节 3D 强度
+// 排版分组：首页竖屏、首页横屏两场景独立调节字号、行数、行间距，横屏额外调节 3D 强度
 @Composable
 internal fun TypographyGroups(
     uiState: TypographyUiState,
     // Scaffold 内边距：由形态组装器透传，内容避让标题栏
     innerPadding: PaddingValues,
-    onMusicPanelFontSizeChange: (Int) -> Unit,
-    onMusicPanelLinesChange: (Int) -> Unit,
-    onMusicPanelLineSpacingChange: (Int) -> Unit,
     onHomePortraitFontSizeChange: (Int) -> Unit,
     onHomePortraitLinesChange: (Int) -> Unit,
     onHomePortraitLineSpacingChange: (Int) -> Unit,
@@ -60,37 +57,6 @@ internal fun TypographyGroups(
             .navigationBarsPadding()
             .verticalScroll(rememberScrollState()),
     ) {
-        // 音乐面板：独立调节
-        GroupCard(title = stringResource(R.string.typography_section_music_panel)) {
-            StepperRow(
-                title = stringResource(R.string.typography_font_size),
-                valueText = "${uiState.musicPanel.fontSizeSp} sp",
-                decreaseEnabled = uiState.musicPanel.fontSizeSp > LyricLayoutDefaults.FONT_SIZE_MIN_SP,
-                increaseEnabled = uiState.musicPanel.fontSizeSp < LyricLayoutDefaults.FONT_SIZE_MAX_SP,
-                onDecrease = { onMusicPanelFontSizeChange(-1) },
-                onIncrease = { onMusicPanelFontSizeChange(1) },
-            )
-            StepperRow(
-                title = stringResource(R.string.typography_visible_lines),
-                valueText = "${uiState.musicPanel.visibleLines}",
-                decreaseEnabled = presetCanDecrease(
-                    LyricLayoutDefaults.PORTRAIT_LINE_PRESETS, uiState.musicPanel.visibleLines,
-                ),
-                increaseEnabled = presetCanIncrease(
-                    LyricLayoutDefaults.PORTRAIT_LINE_PRESETS, uiState.musicPanel.visibleLines,
-                ),
-                onDecrease = { onMusicPanelLinesChange(-1) },
-                onIncrease = { onMusicPanelLinesChange(1) },
-            )
-            StepperRow(
-                title = stringResource(R.string.typography_line_spacing),
-                valueText = "${uiState.musicPanel.lineSpacingDp} dp",
-                decreaseEnabled = uiState.musicPanel.lineSpacingDp > LyricLayoutDefaults.LINE_SPACING_MIN_DP,
-                increaseEnabled = uiState.musicPanel.lineSpacingDp < LyricLayoutDefaults.LINE_SPACING_MAX_DP,
-                onDecrease = { onMusicPanelLineSpacingChange(-1) },
-                onIncrease = { onMusicPanelLineSpacingChange(1) },
-            )
-        }
         // 首页竖屏：独立调节
         GroupCard(title = stringResource(R.string.typography_section_home_portrait)) {
             StepperRow(

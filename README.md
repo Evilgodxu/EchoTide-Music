@@ -69,7 +69,7 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 │       │   │   │   ├── highlight/       #     Chorus (highlight) location (pure lyric analysis) & whole-library segment table (background scan + persist), drives chorus-only playback
 │       │   │   │   ├── metadata/        #     Cover management, metadata & lyric read/write (ranged streaming tag I/O), metadata cache, gallery image writes
 │       │   │   │   ├── model/           #     Track & search data models (platform key as identity)
-│       │   │   │   ├── panel/           #     Panel state holder, search logic & lyric alignment entry
+│       │   │   │   ├── panel/           #     Shared playback state holder, search logic & lyric alignment entry
 │       │   │   │   ├── playback/        #     Playback state, player helper, queue switch, playlist sorting, recent plays, chorus-segment loading, USB direct output & Do Not Disturb, per-device audio sink (incl. buffer policy), output-latency measurement, audio-info snapshot (incl. Bluetooth link & codec resolution)
 │       │   │   │   ├── proxy/           #     Proxy source (import / parse / engine / store) & custom-platform registry
 │       │   │   │   ├── recommend/       #     Lyric text cleanup shared with chorus location
@@ -78,8 +78,8 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 │       │   │   ├── playlist/            #   Playlist store (smart & custom) & grouping
 │       │   │   ├── repository/          #   Settings repository
 │       │   │   └── settings/            #   Settings DataStore, playback & lyric-layout preferences, boot language mirror
-│       │   ├── floatingwindow/          # Floating panel / mini player view managers, controllers & permission flow
-│       │   │   └── miniplayer/          #   Mini player overlay / bar / playlist panel
+│       │   ├── floatingwindow/          # Mini player overlay manager, controller & external-audio background playback loader
+│       │   │   └── miniplayer/          #   Mini player overlay / bar / expandable playlist
 │       │   ├── localization/            # In-app localization manager
 │       │   ├── log/                     # CrashLogManager
 │       │   ├── navigation/              # Navigation3 typed routes & nav host
@@ -148,7 +148,7 @@ A few decisions shape the rest of the codebase:
 
 | Permission | Purpose |
 | --- | --- |
-| Display over other apps | Floating music panel & mini player |
+| Display over other apps | Mini player during background playback, and the playlist it expands into |
 | All files access | Import and manage local music files |
 | Music access (`READ_MEDIA_AUDIO`) | Play tracks from the device library |
 | Images (`READ_MEDIA_IMAGES`) | Embedded art & local cover candidates — Android 14's *selected photos* grant counts as granted |

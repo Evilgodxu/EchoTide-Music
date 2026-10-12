@@ -22,7 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.navigation.AppNavHost
 import com.yichao.evilgodxu.theme.MyApplicationTheme
-import com.yichao.evilgodxu.floatingwindow.LocalMusicPanelController
+import com.yichao.evilgodxu.floatingwindow.LocalMiniPlayerController
 import com.yichao.evilgodxu.update.LocalUpdateViewModel
 import com.yichao.evilgodxu.update.UpdateDialog
 import com.yichao.evilgodxu.update.UpdateManager
@@ -36,7 +36,7 @@ fun AppContent() {
     val context = LocalContext.current
     val activity = LocalActivity.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val musicPanelController = LocalMusicPanelController.current
+    val miniPlayerController = LocalMiniPlayerController.current
 
     // 回前台时自动检查更新（每日仅检查一次）
     DisposableEffect(lifecycleOwner) {
@@ -93,7 +93,7 @@ fun AppContent() {
             AppNavHost(onExit = {
                 // 暂停/未播放时的退出需彻底结束应用：仅 finish() 会因前台服务与悬浮窗
                 // 残留导致进程未退出，此处经控制器移除悬浮窗、停止服务并终止进程
-                musicPanelController?.exitApplication()
+                miniPlayerController?.exitApplication()
             })
         }
     }

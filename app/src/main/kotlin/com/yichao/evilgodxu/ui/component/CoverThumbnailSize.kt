@@ -15,7 +15,7 @@ import kotlin.math.ceil
 //
 // 各档位口径：
 // - 列表行：按行内实际显示尺寸换算（[listCoverThumbnailSize]）
-// - 迷你播放器、音乐面板光碟、刷新预览：按控件实际渲染尺寸换算（[coverThumbnailSize]）
+// - 迷你播放器光碟、封面刷新预览：按控件实际渲染尺寸换算（[coverThumbnailSize]）
 // - 3D 轮播：统一取 [CAROUSEL_COVER_THUMBNAIL_SIZE]，不随密度换算
 // - 首页大封面：分两级 —— 先系统最大档略缩图出图，再解码内嵌原图高清档替换（见 LargeCoverStore）
 

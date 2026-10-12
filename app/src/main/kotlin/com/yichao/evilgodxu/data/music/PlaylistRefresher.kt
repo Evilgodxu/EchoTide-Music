@@ -13,7 +13,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-// 播放列表刷新器：首页与音乐面板共用扫描入口，串行执行避免并发重复扫描
+// 播放列表刷新器：首页与外部音频后台播放共用扫描入口，串行执行避免并发重复扫描
 class PlaylistRefresher(private val playlistStore: PlaylistStore) {
     private val scanMutex = Mutex()
 

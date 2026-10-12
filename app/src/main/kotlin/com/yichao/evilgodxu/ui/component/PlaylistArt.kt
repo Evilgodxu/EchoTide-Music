@@ -32,7 +32,7 @@ private fun SystemCoverArt(
     LaunchedEffect(track?.id) {
         track?.let { stateHolder.state.requestMetadata(it) }
     }
-    // 与音乐面板光碟同一过渡（见 CoverTransition）：底层常驻 + 上层淡入。
+    // 与首页大封面同一过渡（见 CoverTransition）：底层常驻 + 上层淡入。
     // 首帧即命中内存缓存时取到的是同一个位图实例，过渡被短路成「直接落图」；
     // 只有异步取到、此前确为空的那一次才淡入 —— 与 Coil 的过渡口径一致：
     // 命中内存缓存不做过渡，否则每次滚回同一行都淡入一次，那才是闪烁

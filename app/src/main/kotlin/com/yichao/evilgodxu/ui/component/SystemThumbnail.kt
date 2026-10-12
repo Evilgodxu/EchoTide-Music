@@ -17,7 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 封面显示唯一入口：所有封面显示（列表行、音乐面板光碟、迷你播放器、3D 轮播、首页大封面、沉浸背景取色）都经此处取图。
+ * 封面显示唯一入口：所有封面显示（列表行、迷你播放器光碟、3D 轮播、首页大封面、沉浸背景取色）都经此处取图。
  *
  * 请求尺寸按展示场景分级（见 ui/component 的封面请求尺寸策略）：
  * 列表行、光碟、刷新预览按控件实际渲染尺寸换算；3D 轮播固定 [CAROUSEL_COVER_THUMBNAIL_SIZE]；

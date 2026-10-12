@@ -36,9 +36,6 @@ fun TypographyScreen(
         ExpandedAssembly(
             uiState = uiState,
             onBack = onBack,
-            onMusicPanelFontSizeChange = viewModel::adjustMusicPanelFontSize,
-            onMusicPanelLinesChange = viewModel::adjustMusicPanelLines,
-            onMusicPanelLineSpacingChange = viewModel::adjustMusicPanelLineSpacing,
             onHomePortraitFontSizeChange = viewModel::adjustHomePortraitFontSize,
             onHomePortraitLinesChange = viewModel::adjustHomePortraitLines,
             onHomePortraitLineSpacingChange = viewModel::adjustHomePortraitLineSpacing,
@@ -52,9 +49,6 @@ fun TypographyScreen(
         CompactAssembly(
             uiState = uiState,
             onBack = onBack,
-            onMusicPanelFontSizeChange = viewModel::adjustMusicPanelFontSize,
-            onMusicPanelLinesChange = viewModel::adjustMusicPanelLines,
-            onMusicPanelLineSpacingChange = viewModel::adjustMusicPanelLineSpacing,
             onHomePortraitFontSizeChange = viewModel::adjustHomePortraitFontSize,
             onHomePortraitLinesChange = viewModel::adjustHomePortraitLines,
             onHomePortraitLineSpacingChange = viewModel::adjustHomePortraitLineSpacing,

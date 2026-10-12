@@ -39,48 +39,6 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.ui.component.DialogCard
 
 @Composable
-internal fun TimerOverlay(
-    visible: Boolean,
-    minutes: Int,
-    onMinutesChange: (Int) -> Unit,
-    onConfirm: () -> Unit,
-    onCancel: () -> Unit,
-) {
-    AnimatedContent(
-        targetState = visible,
-        transitionSpec = {
-            (slideInVertically { it } + fadeIn()).togetherWith(slideOutVertically { it } + fadeOut())
-        },
-        label = "timer"
-    ) { show ->
-        if (show) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onCancel
-                    )
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                TimerPanelContent(
-                    minutes = minutes,
-                    onMinutesChange = onMinutesChange,
-                    onConfirm = onConfirm,
-                    onCancel = onCancel,
-                )
-            }
-        } else {
-            Box(modifier = Modifier.fillMaxSize())
-        }
-    }
-}
-
-@Composable
 internal fun TimerDialog(
     visible: Boolean,
     minutes: Int,
@@ -101,7 +59,7 @@ internal fun TimerDialog(
     }
 }
 
-// 定时面板共享主体：标题 + 加减分钟 + 确认/取消，供全屏蒙层与对话框复用
+// 定时面板主体：标题 + 加减分钟 + 确认/取消
 @Composable
 private fun TimerPanelContent(
     minutes: Int,

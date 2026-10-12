@@ -37,51 +37,6 @@ import com.yichao.evilgodxu.data.music.proxy.OnlinePlatformRegistry
 import com.yichao.evilgodxu.R
 
 @Composable
-internal fun LyricsRefreshOverlay(
-    visible: Boolean,
-    track: MusicTrack?,
-    playbackState: MusicPlaybackState,
-    context: Context,
-    selectedId: Long?,
-    onCandidateSelected: (NeteaseSongSearchResult) -> Unit,
-    onSourceSelected: (MusicSearchSource) -> Unit,
-    onRefresh: () -> Unit,
-    onConfirm: () -> Unit,
-    onCancel: () -> Unit,
-) {
-    RefreshCandidateOverlay(
-        visible = visible && track != null,
-        searching = playbackState.isLyricsSearching || playbackState.isLyricsRefreshing,
-        saving = false,
-        candidates = playbackState.lyricsCandidates,
-        selectedId = selectedId,
-        source = playbackState.lyricsRefreshSource,
-        titleText = OnlinePlatformRegistry.displayName(context, playbackState.lyricsRefreshSource),
-        refreshLabel = stringResource(R.string.music_panel_refresh_lyrics),
-        noCandidatesText = stringResource(R.string.music_panel_lyrics_no_candidates),
-        onSourceSelected = onSourceSelected,
-        onRefresh = onRefresh,
-        onCandidateSelected = onCandidateSelected,
-        onConfirm = onConfirm,
-        onCancel = onCancel,
-        candidateItem = { candidate, selected ->
-            LyricsCandidateItem(candidate = candidate, selected = selected, context = context, onSelected = onCandidateSelected)
-        },
-        topBanner = {
-            playbackState.lyricsRefreshError?.let { error ->
-                MusicErrorBanner(
-                    message = error,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    onDismiss = { playbackState.setLyricsRefreshError(null) }
-                )
-            }
-        },
-    )
-}
-
-@Composable
 internal fun LyricsRefreshDialog(
     visible: Boolean,
     track: MusicTrack?,

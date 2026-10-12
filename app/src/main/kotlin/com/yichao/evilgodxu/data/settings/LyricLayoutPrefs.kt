@@ -12,23 +12,20 @@ import kotlinx.coroutines.withContext
 
 // 歌词排版默认值与可调范围
 object LyricLayoutDefaults {
-    const val MUSIC_PANEL_FONT_SIZE_SP = 12
     const val HOME_PORTRAIT_FONT_SIZE_SP = 18
     const val LANDSCAPE_FONT_SIZE_SP = 18
-    const val MUSIC_PANEL_VISIBLE_LINES = 3
     const val HOME_PORTRAIT_VISIBLE_LINES = 9
     const val LANDSCAPE_VISIBLE_LINES = 11
     const val LANDSCAPE_3D_INTENSITY = 1f
     const val FONT_SIZE_MIN_SP = 12
     const val FONT_SIZE_MAX_SP = 24
-    // 奇数行预设：当前行居中，上下各 (n-1)/2 行；音乐面板 3/5，首页竖屏 3/5/7/9/11，横屏 7/9/11
-    val PORTRAIT_LINE_PRESETS = listOf(3, 5)
+    // 奇数行预设：当前行居中，上下各 (n-1)/2 行；首页竖屏 3/5/7/9/11，横屏 7/9/11
     val HOME_PORTRAIT_LINE_PRESETS = listOf(3, 5, 7, 9, 11)
     val LANDSCAPE_LINE_PRESETS = listOf(7, 9, 11)
     const val THREE_D_MIN = 0f
     const val THREE_D_MAX = 2f
     const val THREE_D_STEP = 0.25f
-    // 歌词行间距（dp）：相邻歌词行之间的纵向留白，三场景共用同一默认值与范围。
+    // 歌词行间距（dp）：相邻歌词行之间的纵向留白，两场景共用同一默认值与范围。
     // 默认 12dp 是行距与紧凑度的折中——行内上下内边距只撑开相邻行字形，行间留白靠它拉开
     const val LINE_SPACING_DEFAULT_DP = 10
     const val LINE_SPACING_MIN_DP = 0
@@ -36,7 +33,7 @@ object LyricLayoutDefaults {
     const val LINE_SPACING_STEP_DP = 1
 }
 
-// 静态多行歌词排版参数（音乐面板、首页竖屏）
+// 静态多行歌词排版参数（首页竖屏）
 data class LyricLayoutParams(
     val fontSizeSp: Int,
     val visibleLines: Int,
@@ -51,9 +48,6 @@ data class LandscapeLyricLayoutParams(
     val threeDIntensity: Float,
 )
 
-private val musicPanelFontSizeKey = intPreferencesKey("lyric_font_size_music_panel")
-private val musicPanelLinesKey = intPreferencesKey("lyric_lines_music_panel")
-private val musicPanelLineSpacingKey = intPreferencesKey("lyric_line_spacing_music_panel")
 private val homePortraitFontSizeKey = intPreferencesKey("lyric_font_size_home_portrait")
 private val homePortraitLinesKey = intPreferencesKey("lyric_lines_home_portrait")
 private val homePortraitLineSpacingKey = intPreferencesKey("lyric_line_spacing_home_portrait")
@@ -61,16 +55,6 @@ private val landscapeFontSizeKey = intPreferencesKey("lyric_font_size_landscape"
 private val landscapeLinesKey = intPreferencesKey("lyric_lines_landscape")
 private val landscapeLineSpacingKey = intPreferencesKey("lyric_line_spacing_landscape")
 private val landscape3dKey = floatPreferencesKey("lyric_3d_intensity_landscape")
-
-// 音乐面板歌词排版流
-fun Context.musicPanelLyricLayoutFlow(): Flow<LyricLayoutParams> =
-    settingsDataStore.data.map { preferences ->
-        LyricLayoutParams(
-            fontSizeSp = preferences[musicPanelFontSizeKey] ?: LyricLayoutDefaults.MUSIC_PANEL_FONT_SIZE_SP,
-            visibleLines = preferences[musicPanelLinesKey] ?: LyricLayoutDefaults.MUSIC_PANEL_VISIBLE_LINES,
-            lineSpacingDp = preferences[musicPanelLineSpacingKey] ?: LyricLayoutDefaults.LINE_SPACING_DEFAULT_DP,
-        )
-    }
 
 // 首页竖屏歌词排版流
 fun Context.homePortraitLyricLayoutFlow(): Flow<LyricLayoutParams> =
@@ -91,21 +75,6 @@ fun Context.landscapeLyricLayoutFlow(): Flow<LandscapeLyricLayoutParams> =
             lineSpacingDp = preferences[landscapeLineSpacingKey] ?: LyricLayoutDefaults.LINE_SPACING_DEFAULT_DP,
             threeDIntensity = preferences[landscape3dKey] ?: LyricLayoutDefaults.LANDSCAPE_3D_INTENSITY,
         )
-    }
-
-// 保存音乐面板歌词排版：行数强制收敛到奇数预设
-suspend fun Context.saveMusicPanelLyricLayout(fontSizeSp: Int, visibleLines: Int, lineSpacingDp: Int) =
-    withContext(Dispatchers.IO) {
-        settingsDataStore.edit { preferences ->
-            preferences[musicPanelFontSizeKey] = fontSizeSp.coerceIn(
-                LyricLayoutDefaults.FONT_SIZE_MIN_SP,
-                LyricLayoutDefaults.FONT_SIZE_MAX_SP,
-            )
-            preferences[musicPanelLinesKey] = nearestOddPreset(
-                visibleLines, LyricLayoutDefaults.PORTRAIT_LINE_PRESETS,
-            )
-            preferences[musicPanelLineSpacingKey] = snapLineSpacing(lineSpacingDp)
-        }
     }
 
 // 保存首页竖屏歌词排版

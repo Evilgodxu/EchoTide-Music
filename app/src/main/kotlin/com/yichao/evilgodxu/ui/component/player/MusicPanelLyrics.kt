@@ -94,12 +94,10 @@ internal fun LyricsPanel(
     fontSize: TextUnit = 12.sp,
     contentColor: Color? = null,
     visibleLines: Int = DEFAULT_VISIBLE_LINES,
-    // 相邻歌词行之间的纵向留白：由排版设置按场景传入（音乐面板、首页竖屏、首页横屏各自独立）
+    // 相邻歌词行之间的纵向留白：由排版设置按场景传入（首页竖屏、首页横屏各自独立）
     lineSpacing: Dp = LyricLayoutDefaults.LINE_SPACING_DEFAULT_DP.dp,
-    // 上下边缘处理方式：true 用渐隐蒙层（首页竖屏/横屏）；false 改为逐行降低边缘行透明度（音乐面板）
-    edgeFadeMask: Boolean = true,
     // 纵向快速滑动的切歌出口（true 为下一曲）：由首页提供，用于把「一甩即走」的滑动归给切歌——
-    // 这类滑动全程不让歌词跟随移动；为 null 的场景（音乐面板等无切歌手势）不做快速滑动仲裁，
+    // 这类滑动全程不让歌词跟随移动；为 null 的场景（无切歌手势）不做快速滑动仲裁，
     // 纵向拖拽一律按歌词跳转处理
     onVerticalFling: ((next: Boolean) -> Unit)? = null,
 ) {
@@ -387,7 +385,7 @@ internal fun LyricsPanel(
                     scrubStartPosition = liveDisplayPosition()
                     // 尚未生效的累计位移：确认跟随前不清空，确认时一次性补给
                     var pendingScrubPx = dragY
-                    // 无切歌出口（音乐面板等）不做快速滑动仲裁，拖拽立即跟随手指
+                    // 无切歌出口时不做快速滑动仲裁，拖拽立即跟随手指
                     if (currentOnVerticalFling == null) {
                         beginScrub(pendingScrubPx)
                         pendingScrubPx = 0f
@@ -435,14 +433,8 @@ internal fun LyricsPanel(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clipToBounds()
-                    // 渐隐蒙层仅用于首页等场景；音乐面板改用逐行降低边缘行透明度
-                    .then(
-                        if (edgeFadeMask) {
-                            Modifier.verticalFadeMask(fadeFraction = FADE_TOTAL_LINES / visibleLines)
-                        } else {
-                            Modifier
-                        }
-                    )
+                    // 上下边缘渐隐：行在视口边缘整体出现/消失过于生硬，蒙层让进出更连贯
+                    .verticalFadeMask(fadeFraction = FADE_TOTAL_LINES / visibleLines)
             ) {
                 // 以显示位置所在行为窗口锚点，上下各多渲染 buffer 行：滚动或拖拽时新行已在窗口内、
                 // 被移除的行已完全移出视口，两者在同一坐标系整体平移，因此只会连续上移，不会突兀替换
@@ -479,10 +471,6 @@ internal fun LyricsPanel(
                                 val scale = LYRIC_ROW_SCALE_BASE + LYRIC_ROW_SCALE_AMPLITUDE * emphasis
                                 // 非当前行整体降低不透明度，弱化其视觉存在感；随高亮进度平滑过渡
                                 val rowAlpha = LYRIC_INACTIVE_ALPHA + (1f - LYRIC_INACTIVE_ALPHA) * emphasis
-                                // 不使用渐隐蒙层时（音乐面板）：按行距视口中线的距离额外降低边缘行透明度，
-                                // 行越靠上下边缘越透明，中线行为满不透明度
-                                val lineAlpha = if (edgeFadeMask) rowAlpha
-                                else rowAlpha * edgeLineAlpha(index, displayPosition, offset)
                                 val nextTimeMs = lines.getOrNull(index + 1)?.timeMs ?: line.timeMs + 3000L
                                 LyricText(
                                     line = line,
@@ -497,7 +485,7 @@ internal fun LyricsPanel(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .graphicsLayer {
-                                            alpha = lineAlpha
+                                            alpha = rowAlpha
                                             scaleX = scale
                                             scaleY = scale
                                         }
@@ -826,13 +814,6 @@ private fun alignedScrubRow(position: Float, lastIndex: Int): Int? {
     return candidate.takeIf { abs(position - candidate) <= LYRIC_SCRUB_SNAP_ROWS }
 }
 
-// 上下边缘行透明度衰减强度：音乐面板以「离视口中线越远越透明」替代渐隐蒙层，
-// 强度为最外行相对中线的透明度降幅
-private const val EDGE_LINE_FADE_STRENGTH = 0.55f
-
-// 边缘行透明度下限：避免最外行过淡而看不清，保证上下边缘歌词仍可读
-private const val EDGE_LINE_MIN_ALPHA = 0.4f
-
 // 上下边缘渐隐蒙层覆盖的总行数（上下各半）：随可见行数换算比例，行数增减时淡出区间保持一致。
 // 取 ≥1.5 行：当容器高度不足以容纳设定行数时，顶部溢出行被裁成一薄片，仅靠窄渐变/单点透明
 // 仍会残留纯色细线，需让渐变区覆盖一整个溢出行，使薄片深陷透明区
@@ -870,12 +851,4 @@ private fun Modifier.verticalFadeMask(fadeFraction: Float = 0.25f): Modifier = d
             canvas.restore()
         }
     }
-}
-
-// 边缘行透明度系数：以视口中线（浮点行号）为基准，行越靠上下边缘透明度越低；中线行为 1。
-// 仅用于不使用渐隐蒙层的场景（音乐面板）
-private fun edgeLineAlpha(index: Int, centerPosition: Float, halfWindow: Int): Float {
-    if (halfWindow <= 0) return 1f
-    val ratio = (abs(index - centerPosition) / halfWindow).coerceIn(0f, 1f)
-    return (1f - EDGE_LINE_FADE_STRENGTH * ratio).coerceAtLeast(EDGE_LINE_MIN_ALPHA)
 }

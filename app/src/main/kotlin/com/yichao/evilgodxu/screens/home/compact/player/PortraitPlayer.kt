@@ -191,7 +191,7 @@ internal fun PortraitPlayer(
     val lyricsAreaHeight = (lyricLineHeight + 4.dp) * homePortraitLayout.visibleLines +
         homePortraitLayout.lineSpacingDp.dp * (homePortraitLayout.visibleLines - 1) + 4.dp
 
-    // 长按功能状态：复用音乐面板的封面/歌词刷新与标题/艺人重命名能力
+    // 长按功能状态：复用播放器共享的封面/歌词刷新与标题/艺人重命名能力
     val scope = rememberCoroutineScope()
     val lyricsRefreshFailedMessage = stringResource(R.string.music_panel_lyrics_refresh_failed)
     // 保存封面到相册的结果提示：成功与「无内嵌封面」走轻量提示，写入失败复用封面错误横幅
@@ -650,7 +650,7 @@ internal fun PortraitPlayer(
                 }
                 // 艺术家与音频格式条间距
                 Spacer(Modifier.height(8.dp))
-                // 音频信息与进度条（与音乐面板一致，宽度收窄 15%）
+                // 音频信息与进度条（左右各收窄 15%，与封面的羽化过渡带对齐）
                 Box(
                     modifier = Modifier.fillMaxWidth(0.85f),
                 ) {

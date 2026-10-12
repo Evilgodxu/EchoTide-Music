@@ -88,33 +88,6 @@ internal suspend fun applyLocalCover(
 }
 
 @Composable
-internal fun LocalCoverOverlay(
-    visible: Boolean,
-    candidates: List<RecentCover>,
-    selected: RecentCover?,
-    saving: Boolean,
-    onSelected: (RecentCover) -> Unit,
-    onConfirm: () -> Unit,
-    onCancel: () -> Unit,
-) {
-    if (!visible) return
-    Column(
-        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface.copy(alpha = .97f)).padding(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        LocalCoverContent(
-            candidates = candidates,
-            selected = selected,
-            saving = saving,
-            onSelected = onSelected,
-            onConfirm = onConfirm,
-            onCancel = onCancel,
-        )
-    }
-}
-
-@Composable
 internal fun LocalCoverDialog(
     visible: Boolean,
     candidates: List<RecentCover>,
@@ -138,7 +111,7 @@ internal fun LocalCoverDialog(
     }
 }
 
-// 本地封面共享主体：标题 + 候选列表 + 按钮，供全屏蒙层与对话框复用
+// 本地封面主体：标题 + 候选列表 + 按钮
 @Composable
 private fun LocalCoverContent(
     candidates: List<RecentCover>,

@@ -41,8 +41,6 @@
     <string name="permission_dnd_title">Do Not Disturb</string>
 
     <!-- Music panel -->
-    <string name="music_panel_empty">No local music</string>
-    <string name="music_panel_scanning">Scanning music…</string>
     <string name="music_panel_playlist_title">Playlist</string>
     <string name="music_panel_timer_title">Sleep timer</string>
     <string name="music_panel_timer_minutes">minutes</string>
@@ -53,15 +51,12 @@
     <string name="music_panel_menu_search">Search</string>
     <string name="music_panel_delete_title">Delete this song?</string>
     <string name="music_panel_delete_message">Delete song "%1$s" by %2$s</string>
-    <string name="music_panel_delete_cancel">Cancel</string>
     <string name="music_panel_delete_confirm">Delete</string>
     <string name="music_panel_no_lyrics">No lyrics</string>
     <plurals name="music_panel_track_count">
         <item quantity="one">%d track</item>
         <item quantity="other">%d tracks</item>
     </plurals>
-    <string name="music_panel_search_history">Search history</string>
-    <string name="music_panel_search_history_clear">Clear history</string>
     <string name="music_panel_search_history_delete">Delete</string>
     <string name="music_panel_search_history_recent">Recent</string>
     <string name="music_panel_search_history_clear_action">Clear</string>
@@ -87,12 +82,6 @@
     <string name="music_quality_lossless">Lossless</string>
     <string name="music_quality_high">High</string>
     <string name="music_quality_standard">Standard</string>
-    <string name="music_panel_playback_settings">Playback settings</string>
-    <string name="music_panel_usb_direct_output">USB audio direct output</string>
-    <string name="music_panel_sound_effects_title">Sound effects</string>
-    <string name="music_panel_sound_effects_enter">Open</string>
-    <string name="music_panel_sound_effects_not_implemented">Not implemented</string>
-    <string name="music_panel_play_error">Copyright protection prevents playback.</string>
     <string name="music_panel_play_failed">Playback failed</string>
     <string name="music_panel_copy">Copy</string>
     <string name="music_panel_rename">Rename</string>
@@ -138,14 +127,11 @@
     <string name="music_panel_rename_artist">Rename artist</string>
     <string name="music_panel_rename_confirm">OK</string>
     <string name="music_panel_rename_cancel">Cancel</string>
-    <string name="music_panel_lyrics_short">Lyrics</string>
     <string name="music_panel_play_mode">Play mode</string>
     <string name="music_panel_play_mode_repeat_all">Repeat all</string>
     <string name="music_panel_play_mode_repeat_one">Repeat one</string>
     <string name="music_panel_play_mode_shuffle">Shuffle</string>
     <string name="music_panel_play_mode_highlight">Highlight</string>
-    <string name="music_panel_previous_track">Previous</string>
-    <string name="music_panel_next_track">Next</string>
     <string name="music_panel_playlist">Playlist</string>
     <string name="music_panel_play">Play</string>
     <string name="music_panel_pause">Pause</string>
@@ -456,7 +442,6 @@
 
     <!-- Cards & typography settings -->
     <string name="typography_screen_title">Cards &amp; Typography</string>
-    <string name="typography_section_music_panel">Music panel</string>
     <string name="typography_section_home_portrait">Home portrait</string>
     <string name="typography_section_home_landscape">Home landscape</string>
     <string name="typography_font_size">Font size</string>

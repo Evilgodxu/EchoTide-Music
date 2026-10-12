@@ -1,14 +1,17 @@
 package com.yichao.evilgodxu.floatingwindow
 
 import android.annotation.SuppressLint
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.WindowInsets
 import android.view.WindowManager
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -32,16 +35,18 @@ import com.yichao.evilgodxu.floatingwindow.miniplayer.MINI_BUTTON_COUNT
 import com.yichao.evilgodxu.floatingwindow.miniplayer.MINI_BUTTON_DP
 import com.yichao.evilgodxu.floatingwindow.miniplayer.MINI_COVER_DP
 import com.yichao.evilgodxu.floatingwindow.miniplayer.MINI_PADDING_H_DP
+import com.yichao.evilgodxu.floatingwindow.miniplayer.MINI_PLAYLIST_ANIM_MS
+import com.yichao.evilgodxu.floatingwindow.miniplayer.MINI_PLAYLIST_HEIGHT_FRACTION
 import com.yichao.evilgodxu.floatingwindow.miniplayer.MiniPlayerOverlay
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
-// 迷你播放器浮动窗管理器：状态栏下方的紧凑播放条，支持展开完整音乐面板与下滑隐藏
+// 迷你播放器浮动窗管理器：状态栏下方的紧凑播放条，支持就地展开播放列表、回应用主界面与下滑隐藏
 class MiniPlayerViewManager(
     private val context: Context,
     private val stateHolder: MusicPanelStateHolder,
-    private val onExpandPanel: () -> Unit,
-    private val onOpenPlaylist: () -> Unit,
+    private val onOpenApp: () -> Unit,
     private val onSwipedDismiss: () -> Unit,
 ) {
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -49,8 +54,12 @@ class MiniPlayerViewManager(
     private var isDismissing = false
     private val playbackState: MusicPlaybackState get() = stateHolder.state
 
-    // 顶部偏移基准。迷你条窗口始终只有紧凑条一种尺寸，此处仅随状态栏高度变化校正纵向位置
+    // 顶部偏移基准。迷你条窗口宽度固定，纵向位置随状态栏高度校正
     private var statusBarHeight = currentTopInset()
+
+    // 播放列表展开态：窗口高度在紧凑条与展开高度之间动画，Compose 侧据此决定是否铺开列表
+    private val playlistExpanded = mutableStateOf(false)
+    private var heightAnimator: ValueAnimator? = null
 
     val isShowing: Boolean get() = composeView != null
 
@@ -77,7 +86,9 @@ class MiniPlayerViewManager(
         fun performRestore() = controller.performRestore(null)
     }
 
-    @SuppressLint("InflateParams")
+    // 触摸监听只消费窗口外的按下以便收起列表：这类事件不是落在本视图上的点击，
+    // 视图自身也无点击语义，故无需转到 performClick（无障碍点击动作无对应行为）
+    @SuppressLint("InflateParams", "ClickableViewAccessibility")
     fun show() {
         if (composeView != null) return
         statusBarHeight = currentTopInset()
@@ -85,7 +96,9 @@ class MiniPlayerViewManager(
         val barH = barHeightPx()
         val flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                // 展开后才需要窗口外触摸：点击列表以外的区域即收起
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
 
         val params = WindowManager.LayoutParams(
             barWidthPx(),
@@ -108,11 +121,21 @@ class MiniPlayerViewManager(
                         playbackState = playbackState,
                         barHeightPx = barH,
                         barWidthPx = barWidthPx(),
-                        onOpenPlaylist = onOpenPlaylist,
-                        onExpandPanel = onExpandPanel,
+                        playlistExpanded = playlistExpanded.value,
+                        onTogglePlaylist = { togglePlaylist() },
+                        onOpenApp = onOpenApp,
                         onSwipeDismiss = { temporaryDismiss() }
                     )
                 }
+            }
+        }
+        // 窗口外触摸只用于收起列表，故在监听器里消费掉，不让它流进 Compose
+        view.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_OUTSIDE) {
+                if (playlistExpanded.value) togglePlaylist()
+                true
+            } else {
+                false
             }
         }
 
@@ -155,15 +178,47 @@ class MiniPlayerViewManager(
             .start()
     }
 
-    // 校正窗口纵向位置：状态栏高度变化时重新贴到状态栏下方
+    // 校正窗口纵向位置与展开高度：状态栏高度或屏幕尺寸变化时重新贴合
     private fun applyWindowLayout() {
         val view = composeView ?: return
         val params = view.layoutParams as? WindowManager.LayoutParams ?: return
         val targetY = topOffsetPx()
-        if (targetY != params.y) {
-            params.y = targetY
-            runCatching { windowManager.updateViewLayout(view, params) }
+        val targetHeight = if (playlistExpanded.value) expandedHeightPx() else barHeightPx()
+        if (targetY == params.y && targetHeight == params.height) return
+        params.y = targetY
+        params.height = targetHeight
+        runCatching { windowManager.updateViewLayout(view, params) }
+    }
+
+    /**
+     * 展开/收起播放列表。
+     *
+     * 窗口高度就是列表可见高度，故直接对窗口高度做补间动画：窗口长高多少就露出多少行，
+     * Compose 侧同步铺开列表。收起在窗口外触摸或再次点击播放列表按钮时触发。
+     */
+    private fun togglePlaylist() {
+        val view = composeView ?: return
+        val params = view.layoutParams as? WindowManager.LayoutParams ?: return
+        val expand = !playlistExpanded.value
+        val targetHeight = if (expand) expandedHeightPx() else barHeightPx()
+        playlistExpanded.value = expand
+
+        heightAnimator?.cancel()
+        heightAnimator = ValueAnimator.ofInt(params.height, targetHeight).apply {
+            duration = MINI_PLAYLIST_ANIM_MS
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { animator ->
+                params.height = animator.animatedValue as Int
+                runCatching { windowManager.updateViewLayout(view, params) }
+            }
+            start()
         }
+    }
+
+    // 展开高度：屏幕最窄边的定比例，横竖屏取同一物理边长
+    private fun expandedHeightPx(): Int {
+        val bounds = windowManager.currentWindowMetrics.bounds
+        return (min(bounds.width(), bounds.height()) * MINI_PLAYLIST_HEIGHT_FRACTION).roundToInt()
     }
 
     private fun barHeightPx(): Int = dpToPx(BAR_HEIGHT_DP)
@@ -206,6 +261,9 @@ class MiniPlayerViewManager(
         val view = composeView ?: return
         if (isDismissing) return
         isDismissing = true
+        // 收起动画与高度动画会争夺同一个窗口参数，收起前先停掉高度动画
+        heightAnimator?.cancel()
+        heightAnimator = null
 
         lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         view.animate()

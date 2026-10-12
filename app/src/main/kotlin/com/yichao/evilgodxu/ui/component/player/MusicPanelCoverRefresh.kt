@@ -55,41 +55,6 @@ import com.yichao.evilgodxu.ui.component.coverThumbnailSize
 private val COVER_PREVIEW_DP = 96.dp
 
 @Composable
-internal fun CoverRefreshOverlay(
-    visible: Boolean,
-    track: MusicTrack?,
-    playbackState: MusicPlaybackState,
-    context: Context,
-    selectedId: Long?,
-    saving: Boolean,
-    onCandidateSelected: (NeteaseSongSearchResult) -> Unit,
-    onSourceSelected: (MusicSearchSource) -> Unit,
-    onRefresh: () -> Unit,
-    onConfirm: () -> Unit,
-    onCancel: () -> Unit,
-) {
-    RefreshCandidateOverlay(
-        visible = visible && track != null,
-        searching = playbackState.isCoverSearching || saving,
-        saving = saving,
-        candidates = playbackState.coverCandidates,
-        selectedId = selectedId,
-        source = playbackState.coverRefreshSource,
-        titleText = OnlinePlatformRegistry.displayName(context, playbackState.coverRefreshSource),
-        refreshLabel = stringResource(R.string.music_panel_refresh_cover),
-        noCandidatesText = stringResource(R.string.music_panel_cover_no_candidates),
-        onSourceSelected = onSourceSelected,
-        onRefresh = onRefresh,
-        onCandidateSelected = onCandidateSelected,
-        onConfirm = onConfirm,
-        onCancel = onCancel,
-        candidateItem = { candidate, selected ->
-            CoverCandidateItem(candidate = candidate, selected = selected, context = context, onSelected = onCandidateSelected)
-        },
-    )
-}
-
-@Composable
 internal fun CoverRefreshDialog(
     visible: Boolean,
     track: MusicTrack?,
@@ -172,39 +137,6 @@ private fun CoverCandidateItem(
 }
 
 @Composable
-internal fun CoverReplaceOverlay(
-    visible: Boolean,
-    track: MusicTrack?,
-    candidate: NeteaseSongSearchResult?,
-    saving: Boolean,
-    onConfirm: () -> Unit,
-    onCancel: () -> Unit,
-) {
-    AnimatedContent(
-        targetState = visible,
-        transitionSpec = { (slideInVertically { it } + fadeIn()).togetherWith(slideOutVertically { it } + fadeOut()) },
-        label = "cover_replace"
-    ) { show ->
-        if (show && track != null && candidate != null) {
-            Column(
-                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface.copy(alpha = .96f))
-                    .clickable(onClick = onCancel).padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                CoverReplaceContent(
-                    track = track,
-                    candidate = candidate,
-                    saving = saving,
-                    onConfirm = onConfirm,
-                    onCancel = onCancel,
-                )
-            }
-        } else Box(modifier = Modifier.fillMaxSize())
-    }
-}
-
-@Composable
 internal fun CoverReplaceDialog(
     visible: Boolean,
     track: MusicTrack?,
@@ -227,7 +159,7 @@ internal fun CoverReplaceDialog(
     }
 }
 
-// 封面替换确认共享主体：对比图 + 按钮，供全屏蒙层与对话框复用
+// 封面替换确认主体：对比图 + 按钮
 @Composable
 private fun CoverReplaceContent(
     track: MusicTrack,

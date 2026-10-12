@@ -22,8 +22,8 @@ import com.yichao.evilgodxu.data.repository.SettingsRepository
 import com.yichao.evilgodxu.data.settings.bootstrapAppLanguage
 import com.yichao.evilgodxu.data.settings.settingsDataStore
 import com.yichao.evilgodxu.data.settings.writeBootLanguage
-import com.yichao.evilgodxu.floatingwindow.LocalMusicPanelController
-import com.yichao.evilgodxu.floatingwindow.MusicPanelController
+import com.yichao.evilgodxu.floatingwindow.LocalMiniPlayerController
+import com.yichao.evilgodxu.floatingwindow.MiniPlayerController
 import com.yichao.evilgodxu.localization.LocalizationManager
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.update.LocalUpdateViewModel
@@ -50,9 +50,9 @@ class App : Application() {
     val stateHolder: MusicPanelStateHolder by lazy {
         MusicPanelStateHolder(metadataEnricher, playlistStore)
     }
-    // 音乐面板/迷你播放器控制器单例：应用级悬浮窗生命周期，全库共享同一实例
-    val musicPanelController: MusicPanelController by lazy {
-        MusicPanelController(this, stateHolder, playlistRefresher, metadataEnricher)
+    // 迷你播放器控制器单例：应用级悬浮窗生命周期，全库共享同一实例
+    val miniPlayerController: MiniPlayerController by lazy {
+        MiniPlayerController(this, stateHolder, playlistRefresher, metadataEnricher)
     }
     // 更新检查以单例共享，主页自动检查与设置页手动检查读写同一状态
     val updateViewModel: UpdateViewModel by lazy {
@@ -169,7 +169,7 @@ val LocalLocalizationManager = staticCompositionLocalOf<LocalizationManager> {
 @Composable
 fun ProvideAppDependencies(app: App, content: @Composable () -> Unit) {
     CompositionLocalProvider(
-        LocalMusicPanelController provides app.musicPanelController,
+        LocalMiniPlayerController provides app.miniPlayerController,
         LocalUpdateViewModel provides app.updateViewModel,
         LocalMusicPanelStateHolder provides app.stateHolder,
         LocalPlaylistStore provides app.playlistStore,

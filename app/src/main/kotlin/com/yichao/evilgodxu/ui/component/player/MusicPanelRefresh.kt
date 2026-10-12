@@ -1,16 +1,10 @@
 package com.yichao.evilgodxu.ui.component.player
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,7 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,7 +38,7 @@ import com.yichao.evilgodxu.ui.component.rememberOnlinePlatformOptions
  * 「刷新封面」与「刷新歌词」共用的候选选择组合控件。
  *
  * 一致的部位（由本组件统一承载，两处不各自演化）：
- *  - 外层全屏蒙层 / 对话框容器样式与背景；
+ *  - 对话框容器样式与背景；
  *  - 内容区内边距、刷新状态（进度 / 空结果 / 候选列表）表现；
  *  - 底部双操作按钮的排列、尺寸与样式（含保存中状态）；
  *  - 顶部标题行（来源名 + 下拉切换 + 独立刷新按钮）。
@@ -53,68 +46,11 @@ import com.yichao.evilgodxu.ui.component.rememberOnlinePlatformOptions
  * 不一致的部位（封面图片 vs 歌词文本）通过「内容视图注入」差异化：
  *  - `titleText` / `refreshLabel` / `noCandidatesText`：文案；
  *  - `candidateItem`：候选条目的内容形态；
- *  - `topBanner` / `footer`：蒙层顶部 / 对话框底部的附加信息槽位。
+ *  - `footer`：对话框底部的附加信息槽位。
  *
  * 内容区以 `weight(1f, fill = false)` 承载，高度封顶、不抢占底部按钮的固定显示空间，
- * 避免候选内容撑开 / 压缩底部双按钮（悬浮窗为固定纵横比容器，内容过高时按钮会被挤扁）。
+ * 避免候选内容撑开 / 压缩底部双按钮。
  */
-@Composable
-internal fun RefreshCandidateOverlay(
-    visible: Boolean,
-    searching: Boolean,
-    saving: Boolean,
-    candidates: List<NeteaseSongSearchResult>,
-    selectedId: Long?,
-    source: MusicSearchSource,
-    titleText: String,
-    refreshLabel: String,
-    noCandidatesText: String,
-    onSourceSelected: (MusicSearchSource) -> Unit,
-    onRefresh: () -> Unit,
-    onCandidateSelected: (NeteaseSongSearchResult) -> Unit,
-    onConfirm: () -> Unit,
-    onCancel: () -> Unit,
-    candidateItem: @Composable (NeteaseSongSearchResult, Boolean) -> Unit,
-    topBanner: (@Composable BoxScope.() -> Unit)? = null,
-) {
-    if (!visible) return
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = .97f))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onCancel,
-            )
-            .pointerInput(Unit) { detectHorizontalDragGestures { _, amount -> if (amount > 50) onCancel() } },
-        contentAlignment = Alignment.Center
-    ) {
-        topBanner?.invoke(this)
-        RefreshCandidateContent(
-            titleText = titleText,
-            refreshLabel = refreshLabel,
-            noCandidatesText = noCandidatesText,
-            searching = searching,
-            saving = saving,
-            candidates = candidates,
-            selectedId = selectedId,
-            source = source,
-            onSourceSelected = onSourceSelected,
-            onRefresh = onRefresh,
-            onCandidateSelected = onCandidateSelected,
-            onConfirm = onConfirm,
-            onCancel = onCancel,
-            candidateItem = candidateItem,
-            modifier = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {},
-            ),
-        )
-    }
-}
-
 @Composable
 internal fun RefreshCandidateDialog(
     visible: Boolean,

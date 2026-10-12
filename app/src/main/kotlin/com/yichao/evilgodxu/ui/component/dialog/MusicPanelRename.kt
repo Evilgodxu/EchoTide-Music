@@ -40,48 +40,6 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.DialogCard
 
 @Composable
-internal fun RenameOverlay(
-    visible: Boolean,
-    isTitle: Boolean,
-    initialValue: String,
-    onConfirm: (String) -> Unit,
-    onCancel: () -> Unit,
-) {
-    AnimatedContent(
-        targetState = visible,
-        transitionSpec = {
-            (slideInVertically { it } + fadeIn()).togetherWith(slideOutVertically { it } + fadeOut())
-        },
-        label = "rename"
-    ) { show ->
-        if (show) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onCancel
-                    )
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                RenameContent(
-                    initialValue = initialValue,
-                    isTitle = isTitle,
-                    onConfirm = onConfirm,
-                    onCancel = onCancel,
-                )
-            }
-        } else {
-            Box(modifier = Modifier.fillMaxSize())
-        }
-    }
-}
-
-@Composable
 internal fun RenameDialog(
     visible: Boolean,
     isTitle: Boolean,

@@ -48,56 +48,6 @@ import com.yichao.evilgodxu.ui.component.player.DiscArt
 import com.yichao.evilgodxu.ui.copyToClipboard
 import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 
-// 音乐面板光碟的显示直径：封面请求档位按此换算（见 coverThumbnailSize）
-private val MUSIC_PANEL_DISC_DP = 64.dp
-
-@Composable
-internal fun CurrentCover(
-    track: MusicTrack?,
-    isPlaying: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    onOnlineCover: () -> Unit = {},
-    onLocalCover: () -> Unit = {},
-    onSaveCover: () -> Unit = {},
-) {
-    var showMenu by remember { mutableStateOf(false) }
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(72.dp)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = { if (track != null) showMenu = true }
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        // 复用光碟效果：旋转 + 黑胶质感，与迷你播放器一致
-        DiscArt(
-            track = track,
-            isPlaying = isPlaying,
-            discSize = MUSIC_PANEL_DISC_DP,
-            modifier = Modifier.size(MUSIC_PANEL_DISC_DP)
-        )
-        CoverContextMenu(
-            visible = showMenu,
-            onOnlineCover = {
-                showMenu = false
-                onOnlineCover()
-            },
-            onLocalCover = {
-                showMenu = false
-                onLocalCover()
-            },
-            onSaveCover = {
-                showMenu = false
-                onSaveCover()
-            },
-            onDismiss = { showMenu = false }
-        )
-    }
-}
-
 // 封面显示：索引曲目取系统略缩图，非索引曲目取音频文件的内嵌封面（见 rememberSystemThumbnail）。
 // 取不到即占位块——当前曲目的一张缩略图会落盘供冷启动复用（见 CurrentCoverCache），但不回退在线封面地址：
 // 在线曲目落盘入库后由系统的媒体扫描生成略缩图，此前的最终刷新会驱动本组件重新取图。
@@ -129,7 +79,7 @@ private fun SystemCoverArt(
     )
 }
 
-// 音乐面板与迷你播放器共用的封面取图：光碟封面与刷新预览的显示尺寸都远小于轮播，
+// 迷你播放器光碟与封面刷新预览共用的封面取图：两者显示尺寸都远小于轮播，
 // 请求档位由调用方按控件实际渲染尺寸换算（见 coverThumbnailSize），不沿用 512 大档
 @Composable
 internal fun AlbumArt(
@@ -310,119 +260,5 @@ internal fun MiniContextMenu(
                 }
             }
         }
-    }
-}
-
-@Composable
-internal fun TrackInfo(
-    playbackState: MusicPlaybackState,
-    onClick: () -> Unit = {},
-    onRenameRequest: ((isTitle: Boolean, text: String) -> Unit)? = null,
-) {
-    val context = LocalContext.current
-    var showMenu by remember { mutableStateOf(false) }
-    var menuText by remember { mutableStateOf("") }
-    var menuIsTitle by remember { mutableStateOf(true) }
-
-    val onLongClickTitle: () -> Unit = {
-        val track = playbackState.currentTrack
-        if (track != null) {
-            menuText = track.title
-            menuIsTitle = true
-            showMenu = true
-        }
-    }
-    val onLongClickArtist: () -> Unit = {
-        val artist = playbackState.currentTrack?.artist
-        if (!artist.isNullOrBlank()) {
-            menuText = artist
-            menuIsTitle = false
-            showMenu = true
-        }
-    }
-
-    // 切歌锚点：标题与艺术家随锚点整体淡入淡出，换曲时文本不硬切
-    val anchor = rememberTrackSwitchAnchor(playbackState.currentTrack, playbackState.lastSwitchKind)
-    val emptyTitle = when {
-        playbackState.isScanning -> stringResource(R.string.music_panel_scanning)
-        else -> stringResource(R.string.music_panel_empty)
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = { if (!showMenu) onClick() },
-                onLongClick = onLongClickTitle
-            )
-            .padding(top = 4.dp, bottom = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // 音乐面板是独立小窗，元素嵌在固定的小格子里，整幅横移会越出格位，恒用交叠淡出
-        TrackSwitchTransition(
-            anchor = anchor,
-            modifier = Modifier.fillMaxWidth(),
-            style = TrackSwitchStyle.Crossfade,
-        ) { info ->
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box {
-                    Text(
-                        // 无曲目时才呈现扫库/空态文案，有曲目时即使标题为空也照实显示
-                        text = if (info.id != null) info.title else emptyTitle,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        modifier = Modifier
-                            .basicMarquee(iterations = Int.MAX_VALUE)
-                            .combinedClickable(
-                                onClick = { if (!showMenu) onClick() },
-                                onLongClick = onLongClickTitle
-                            )
-                    )
-                }
-                Box {
-                    Text(
-                        text = info.artist,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.combinedClickable(
-                            onClick = { if (!showMenu) onClick() },
-                            onLongClick = onLongClickArtist
-                        )
-                    )
-                }
-            }
-        }
-        // 长按菜单锚定本列：显示在父布局顶部
-        MiniContextMenu(
-            visible = showMenu && menuIsTitle,
-            onCopy = {
-                showMenu = false
-                copyToClipboard(context, menuText)
-            },
-            onRename = {
-                showMenu = false
-                onRenameRequest?.invoke(menuIsTitle, menuText)
-            },
-            onDismiss = { showMenu = false }
-        )
-        MiniContextMenu(
-            visible = showMenu && !menuIsTitle,
-            onCopy = {
-                showMenu = false
-                copyToClipboard(context, menuText)
-            },
-            onRename = {
-                showMenu = false
-                onRenameRequest?.invoke(menuIsTitle, menuText)
-            },
-            onDismiss = { showMenu = false }
-        )
     }
 }

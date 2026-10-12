@@ -23,9 +23,6 @@ private val TYPOGRAPHY_CONTENT_MAX_WIDTH = 720.dp
 internal fun ExpandedAssembly(
     uiState: TypographyUiState,
     onBack: () -> Unit,
-    onMusicPanelFontSizeChange: (Int) -> Unit,
-    onMusicPanelLinesChange: (Int) -> Unit,
-    onMusicPanelLineSpacingChange: (Int) -> Unit,
     onHomePortraitFontSizeChange: (Int) -> Unit,
     onHomePortraitLinesChange: (Int) -> Unit,
     onHomePortraitLineSpacingChange: (Int) -> Unit,
@@ -46,9 +43,6 @@ internal fun ExpandedAssembly(
             TypographyGroups(
                 uiState = uiState,
                 innerPadding = innerPadding,
-                onMusicPanelFontSizeChange = onMusicPanelFontSizeChange,
-                onMusicPanelLinesChange = onMusicPanelLinesChange,
-                onMusicPanelLineSpacingChange = onMusicPanelLineSpacingChange,
                 onHomePortraitFontSizeChange = onHomePortraitFontSizeChange,
                 onHomePortraitLinesChange = onHomePortraitLinesChange,
                 onHomePortraitLineSpacingChange = onHomePortraitLineSpacingChange,

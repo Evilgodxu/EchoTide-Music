@@ -637,48 +637,6 @@ private suspend fun builtInPlayUrl(target: NeteaseSongSearchResult): String? =
         }
     }
 
-// 播放在线搜索结果：悬浮窗音乐面板的入口
-internal suspend fun playSearchResult(
-    target: NeteaseSongSearchResult,
-    playbackState: MusicPlaybackState,
-    context: Context,
-    scope: kotlinx.coroutines.CoroutineScope,
-    metadataEnricher: MetadataEnricher,
-    playlistRefresher: PlaylistRefresher,
-) {
-    if (tryPlayLocalMatch(target, playbackState, context, scope)) return
-
-    playbackState.pendingSearchResults = emptyList()
-
-    // 代理音源优先解析播放地址，失败时回退内置解析；缓存下载沿用同一直链
-    val playTarget: NeteaseSongSearchResult
-    val url: String?
-    if (target.source == MusicSearchSource.NETEASE) {
-        val fullResult = if (target.coverUrl.isNullOrBlank() || target.duration <= 0L) {
-            withContext(Dispatchers.IO) {
-                NeteaseMusicApi.songDetail(target.id) ?: target
-            }
-        } else target
-        playTarget = fullResult
-        url = ProxySourceEngine.resolveUrl(context, fullResult, MusicQuality.HIGH)
-            ?: withContext(Dispatchers.IO) {
-                NeteaseMusicApi.getSongUrlWithFallback(fullResult.id)
-            }
-    } else {
-        playTarget = target
-        url = ProxySourceEngine.resolveUrl(context, target, MusicQuality.HIGH) ?: builtInPlayUrl(target)
-    }
-
-    if (url != null) {
-        playbackState.errorMsg = null
-        playbackState.closeSearchResultsOnReady = true
-        downloadAndPlay(context, playbackState, playTarget, url, metadataEnricher, playlistRefresher)
-    } else {
-        playbackState.errorMsg = context.getString(R.string.music_panel_play_error)
-        playbackState.pendingSearchResults = emptyList()
-    }
-}
-
 // 按指定音质解析在线播放地址；代理音源优先，返回 null 表示该音质不可用
 internal suspend fun resolvePlayUrlByQuality(
     context: Context,

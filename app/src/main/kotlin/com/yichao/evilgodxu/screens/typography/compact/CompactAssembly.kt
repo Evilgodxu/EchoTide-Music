@@ -15,9 +15,6 @@ import com.yichao.evilgodxu.ui.component.PageTopBar
 internal fun CompactAssembly(
     uiState: TypographyUiState,
     onBack: () -> Unit,
-    onMusicPanelFontSizeChange: (Int) -> Unit,
-    onMusicPanelLinesChange: (Int) -> Unit,
-    onMusicPanelLineSpacingChange: (Int) -> Unit,
     onHomePortraitFontSizeChange: (Int) -> Unit,
     onHomePortraitLinesChange: (Int) -> Unit,
     onHomePortraitLineSpacingChange: (Int) -> Unit,
@@ -37,9 +34,6 @@ internal fun CompactAssembly(
         TypographyGroups(
             uiState = uiState,
             innerPadding = innerPadding,
-            onMusicPanelFontSizeChange = onMusicPanelFontSizeChange,
-            onMusicPanelLinesChange = onMusicPanelLinesChange,
-            onMusicPanelLineSpacingChange = onMusicPanelLineSpacingChange,
             onHomePortraitFontSizeChange = onHomePortraitFontSizeChange,
             onHomePortraitLinesChange = onHomePortraitLinesChange,
             onHomePortraitLineSpacingChange = onHomePortraitLineSpacingChange,

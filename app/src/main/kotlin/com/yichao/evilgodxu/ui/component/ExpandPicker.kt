@@ -85,8 +85,6 @@ fun <T> ExpandPicker(
     containerShape: Shape = RoundedCornerShape(10.dp),
     itemShape: Shape = RoundedCornerShape(6.dp),
     itemHighlightColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-    // 是否将菜单夹在锚定窗口内：悬浮窗等独立小窗口场景下窗口尺寸不等于屏幕，应关闭以免菜单被裁到窗口内
-    clampToWindow: Boolean = true,
     trigger: @Composable () -> Unit,
     itemContent: @Composable (option: T, selected: Boolean) -> Unit,
     onItemClick: (T) -> Unit,
@@ -139,7 +137,6 @@ fun <T> ExpandPicker(
                     direction = expandDirection,
                     horizontalAlignment = horizontalAlignment,
                     verticalAlignment = verticalAlignment,
-                    clampToWindow = clampToWindow,
                     // 限高菜单须留在本侧（高度上限已保证放得下），不参与空间不足时的翻转
                     allowFlip = anchoredMaxHeight == null,
                 ),
@@ -331,13 +328,12 @@ private fun ExpandMenuRow(
 }
 
 // 展开式菜单的定位：按方向贴触发区域对应侧，空间不足时翻转到对侧（[allowFlip] 为假者除外）；
-// 水平/垂直按传入对齐方式落位，并按需夹在锚定窗口内，避免贴边触发时菜单溢出屏幕
+// 水平/垂直按传入对齐方式落位，并夹在锚定窗口内，避免贴边触发时菜单溢出屏幕
 @Composable
 private fun expandPositionProvider(
     direction: ExpandDirection,
     horizontalAlignment: Alignment.Horizontal,
     verticalAlignment: Alignment.Vertical,
-    clampToWindow: Boolean,
     allowFlip: Boolean,
 ): PopupPositionProvider {
     val density = LocalDensity.current
@@ -346,7 +342,6 @@ private fun expandPositionProvider(
         direction,
         horizontalAlignment,
         verticalAlignment,
-        clampToWindow,
         allowFlip,
     ) {
         object : PopupPositionProvider {
@@ -361,14 +356,10 @@ private fun expandPositionProvider(
                 val width = popupContentSize.width
                 val height = popupContentSize.height
                 val clampX = { rawX: Int ->
-                    if (clampToWindow) {
-                        rawX.coerceIn(marginPx, (windowSize.width - width - marginPx).coerceAtLeast(marginPx))
-                    } else rawX
+                    rawX.coerceIn(marginPx, (windowSize.width - width - marginPx).coerceAtLeast(marginPx))
                 }
                 val clampY = { rawY: Int ->
-                    if (clampToWindow) {
-                        rawY.coerceIn(marginPx, (windowSize.height - height - marginPx).coerceAtLeast(marginPx))
-                    } else rawY
+                    rawY.coerceIn(marginPx, (windowSize.height - height - marginPx).coerceAtLeast(marginPx))
                 }
                 val horizontalX = when (horizontalAlignment) {
                     Alignment.Start -> anchorBounds.left
@@ -392,7 +383,7 @@ private fun expandPositionProvider(
                         val below = anchorBounds.bottom + gapPx
                         // 下方放不下且允许翻转时改到触发区域上方；不允许翻转者留在下方，
                         // 由高度上限保证放得下，超出部分在菜单内滚动
-                        y = if (below + height <= windowSize.height || !clampToWindow || !allowFlip) {
+                        y = if (below + height <= windowSize.height || !allowFlip) {
                             below
                         } else {
                             anchorBounds.top - height - gapPx
@@ -400,7 +391,7 @@ private fun expandPositionProvider(
                         x = horizontalX
                     }
                     ExpandDirection.Right -> {
-                        x = if (anchorBounds.right + width + gapPx <= windowSize.width || !clampToWindow) {
+                        x = if (anchorBounds.right + width + gapPx <= windowSize.width) {
                             anchorBounds.right + gapPx
                         } else {
                             anchorBounds.left - width - gapPx

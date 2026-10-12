@@ -28,7 +28,7 @@ import com.yichao.evilgodxu.data.settings.AppLanguage
 import com.yichao.evilgodxu.data.settings.readBootLanguage
 import com.yichao.evilgodxu.theme.SystemBarAppearance
 import com.yichao.evilgodxu.windowsize.ProvideWindowSizeClass
-import com.yichao.evilgodxu.floatingwindow.MusicPanelController
+import com.yichao.evilgodxu.floatingwindow.MiniPlayerController
 import com.yichao.evilgodxu.localization.LocalizationManager
 import com.yichao.evilgodxu.localization.ProvideLocalizedContext
 import com.yichao.evilgodxu.localization.toLocale
@@ -64,8 +64,8 @@ class MainActivity : ComponentActivity() {
         get() = application as App
     private val localizationManager: LocalizationManager
         get() = app.localizationManager
-    private val musicPanelController: MusicPanelController
-        get() = app.musicPanelController
+    private val miniPlayerController: MiniPlayerController
+        get() = app.miniPlayerController
     private val activityViewModel: MainViewModel by viewModels {
         viewModelFactory {
             initializer {
@@ -107,11 +107,11 @@ class MainActivity : ComponentActivity() {
         handleExternalIntent(intent)
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
-                musicPanelController.onAppForegrounded()
+                miniPlayerController.onAppForegrounded()
             }
 
             override fun onStop(owner: LifecycleOwner) {
-                musicPanelController.onAppBackgrounded()
+                miniPlayerController.onAppBackgrounded()
             }
         })
 
@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity() {
             else -> null
         } ?: return
         if (isAudioUri(uri)) {
-            musicPanelController.playExternalInBackground(uri)
+            miniPlayerController.playExternalInBackground(uri)
             moveTaskToBack(true)
         } else {
             importProxySource(uri)

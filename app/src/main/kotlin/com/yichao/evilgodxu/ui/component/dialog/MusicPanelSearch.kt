@@ -33,11 +33,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,7 +45,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -65,7 +60,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -75,7 +69,6 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.panel.loadMoreSearchResults
-import com.yichao.evilgodxu.data.music.panel.performSearch
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
@@ -83,274 +76,6 @@ import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
 import com.yichao.evilgodxu.ui.component.player.MusicErrorBanner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun SearchOverlay(
-    playbackState: MusicPlaybackState,
-    modifier: Modifier = Modifier,
-) {
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    Column(
-        modifier = modifier.pointerInput(Unit) {
-            detectHorizontalDragGestures { _, dragAmount ->
-                if (dragAmount < -50f) {
-                    playbackState.setSearchMode(false)
-                    playbackState.setSearchResultsVisible(false)
-                }
-            }
-        }
-    ) {
-        Text(
-            text = stringResource(R.string.music_panel_search_title),
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
-                    shape = RoundedCornerShape(24.dp)
-                ),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Icon(
-                imageVector = AppIcons.Search,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .padding(start = 16.dp)
-                    .size(20.dp)
-            )
-            BasicTextField(
-                value = playbackState.searchQuery,
-                onValueChange = { playbackState.searchQuery = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 48.dp, end = 44.dp),
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp
-                ),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(
-                    onSearch = {
-                        val query = playbackState.searchQuery.trim()
-                        if (query.isNotBlank()) {
-                            scope.launch {
-                                performSearch(playbackState, context)
-                            }
-                        }
-                    }
-                ),
-                decorationBox = { innerTextField ->
-                    Box {
-                        if (playbackState.searchQuery.isEmpty()) {
-                            Text(
-                                text = stringResource(R.string.music_panel_search_placeholder),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                fontSize = 14.sp
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
-            )
-            if (playbackState.searchQuery.isNotEmpty()) {
-                IconButton(
-                    onClick = { playbackState.setSearchQuery("") },
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = AppIcons.Close,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-        }
-
-        if (playbackState.searchHistory.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp, bottom = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.music_panel_search_history),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                IconButton(
-                    onClick = { playbackState.clearSearchHistory() },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = AppIcons.Delete,
-                        contentDescription = stringResource(R.string.music_panel_search_history_clear),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                items(playbackState.searchHistory, key = { it }) { query ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                playbackState.setSearchQuery(query)
-                                scope.launch { performSearch(playbackState, context) }
-                            }
-                            .padding(start = 8.dp, end = 2.dp, top = 4.dp, bottom = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = query,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(
-                            onClick = { playbackState.removeSearchHistory(query) },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = AppIcons.Close,
-                                contentDescription = stringResource(R.string.music_panel_search_history_delete),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun SearchResultsOverlay(
-    visible: Boolean,
-    playbackState: MusicPlaybackState,
-    context: Context,
-    onClose: () -> Unit,
-    onRefresh: () -> Unit,
-    onTrackSelected: (NeteaseSongSearchResult) -> Unit,
-) {
-    AnimatedContent(
-        targetState = visible,
-        transitionSpec = {
-            (slideInVertically { it } + fadeIn()).togetherWith(slideOutVertically { it } + fadeOut())
-        },
-        label = "search_results"
-    ) { show ->
-        if (show) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onClose
-                    )
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = stringResource(R.string.music_panel_search_title),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = pluralStringResource(R.plurals.music_panel_track_count, playbackState.searchResults.size, playbackState.searchResults.size),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 10.sp
-                        )
-                        HeaderIconButton(
-                            icon = AppIcons.Refresh,
-                            onClick = { if (!playbackState.isSearching) onRefresh() },
-                            modifier = Modifier.size(24.dp),
-                            enabled = !playbackState.isSearching
-                        )
-                        HeaderIconButton(
-                            icon = AppIcons.Close,
-                            onClick = onClose,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                val errorMsg = playbackState.errorMsg
-                if (errorMsg != null) {
-                    MusicErrorBanner(
-                        message = errorMsg,
-                        onDismiss = { playbackState.setErrorMsg(null) }
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                }
-
-                if (playbackState.isSearching) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                    }
-                } else if (playbackState.searchResults.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = stringResource(R.string.music_panel_search_no_results),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp
-                        )
-                    }
-                } else {
-                    SearchResultsLazyList(
-                        playbackState = playbackState,
-                        context = context,
-                        onResultClick = onTrackSelected,
-                    )
-                }
-            }
-        } else {
-            Box(modifier = Modifier.fillMaxSize())
-        }
-    }
-}
 
 @Composable
 internal fun SearchResultRow(

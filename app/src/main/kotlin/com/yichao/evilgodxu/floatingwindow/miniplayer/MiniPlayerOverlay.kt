@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -33,8 +35,9 @@ internal fun MiniPlayerOverlay(
     playbackState: MusicPlaybackState,
     barHeightPx: Int,
     barWidthPx: Int,
-    onOpenPlaylist: () -> Unit,
-    onExpandPanel: () -> Unit,
+    playlistExpanded: Boolean,
+    onTogglePlaylist: () -> Unit,
+    onOpenApp: () -> Unit,
     onSwipeDismiss: () -> Unit,
 ) {
     val density = LocalDensity.current
@@ -62,11 +65,14 @@ internal fun MiniPlayerOverlay(
         .copy(alpha = if (isDarkTheme) 0.55f else 0.60f)
 
     MaterialTheme(colorScheme = colorScheme) {
+        // 窗口高度由管理器按展开态动画，内容整体铺满窗口：紧凑条恒在顶部，
+        // 播放列表占据其余高度，窗口长高多少就露出多少行
         Column(
             modifier = Modifier
                 .width(barWidth)
+                .fillMaxHeight()
                 .graphicsLayer { translationX = swipeTranslate }
-                // 胶囊圆角：半径取条高（32dp）一半，呈椭圆轮廓
+                // 胶囊圆角：半径取条高（32dp）一半，呈椭圆轮廓；展开后同半径呈圆角面板
                 .background(cardBackground, RoundedCornerShape(16.dp))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -77,13 +83,22 @@ internal fun MiniPlayerOverlay(
             MiniPlayerBar(
                 playbackState = playbackState,
                 barHeight = barHeight,
-                onOpenPlaylist = onOpenPlaylist,
-                onExpandPanel = onExpandPanel,
+                playlistExpanded = playlistExpanded,
+                onTogglePlaylist = onTogglePlaylist,
+                onOpenApp = onOpenApp,
                 swipeTrackThreshold = barWidthPx / 2f,
                 onSwipeOffsetChange = { swipeOffset = it },
                 onSwipeCancel = { swipeOffset = 0f },
                 onSwipeDown = onSwipeDismiss,
             )
+            if (playlistExpanded) {
+                MiniPlayerPlaylist(
+                    playbackState = playbackState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                )
+            }
         }
     }
 }

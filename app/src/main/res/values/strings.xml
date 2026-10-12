@@ -41,8 +41,6 @@
     <string name="permission_dnd_title">免打扰</string>
 
     <!-- 音乐面板 -->
-    <string name="music_panel_empty">暂无本地音乐</string>
-    <string name="music_panel_scanning">正在扫描音乐…</string>
     <string name="music_panel_playlist_title">播放列表</string>
     <string name="music_panel_timer_title">定时关闭</string>
     <string name="music_panel_timer_minutes">分钟</string>
@@ -53,14 +51,11 @@
     <string name="music_panel_menu_search">搜索</string>
     <string name="music_panel_delete_title">是否删除这首歌曲？</string>
     <string name="music_panel_delete_message">将删除歌曲「%1$s · %2$s」</string>
-    <string name="music_panel_delete_cancel">取消</string>
     <string name="music_panel_delete_confirm">删除</string>
     <string name="music_panel_no_lyrics">暂无歌词</string>
     <plurals name="music_panel_track_count">
         <item quantity="other">%d 首</item>
     </plurals>
-    <string name="music_panel_search_history">搜索历史</string>
-    <string name="music_panel_search_history_clear">清理全部历史</string>
     <string name="music_panel_search_history_delete">删除历史</string>
     <!-- 搜索历史标签流的区块标题与其右侧的清空动作 -->
     <string name="music_panel_search_history_recent">最近搜索</string>
@@ -88,16 +83,10 @@
     <string name="music_panel_highlight_exit_notice">歌单里没有可定位的高潮片段，已退出心动模式</string>
     <string name="music_panel_highlight_exit_direct_output">USB 直出开启时不支持心动模式</string>
     <string name="music_panel_quality_title">选择音质</string>
-    <string name="music_panel_quality_failed">该音质无法播放，请选择其它音质</string>
+    <string name="music_panel_quality_failed">暂无可用试听源</string>
     <string name="music_quality_lossless">无损</string>
     <string name="music_quality_high">高品</string>
     <string name="music_quality_standard">标准</string>
-    <string name="music_panel_playback_settings">播放设置</string>
-    <string name="music_panel_usb_direct_output">USB 音频直出</string>
-    <string name="music_panel_sound_effects_title">音效设置</string>
-    <string name="music_panel_sound_effects_enter">进入</string>
-    <string name="music_panel_sound_effects_not_implemented">暂未实现</string>
-    <string name="music_panel_play_error">版权保护无法播放</string>
     <string name="music_panel_play_failed">播放失败</string>
     <string name="music_panel_copy">复制</string>
     <string name="music_panel_rename">重命名</string>
@@ -142,14 +131,11 @@
     <string name="music_panel_rename_artist">重命名艺术家</string>
     <string name="music_panel_rename_confirm">确定</string>
     <string name="music_panel_rename_cancel">取消</string>
-    <string name="music_panel_lyrics_short">词</string>
     <string name="music_panel_play_mode">播放模式</string>
     <string name="music_panel_play_mode_repeat_all">列表循环</string>
     <string name="music_panel_play_mode_repeat_one">单曲循环</string>
     <string name="music_panel_play_mode_shuffle">随机播放</string>
     <string name="music_panel_play_mode_highlight">心动模式</string>
-    <string name="music_panel_previous_track">上一首</string>
-    <string name="music_panel_next_track">下一首</string>
     <string name="music_panel_playlist">播放列表</string>
     <string name="music_panel_play">播放</string>
     <string name="music_panel_pause">暂停</string>
@@ -455,7 +441,6 @@
 
     <!-- 卡片与排版设置 -->
     <string name="typography_screen_title">歌词排版设置</string>
-    <string name="typography_section_music_panel">音乐面板</string>
     <string name="typography_section_home_portrait">首页竖屏</string>
     <string name="typography_section_home_landscape">首页横屏</string>
     <string name="typography_font_size">字号</string>

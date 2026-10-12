@@ -1,20 +1,12 @@
 package com.yichao.evilgodxu.ui.component.player
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,166 +16,30 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.model.MusicTrack
-import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
-import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.PlaylistArt
-import com.yichao.evilgodxu.ui.component.scrollPlaylistTo
-import kotlinx.coroutines.delay
-
-@Composable
-internal fun PlaylistOverlay(
-    visible: Boolean,
-    playbackState: MusicPlaybackState,
-    onScan: () -> Unit,
-    onTrackSelected: (Int) -> Unit,
-    onTrackLongPress: (MusicTrack) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AnimatedContent(
-        targetState = visible,
-        transitionSpec = {
-            (slideInVertically { it } + fadeIn()).togetherWith(slideOutVertically { it } + fadeOut())
-        },
-        label = "playlist"
-    ) { show ->
-        if (show) {
-            // 展开就绪：等面板进入动画完成后再定位当前曲目，避免滚动与展开动画叠加卡顿
-            var playlistSettled by remember { mutableStateOf(false) }
-            LaunchedEffect(Unit) {
-                playlistSettled = false
-                delay(PLAYLIST_EXPAND_ANIM_MS)
-                playlistSettled = true
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onDismiss
-                    )
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = stringResource(R.string.music_panel_playlist_title),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = pluralStringResource(R.plurals.music_panel_track_count, playbackState.playlist.size, playbackState.playlist.size),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 10.sp
-                        )
-                        HeaderIconButton(
-                            icon = AppIcons.Refresh,
-                            onClick = { if (!playbackState.isScanning) onScan() },
-                            modifier = Modifier.size(24.dp),
-                            enabled = !playbackState.isScanning
-                        )
-                        HeaderIconButton(
-                            icon = AppIcons.Close,
-                            onClick = onDismiss,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                if (playbackState.isScanning) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                    }
-                } else {
-                    val listState = rememberLazyListState()
-                    // 曲目行封面：可视区邻域提前取图，滚动进入视口时不再先闪占位符
-                    CoverPrefetch(listState) { index -> playbackState.playlist.getOrNull(index) }
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        itemsIndexed(
-                            items = playbackState.playlist,
-                            key = { _, track -> track.audioUri }
-                        ) { index, track ->
-                            val isActive = index == playbackState.currentIndex
-                            PlaylistRow(
-                                track = track,
-                                isActive = isActive,
-                                isPlaying = isActive && playbackState.isPlaying,
-                                isQueued = playbackState.isInPlayNext(track.id),
-                                onClick = { onTrackSelected(index) },
-                                onLongClick = { onTrackLongPress(track) },
-                                onFavoriteClick = { playbackState.toggleFavorite(track.id) },
-                                onPlayNextClick = { playbackState.togglePlayNext(track) }
-                            )
-                        }
-                    }
-                    // 面板展开动画完成后：始终将当前曲目滚动到列表居中位置
-                    LaunchedEffect(playlistSettled) {
-                        if (playlistSettled && playbackState.currentIndex >= 0 && playbackState.playlist.isNotEmpty()) {
-                            listState.scrollPlaylistTo(
-                                playbackState.currentIndex.coerceIn(0, playbackState.playlist.size - 1),
-                                forceCenter = true
-                            )
-                        }
-                    }
-                    // 切歌时定位：当前曲目不在可视区内才滚动到居中位置，避免反复滚动卡顿
-                    LaunchedEffect(playbackState.currentTrack?.id) {
-                        if (playlistSettled && playbackState.currentIndex >= 0 && playbackState.playlist.isNotEmpty()) {
-                            listState.scrollPlaylistTo(
-                                playbackState.currentIndex.coerceIn(0, playbackState.playlist.size - 1)
-                            )
-                        }
-                    }
-                }
-            }
-        } else {
-            Box(modifier = Modifier.fillMaxSize())
-        }
-    }
-}
 
 @Composable
 internal fun PlaylistRow(
@@ -322,6 +178,3 @@ private fun highlightedText(text: String, keyword: String?, highlightColor: Colo
         }
     }
 }
-
-// 播放列表展开进入动画时长：等动画完成后才滚动定位当前曲目，避免动画叠加卡顿
-private const val PLAYLIST_EXPAND_ANIM_MS = 300L

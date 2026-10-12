@@ -81,8 +81,9 @@ import kotlinx.coroutines.launch
 internal fun MiniPlayerBar(
     playbackState: MusicPlaybackState,
     barHeight: Dp,
-    onOpenPlaylist: () -> Unit,
-    onExpandPanel: () -> Unit,
+    playlistExpanded: Boolean,
+    onTogglePlaylist: () -> Unit,
+    onOpenApp: () -> Unit,
     swipeTrackThreshold: Float,
     onSwipeOffsetChange: (Float) -> Unit,
     onSwipeCancel: () -> Unit,
@@ -106,9 +107,10 @@ internal fun MiniPlayerBar(
         controlsVisible = true
         interactionTick++
     }
-    LaunchedEffect(interactionTick, playModeSelectorExpanded) {
-        // 选择展开期间不自动隐藏：否则控件连同展开态一起被收起，选择过程被打断
-        if (playModeSelectorExpanded) {
+    LaunchedEffect(interactionTick, playModeSelectorExpanded, playlistExpanded) {
+        // 选择展开与播放列表展开期间都不自动隐藏：否则控件（含收起列表的按钮）被收起，
+        // 用户只剩「点击列表外区域」这一条收起路径
+        if (playModeSelectorExpanded || playlistExpanded) {
             controlsVisible = true
             return@LaunchedEffect
         }
@@ -153,7 +155,7 @@ internal fun MiniPlayerBar(
                 }
                 lastSyncMs = 0L
             }
-            // 回写本次推进到的进度：首页/音乐面板重建时以此接着走
+            // 回写本次推进到的进度：首页重建时以此接着走
             playbackState.recordLyricPosition(trackId, lyricPosition)
             delay(if (playbackState.isPlaying) 50L else 200L)
         }
@@ -252,9 +254,9 @@ internal fun MiniPlayerBar(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    // 播放模式选择展开时，点封面视为点击其他区域：只收起选择，不进入面板
+                    // 播放模式选择展开时，点封面视为点击其他区域：只收起选择，不回到应用
                     onClick = {
-                        if (playModeSelectorExpanded) playModeSelectorExpanded = false else onExpandPanel()
+                        if (playModeSelectorExpanded) playModeSelectorExpanded = false else onOpenApp()
                     }
                 ),
             contentAlignment = Alignment.Center,
@@ -333,12 +335,13 @@ internal fun MiniPlayerBar(
                         }
                     }
                 )
-                // 播放列表：直接展开完整音乐面板并落在其播放列表上，
-                // 与点封面展开面板共用「隐藏迷你播放器后再打开面板」的同一路径
+                // 播放列表：就地展开窗口承载列表，再次点击收起。
+                // 展开期间图标以强调色标出当前状态，避免「点了没反应」的错觉
                 MiniControlButton(
                     icon = AppIcons.QueueMusic,
                     contentDescription = stringResource(R.string.mini_player_playlist),
-                    onClick = onOpenPlaylist
+                    onClick = onTogglePlaylist,
+                    tint = if (playlistExpanded) MaterialTheme.colorScheme.primary else null,
                 )
             }
         } else {
@@ -491,6 +494,8 @@ private fun MiniControlButton(
     contentDescription: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
+    // 常态色之外的指定色：用于标出按钮的持续状态（如播放列表展开中）
+    tint: Color? = null,
 ) {
     IconButton(
         onClick = onClick,
@@ -505,8 +510,9 @@ private fun MiniControlButton(
                 imageVector = icon,
                 contentDescription = contentDescription,
                 modifier = Modifier.size(20.dp),
-                tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                tint = tint
+                    ?: if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
             )
         }
     }

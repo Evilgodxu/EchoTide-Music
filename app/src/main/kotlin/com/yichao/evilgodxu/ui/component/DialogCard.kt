@@ -10,7 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 
-// 统一卡片对话框容器：供音乐面板与歌单元数据编辑等场景复用
+// 统一卡片对话框容器：供歌单元数据编辑、封面与歌词刷新等场景复用
 @Composable
 internal fun DialogCard(
     onDismiss: () -> Unit,

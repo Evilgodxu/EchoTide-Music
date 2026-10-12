@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
-/** 音乐面板通用错误横幅：通栏红底样式，显示约 2 秒后自动消失 */
+/** 播放器通用错误横幅：通栏红底样式，显示约 2 秒后自动消失 */
 @Composable
 internal fun MusicErrorBanner(
     message: String,
