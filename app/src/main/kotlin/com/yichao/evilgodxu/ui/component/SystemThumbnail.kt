@@ -39,7 +39,24 @@ import kotlinx.coroutines.withContext
  * 不随键重建的话换曲后状态仍持有上一曲的位图，新图到位前显示端一直停在上一曲。
  */
 @Composable
-internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitmap? {
+internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitmap? =
+    rememberThumbnailState(track, sizePx).bitmap
+
+/**
+ * 封面取图状态：可显示的位图，以及本次取图是否已有结论。
+ *
+ * [pending] 为真表示这张封面仍在取图、眼下无图可显示。调用方据此区分「还没取到」与「确认取不到」——
+ * 对等图下结论的用途（如沉浸背景取色）两者截然不同：前者要接着等，后者该落到无封面的回落处理。
+ */
+@Immutable
+internal data class ThumbnailState(
+    val bitmap: ImageBitmap?,
+    val pending: Boolean,
+)
+
+/** 需要区分「取图中」与「取不到」的调用方走这里；只要位图的走 [rememberSystemThumbnail] */
+@Composable
+internal fun rememberThumbnailState(track: MusicTrack?, sizePx: Int): ThumbnailState {
     val context = LocalContext.current
     val audioUri = track?.audioUri
     val coverRevision = LocalMusicPanelStateHolder.current.state.coverRevision
@@ -56,6 +73,10 @@ internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitm
             }.getOrNull()
         )
     }
+    // 取图结论：初值同步命中的那一张已成结论，否则等异步取图返回（无曲目时本就没有可取的封面）
+    val pending = remember(audioUri, track?.id, sizePx, coverRevision) {
+        mutableStateOf(track != null && thumbnail.value == null)
+    }
     LaunchedEffect(audioUri, track?.id, sizePx, coverRevision) {
         val target = track
         thumbnail.value = if (target == null) {
@@ -70,11 +91,15 @@ internal fun rememberSystemThumbnail(track: MusicTrack?, sizePx: Int): ImageBitm
                 }.getOrNull()
             }
         }
+        pending.value = false
     }
     // 位图 → ImageBitmap 的包装按位图实例记忆：asImageBitmap 每次都返回新实例，
     // 逐帧重新包装会让下游「同一张图」的判定永远不成立，内存命中也要白跑一次淡入
     val bitmap = thumbnail.value
-    return remember(bitmap) { bitmap?.asImageBitmap() }
+    return ThumbnailState(
+        bitmap = remember(bitmap) { bitmap?.asImageBitmap() },
+        pending = pending.value,
+    )
 }
 
 /**

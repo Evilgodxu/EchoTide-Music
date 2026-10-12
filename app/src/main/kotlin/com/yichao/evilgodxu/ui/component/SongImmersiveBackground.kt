@@ -41,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.metadata.CoverBackgroundColors
 import com.yichao.evilgodxu.data.music.metadata.CoverColorCache
+import com.yichao.evilgodxu.data.music.metadata.CoverSkipRegistry
 import com.yichao.evilgodxu.data.music.metadata.extractCoverBackgroundColors
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
@@ -246,16 +247,21 @@ internal fun SongImmersiveBackground(
     // 预取已算好的取色：切歌首帧就能取到新曲目的色调，不必等下面那张 64px 略缩图解码
     val cachedColors = remember(audioUri, coverRevision) { audioUri?.let { CoverColorCache.get(it) } }
     // 与封面显示同一份系统略缩图：封面重写后系统图随媒体扫描重建，版本号变化即重新取色
-    val thumbnail = rememberSystemThumbnail(track, COVER_BACKGROUND_SAMPLE_SIZE)
+    val thumbnailState = rememberThumbnailState(track, COVER_BACKGROUND_SAMPLE_SIZE)
+    val thumbnail = thumbnailState.bitmap
     var extracted by remember(audioUri, coverRevision) { mutableStateOf(cachedColors) }
     // 取色是否已有定论：未定论时先沿用当前底色，不回落默认渐变——
     // 那是与页面底色同为近黑的一条，换曲时整屏瞬间发黑
     var resolved by remember(audioUri, coverRevision) { mutableStateOf(cachedColors != null) }
-    LaunchedEffect(audioUri, coverRevision, thumbnail) {
+    LaunchedEffect(audioUri, coverRevision, thumbnail, thumbnailState.pending) {
         // 取色优先用缓存结果：它或来自预取、或来自持久化恢复，都与高清封面同源，
         // 且不依赖略缩图是否已解码；两者都没有才由这张略缩图现算
         val cached = CoverColorCache.get(audioUri.orEmpty())
         val colors = cached ?: thumbnail?.asAndroidBitmap()?.let { extractCoverBackgroundColors(it) }
+        // 封面还在取图就先不下结论：下结论意味着「本次取色到此为止」，底色会随即换成回落色或默认渐变
+        // ——后者与页面底色同为近黑的一条，换曲时整屏先黑一下再变彩。等封面到位（取到色，
+        // 或确认这首确实没有封面）再落定，中间这段一直沿用上一份底色
+        if (colors == null && thumbnailState.pending) return@LaunchedEffect
         extracted = colors
         resolved = true
         // 只回传新算出的结果：缓存命中说明这份取色已经落过盘（或由持久化结果回填），重复回传只会白写一次偏好
@@ -268,17 +274,12 @@ internal fun SongImmersiveBackground(
     // 流动帧：只在开启流动且封面略缩图就绪时渲染，随流动时间推进重算；
     // 关闭流动即置空，背景不再有任何流动帧参与渲染，只剩下方静态渐变。
     // 提前于换色逻辑声明：换色过渡要把切歌瞬间的这一帧冻结进退场层
+    // 流动开关与帧的状态同处声明：帧是否参与渲染由它决定，关闭时连代现算备下的那一帧也不铺
+    val flowEnabled by context.backgroundFlowEnabledFlow().collectAsStateWithLifecycle(initialValue = false)
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
     // 显示端现算出的那一帧所属的曲目：与当前曲目一致才认它，流动的逐帧推进都发生在它身上
     var frameUri by remember { mutableStateOf<String?>(null) }
-    // 代现算备好的同曲目帧：切歌起播时（显示端重组停摆的那段时间）已现算好，
-    // 回前台、重新进入页面、配置变更后重建时同步命中，不必等显示端自己的现算从零点起步。
-    // 与显示端现算的帧同源同相位，两者可互换（见 renderCoverFlowFrame 与流动时间轴）
-    val preparedFrame = remember(audioUri, coverRevision) { CoverFlowFrameStore.peek(audioUri, coverRevision) }
-    // 铺出的一帧：显示端为本曲目现算过就以它为准；尚未现算过（刚换曲、页面重建、后台切歌回来）
-    // 才由代现算那一帧顶上，取不到时沿用上一次铺出的帧，避免换帧窗口里露出底色
-    val shownFrame = if (frameUri == audioUri) frame else preparedFrame ?: frame
 
     // 整屏换色：上一份底色连同切歌瞬间冻结的流动帧整屏铺在上层，按下述方式与当前底色交叠。
     // 流动帧必须一并冻结带走：帧由封面现算，切歌那刻会立刻换成新曲目的帧，而底色交叠要持续一整段时长；
@@ -303,6 +304,24 @@ internal fun SongImmersiveBackground(
     // 那一帧上新底色已在铺、退场层却还没立起来，于是先闪一次新色（横移时当前层已移出视口，闪的是空屏）。
     // 两者在同一次效果里落定，底色与退场层因此永远同帧出现，任何一次换色都不留这一帧的破绽
     var base by remember { mutableStateOf(targetBase ?: BackgroundBase(colors = null, solid = restoredColor)) }
+    // 底色是否已换成当前曲目那一份：取色未定论或尚未落位时，铺的还是上一首的底色
+    val baseApplied = base == targetBase
+    // 代现算备好的同曲目帧：切歌起播时（显示端重组停摆的那段时间）已现算好，
+    // 回前台、重新进入页面、配置变更后重建时同步命中，不必等显示端自己的现算从零点起步。
+    // 与显示端现算的帧同源同相位，两者可互换（见 renderCoverFlowFrame 与流动时间轴）
+    val preparedFrame = remember(audioUri, coverRevision) { CoverFlowFrameStore.peek(audioUri, coverRevision) }
+    // 铺出的一帧：显示端为本曲目现算过就以它为准；尚未现算过（刚换曲、页面重建、后台切歌回来）
+    // 才由代现算那一帧顶上，取不到时沿用上一次铺出的帧，避免换帧窗口里露出底色。
+    // 关闭流动时一律为空：帧整体退出渲染，代现算残留的那一帧同样不铺
+    val shownFrame = when {
+        !flowEnabled -> null
+        // 底色还没换到当前曲目：本曲目的帧（连同代现算备下的那一份）先不铺，沿用上一次铺出的帧。
+        // 底纹必须与其底色一同入场——抢先露出来就是一次「下一首的背景一闪而过」，
+        // 而底色交叠的那段时长里它还会被当成退场层的帧冻结带走
+        !baseApplied -> frame
+        frameUri == audioUri -> frame
+        else -> preparedFrame ?: frame
+    }
     // 流动帧各层压暗共用的明度系数：底色越浅压得越轻（见 dimScaleOf），强度由 dimAlpha 兜住下限
     val dimScale = remember(base) { dimScaleOf(base.tone) }
     // 当前铺开的底色是否沿用自上一曲：取色未定论期间为真，落地后归假。
@@ -349,11 +368,15 @@ internal fun SongImmersiveBackground(
             base = next
             return@LaunchedEffect
         }
+        // 进度先复位到起点：此刻还没立起退场层，进度只影响本层偏移，写入不会单独显形。
+        // 放在换底色之前，是为了让下面「立退场层」与「换底色」两次写入之间没有挂起点——
+        // 中间若被挂起，就可能有一次组合只取到其中一半，恰好丢掉的又是那一帧的退场层
+        switchProgress.snapTo(1f)
         // 冻结的是此刻铺在画面上的那一帧（frame 的所有者仍是被切走的那一首）：本曲目的帧要么等
         // 本效果之后的现算，要么由代现算备好，都不属于切歌那一刻的画面，退场层要复现的只有前者
         switching = BackgroundSwitchState(base = previous, switch = sweep, frame = frame)
-        switchProgress.snapTo(1f)
-        // 退场层立起后再换底色：两次写入落在同一次效果里，下一次组合取到的是「新底色 + 退场层」的完整一帧
+        // 退场层立起后再换底色：两次写入落在同一次效果里、下一次组合一并取到，
+        // 底色与退场层因此永远同帧出现，任何一次换色都不留「只有新底色、没有退场层」的那一帧
         base = next
         switchProgress.animateTo(
             targetValue = 0f,
@@ -370,7 +393,6 @@ internal fun SongImmersiveBackground(
     // 起点为零还让帧可被代现算（见 CoverFlowFrameStore）：代现算备好的就是零点那一帧，
     // 与显示端接管后现算出的帧同相位，两者可互换而看不出接缝。
     // 会话与首帧都从零累计：前者是停滞后的第一个间隔（正是那段停滞本身），后者根本无间隔可累加
-    val flowEnabled by context.backgroundFlowEnabledFlow().collectAsStateWithLifecycle(initialValue = false)
     // 开关上报给代现算：关闭流动时帧根本不参与渲染，代现算连同取图都可省下
     LaunchedEffect(flowEnabled) { CoverFlowFrameStore.setFlowEnabled(flowEnabled) }
     var flowTimeMs by remember(audioUri) { mutableLongStateOf(0L) }
@@ -398,18 +420,28 @@ internal fun SongImmersiveBackground(
         }
     }
 
-    LaunchedEffect(thumbnail, flowEnabled, viewportSize, flowTimeMs, base.tone) {
+    LaunchedEffect(thumbnail, flowEnabled, viewportSize, flowTimeMs, base.tone, baseApplied) {
+        // 无源可渲染：关闭流动、没有曲目，或该曲目已确认取不到封面（见 CoverSkipRegistry）。
+        // 这三种情形下帧整体撤下，背景只剩静态渐变，不留上一首的底纹
+        if (!flowEnabled || track == null || CoverSkipRegistry.isSkipped(track)) {
+            frame = null
+            frameUri = null
+            return@LaunchedEffect
+        }
+        // 底色尚未换到当前曲目：本曲目的帧先不算，免得它先于底色铺出来（见 shownFrame）。
+        // 底色落位时 base.tone 变化会重跑本效果，那时才算本曲目的帧
+        if (!baseApplied) return@LaunchedEffect
+        // 封面仍在取图（或视口尚未量出）不算无源：保留上一次铺出的帧，别在换帧窗口里露出纯底色。
+        // 切歌时新曲目的 64px 略缩图要等一次媒体库查询，这一段若把帧撤下，
+        // 正在滑入的半屏会先是一条纯新配色的渐变（一次可见的闪），随后底纹才补上——两段观感差得很远
         val cover = thumbnail?.asAndroidBitmap()
-        val rendered = if (!flowEnabled || cover == null || viewportSize.width <= 0 || viewportSize.height <= 0) {
-            null
-        } else {
-            withContext(Dispatchers.Default) {
-                renderCoverFlowFrame(cover, viewportSize, base.tone, flowTimeMs)
-            }
+        if (cover == null || viewportSize.width <= 0 || viewportSize.height <= 0) return@LaunchedEffect
+        val rendered = withContext(Dispatchers.Default) {
+            renderCoverFlowFrame(cover, viewportSize, base.tone, flowTimeMs)
         }
         frame = rendered
-        // 只有真算出帧才认领本曲目：取图未就绪时的空帧不该顶掉代现算备好的那一帧
-        if (rendered != null) frameUri = audioUri
+        // 到此才认领本曲目：此前铺的一直是上一首的帧，认领后逐帧推进才发生在本曲目身上
+        frameUri = audioUri
     }
     val transition = switching
     // 压暗层色标随底色明度变化，按系数缓存复用
