@@ -58,7 +58,7 @@
     <string name="music_panel_delete_confirm">删除</string>
     <string name="music_panel_no_lyrics">暂无歌词</string>
     <plurals name="music_panel_track_count">
-        <item quantity="other">结果 %d 首</item>
+        <item quantity="other">找到 %d 首</item>
     </plurals>
     <string name="music_panel_search_history">搜索历史</string>
     <string name="music_panel_search_history_clear">清理全部历史</string>
