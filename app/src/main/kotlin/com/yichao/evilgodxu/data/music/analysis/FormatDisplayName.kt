@@ -3,7 +3,7 @@ package com.yichao.evilgodxu.data.music.analysis
 // 只说得出容器的扩展名：这类扩展名给不出码流——.m4a 内既可能是 AAC 也可能是 ALAC，
 // .ogg 内可能是 Vorbis 也可能是 Opus——故格式名须另找来源（mime 或容器头）
 private val CONTAINER_EXTENSIONS = setOf(
-    "M4A", "M4B", "M4P", "M4R", "MP4", "CAF", "OGG", "OGA", "MKA", "WEBM", "3GP",
+    "M4A", "M4B", "M4P", "M4R", "MP4", "OGG", "OGA", "MKA", "WEBM", "3GP",
 )
 
 // MPEG 音频的扩展名与展示名不一致（.mpeg 文件即 MP3）

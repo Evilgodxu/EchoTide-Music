@@ -38,7 +38,7 @@ class FormatDisplayNameTest {
     fun containerExtensionFallsBackToItsOwnName() {
         // mime 也定不出时留着容器名：信息量再少也好过把整行留空
         assertEquals("M4A", formatDisplayName("/music/a.m4a", null))
-        assertEquals("CAF", formatDisplayName("/music/a.caf", null))
+        assertEquals("OGG", formatDisplayName("/music/a.ogg", null))
     }
 
     @Test

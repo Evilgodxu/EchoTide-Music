@@ -115,87 +115,6 @@ class ContainerHeaderParserTest {
     }
 
     @Test
-    fun cafAlacIsIdentifiedAndBitDepthComesFromMagicCookie() {
-        // 字节排布按 ffmpeg 实际写出的 CAF 复刻：desc 的位深字段为 0，位深只在 kuki 的配置段里，
-        // 且该 cookie 被 frma/alac 原子包着（解析须跳过这两层才找得到配置段）
-        val bytes = caf(
-            formatId = "alac",
-            channels = 2,
-            sampleRate = 44_100,
-            bitsPerChannel = 0,
-            cookie = alacCookie(bitDepth = 24, channels = 2, sampleRate = 44_100, wrapped = true),
-        )
-        assertEquals(
-            ContainerFormat(44_100, 24, 2, "ALAC"),
-            ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()),
-        )
-    }
-
-    @Test
-    fun cafAlacAcceptsBareCookieToo() {
-        // 不带原子头的写法（配置段直接作为 kuki 载荷）同样要认
-        val bytes = caf(
-            formatId = "alac",
-            channels = 2,
-            sampleRate = 48_000,
-            bitsPerChannel = 0,
-            cookie = alacCookie(bitDepth = 16, channels = 2, sampleRate = 48_000, wrapped = false),
-        )
-        assertEquals(
-            ContainerFormat(48_000, 16, 2, "ALAC"),
-            ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()),
-        )
-    }
-
-    @Test
-    fun cafAlacKeepsCodecWhenCookieMismatches() {
-        // 配置段与 desc 对不上说明定位有误：码流名仍成立（desc 已正面认定），但位深宁可不给
-        val bytes = caf(
-            formatId = "alac",
-            channels = 2,
-            sampleRate = 44_100,
-            bitsPerChannel = 0,
-            cookie = alacCookie(bitDepth = 24, channels = 2, sampleRate = 96_000, wrapped = true),
-        )
-        assertEquals(
-            ContainerFormat(44_100, null, 2, "ALAC"),
-            ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()),
-        )
-    }
-
-    @Test
-    fun cafLinearPcmTakesBitDepthFromDesc() {
-        val bytes = caf(
-            formatId = "lpcm",
-            channels = 2,
-            sampleRate = 44_100,
-            bitsPerChannel = 16,
-            cookie = null,
-        )
-        assertEquals(
-            ContainerFormat(44_100, 16, 2, "PCM"),
-            ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()),
-        )
-    }
-
-    @Test
-    fun cafWithUnknownCodecNamesNoCodec() {
-        // CAF 同样能装有损编码（如 aac），格式标识认不出码流就不给名、不给位深，
-        // 只留采样率与声道——与 mp4a 那条同一口径
-        val bytes = caf(
-            formatId = "aac ",
-            channels = 2,
-            sampleRate = 44_100,
-            bitsPerChannel = 0,
-            cookie = null,
-        )
-        assertEquals(
-            ContainerFormat(44_100, null, 2, null),
-            ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()),
-        )
-    }
-
-    @Test
     fun mp4BoxOffsetSkipsBoxLargerThanWindow() {
         // moov 后置：头窗在超大 mdat 处被截断，据其声明尺寸外推出 moov 起点
         val ftyp = box("ftyp", Builder().ascii("M4A ").u32be(0).ascii("M4A ").toBytes())
@@ -255,9 +174,6 @@ class ContainerHeaderParserTest {
         fun u64le(value: Int) = u64le(value.toLong())
 
         fun zeros(count: Int) = apply { repeat(count) { u8(0) } }
-
-        // 64 位大端 IEEE 754 浮点（CAF 的采样率字段）
-        fun f64be(value: Double) = apply { u64be(value.toBits()) }
 
         fun splice(bytes: ByteArray) = apply { out.write(bytes) }
 
@@ -419,52 +335,6 @@ class ContainerHeaderParserTest {
     private fun box(type: String, body: ByteArray): ByteArray = Builder()
         .u32be((8 + body.size).toLong()).ascii(type).splice(body)
         .toBytes()
-
-    // CAF：caff 头（4 魔数 + 2 版本 + 2 标志）之后逐块，块头为 4 字节类型 + 8 字节大端尺寸。
-    // desc 载荷按 AudioStreamBasicDescription 排布：64 位浮点采样率 + 格式标识 + 包/帧/声道/位深
-    private fun caf(
-        formatId: String,
-        channels: Int,
-        sampleRate: Int,
-        bitsPerChannel: Int,
-        cookie: ByteArray?,
-    ): ByteArray {
-        val desc = Builder()
-            .f64be(sampleRate.toDouble())
-            .ascii(formatId)
-            .u32be(0)
-            .u32be(0)
-            .u32be(if (formatId == "lpcm") 1 else 4096)
-            .u32be(channels)
-            .u32be(bitsPerChannel)
-            .toBytes()
-        val body = Builder()
-            .splice(cafChunk("desc", desc))
-            .apply { cookie?.let { splice(cafChunk("kuki", it)) } }
-            .splice(cafChunk("data", ByteArray(8)))
-            .toBytes()
-        return Builder().ascii("caff").u16be(1).u16be(0).splice(body).toBytes()
-    }
-
-    private fun cafChunk(type: String, body: ByteArray): ByteArray = Builder()
-        .ascii(type).u64be(body.size.toLong()).splice(body)
-        .toBytes()
-
-    // ALAC magic cookie：配置段为 frameLength(4) + 版本(1) + 位深(1) + pb/mb/kb(各 1)
-    // + 声道(1) + maxRun(2) + maxFrameBytes/avgBitRate/采样率(各 4)；
-    // wrapped 为 ffmpeg 写进 CAF 的写法——配置段前还套着 frma 与 alac 两个原子头
-    private fun alacCookie(bitDepth: Int, channels: Int, sampleRate: Int, wrapped: Boolean): ByteArray {
-        val config = Builder()
-            .u32be(4096).u8(0).u8(bitDepth).u8(40).u8(10).u8(14).u8(channels)
-            .u16be(255).u32be(0).u32be(0).u32be(sampleRate.toLong())
-            .toBytes()
-        if (!wrapped) return config
-        return Builder()
-            .u32be(12).ascii("frma").ascii("alac")
-            .u32be(36).ascii("alac").u32be(0)
-            .splice(config)
-            .toBytes()
-    }
 
     private companion object {
         // 声明尺寸远大于头窗，用于验证据尺寸外推后置 moov 起点

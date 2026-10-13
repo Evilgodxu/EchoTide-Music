@@ -13,8 +13,8 @@ internal data class ContainerFormat(
     /**
      * 容器头能**正面认定**的码流名；认定不出一律留空。
      *
-     * 能认定的是 MP4 里以 alac 幻数盒为采样描述的轨道，与 CAF 里格式标识为 alac / lpcm 的轨道——
-     * 这两种容器正是「扩展名只说得出容器」的那种情形，容器名说不出码流，只能由容器头认定。
+     * 能认定的是 MP4 里以 alac 幻数盒为采样描述的轨道——正是「扩展名只说得出容器」的那种情形，
+     * 容器名说不出码流，只能由容器头认定。
      * 其余码流（含 mp4a：可能是 AAC，也可能不是）无法从容器正面认定，故不在此给出推断值；
      * 调用方在它为空时按扩展名与 mime 另定，不用这里顶替。
      */
@@ -22,7 +22,7 @@ internal data class ContainerFormat(
 )
 
 // 音频容器头部规格解析：只读文件头的元数据块，不依赖平台解码器。
-// 覆盖 FLAC、WAV/RF64、AIFF/AIFC、ALAC（MP4 与 CAF 音轨）、APE、DSF、DFF——APE 与 DSD 无平台
+// 覆盖 FLAC、WAV/RF64、AIFF/AIFC、ALAC（MP4 音轨）、APE、DSF、DFF——APE 与 DSD 无平台
 // 解码器，容器头是这些格式唯一的规格来源。解析器全部是纯函数（字节数组 + 窗口在文件中的
 // 绝对偏移 → 规格），与文件 IO 解耦，既便于单测，也让「读多少字节」由调用方按格式决定。
 //
@@ -46,9 +46,6 @@ internal object ContainerHeaderParser {
     // alac 幻数盒成立时，采样描述就是 ALAC
     private const val ALAC_CODEC_NAME = "ALAC"
 
-    // CAF 的线性 PCM 同样能正面认定（格式标识 lpcm 即 PCM）
-    private const val PCM_CODEC_NAME = "PCM"
-
     // MP4 顶层盒类型：用于判别文件是否为 ISO-BMFF 容器
     private val MP4_TOP_LEVEL_BOXES = setOf("ftyp", "moov", "free", "mdat", "wide", "skip", "styp")
 
@@ -64,7 +61,6 @@ internal object ContainerHeaderParser {
             buf.matches(0, "MAC ") -> parseApe(buf, 0)
             buf.matches(0, "DSD ") -> parseDsf(buf, 0)
             buf.matches(0, "FRM8") && buf.matches(12, "DSD ") -> parseDff(buf, 0)
-            buf.matches(0, "caff") -> parseCaf(buf, 0)
             isMp4Like(buf) -> parseMp4(buf, windowStart, fileLength)
             else -> null
         }
@@ -357,87 +353,6 @@ internal object ContainerHeaderParser {
         )
     }
 
-    // ---- CAF（ALAC / 线性 PCM） ----
-
-    // caff 头 8 字节后逐块遍历，取 desc 与 kuki 两块。
-    // desc 载荷是 32 字节的 AudioStreamBasicDescription：64 位大端浮点采样率 + 4 字节格式标识
-    // + 包长/帧长/声道数/位深各 4 字节（大端）。格式标识即码流的正面认定，故 alac 与 lpcm
-    // 之外一律不给名——CAF 里同样能装 aac 等有损编码，认不出就不猜
-    private fun parseCaf(buf: ByteArray, from: Int): ContainerFormat? {
-        if (!buf.matches(from, "caff")) return null
-        var descAt = NO_OFFSET
-        var cookieAt = NO_OFFSET
-        var cookieEnd = NO_OFFSET
-        var p = from + CAF_HEADER_BYTES
-        while (p + CAF_CHUNK_HEADER_BYTES <= buf.size) {
-            val size = u64be(buf, p + 4)
-            // 负值为「载荷延伸到文件末」，0 尺寸会让遍历原地打转，两种都不必再往下走
-            if (size <= 0L) break
-            val body = p + CAF_CHUNK_HEADER_BYTES
-            // 块终点：声明尺寸越过窗口时按窗口末算，本块仍可解析，只是其后内容不可见
-            val next = body + size
-            val end = if (next in (body + 1).toLong()..buf.size.toLong()) next.toInt() else buf.size
-            if (descAt == NO_OFFSET && buf.matches(p, "desc")) descAt = body
-            if (cookieAt == NO_OFFSET && buf.matches(p, "kuki")) {
-                cookieAt = body
-                cookieEnd = end
-            }
-            if (end >= buf.size) break
-            p = end
-        }
-        if (descAt == NO_OFFSET || descAt + CAF_DESC_BYTES > buf.size) return null
-
-        val sampleRate = cafSampleRate(buf, descAt)
-        val channels = u32be(buf, descAt + 24).toInt()
-        return when (ascii(buf, descAt + 8, 4)) {
-            // ALAC 的 desc 位深字段为 0（真实文件即如此，位深只存在于 kuki 的配置段中），
-            // 故非采 kuki 不可，读不出则留空
-            CAF_FORMAT_ALAC -> containerFormatOf(
-                sampleRate = sampleRate.toLong(),
-                bitDepth = cafAlacBitDepth(buf, cookieAt, cookieEnd, sampleRate, channels),
-                channels = channels,
-            )?.copy(codecName = ALAC_CODEC_NAME)
-
-            // 线性 PCM 的位深字段是真实位深
-            CAF_FORMAT_LPCM -> {
-                val bits = u32be(buf, descAt + 28).toInt()
-                containerFormatOf(sampleRate.toLong(), bits.takeIf { it in 1..MAX_BIT_DEPTH }, channels)
-                    ?.copy(codecName = PCM_CODEC_NAME)
-            }
-
-            else -> containerFormatOf(sampleRate.toLong(), null, channels)
-        }
-    }
-
-    // CAF 采样率为 64 位大端 IEEE 754 浮点：非规格化、无穷与 NaN 一律不可解析
-    private fun cafSampleRate(buf: ByteArray, at: Int): Int {
-        val bits = u64be(buf, at)
-        if (bits < 0L) return 0
-        val value = Double.fromBits(bits)
-        if (!value.isFinite() || value < 1.0 || value > PCM_MAX_SAMPLE_RATE.toDouble()) return 0
-        return value.roundToInt()
-    }
-
-    // kuki 块即 ALAC magic cookie，与历史 MP4 一样可能被 frma/alac 原子包着（ffmpeg 写出的
-    // CAF 正是这一形式），故按同一套原子跳过规则定位配置段。
-    // 读出后再与 desc 的采样率/声道交叉校验：对不上说明定位有误，宁可不给位深也不给出错的
-    private fun cafAlacBitDepth(
-        buf: ByteArray,
-        at: Int,
-        end: Int,
-        sampleRate: Int,
-        channels: Int,
-    ): Int? {
-        if (at == NO_OFFSET) return null
-        var config = at
-        if (buf.matches(config + ATOM_TAG_OFFSET, FRMA_ATOM)) config += ATOM_HEADER_BYTES
-        if (buf.matches(config + ATOM_TAG_OFFSET, ALAC_ATOM)) config += ATOM_HEADER_BYTES
-        if (config + ALAC_SPECIFIC_CONFIG_BYTES > end) return null
-        if (u32be(buf, config + 20) != sampleRate.toLong()) return null
-        if (buf[config + 9].toInt() and 0xFF != channels) return null
-        return (buf[config + 5].toInt() and 0xFF).takeIf { it in 1..MAX_BIT_DEPTH }
-    }
-
     // ---- 盒子遍历 ----
 
     // 窗口内按顺序查找指定类型的盒子，返回其相对偏移；盒子结构不成立即终止
@@ -567,22 +482,6 @@ internal object ContainerHeaderParser {
     private const val AUDIO_SAMPLE_ENTRY_BYTES = 28
     // alac 幻数盒配置段长度：4 版本标志 + 24 ALACSpecificConfig
     private const val ALAC_CONFIG_BYTES = 28
-    // ALACSpecificConfig 本身（不含版本标志）的长度，CAF 的 kuki 有带原子头与不带两种写法
-    private const val ALAC_SPECIFIC_CONFIG_BYTES = 24
-    // 'frma' / 'alac' 原子头各 12 字节（4 尺寸 + 4 类型 + 4 版本标志），类型标识在第 4 字节
-    private const val ATOM_HEADER_BYTES = 12
-    private const val ATOM_TAG_OFFSET = 4
-    private const val FRMA_ATOM = "frma"
-    private const val ALAC_ATOM = "alac"
-    // caff 头 8 字节（4 魔数 + 2 版本 + 2 标志），块头 12 字节（4 类型 + 8 尺寸），
-    // desc 载荷 32 字节（AudioStreamBasicDescription）
-    private const val CAF_HEADER_BYTES = 8
-    private const val CAF_CHUNK_HEADER_BYTES = 12
-    private const val CAF_DESC_BYTES = 32
-    private const val CAF_FORMAT_ALAC = "alac"
-    private const val CAF_FORMAT_LPCM = "lpcm"
-    // 偏移占位：块尚未见到
-    private const val NO_OFFSET = -1
     private const val MAX_CHANNELS = 64
     private const val MAX_BIT_DEPTH = 64
 }

@@ -15,12 +15,12 @@ import java.io.InputStream
 internal object TrackAudioInfoReader {
 
     // 容器头可解析的扩展名：无损与线性 PCM 容器，含 DSD 与 APE 这类无平台解码器的格式。
-    // M4A/MP4/M4B 同属 ISO-BMFF（有声书的 .m4b 同样可能装 ALAC），CAF 装 ALAC 或线性 PCM——
-    // 这些容器的位深与码流名只存在于容器头中（有损编码则两者皆空），故一并纳入。
+    // M4A/MP4/M4B 同属 ISO-BMFF（有声书的 .m4b 同样可能装 ALAC）——这些容器的位深与码流名
+    // 只存在于容器头中（有损编码则两者皆空），故一并纳入。
     // .m4p（受保护 AAC）与 .m4r（铃声）内容恒为有损，容器头给不出东西，留给 mime 那条路
     private val CONTAINER_HEADER_FORMATS = setOf(
         "FLAC", "WAV", "WAVE", "RF64", "AIFF", "AIF", "AIFC",
-        "ALAC", "M4A", "M4B", "MP4", "CAF", "APE", "DSF", "DFF",
+        "ALAC", "M4A", "M4B", "MP4", "APE", "DSF", "DFF",
     )
 
     // 容器头窗口：定长头块（STREAMINFO/fmt/COMM/APE 头/DSD 头）都在文件头部，

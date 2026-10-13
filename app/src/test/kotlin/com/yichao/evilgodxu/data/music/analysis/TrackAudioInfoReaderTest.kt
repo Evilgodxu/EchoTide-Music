@@ -23,12 +23,6 @@ class TrackAudioInfoReaderTest {
     }
 
     @Test
-    fun cafIsRead() {
-        // CAF 装 ALAC 或线性 PCM，位深与码流名都只在容器头里
-        assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.caf"))
-    }
-
-    @Test
     fun losslessAndPcmContainersAreRead() {
         assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.flac"))
         assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.wav"))
