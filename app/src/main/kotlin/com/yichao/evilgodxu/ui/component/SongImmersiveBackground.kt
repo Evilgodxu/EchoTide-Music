@@ -220,7 +220,9 @@ private data class BackgroundBase(
 // 静态底色压暗层恒定按该强度铺开——浅色底同样要留出前景文字与状态栏的对比。
 // 取色同源且已持久化：命中缓存（切歌预取、或冷启动时由持久化结果回填）即视为已取色，
 // 三段渐变与流动帧的色调直接复用；缓存未命中才从略缩图现算并回传落盘。
-// 三段取色未就绪时先回落 [restoredColor]（上次持久化结果的代表色）整幅铺色，避免冷启动首帧闪默认色。
+// 三段取色都取不到时先回落「该曲上次持久化结果的代表色」整幅铺色，避免冷启动首帧闪默认色。
+// 这份结果由本组件按曲目自行取用、不由调用方传入：浏览场景（如 3D 封面轮播）居中的曲目随时在换，
+// 调用方无从替「此刻居中的那一首」预先给定，而它正要复用同一份已算好的结果。
 // 底色有变时上一份底色与当前底色交叠一处：切歌按方向整屏横移，同曲取色落地则原地淡出，
 // 两种情形都不会瞬间跳变。
 // 回前台不补播过渡：应用不可见期间发生的换色谁也没看见，重新可见时才被应用的那一次若补播横移，
@@ -237,13 +239,16 @@ internal fun SongImmersiveBackground(
     // 触发本次换色的曲目变更类型：带方向的类型按该方向整屏横移，其余交叠淡出或直接替换。
     // 为空表示调用方无从提供类型（浏览场景，如 3D 封面轮播），同样只做交叠淡出
     switchKind: TrackSwitchKind? = null,
-    restoredColor: Color? = null,
     onBackgroundColor: ((Color) -> Unit)? = null,
     onExtractedColors: ((CoverBackgroundColors) -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val playbackState = LocalMusicPanelStateHolder.current.state
     val audioUri = track?.audioUri
-    val coverRevision = LocalMusicPanelStateHolder.current.state.coverRevision
+    val coverRevision = playbackState.coverRevision
+    // 该曲上次持久化取色的代表色：仅在曲目与持久化结果同源时非空。三段取色都取不到时按它整幅铺色，
+    // 不落到默认深色底。可观察，取色落定即跟随重组
+    val restoredColor = playbackState.restoredBackgroundColorFor(track)
     // 预取已算好的取色：切歌首帧就能取到新曲目的色调，不必等下面那张 64px 略缩图解码
     val cachedColors = remember(audioUri, coverRevision) { audioUri?.let { CoverColorCache.get(it) } }
     // 与封面显示同一份系统略缩图：封面重写后系统图随媒体扫描重建，版本号变化即重新取色
