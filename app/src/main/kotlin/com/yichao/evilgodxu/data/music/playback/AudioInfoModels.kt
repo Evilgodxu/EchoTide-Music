@@ -145,6 +145,13 @@ data class AudioInfoSnapshot(
     val fileSizeBytes: Long?,
     val format: String?,
     val decoder: String?,
+    /**
+     * 当前音频轨在本机没有解码器时的格式展示名（如 ALAC），非空即本条音频无法解码。
+     *
+     * 无解码器时播放器不选中该音频轨、也不初始化解码器，[decoder] 会空着——空着无从区分
+     * 「尚未起播」与「本机解不了」，故由采集端把原因补成一条可读的说明。
+     */
+    val decoderUnavailableFormat: String?,
     // 音频参数
     val sourceSampleRate: Int?,
     val outputSampleRate: Int?,

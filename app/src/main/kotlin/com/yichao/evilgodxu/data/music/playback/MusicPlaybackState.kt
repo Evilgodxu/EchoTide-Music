@@ -722,8 +722,19 @@ class MusicPlaybackState(
     var audioSignalPathSourceUri by mutableStateOf<String?>(null)
 
     // 当前音频渲染器实际使用的平台解码器名（如 c2.android.flac.decoder）。
-    // 由播放服务的解码器初始化回调写入；解码器可跨曲复用，复用时不重复回调，故不随切歌清空
+    // 由播放服务的解码器初始化回调写入。解码器可跨曲复用、复用时不重复回调，故该值不随切歌清空；
+    // 它只保证「上一次初始化时是哪个解码器」，切到本机没有解码器的格式后不会再更新（见 audioTrackDecodable），
+    // 展示端须以归属判定为准，不能把这里的残留值当作当前曲目的解码器
     var audioDecoderName by mutableStateOf<String?>(null)
+
+    // 当前音频轨的编码 mime（如 audio/alac）：由轨道回调按当前曲目的音频组写入，
+    // 与是否被选中无关——选中与否正是「本机有没有该格式解码器」的判据。
+    // 播放停止后保持末值，切歌时随之刷新
+    var audioTrackMimeType by mutableStateOf<String?>(null)
+    // 当前音频轨是否被播放器选中：媒体3 在设备无该格式解码器时把整条音频轨判为不支持而不选中，
+    // 表现为静音播放且不报错，是音频信息面板与提示判断「能不能解码」的唯一依据。
+    // null 表示尚未装载曲目（无从判定）
+    var audioTrackDecodable by mutableStateOf<Boolean?>(null)
     // 音频输出链路当前是否以浮点 PCM 写出：null 表示输出尚未建立（未起播或已停止）
     var audioSinkFloatOutput by mutableStateOf<Boolean?>(null)
 

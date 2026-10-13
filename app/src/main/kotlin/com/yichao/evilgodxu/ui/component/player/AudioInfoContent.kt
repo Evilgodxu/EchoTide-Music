@@ -201,6 +201,13 @@ private fun audioInfoGroups(
             snapshot.decoder?.let {
                 AudioInfoRow(stringResource(R.string.audio_info_decoder), it)
             },
+            // 无可用解码器时解码器名必然缺失，此行是「为什么没有解码器」的唯一交代，与上一行互斥
+            snapshot.decoderUnavailableFormat?.let {
+                AudioInfoRow(
+                    stringResource(R.string.audio_info_decoder),
+                    stringResource(R.string.audio_info_decoder_unavailable, it),
+                )
+            },
         ),
     ),
     AudioInfoGroup(

@@ -88,6 +88,8 @@
     <string name="music_quality_high">高品</string>
     <string name="music_quality_standard">标准</string>
     <string name="music_panel_play_failed">播放失败</string>
+    <!-- 设备没有当前曲目所用编码的解码器，播放器会整条音频轨不选中（静音走完且不报错） -->
+    <string name="music_panel_decode_unsupported">本设备无 %1$s 解码器，该曲目无法播放</string>
     <string name="music_panel_copy">复制</string>
     <string name="music_panel_rename">重命名</string>
     <string name="music_panel_refresh_cover">刷新封面</string>
@@ -162,6 +164,8 @@
     <string name="audio_info_file_size">文件大小</string>
     <string name="audio_info_format">音频格式</string>
     <string name="audio_info_decoder">解码器</string>
+    <!-- 本机没有该编码的解码器：解码器名缺失时用它交代原因 -->
+    <string name="audio_info_decoder_unavailable">不可用（本设备不支持 %1$s）</string>
     <string name="audio_info_source_sample_rate">原始采样率</string>
     <string name="audio_info_output_sample_rate">输出采样率</string>
     <string name="audio_info_bitrate">比特率</string>

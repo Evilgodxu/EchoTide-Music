@@ -14,13 +14,17 @@ import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.yichao.evilgodxu.App
+import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.playback.AudioSignalPathFormat
@@ -29,6 +33,7 @@ import com.yichao.evilgodxu.data.music.playback.DirectOutputDoNotDisturb
 import com.yichao.evilgodxu.data.music.playback.PerDeviceAudioSink
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.UsbDirectOutput
+import com.yichao.evilgodxu.data.music.playback.alac.AlacAudioRenderer
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.settings.usbDirectOutputModeFlow
 import com.yichao.evilgodxu.log.CrashLogManager
@@ -37,6 +42,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import java.util.ArrayList
 
 @OptIn(UnstableApi::class)
 class MusicPlaybackService : MediaSessionService() {
@@ -146,6 +152,36 @@ class MusicPlaybackService : MediaSessionService() {
                 enableFloatOutput: Boolean,
                 enableAudioOutputPlaybackParameters: Boolean,
             ): AudioSink = audioSink
+
+            /**
+             * 补上系统缺失的 ALAC 解码渲染器。
+             *
+             * 追加在默认渲染器之后，即优先级低于系统渲染器：厂商自带的 `audio/alac` 解码器仍被优先选中，
+             * 本渲染器只在系统解不了该格式时接手。AOSP 不含 ALAC 解码组件，媒体3 在解码器列表为空时
+             * 会把整条音频轨判为不可解码，播放器随之不选中该轨——表现为静音走完且不报错。
+             */
+            override fun buildAudioRenderers(
+                context: android.content.Context,
+                extensionRendererMode: Int,
+                mediaCodecSelector: MediaCodecSelector,
+                enableDecoderFallback: Boolean,
+                audioSink: AudioSink,
+                eventHandler: Handler,
+                eventListener: AudioRendererEventListener,
+                out: ArrayList<Renderer>,
+            ) {
+                super.buildAudioRenderers(
+                    context,
+                    extensionRendererMode,
+                    mediaCodecSelector,
+                    enableDecoderFallback,
+                    audioSink,
+                    eventHandler,
+                    eventListener,
+                    out,
+                )
+                out.add(AlacAudioRenderer(eventHandler, eventListener, audioSink))
+            }
         }
         player = ExoPlayer.Builder(this, renderersFactory)
             .setAudioAttributes(
@@ -195,16 +231,18 @@ class MusicPlaybackService : MediaSessionService() {
             }
 
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
-                // 只取被选中的音频轨道自身的格式：不能取首个「有选中项」的组——渲染器按视频在前的
-                // 顺序建组，组内含视频轨时会先命中视频格式；也不能固定取组内 0 号轨——多音轨时选中项
-                // 未必在 0 号，取错会把视频或其它音轨的采样率与声道喂给音频输出
-                val format = tracks.groups
-                    .firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
-                    ?.let { group ->
-                        (0 until group.length)
-                            .firstOrNull { group.isTrackSelected(it) }
-                            ?.let(group::getTrackFormat)
-                    }
+                // 只取音频组自身的格式：不能取首个「有选中项」的组——渲染器按视频在前的
+                // 顺序建组，组内含视频轨时会先命中视频格式；组内优先取被选中的轨——多音轨时选中项
+                // 未必在 0 号。整组没有选中项即该音频轨不会被解码（媒体3 对无解码器的格式正是如此处理），
+                // 此时改取组内 0 号轨的编码用于说明原因；信号路径状态仍只认被解码的那条轨
+                val audioGroup = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_AUDIO }
+                val selectedIndex = audioGroup?.let { group ->
+                    (0 until group.length).firstOrNull { group.isTrackSelected(it) }
+                }
+                val audioFormat = audioGroup
+                    ?.takeIf { it.length > 0 }
+                    ?.getTrackFormat(selectedIndex ?: 0)
+                val format = audioFormat.takeIf { selectedIndex != null }
                 val state = stateHolder.state
                 // 轨道回调直接来自播放器，早于 MediaController 把曲目过渡转投到 state.currentTrack：
                 // 自动接续时按 state.currentTrack 取，会把新曲目的解码格式记到上一首名下，随后到达的
@@ -213,6 +251,34 @@ class MusicPlaybackService : MediaSessionService() {
                 val currentTrack = player.currentMediaItem?.mediaId?.toLongOrNull()
                     ?.let { mediaId -> state.playlist.firstOrNull { it.id == mediaId } }
                     ?: state.currentTrack
+                // 解码器名的归属校正：媒体3 的音频轨判为不可解码时不会有解码器初始化回调，
+                // 上一只解码器名会顶着当前曲目继续展示（ALAC 曲目显示成 flac 解码器即此来路），
+                // 故按「本轨未被选中」与「音频轨换了编码」两种情形清掉残留。
+                // 整组音频轨都不在（列表清空、播放器停止）时不动这些值：此刻无从判定当前曲目的编码，
+                // 清掉只会让信息面板在重新装载前一直空着
+                if (audioGroup != null) {
+                    val audioMime = audioFormat?.sampleMimeType
+                    if (selectedIndex == null ||
+                        (state.audioTrackMimeType != null && state.audioTrackMimeType != audioMime)
+                    ) {
+                        state.audioDecoderName = null
+                    }
+                    state.audioTrackMimeType = audioMime
+                    state.audioTrackDecodable = audioFormat?.let { selectedIndex != null }
+                    if (selectedIndex == null && audioMime != null) {
+                        // 无解码器时播放器不报错：整条音频轨不被选中，表现为静音走完。留痕并明确告知，
+                        // 否则面板上既没有解码器也没有原因，只能看到一首「不出声的歌」
+                        val formatName = TrackAudioInfoReader.mimeToFormatName(audioMime) ?: audioMime
+                        CrashLogManager.logInfo(
+                            "MusicPlaybackService",
+                            "当前音频轨无可用解码器，播放将无声: mime=$audioMime, 曲目=${currentTrack?.title}",
+                        )
+                        state.errorMsg = applicationContext.getString(
+                            R.string.music_panel_decode_unsupported,
+                            formatName,
+                        )
+                    }
+                }
                 // 每次轨道切换后按解码格式更新信号路径状态
                 val fileFormat = format?.let { f ->
                     currentTrack?.path

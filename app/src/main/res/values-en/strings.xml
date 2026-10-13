@@ -83,6 +83,8 @@
     <string name="music_quality_high">High</string>
     <string name="music_quality_standard">Standard</string>
     <string name="music_panel_play_failed">Playback failed</string>
+    <!-- No decoder for the codec used by the current track: the player deselects the audio track (silent, no error) -->
+    <string name="music_panel_decode_unsupported">No %1$s decoder on this device; this track cannot be played</string>
     <string name="music_panel_copy">Copy</string>
     <string name="music_panel_rename">Rename</string>
     <string name="music_panel_refresh_cover">Refresh cover</string>
@@ -158,6 +160,8 @@
     <string name="audio_info_file_size">File size</string>
     <string name="audio_info_format">Format</string>
     <string name="audio_info_decoder">Decoder</string>
+    <!-- No platform decoder for this codec: shown in place of the decoder name to explain the absence -->
+    <string name="audio_info_decoder_unavailable">Unavailable (no %1$s decoder on this device)</string>
     <string name="audio_info_source_sample_rate">Source sample rate</string>
     <string name="audio_info_output_sample_rate">Output sample rate</string>
     <string name="audio_info_bitrate">Bitrate</string>

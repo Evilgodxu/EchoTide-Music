@@ -78,6 +78,7 @@ internal object AudioInfoCollector {
                     ?.removePrefix("audio/")
                     ?.takeIf { it.isNotBlank() },
                 decoder = state.audioDecoderName?.takeIf { it.isNotBlank() },
+                decoderUnavailableFormat = state.decoderUnavailableFormat(),
                 sourceSampleRate = state.sourceSampleRate(),
                 outputSampleRate = outputSampleRate(audioManager, state),
                 bitrateKbps = state.audioSignalPathFormat
@@ -151,6 +152,15 @@ internal object AudioInfoCollector {
             ?.takeIf { isAudioSignalPathCurrent }
             ?.channels
             ?.takeIf { it > 0 }
+
+    // 本机无解码器的音频格式展示名：仅在轨道回调判定当前音频轨不被选中（无可用解码器）时给出。
+    // 未装载曲目（判定未知）与可解码时都不产出，与其余字段同口径由展示层跳过该行
+    private fun MusicPlaybackState.decoderUnavailableFormat(): String? {
+        if (audioTrackDecodable != false) return null
+        return audioTrackMimeType
+            ?.takeIf { it.isNotBlank() }
+            ?.let { TrackAudioInfoReader.mimeToFormatName(it) ?: it }
+    }
 
     // 音频输出模式：取直出自行判定的成色；未装载曲目时输出链路的取向无意义，不展示
     private fun outputMode(state: MusicPlaybackState): AudioOutputMode? {
