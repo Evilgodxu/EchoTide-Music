@@ -29,11 +29,8 @@ import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-// 音频轨诊断的类名前缀：缓冲请求量与实得量写在此名下，与音频信息面板的延迟读数互为印证
+// 音频输出诊断的类名前缀：变体切换与配置异常写在此名下
 private const val LOG_TAG = "PerDeviceAudioSink"
-
-// 帧数换算时长用，与采样率相除即得毫秒
-private const val MILLIS_PER_SECOND = 1000
 
 /**
  * 按直出已受理的写出格式重建的音频输出。
@@ -299,7 +296,6 @@ class PerDeviceAudioSink(
                     onAudioTrackCreated = { track ->
                         capturedTracks[variant] = track
                         applyStartThreshold(track)
-                        reportTrackBuffer(variant, track)
                     },
                 )
             )
@@ -331,25 +327,6 @@ class PerDeviceAudioSink(
         }.onFailure {
             CrashLogManager.logException(LOG_TAG, "设置起播阈值失败，沿用平台初值", it)
         }
-    }
-
-    /**
-     * 记录音频轨的实得缓冲容量。
-     *
-     * 请求量未必等于实得量：平台会把低于自身下限的申请抬回下限，能否压到 [PlaybackBufferPolicy] 的
-     * 目标帧数只能在建轨后由音频轨自报的容量判定，故两者一并落盘。实测延迟与这一段驻留同级，
-     * 读数对不上时这里即是判断依据。
-     */
-    private fun reportTrackBuffer(variant: OutputVariant, track: AudioTrack) {
-        val frames = track.bufferSizeInFrames
-        val sampleRate = track.sampleRate
-        val bufferMs = if (sampleRate > 0) frames * MILLIS_PER_SECOND / sampleRate else 0
-        val targetFrames = if (sampleRate > 0) PlaybackBufferPolicy.targetBufferFrames(sampleRate) else 0
-        CrashLogManager.logInfo(
-            LOG_TAG,
-            "音频轨缓冲：变体=$variant 请求=${targetFrames}帧(${PlaybackBufferPolicy.TARGET_BUFFER_MS}ms) " +
-                "实得=${frames}帧(${bufferMs}ms)",
-        )
     }
 
     /** 当前生效的变体：流数据与位置查询都经它；能力查询另走能力基准，见 [supportsFormat] */
