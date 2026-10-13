@@ -11,6 +11,8 @@ import com.yichao.evilgodxu.data.music.api.parseWordTimedLrcText
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.LyricWord
 import com.yichao.evilgodxu.data.music.download.sanitizeFileName
+import com.yichao.evilgodxu.data.persistence.PersistedData
+import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
 import org.json.JSONArray
@@ -34,8 +36,9 @@ internal object MusicMetadataCache {
     // 单次判定不足以采信 —— 引用集取自本次扫描结果，存储未挂载 / 媒体条目暂缺会让它系统性偏小
     private const val ORPHAN_RECLAIM_WINDOW_DAYS = 3
     private const val ORPHAN_RECLAIM_WINDOW_MS = ORPHAN_RECLAIM_WINDOW_DAYS * 24 * 60 * 60 * 1000L
-    // 无引用首见时刻的记录文件（应用私有目录，与缓存目录隔离）：丢失即时钟重置，只推迟回收
-    private const val RECLAIM_RECORD_FILE = "orphan_reclaim.json"
+    // 无引用首见时刻的记录文件（应用私有目录，与缓存目录隔离）：丢失即时钟重置，只推迟回收。
+    // 落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
+    internal val PERSISTED = PersistedData("orphan_reclaim.json", PersistedFileKind.APP_FILE)
     private const val RECLAIM_RECORD_KEY = "firstSeenUnreferencedAt"
     private const val TAG = "MusicMetadataCache"
 
@@ -455,7 +458,7 @@ internal object MusicMetadataCache {
         ) > 0
     }.getOrDefault(false)
 
-    private fun reclaimRecordFile(context: Context): File = File(context.filesDir, RECLAIM_RECORD_FILE)
+    private fun reclaimRecordFile(context: Context): File = PERSISTED.locate(context)
 
     // 读取「无引用首见时刻」记录；解析失败按无记录处理，只推迟回收
     private fun loadReclaimRecords(context: Context): MutableMap<String, Long> = runCatching {

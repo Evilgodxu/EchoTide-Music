@@ -11,6 +11,8 @@ import androidx.core.content.edit
 import androidx.core.net.toUri
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
+import com.yichao.evilgodxu.data.persistence.PersistedData
+import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
@@ -46,7 +48,8 @@ sealed class DownloadState {
  */
 object UpdateManager {
 
-    private const val PREFS_NAME = "update_prefs"
+    // 待更新信息的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
+    internal val PERSISTED = PersistedData("update_prefs", PersistedFileKind.SHARED_PREFS)
     private const val KEY_LAST_CHECK_DAY = "last_check_day"
     private const val KEY_PENDING_VERSION = "pending_version"
     private const val KEY_PENDING_URL = "pending_url"
@@ -64,7 +67,7 @@ object UpdateManager {
 
     private fun prefs(context: Context): android.content.SharedPreferences {
         return prefsMap.getOrPut(context.packageName) {
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            context.getSharedPreferences(PERSISTED.name, Context.MODE_PRIVATE)
         }
     }
 

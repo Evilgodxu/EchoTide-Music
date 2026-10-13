@@ -442,6 +442,8 @@
     <string name="cache_category_highlight">心动高亮段</string>
     <string name="cache_category_reclaim_record">缓存回收记录</string>
     <string name="cache_category_other">其它持久化数据</string>
+    <string name="cache_category_other_cache">其它缓存</string>
+    <string name="cache_category_other_app_data">其它应用数据</string>
 
     <!-- 卡片与排版设置 -->
     <string name="typography_screen_title">歌词排版设置</string>

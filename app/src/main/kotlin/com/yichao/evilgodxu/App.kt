@@ -16,6 +16,7 @@ import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
+import com.yichao.evilgodxu.data.persistence.StoragePaths
 import com.yichao.evilgodxu.data.playlist.ArtistOrderStore
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.repository.SettingsRepository
@@ -98,8 +99,8 @@ class App : Application() {
                 }
                 .diskCache {
                     DiskCache.Builder()
-                        .directory(context.cacheDir.resolve(CacheInventory.IMAGE_CACHE_DIR_NAME).toOkioPath())
-                        .maxSizeBytes(CacheInventory.IMAGE_DISK_CACHE_MAX_BYTES)
+                        .directory(context.cacheDir.resolve(StoragePaths.IMAGE_CACHE_DIR_NAME).toOkioPath())
+                        .maxSizeBytes(StoragePaths.IMAGE_DISK_CACHE_MAX_BYTES)
                         .build()
                 }
                 .build()

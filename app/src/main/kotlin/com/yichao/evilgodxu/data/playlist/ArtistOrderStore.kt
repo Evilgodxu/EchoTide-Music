@@ -5,6 +5,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import com.yichao.evilgodxu.data.persistence.PersistedData
+import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,7 +25,8 @@ import org.json.JSONObject
 // 由 App 以单例持有，全库共享同一状态实例
 class ArtistOrderStore {
     companion object {
-        private const val PREFS = "music_artist_order_preferences"
+        // 歌手曲序的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
+        internal val PERSISTED = PersistedData("music_artist_order_preferences", PersistedFileKind.SHARED_PREFS)
         private const val KEY = "artist_orders"
     }
 
@@ -87,14 +90,14 @@ class ArtistOrderStore {
                     root.put(artist, JSONArray(ids.toTypedArray()))
                 }
                 // 同步写盘：曲序为用户关键数据，apply 异步落盘存在进程被杀丢失窗口
-                appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                appContext.getSharedPreferences(PERSISTED.name, Context.MODE_PRIVATE)
                     .edit(commit = true) { putString(KEY, root.toString()) }
             }
         }
     }
 
     private fun readOrders(context: Context): Map<String, List<Long>> {
-        val json = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val json = context.getSharedPreferences(PERSISTED.name, Context.MODE_PRIVATE)
             .getString(KEY, null) ?: return emptyMap()
         return try {
             val root = JSONObject(json)

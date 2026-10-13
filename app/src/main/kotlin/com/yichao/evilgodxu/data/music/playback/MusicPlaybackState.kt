@@ -38,6 +38,8 @@ import com.yichao.evilgodxu.data.music.model.RecentCover
 import com.yichao.evilgodxu.data.music.highlight.HighlightScanner
 import com.yichao.evilgodxu.data.music.highlight.HighlightStore
 import com.yichao.evilgodxu.data.music.trackIdentityKey
+import com.yichao.evilgodxu.data.persistence.PersistedData
+import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.settings.settingsDataStore
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
@@ -96,6 +98,16 @@ class MusicPlaybackState(
         // 预取刚起步就被下一次切歌作废，白烧一次内嵌图读取与高清解码；等曲目稳定下来再取，
         // 快速切歌期间等于完全不预取。窗口取宽一些更稳健 —— 代价只是正常听歌时预热晚 2 秒开始
         private const val COVER_PREFETCH_SETTLE_MS = 2_000L
+
+        // 播放器持久化的四份落盘落点：名字即持久化标识，读写与存储页统计共用这些声明
+        internal val PLAYLIST_CACHE_STORE =
+            PersistedData("music_playlist_cache_preferences", PersistedFileKind.SHARED_PREFS)
+        internal val SEARCH_HISTORY_STORE =
+            PersistedData("music_search_history_preferences", PersistedFileKind.SHARED_PREFS)
+        internal val RECENT_PLAYED_STORE =
+            PersistedData("music_recent_played_preferences", PersistedFileKind.SHARED_PREFS)
+        internal val BOOT_MIRROR_STORE =
+            PersistedData("music_boot_mirror_preferences", PersistedFileKind.SHARED_PREFS)
     }
 
     // 上次持久化播放状态的时刻，用于播放期间节流写入
@@ -114,7 +126,6 @@ class MusicPlaybackState(
     private val savedBackgroundTopKey = intPreferencesKey("music_saved_gradient_top")
     private val savedBackgroundBottomKey = intPreferencesKey("music_saved_gradient_bottom")
     private val playlistCacheKey = "music_playlist_cache"
-    private val playlistCachePreferences = "music_playlist_cache_preferences"
     // 当前歌单来源与默认库备份持久化键，重启后恢复选中状态
     private val playlistSourceKeyPref = "music_playlist_source_key"
     private val playlistSourceNamePref = "music_playlist_source_name"
@@ -127,7 +138,6 @@ class MusicPlaybackState(
     private val playlistSortFieldPref = "music_playlist_sort_field"
     private val playlistSortDescPref = "music_playlist_sort_descending"
     private val searchHistoryKey = "music_search_history"
-    private val searchHistoryPreferences = "music_search_history_preferences"
     // 待落盘的播放状态快照：每次调用覆盖为最新值，写入任务按需消费，合并连续写入
     private var pendingStateSnapshot: SavedPlaybackState? = null
     // 播放状态写入任务：在途时新调用只更新快照，由在途循环以最新快照收尾，
@@ -754,7 +764,6 @@ class MusicPlaybackState(
 
     // 常听：3 天内完整播放次数不少于 2 次的歌曲，按最近一次播放时间倒序
     private var recentPlayEvents by mutableStateOf<List<PlayEvent>>(emptyList())
-    private val recentPlayedPreferences = "music_recent_played_preferences"
     private val recentPlayedKey = "music_recent_played_events"
     private val recentWindowMs: Long
         get() = RECENT_WINDOW_DAYS * 24L * 60 * 60 * 1000
@@ -831,7 +840,7 @@ class MusicPlaybackState(
     private fun persistRecentPlayed() {
         val context = appContext ?: return
         playbackScope.launch(Dispatchers.IO) {
-            context.getSharedPreferences(recentPlayedPreferences, Context.MODE_PRIVATE)
+            context.getSharedPreferences(RECENT_PLAYED_STORE.name, Context.MODE_PRIVATE)
                 .edit(commit = true) {
                     putString(
                         recentPlayedKey,
@@ -1009,14 +1018,14 @@ class MusicPlaybackState(
     private suspend fun doRestoreSavedState(context: Context) {
         appContext = context
         searchHistory = withContext(Dispatchers.IO) {
-            context.getSharedPreferences(searchHistoryPreferences, Context.MODE_PRIVATE)
+            context.getSharedPreferences(SEARCH_HISTORY_STORE.name, Context.MODE_PRIVATE)
                 .getString(searchHistoryKey, "")
                 ?.split("\n")
                 ?.filter(String::isNotBlank)
                 .orEmpty()
         }
         recentPlayEvents = withContext(Dispatchers.IO) {
-            context.getSharedPreferences(recentPlayedPreferences, Context.MODE_PRIVATE)
+            context.getSharedPreferences(RECENT_PLAYED_STORE.name, Context.MODE_PRIVATE)
                 .getString(recentPlayedKey, "")
                 ?.split(",")
                 ?.mapNotNull { token ->
@@ -1037,7 +1046,7 @@ class MusicPlaybackState(
         }
         // 恢复上次选中的歌单来源、排序规则与默认库备份，扫描刷新后保持选中与排序
         val (savedSource, savedSortField, savedSortDescending) = withContext(Dispatchers.IO) {
-            val prefs = context.getSharedPreferences(playlistCachePreferences, Context.MODE_PRIVATE)
+            val prefs = context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
             val source = prefs.getString(playlistSourceKeyPref, null)?.let { key ->
                 PlaylistSource(key, prefs.getString(playlistSourceNamePref, "") ?: "")
             }
@@ -1048,7 +1057,7 @@ class MusicPlaybackState(
         }
         // 恢复面板浏览态：未显式浏览过歌单时跟随播放队列
         val (savedFollowsQueue, savedViewedSource) = withContext(Dispatchers.IO) {
-            val prefs = context.getSharedPreferences(playlistCachePreferences, Context.MODE_PRIVATE)
+            val prefs = context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
             prefs.getBoolean(viewedFollowsQueuePref, true) to
                 prefs.getString(viewedSourceKeyPref, null)?.let { key ->
                     PlaylistSource(key, prefs.getString(viewedSourceNamePref, "") ?: "")
@@ -1218,7 +1227,7 @@ class MusicPlaybackState(
                 val backup = defaultPlaylistBackup
                 val followsQueue = viewedFollowsQueue
                 val viewed = viewedSource
-                context.getSharedPreferences(playlistCachePreferences, Context.MODE_PRIVATE).edit(commit = true) {
+                context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE).edit(commit = true) {
                     putString(playlistCacheKey, encodePlaylist(playlist))
                     putString(playlistSourceKeyPref, source?.key)
                     putString(playlistSourceNamePref, source?.name)
@@ -1258,7 +1267,7 @@ class MusicPlaybackState(
     private fun persistSearchHistory() {
         val context = appContext ?: return
         playbackScope.launch(Dispatchers.IO) {
-            context.getSharedPreferences(searchHistoryPreferences, Context.MODE_PRIVATE)
+            context.getSharedPreferences(SEARCH_HISTORY_STORE.name, Context.MODE_PRIVATE)
                 .edit(commit = true) {
                     putString(searchHistoryKey, searchHistory.joinToString("\n"))
                 }
@@ -1266,7 +1275,7 @@ class MusicPlaybackState(
     }
 
     private fun loadCachedPlaylist(context: Context, cacheKey: String): List<MusicTrack> {
-        val json = context.getSharedPreferences(playlistCachePreferences, Context.MODE_PRIVATE)
+        val json = context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
             .getString(cacheKey, null) ?: return emptyList()
         return decodePlaylist(json)
     }
@@ -1522,7 +1531,6 @@ class MusicPlaybackState(
     // 异步恢复完成后再以它们为准覆盖校正（见 doRestoreSavedState 与 adoptSeededCurrentTrack）。
     // 写入点为「切歌与周期进度保存」（persistState）与「背景取色落盘」两处，写入时同步 commit，
     // 与语言镜像同理：异步落盘在进程被杀时会让镜像滞后一次启动。
-    private val bootMirrorPreferences = "music_boot_mirror_preferences"
     private val bootMirrorKey = "playback_snapshot"
 
     /**
@@ -1534,7 +1542,7 @@ class MusicPlaybackState(
     fun seedFromBootMirror(context: Context) {
         appContext = context.applicationContext
         val json = runCatching {
-            context.getSharedPreferences(bootMirrorPreferences, Context.MODE_PRIVATE)
+            context.getSharedPreferences(BOOT_MIRROR_STORE.name, Context.MODE_PRIVATE)
                 .getString(bootMirrorKey, null)
         }.getOrNull() ?: return
         val snapshot = runCatching { JSONObject(json) }.getOrNull() ?: return
@@ -1607,7 +1615,7 @@ class MusicPlaybackState(
                     .put("coverGradientEdge", colors?.representative?.toArgb() ?: 0)
                     .put("coverGradientTop", colors?.top?.toArgb() ?: 0)
                     .put("coverGradientBottom", colors?.bottom?.toArgb() ?: 0)
-                context.getSharedPreferences(bootMirrorPreferences, Context.MODE_PRIVATE)
+                context.getSharedPreferences(BOOT_MIRROR_STORE.name, Context.MODE_PRIVATE)
                     .edit(commit = true) {
                         putString(bootMirrorKey, snapshot.toString())
                     }

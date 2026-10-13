@@ -8,7 +8,6 @@ import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.net.toUri
-import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.api.LOSSLESS_TIERS
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
@@ -24,6 +23,7 @@ import com.yichao.evilgodxu.data.music.panel.resolvePlayUrlByQuality
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.swapCurrentSourceToUri
+import com.yichao.evilgodxu.data.persistence.StoragePaths
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
 import kotlin.coroutines.resume
@@ -169,7 +169,7 @@ internal fun sanitizeFileName(name: String): String {
 
 // 在线歌曲缓存的下载集合相对路径：目录名取自缓存元数据与台账，与统计端共用同一份事实
 private fun audioCachedRelativePath(): String =
-    "${Environment.DIRECTORY_DOWNLOADS}/${MusicMetadataCache.CACHE_DIR_NAME}/${CacheInventory.AUDIO_DIR_NAME}"
+    "${Environment.DIRECTORY_DOWNLOADS}/${MusicMetadataCache.CACHE_DIR_NAME}/${StoragePaths.AUDIO_DIR_NAME}"
 
 // 触发媒体扫描并等待完成：扫描经回调异步返回，不等待就刷新曲库，MusicScanner 读不到新条目
 // （IS_MUSIC/DURATION 由扫描写入，缺失时会被媒体库查询过滤），调用方会因此少歌
@@ -199,7 +199,7 @@ private const val STREAM_BUFFER_SIZE = 64 * 1024
 // 等待媒体扫描完成的上限：超时后仍继续刷新，新条目由后续媒体变更刷新兜底
 private const val SCAN_TIMEOUT_MS = 10_000L
 
-// 下载临时文件前缀由缓存台账统一登记（CacheInventory.TEMP_FILE_PREFIXES）：
+// 下载临时文件前缀由共享路径事实统一登记（StoragePaths.TEMP_FILE_PREFIXES）：
 // 冷启动回收按同前缀整批清理，本文件只负责清理本次进程内的异常残留
 // 视为遗留的临时文件存在时长：进程被杀时 finally 不一定执行，超时未删即判定为异常中断残留
 private const val TEMP_STALE_MS = 30 * 60 * 1000L
@@ -215,7 +215,7 @@ private fun cleanupStaleTempFiles(context: Context) {
     if (now - lastTempCleanupAt < TEMP_CLEANUP_INTERVAL_MS) return
     lastTempCleanupAt = now
     runCatching {
-        context.cacheDir.listFiles { f -> CacheInventory.TEMP_FILE_PREFIXES.any { f.name.startsWith(it) } }
+        context.cacheDir.listFiles { f -> StoragePaths.TEMP_FILE_PREFIXES.any { f.name.startsWith(it) } }
             ?.forEach { f -> if (now - f.lastModified() > TEMP_STALE_MS) f.delete() }
     }
 }

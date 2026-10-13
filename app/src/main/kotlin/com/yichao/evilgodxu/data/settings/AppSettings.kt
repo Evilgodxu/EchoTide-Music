@@ -7,13 +7,18 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.yichao.evilgodxu.data.persistence.PersistedData
+import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import com.yichao.evilgodxu.log.CrashLogManager
 import kotlinx.coroutines.flow.first
+
+// 设置 DataStore 的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
+internal val SETTINGS_STORE = PersistedData("settings", PersistedFileKind.DATA_STORE)
 
 // 设置 DataStore：文件损坏时由损坏处理器重置为空配置并记录日志，
 // 避免半个损坏文件导致主题/语言等全部用户偏好整体失效
 val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(
-    name = "settings",
+    name = SETTINGS_STORE.name,
     corruptionHandler = ReplaceFileCorruptionHandler<Preferences> { throwable ->
         CrashLogManager.logException("SettingsDataStore", "设置数据损坏，已重置为默认值", throwable)
         emptyPreferences()

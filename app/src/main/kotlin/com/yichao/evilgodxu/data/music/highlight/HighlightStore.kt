@@ -2,6 +2,8 @@ package com.yichao.evilgodxu.data.music.highlight
 
 import android.content.Context
 import com.yichao.evilgodxu.data.music.model.MusicTrack
+import com.yichao.evilgodxu.data.persistence.PersistedData
+import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -44,7 +46,8 @@ internal sealed interface HighlightEntry {
  */
 internal object HighlightStore {
 
-    private const val FILE_NAME = "highlight_segments.json"
+    // 心动高亮段的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
+    internal val PERSISTED = PersistedData("highlight_segments.json", PersistedFileKind.APP_FILE)
     private const val KEY_VERSION = "version"
     private const val CURRENT_VERSION = 1
 
@@ -141,7 +144,7 @@ internal object HighlightStore {
 
     private suspend fun read(context: Context): Map<Long, Stored> = withContext(Dispatchers.IO) {
         try {
-            val file = File(context.filesDir, FILE_NAME)
+            val file = PERSISTED.locate(context)
             if (!file.isFile) return@withContext emptyMap()
             val root = JSONObject(file.readText())
             // 版本不认识时按空表处理：下次扫描会整表重建，不做迁移尝试
@@ -168,8 +171,8 @@ internal object HighlightStore {
             val array = JSONArray()
             values.forEach { (trackId, stored) -> array.put(itemTo(trackId, stored)) }
             val root = JSONObject().put(KEY_VERSION, CURRENT_VERSION).put("entries", array)
-            val file = File(context.filesDir, FILE_NAME)
-            val temp = File(file.parentFile, "$FILE_NAME.tmp")
+            val file = PERSISTED.locate(context)
+            val temp = File(file.parentFile, "${PERSISTED.name}.tmp")
             val content = root.toString()
             temp.writeText(content)
             // 先写中转文件再改名：更新期间读表的装载不会读到半截 JSON

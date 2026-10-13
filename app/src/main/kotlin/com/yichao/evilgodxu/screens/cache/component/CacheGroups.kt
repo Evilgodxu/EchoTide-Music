@@ -232,5 +232,7 @@ private val CacheCategory.labelRes: Int
         CacheCategory.SETTINGS -> R.string.cache_category_settings
         CacheCategory.HIGHLIGHT -> R.string.cache_category_highlight
         CacheCategory.RECLAIM_RECORD -> R.string.cache_category_reclaim_record
+        CacheCategory.OTHER_CACHE -> R.string.cache_category_other_cache
+        CacheCategory.OTHER_APP_DATA -> R.string.cache_category_other_app_data
         CacheCategory.OTHER_PERSISTED -> R.string.cache_category_other
     }

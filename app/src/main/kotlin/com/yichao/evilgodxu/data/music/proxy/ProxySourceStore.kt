@@ -4,12 +4,15 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
+import com.yichao.evilgodxu.data.persistence.PersistedData
+import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import org.json.JSONArray
 
 // 代理音源持久化：SharedPreferences 存储原始 JSON 列表与启用状态，同名音源重复导入时覆盖
 internal object ProxySourceStore {
 
-    private const val PREFS_NAME = "proxy_sources"
+    // 代理音源的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
+    internal val PERSISTED = PersistedData("proxy_sources", PersistedFileKind.SHARED_PREFS)
     private const val KEY_SOURCES = "sources_json"
     private const val KEY_ENABLED = "enabled_names"
 
@@ -166,5 +169,5 @@ internal object ProxySourceStore {
     }
 
     private fun prefs(context: Context) =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        context.getSharedPreferences(PERSISTED.name, Context.MODE_PRIVATE)
 }
