@@ -1,9 +1,11 @@
 package com.yichao.evilgodxu.data.music
 
 import android.content.Context
+import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.music.analysis.trackFormatCategory
+import com.yichao.evilgodxu.data.music.metadata.EmbeddedTagBackfill
 import com.yichao.evilgodxu.data.music.panel.normalizeTitle
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PlaylistSource
@@ -36,8 +38,8 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
             if (!started) return@withLock
             try {
                 val tracks = MusicScanner.scan(context)
-                // 合并去重、缓存复用索引建立与排序全为纯计算，与扫描同放 IO：
-                // 原先这段留在主线程，数千首的库在刷新期间会持续占用主线程
+                // 合并去重、缓存复用索引建立与排序与扫描同放 IO：原先这段留在主线程，
+                // 数千首的库在刷新期间会持续占用主线程；其中的内嵌标签补全还要读文件，更不能留在主线程
                 val sortedLibrary = withContext(Dispatchers.IO) {
                     // 在线播放曲目（含已缓存）仅保留当前播放项，其余未播放的一律丢弃，
                     // 其余外部曲目（path 为空）照常合并，避免刷新后在线歌曲常驻
@@ -57,17 +59,23 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
                     val previousByTitleArtist = cachedLibrary
                         .filter { it.lyricCachePath.isNotBlank() }
                         .associateBy { titleArtistKey(it) }
+                    val unknownArtist = context.getString(R.string.music_scanner_unknown_artist)
                     val mergedTracks = mergedBase
                         .map { track ->
                             val cached = previous[normalizedAudioUri(track.audioUri)]
-                                ?: previousByTitleArtist[titleArtistKey(track)]
-                                ?: return@map track
-                            track.copy(
-                                neteaseId = cached.neteaseId,
-                                neteaseCoverUrl = cached.neteaseCoverUrl,
-                                lyricCachePath = cached.lyricCachePath,
-                                lyricLines = cached.lyricLines,
-                                lyricFailed = cached.lyricFailed,
+                            // 平台读不出标签的容器（WAV/AIFF/DSF/APE）不在刷新路径读文件：
+                            // 这里只沿用上轮已补出的标签，仍需读取的交给后台补全通道逐首回写
+                            val labeled = EmbeddedTagBackfill.carryOver(track, cached, unknownArtist)
+                            // 兜底匹配用补全后的标题与艺术家：库内保存的是补全结果，
+                            // 拿扫描期的占位标题去比对会匹配不上，歌词缓存随之丢失
+                            val fallback = cached ?: previousByTitleArtist[titleArtistKey(labeled)]
+                            if (fallback == null) return@map labeled
+                            labeled.copy(
+                                neteaseId = fallback.neteaseId,
+                                neteaseCoverUrl = fallback.neteaseCoverUrl,
+                                lyricCachePath = fallback.lyricCachePath,
+                                lyricLines = fallback.lyricLines,
+                                lyricFailed = fallback.lyricFailed,
                             )
                         }
                     val defaultOrdered = state.sortPlaylistForDefaultOrder(mergedTracks)

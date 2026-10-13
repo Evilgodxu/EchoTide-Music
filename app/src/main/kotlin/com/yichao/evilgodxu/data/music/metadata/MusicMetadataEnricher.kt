@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.data.music.metadata
 
 import android.content.Context
+import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
@@ -22,6 +23,8 @@ import kotlinx.coroutines.withContext
 class MetadataEnricher {
     // 歌词后台读取专用调度器：限并发，避免大歌单首次启动时内存与 CPU 尖峰导致面板卡顿
     private val lyricDispatcher = Dispatchers.IO.limitedParallelism(4)
+    // 内嵌标签补读专用调度器：与歌词读取各自限并发，两类读取互不排队
+    private val tagDispatcher = Dispatchers.IO.limitedParallelism(4)
     // 按需懒加载专用调度器：与全量补全互不排队，UI 可见项优先读取
     private val onDemandDispatcher = Dispatchers.IO.limitedParallelism(4)
     // 全量补全排期中的曲目 ID：按需请求遇到时让路，由全量任务统一回写
@@ -80,10 +83,66 @@ class MetadataEnricher {
         }
         bulkInFlight.addAll(plannedIds)
         try {
+            // 标签补全先行：歌词缓存以「标题 - 艺术家」为索引，若在标题落定前补歌词，
+            // 会按扫描期的占位标题写出一份索引不上的缓存，更会因找不到共享歌词而误标
+            // lyricFailed —— 该标记会被持久化并在后续刷新中沿用，使该曲目的歌词再也补不上。
+            // 两个阶段各自内部限并发，阶段之间保持先后
+            embedTagsProgressively(context, playbackState, tracks)
             enrichLyricsProgressively(context, playbackState, tracks)
         } finally {
             bulkInFlight.removeAll(plannedIds)
         }
+    }
+
+    /**
+     * 内嵌标签后台补读：并发读取平台读不出标签的容器（WAV/AIFF/DSF/APE），每首读完即回写内存态。
+     *
+     * 读取不发生在刷新路径上——扫描先以 MediaStore 给出的标签返回结果，这里的补读只负责
+     * 后续把标题 / 艺术家 / 专辑修正到面板上，因此单首耗时不进入扫描的完成时间。
+     */
+    private suspend fun embedTagsProgressively(
+        context: Context,
+        playbackState: MusicPlaybackState,
+        tracks: List<MusicTrack>,
+    ) {
+        val unknownArtist = context.getString(R.string.music_scanner_unknown_artist)
+        // 筛选放 IO：逐曲判定含路径解析与容器扩展名比较，数千首在主线程判定会掉帧
+        val targets = withContext(Dispatchers.IO) {
+            tracks.filter { EmbeddedTagBackfill.isPending(it, unknownArtist) }
+        }
+        if (targets.isEmpty()) return
+        val changed = coroutineScope {
+            targets.map { track ->
+                async(tagDispatcher) {
+                    val updated = EmbeddedTagBackfill.resolve(context, track) ?: return@async false
+                    withContext(Dispatchers.Main) {
+                        val merged = mergeTagUpdate(playbackState, track, updated)
+                        if (merged != null) playbackState.batchUpdateTracks(listOf(merged), persist = false)
+                        merged != null
+                    }
+                }
+            }.awaitAll().any { it }
+        }
+        // 逐首只更新内存态，本阶段收尾统一落盘一次，避免逐曲重写整份播放列表
+        if (changed) {
+            withContext(Dispatchers.Main) { playbackState.persistPlaylist() }
+        }
+    }
+
+    /** 内嵌标签结果的字段级合并：只应用本次相对扫描快照确实被替换过的字段，
+     *  其余字段以当前内存态为准，避免覆盖并发支路已写入的结果；无实际变化返回 null */
+    private fun mergeTagUpdate(
+        playbackState: MusicPlaybackState,
+        original: MusicTrack,
+        updated: MusicTrack,
+    ): MusicTrack? {
+        val base = playbackState.playlist.firstOrNull { it.id == updated.id } ?: return updated
+        val merged = base.copy(
+            title = updated.title.takeIf { it != original.title } ?: base.title,
+            artist = updated.artist.takeIf { it != original.artist } ?: base.artist,
+            albumName = updated.albumName.takeIf { it != original.albumName } ?: base.albumName,
+        )
+        return merged.takeIf { it != base }
     }
 
     /**
