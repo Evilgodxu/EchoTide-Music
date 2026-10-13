@@ -39,27 +39,30 @@ internal object SystemThumbnailCache {
     }
 }
 
-// 驻留比例：封面缓存该占多大取决于设备给了应用多少堆，2GB 与 12GB 机型相差数倍，
-// 写死字节数必然在低内存机型上偏大、在高内存机型上偏小。口径对齐 Coil 的 MemoryCache.maxSizePercent ——
-// 按可用堆取比例，再夹在上下限之间
-private const val COVER_CACHE_SIZE_PERCENT = 0.10
+// 预算口径：可用堆先扣掉封面之外的那一段瞬时峰值，余下的才归封面缓存。
+// 这段峰值由大封面还原内嵌原图（长边 2048）、音频内嵌封面解码与 ExoPlayer 的高解析度缓冲构成，
+// 实测在 200 MB 以内，取 300 MB 是给机型与曲目差异留的余量。
+// 它不随堆大小等比放大，故不按堆的比例划分 —— 比例在高堆机上给不出合适的上界，
+// 在低堆机型上又会把本该归缓存的额度压掉
+private const val COVER_CACHE_HEAP_RESERVE_BYTES = 300 * 1024 * 1024
 
-// 驻留下限：改造前的固定值。列表行封面按显示尺寸取图后约 16–36KB，该预算可容纳约 900 张，
-// 覆盖常见的一屏来回滚动；低内存机型不再因此变小
+// 驻留下限：改造前的固定值。堆扣完余量后不足这里（低内存机型）仍按下限给，不因换口径而变小；
+// 列表行封面按显示尺寸取图后单张约 16–64 KB
 private const val COVER_CACHE_MIN_BYTES = 32 * 1024 * 1024
 
-// 驻留上限：再高的堆也只用到这里。本应用同时驻留 ExoPlayer 的高解析度音频缓冲与解码峰值，
-// 封面缓存与 Coil 自身的图片缓存（见 App 的 0.10）合计不超过可用堆的两成，留出余量
-private const val COVER_CACHE_MAX_BYTES = 64 * 1024 * 1024
+// 驻留上限：再高的堆也只用到这里。封面缓存之外还有 Coil 的图片缓存（见 App 的 0.10）、
+// 大封面常驻档与音频内嵌封面缓存，图片类常驻不能无限跟着堆放大
+private const val COVER_CACHE_MAX_BYTES = 128 * 1024 * 1024
 
 /**
- * 索引曲目略缩图内存缓存的驻留上限（字节）：按应用可用堆 [maxHeapBytes] 的比例计算，
- * 并夹在上下限之间。抽成纯函数以便单测覆盖边界（低内存机型落到下限、高内存机型落到上限）。
+ * 索引曲目略缩图内存缓存的驻留上限（字节）：可用堆 [maxHeapBytes] 扣除 [COVER_CACHE_HEAP_RESERVE_BYTES]
+ * 后的余量即为本缓存的额度，再夹在上下限之间。
+ * 抽成纯函数以便单测覆盖边界（低内存机型落到下限、高内存机型落到上限）。
  *
  * 返回 Int 而非 Long：消费方 [android.util.LruCache] 的容量就是 Int，
  * 而上限（[COVER_CACHE_MAX_BYTES]）远在 Int 量程之内，不必让调用方各做一次窄化转换。
  */
 internal fun coverThumbnailCacheBytes(maxHeapBytes: Long): Int =
-    (maxHeapBytes * COVER_CACHE_SIZE_PERCENT).toLong()
+    (maxHeapBytes - COVER_CACHE_HEAP_RESERVE_BYTES)
         .coerceIn(COVER_CACHE_MIN_BYTES.toLong(), COVER_CACHE_MAX_BYTES.toLong())
         .toInt()
