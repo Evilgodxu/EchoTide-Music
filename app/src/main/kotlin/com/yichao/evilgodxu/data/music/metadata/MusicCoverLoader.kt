@@ -132,7 +132,7 @@ internal object MusicCoverLoader {
                 if (thumbnail != null) return@withContext thumbnail
             }
             // 一级兜底：首选来源缺席或读取失败时回退音频文件的内嵌原图，按同一请求尺寸自行缩放。
-            // 平台对部分容器（WAV/AIFF/DSF/DFF/APE）读不到内嵌图片，这类曲目只能由此取到；
+            // 平台对部分容器（WAV/DSF/DFF/APE）读不到内嵌图片，这类曲目只能由此取到；
             // 其余容器即便平台结论是「无封面」，这里也只多付一次读取 —— 失败结论由 CoverSkipRegistry
             // 记住，同一首曲目不会反复付这笔开销。
             // 读取与解码的去重、往返复用由缓存持有，调用方只负责按需请求

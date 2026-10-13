@@ -9,9 +9,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 // 本地音频内嵌歌词读取：解析 MP3(ID3v2 USLT)、FLAC/OGG(Vorbis 注释 LYRICS)、M4A(©lyr)、
-// WAV(容器内 "ID3 " 块)、AIFF/AIFC 与 DSDIFF("ID3 " 块)、DSF(尾部 ID3)、APE(APEv2 条目) 中的歌词文本，
+// WAV(容器内 "ID3 " 块)、DSDIFF("ID3 " 块)、DSF(尾部 ID3)、APE(APEv2 条目) 中的歌词文本，
 // 统一按增强 LRC 解析为时间轴歌词；非本地音频源或无内嵌歌词时返回空列表。
-// 标签位于音频之后的容器（WAV/DSF/APE 及标签后置的 AIFF/DSDIFF）需要尾窗定位，
+// 标签位于音频之后的容器（WAV/DSF/APE 及标签后置的 DSDIFF）需要尾窗定位，
 // 尾窗之外的标签再按绝对偏移定点读取
 internal object MusicEmbeddedLyricReader {
 
@@ -73,7 +73,7 @@ internal object MusicEmbeddedLyricReader {
     }
 
     // 按容器格式提取内嵌歌词文本，未找到返回 null。
-    // 无独立解析分支的容器交给容器标签层处理（AIFF/DSDIFF 的 ID3 块置于音频之前，头窗即可覆盖）
+    // 无独立解析分支的容器交给容器标签层处理（DSDIFF 的 ID3 块置于音频之前，头窗即可覆盖）
     internal fun extractLyrics(bytes: ByteArray): String? = when {
         isMp4(bytes) -> readMp4Lyrics(bytes.size.toLong()) { offset, count -> sliceOf(bytes, offset, count) }
         isFlac(bytes) -> extractFlacLyrics(bytes)
@@ -114,7 +114,7 @@ internal object MusicEmbeddedLyricReader {
     }
 
     // 标签位于音频之后的容器：WAV（容器内 "ID3 " 块，旧布局则在文件末尾的带 footer 标签）、
-    // DSF（头部元数据指针）、APE（APEv2 页脚）以及把 ID3 块置于音频之后的 AIFF/DSDIFF。
+    // DSF（头部元数据指针）、APE（APEv2 页脚）以及把 ID3 块置于音频之后的 DSDIFF。
     // 尾窗覆盖不到整个标签时（超大封面）由 readAt 按标签起始绝对偏移定点读取
     private fun extractLyricsFromTail(context: Context, track: MusicTrack, header: ByteArray): String? {
         // 标签在头部的容器（FLAC/M4A/Ogg）不读尾窗：头窗已解析不出歌词，再读尾窗也是空

@@ -1,8 +1,5 @@
 package com.yichao.evilgodxu.data.music.analysis
 
-import kotlin.math.pow
-import kotlin.math.roundToInt
-
 // 容器头规格：采样率、位深与声道数。
 // 位深可空——有损编码的采样描述 msamplesize 只是名义值，容器未声明真实位深时留空，
 // 调用方据此跳过位深相关判定，不用 0 或推测值顶替
@@ -22,7 +19,7 @@ internal data class ContainerFormat(
 )
 
 // 音频容器头部规格解析：只读文件头的元数据块，不依赖平台解码器。
-// 覆盖 FLAC、WAV/RF64、AIFF/AIFC、ALAC（MP4 音轨）、APE、DSF、DFF——APE 与 DSD 无平台
+// 覆盖 FLAC、WAV/RF64、ALAC（MP4 音轨）、APE、DSF、DFF——APE 与 DSD 无平台
 // 解码器，容器头是这些格式唯一的规格来源。解析器全部是纯函数（字节数组 + 窗口在文件中的
 // 绝对偏移 → 规格），与文件 IO 解耦，既便于单测，也让「读多少字节」由调用方按格式决定。
 //
@@ -56,8 +53,6 @@ internal object ContainerHeaderParser {
         return when {
             buf.matches(0, "fLaC") -> parseFlac(buf, 0)
             buf.matches(0, "RIFF") || buf.matches(0, "RF64") -> parseRiff(buf, 0)
-            buf.matches(0, "FORM") && (buf.matches(8, "AIFF") || buf.matches(8, "AIFC")) ->
-                parseAiff(buf, 0)
             buf.matches(0, "MAC ") -> parseApe(buf, 0)
             buf.matches(0, "DSD ") -> parseDsf(buf, 0)
             buf.matches(0, "FRM8") && buf.matches(12, "DSD ") -> parseDff(buf, 0)
@@ -154,50 +149,6 @@ internal object ContainerHeaderParser {
             p = (bodyEnd + (size and 1L)).toInt()
         }
         return null
-    }
-
-    // ---- AIFF / AIFC ----
-
-    // FORM 容器逐块遍历取 COMM：声道 2 字节 + 采样帧数 4 字节 + 位深 2 字节，
-    // 采样率是 80 位 IEEE 扩展精度浮点数，非 IEEE 754 二进制小数
-    private fun parseAiff(buf: ByteArray, from: Int): ContainerFormat? {
-        if (!buf.matches(from, "FORM")) return null
-        if (!buf.matches(from + 8, "AIFF") && !buf.matches(from + 8, "AIFC")) return null
-        var p = from + 12
-        while (p + 8 <= buf.size) {
-            val size = u32be(buf, p + 4)
-            val body = p + 8
-            val bodyEnd = body + size
-            if (size <= 0 || bodyEnd > buf.size) return null
-            if (buf.matches(p, "COMM")) {
-                // COMM 有效字段到块体偏移 18 为止（10 字节采样率）
-                if (size < 18) return null
-                return containerFormatOf(
-                    sampleRate = extended80ToInt(buf, body + 8).toLong(),
-                    bitDepth = u16be(buf, body + 6),
-                    channels = u16be(buf, body),
-                )
-            }
-            p = (bodyEnd + (size and 1L)).toInt()
-        }
-        return null
-    }
-
-    // 80 位 IEEE 扩展精度浮点 → 整数：1 位符号 + 15 位偏置指数 + 64 位显式整数尾数。
-    // 音频采样率恒为正整数；指数为 0（零/非规格化）或全 1（无穷/NaN）、符号位为负时不可解析。
-    // 尾数只取高 32 位：规格化后二进制点在最高位之后，高 32 位已给出 2^-32 的相对精度，
-    // 而整个 64 位尾数在 Long 中是负数（最高位恒为 1），按有符号读取会得到负值
-    private fun extended80ToInt(buf: ByteArray, at: Int): Int {
-        if (at + 10 > buf.size) return 0
-        if (buf[at].toInt() and 0x80 != 0) return 0
-        val exponent = ((buf[at].toInt() and 0x7F) shl 8) or (buf[at + 1].toInt() and 0xFF)
-        if (exponent == 0 || exponent == 0x7FFF) return 0
-        var mantissa = 0L
-        for (i in 2 until 6) mantissa = (mantissa shl 8) or (buf[at + i].toLong() and 0xFF)
-        if (mantissa <= 0L) return 0
-        val value = mantissa.toDouble() * 2.0.pow(exponent - 16383 - 31)
-        if (value < 1.0 || value > PCM_MAX_SAMPLE_RATE.toDouble()) return 0
-        return value.roundToInt()
     }
 
     // ---- APE ----

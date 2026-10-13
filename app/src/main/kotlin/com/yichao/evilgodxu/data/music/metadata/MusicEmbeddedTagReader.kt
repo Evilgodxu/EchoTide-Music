@@ -2,8 +2,8 @@ package com.yichao.evilgodxu.data.music.metadata
 
 import android.content.Context
 
-// 本地音频内嵌文本标签读取：取 WAV(RIFF)、AIFF/AIFC、DSDIFF、DSF、APE 的标题/艺术家/专辑。
-// 这些容器的标签平台元数据提取器读不到——WAV 的容器内 "ID3 " 块与 LIST/INFO、AIFF/DSDIFF 的 "ID3 " 块、
+// 本地音频内嵌文本标签读取：取 WAV(RIFF)、DSDIFF、DSF、APE 的标题/艺术家/专辑。
+// 这些容器的标签平台元数据提取器读不到——WAV 的容器内 "ID3 " 块与 LIST/INFO、DSDIFF 的 "ID3 " 块、
 // DSF 的尾部标签、APE 的 APEv2 条目都不在平台支持范围内，MediaStore 只能给出文件名派生的标题，
 // 故曲目入库时改由本读取器从文件自身补齐。
 // 平台已能读标签的容器（MP3/FLAC/M4A/Ogg）不在读取范围内，避免为全库逐曲多读一次文件。

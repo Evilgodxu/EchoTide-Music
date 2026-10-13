@@ -24,7 +24,6 @@ internal object AudioMetaProbe {
         bytes.matches(0, "fLaC") -> flac(bytes)
         bytes.matches(0, "OggS") -> ogg(bytes)
         bytes.matches(0, "RIFF") -> riff(bytes)
-        bytes.matches(0, "FORM") -> iff(bytes, 4)
         bytes.matches(0, "FRM8") -> iff(bytes, 8)
         bytes.matches(0, "DSD ") -> dsf(bytes)
         bytes.matches(0, "MAC ") -> ape(bytes)
@@ -40,7 +39,6 @@ internal object AudioMetaProbe {
             .filterNot { it.matches(0, "OpusTags") || it.matches(0, "\u0001vorbis") || it.matches(0, "\u0003vorbis") }
             .joinByteArrays()
         bytes.matches(0, "RIFF") -> riffChunks(bytes, 12, 4).first { it.id == "data" }.payload(bytes)
-        bytes.matches(0, "FORM") -> iffChunks(bytes, 12, 4).first { it.id == "SSND" }.payload(bytes)
         bytes.matches(0, "FRM8") -> iffChunks(bytes, 16, 8).first { it.id == "DSD " }.payload(bytes)
         bytes.matches(0, "DSD ") -> dsfAudio(bytes)
         bytes.matches(0, "MAC ") -> bytes.copyOfRange(0, apeTagStart(bytes))
@@ -257,7 +255,7 @@ internal object AudioMetaProbe {
         return builder.build()
     }
 
-    // IFF 分块容器（AIFF/AIFC 与 DSDIFF）：块头为「标识 + 大端长度」，仅长度字段位宽不同
+    // IFF 分块容器（DSDIFF）：块头为「标识 + 大端长度」
     private fun iff(bytes: ByteArray, sizeBytes: Int): Meta {
         val builder = Builder()
         iffChunks(bytes, 4 + sizeBytes + 4, sizeBytes).forEach { chunk ->

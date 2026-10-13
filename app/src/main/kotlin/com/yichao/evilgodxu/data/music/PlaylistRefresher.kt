@@ -63,7 +63,7 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
                     val mergedTracks = mergedBase
                         .map { track ->
                             val cached = previous[normalizedAudioUri(track.audioUri)]
-                            // 平台读不出标签的容器（WAV/AIFF/DSF/APE）不在刷新路径读文件：
+                            // 平台读不出标签的容器（WAV/DSF/APE）不在刷新路径读文件：
                             // 这里只沿用上轮已补出的标签，仍需读取的交给后台补全通道逐首回写
                             val labeled = EmbeddedTagBackfill.carryOver(track, cached, unknownArtist)
                             // 兜底匹配用补全后的标题与艺术家：库内保存的是补全结果，

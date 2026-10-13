@@ -19,32 +19,6 @@ class LosslessContainerTagsTest {
     private val cover = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe0.toByte(), 1, 2, 3, 4)
 
     @Test
-    fun aiffKeepsAudioAndWritesId3ChunkBeforeIt() {
-        val source = aiff()
-        val rewrite = LosslessContainerTags.write(source, "标题", "艺术家", "专辑", cover, lyrics)
-        assertNotNull(rewrite)
-        val rewritten = apply(source, rewrite!!)
-        // FORM 尺寸自长度字段之后起算：总长减 8
-        assertEquals(rewritten.size - 8, beInt(rewritten, 4))
-        assertEquals("AIFF", rewritten.asAscii(8, 4))
-        // 音频体原样保留
-        assertArrayEquals(audioPayload(), payloadOf(rewritten, "SSND"))
-        assertEquals(lyrics, LosslessContainerTags.readLyrics(rewritten, null, 0L, null))
-        assertArrayEquals(cover, LosslessContainerTags.readCover(rewritten, null, 0L, null))
-    }
-
-    @Test
-    fun aiffRewritesExistingTagInsteadOfAppendingSecondChunk() {
-        val first = apply(aiff(), LosslessContainerTags.write(aiff(), "旧标题", null, null, null, lyrics)!!)
-        val second = apply(first, LosslessContainerTags.write(first, "新标题", null, null, null, lyrics)!!)
-        assertEquals(1, countChunks(second, "ID3 "))
-        assertEquals(lyrics, LosslessContainerTags.readLyrics(second, null, 0L, null))
-        // 覆盖写入：旧标题不留存
-        assertTrue(!second.asUtf8().contains("旧标题"))
-        assertTrue(second.asUtf8().contains("新标题"))
-    }
-
-    @Test
     fun dffKeepsAudioAndPatchesFormSize() {
         val source = dff()
         val rewrite = LosslessContainerTags.write(source, "标题", "艺术家", "专辑", cover, lyrics)
@@ -256,44 +230,12 @@ class LosslessContainerTagsTest {
     }
 
     @Test
-    fun aiffTagBeyondHeaderWindowIsReadByOffset() {
-        val rewritten = apply(aiff(), LosslessContainerTags.write(aiff(), "标题", null, null, cover, lyrics)!!)
-        // 头窗只截到标签块头：块表足以定位标签，块体（含封面）需按绝对偏移定点读取
-        val header = rewritten.copyOfRange(0, 64)
-        val readCovered = LosslessContainerTags.readCover(header, null, 0L) { offset, count ->
-            val from = offset.toInt()
-            rewritten.copyOfRange(from, (from + count).coerceAtMost(rewritten.size))
-        }
-        assertArrayEquals(cover, readCovered)
-    }
-
-    @Test
     fun unknownContainerIsRejected() {
         assertNull(LosslessContainerTags.write(ByteArray(64), "标题", null, null, null, null))
         assertNull(LosslessContainerTags.readLyrics(ByteArray(64), null, 0L, null))
     }
 
     // ---- 扩展字段 ----
-
-    @Test
-    fun aiffExtendedFieldsRoundTrip() {
-        val fields = TrackTagFields.build {
-            put(TagField.ALBUM_ARTIST, "专辑艺术家")
-            put(TagField.DATE, "2008-10-22")
-            put(TagField.GENRE, "流派")
-            put(TagField.TRACK_NUMBER, "3")
-            put(TagField.COMMENT, "备注")
-            put(TagField.LYRICS, lyrics)
-        }
-        val rewritten = apply(aiff(), LosslessContainerTags.write(aiff(), fields, cover)!!)
-        val readBack = LosslessContainerTags.readFields(rewritten, null, 0L, null)
-        assertEquals("专辑艺术家", readBack[TagField.ALBUM_ARTIST])
-        assertEquals("2008-10-22", readBack[TagField.DATE])
-        assertEquals("流派", readBack[TagField.GENRE])
-        assertEquals("3", readBack[TagField.TRACK_NUMBER])
-        assertEquals("备注", readBack[TagField.COMMENT])
-        assertEquals(lyrics, readBack[TagField.LYRICS])
-    }
 
     @Test
     fun apeExtendedFieldsRoundTrip() {
@@ -310,24 +252,6 @@ class LosslessContainerTagsTest {
         assertEquals("3", readBack[TagField.TRACK_NUMBER])
         assertEquals("1", readBack[TagField.DISC_NUMBER])
         assertEquals(lyrics, readBack[TagField.LYRICS])
-    }
-
-    @Test
-    fun aiffCoverIsKeptWhenUntouchedAndDroppedWhenRemoved() {
-        val withCover = apply(aiff(), LosslessContainerTags.write(aiff(), TrackTagFields.EMPTY, cover, removeCover = false)!!)
-        assertArrayEquals(cover, LosslessContainerTags.readCover(withCover, null, 0L, null))
-
-        // 未涉及封面时既有封面原样保留
-        val kept = apply(
-            withCover,
-            LosslessContainerTags.write(withCover, TrackTagFields.build { put(TagField.TITLE, "新标题") }, null, removeCover = false)!!,
-        )
-        assertArrayEquals(cover, LosslessContainerTags.readCover(kept, null, 0L, null))
-
-        val dropped = apply(kept, LosslessContainerTags.write(kept, TrackTagFields.EMPTY, null, removeCover = true)!!)
-        assertNull(LosslessContainerTags.readCover(dropped, null, 0L, null))
-        // 移除封面只丢封面，其余标签照常保留
-        assertEquals("新标题", LosslessContainerTags.readFields(dropped, null, 0L, null)[TagField.TITLE])
     }
 
     @Test
@@ -364,17 +288,6 @@ class LosslessContainerTagsTest {
     private fun audioPayload(): ByteArray = ByteArray(96) { (it + 1).toByte() }
 
     private fun oddAudioPayload(): ByteArray = ByteArray(97) { (it + 1).toByte() }
-
-    // AIFF：FORM + COMM + SSND
-    private fun aiff(): ByteArray {
-        val comm = Builder().u16le(2).u32le(96).u16le(16).bytes(ByteArray(10)).toBytes()
-        return Builder()
-            .ascii("FORM").u32be(0).ascii("AIFF")
-            .ascii("COMM").u32be(comm.size).bytes(comm)
-            .ascii("SSND").u32be(8 + audioPayload().size).u32le(0).u32le(0).bytes(audioPayload())
-            .toBytes()
-            .also { writeFormSize(it, 4, 4) }
-    }
 
     // DSDIFF：FRM8 + FVER + PROP(FS/CHNL) + DSD
     private fun dff(): ByteArray {
@@ -541,38 +454,18 @@ class LosslessContainerTagsTest {
         }
     }
 
-    private fun isDff(bytes: ByteArray) = bytes.asAscii(0, 4) == "FRM8"
-
-    // 取指定 IFF 块的载荷，用于核对音频体未被改写
+    // 取 DSDIFF 指定块的载荷，用于核对音频体未被改写。
+    // 块表自 FORM 类型字段之后（偏移 16）起，块头为「4 字节标识 + 8 字节大端长度」
     private fun payloadOf(bytes: ByteArray, chunkId: String): ByteArray {
-        var p = if (isDff(bytes)) 16 else 12
+        var p = 16
         while (p + 12 <= bytes.size) {
             val id = bytes.asAscii(p, 4)
-            val header = if (isDff(bytes)) 12 else 8
-            val size = if (isDff(bytes)) beLong(bytes, p + 4).toInt() else beInt(bytes, p + 4)
+            val size = beLong(bytes, p + 4).toInt()
             if (size <= 0) break
-            if (id == chunkId) {
-                // SSND 载荷前置 8 字节的偏移与块长
-                val from = p + header + if (chunkId == "SSND") 8 else 0
-                return bytes.copyOfRange(from, from + audioPayload().size)
-            }
-            p += header + size + (size and 1)
+            if (id == chunkId) return bytes.copyOfRange(p + 12, p + 12 + audioPayload().size)
+            p += 12 + size + (size and 1)
         }
         return ByteArray(0)
-    }
-
-    private fun countChunks(bytes: ByteArray, chunkId: String): Int {
-        var p = if (isDff(bytes)) 16 else 12
-        var count = 0
-        while (p + 12 <= bytes.size) {
-            val id = bytes.asAscii(p, 4)
-            val header = if (isDff(bytes)) 12 else 8
-            val size = if (isDff(bytes)) beLong(bytes, p + 4).toInt() else beInt(bytes, p + 4)
-            if (size <= 0 || p + header + size > bytes.size) break
-            if (id == chunkId) count++
-            p += header + size + (size and 1)
-        }
-        return count
     }
 
     private fun beInt(bytes: ByteArray, at: Int): Int =

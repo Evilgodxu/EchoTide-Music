@@ -254,7 +254,7 @@ internal object MusicMetadataWriter {
      * 重写方案的分派：按容器魔数识别（扩展名不参与判定，改名或加挂 ID3 的文件同样能识别）。
      *
      * 头部窗口足以定位标签的容器（MP3/FLAC/M4A）走窗口解析，音频区不进入内存；
-     * 需要遍历全文才能定位标签的容器（WAV/AIFF/DSF/APE 的块表、Ogg 的页序列）走整文件解析，
+     * 需要遍历全文才能定位标签的容器（WAV/DSF/APE 的块表、Ogg 的页序列）走整文件解析，
      * 且受整文件解析上限约束。识别不出容器即不重写。
      */
     private fun plan(
@@ -500,7 +500,7 @@ internal object MusicMetadataWriter {
     }
 
     /**
-     * 无损与线性 PCM 容器（WAV、AIFF/AIFC、DSDIFF、DSF、APE）：标签布局由 LosslessContainerTags
+     * 无损与线性 PCM 容器（WAV、DSDIFF、DSF、APE）：标签布局由 LosslessContainerTags
      * 按块表 / 尾部标签结构计算，返回头部字面字节 + 音频体区间 + 尾部字面字节，
      * 定位只读块头与标签区，音频体按区间搬运。
      */
@@ -623,7 +623,7 @@ internal object MusicMetadataWriter {
     private fun isOgg(bytes: ByteArray) = bytes.startsWith("OggS")
 
     // MP3：既有标签区作为帧改写底本，音频帧按标签结束偏移整段搬运。
-    // 帧的编解码与保帧规则统一由 Id3v2Tag 承担，与 WAV/AIFF/DSF 内嵌的 ID3 块走同一实现
+    // 帧的编解码与保帧规则统一由 Id3v2Tag 承担，与 WAV/DSF 内嵌的 ID3 块走同一实现
     private fun writeMp3(
         source: ByteArray,
         fields: TrackTagFields,

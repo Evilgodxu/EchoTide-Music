@@ -77,7 +77,7 @@ internal object EmbeddedCoverReader {
 
     private fun readPicture(context: Context, audioUri: String, path: String): Picture {
         val prefix = LocalAudioSource.read(context, path, audioUri, 0L, CONTAINER_PROBE_BYTES)
-        // 平台读不到标签的容器（AIFF/APE/DSF/DFF 无平台元数据支持，WAV 的容器内 ID3 块平台也不读取）
+        // 平台读不到标签的容器（APE/DSF/DFF 无平台元数据支持，WAV 的容器内 ID3 块平台也不读取）
         // 先走自实现解析：先调平台提取器只是多开一次必然落空的提取器
         if (prefix != null && isCoverFallbackContainer(prefix)) {
             return readPictureByContainerTags(context, audioUri, path, prefix)
@@ -119,7 +119,7 @@ internal object EmbeddedCoverReader {
         return bytes?.let { Picture.Found(it) }
     }
 
-    // 是否值得走自实现解析：AIFF/AIFC、DSDIFF、DSF、APE 以及 RIFF/WAVE
+    // 是否值得走自实现解析：DSDIFF、DSF、APE 以及 RIFF/WAVE
     private fun isCoverFallbackContainer(prefix: ByteArray): Boolean =
         LosslessContainerTags.matches(prefix)
 

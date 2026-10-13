@@ -14,7 +14,7 @@ import kotlinx.coroutines.withContext
  * 音频文件内嵌标签的完整读取入口，供元数据编辑页回填表单。
  *
  * 与写入端 [MusicMetadataWriter] 覆盖同一批容器与同一批字段：平台元数据提取器只能给出部分字段
- * （WAV/AIFF/DSDIFF/DSF/APE 的文本标签、各容器的内嵌歌词都不在其支持范围内），表单若只回填曲目
+ * （WAV/DSDIFF/DSF/APE 的文本标签、各容器的内嵌歌词都不在其支持范围内），表单若只回填曲目
  * 内存态，用户会在这些容器上看到空字段并把空值写回去，等于抹掉文件里的既有标签。
  *
  * 读取只走定点窗口，不整文件驻留：字段本身很小，但封面帧可达数 MB。
@@ -26,7 +26,7 @@ internal object MusicMetadataEditor {
 
     // 头部窗口：FLAC/OGG 的注释块与 M4A 的 moov 盒都在文件头部附近
     private const val HEADER_CAP = 512 * 1024
-    // 尾部窗口：标签位于音频之后的容器（WAV/DSF/APE/后置 AIFF）靠它定位
+    // 尾部窗口：标签位于音频之后的容器（WAV/DSF/APE）靠它定位
     private const val TAIL_CAP = 2 * 1024 * 1024
     // MP3 的 ID3v2 标签按声明长度精确读取：标签可含大封面帧
     private const val MAX_MP3_TAG = 32 * 1024 * 1024
@@ -227,7 +227,7 @@ internal object MusicMetadataEditor {
         }
     }
 
-    // 头部窗口 + 尾部窗口 + 窗口外定点读取：无损容器（WAV/AIFF/DFF/DSF/APE）的标签定位统一走这套窗口，
+    // 头部窗口 + 尾部窗口 + 窗口外定点读取：无损容器（WAV/DFF/DSF/APE）的标签定位统一走这套窗口，
     // 解析规则仍由 LosslessContainerTags 持有
     private fun <T> readFromWindows(
         context: Context,

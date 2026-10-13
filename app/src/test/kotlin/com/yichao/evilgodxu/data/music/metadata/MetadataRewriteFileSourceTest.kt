@@ -16,7 +16,7 @@ import org.junit.Test
  * 按区间搬运音频躯干，而字节入口把整段文件交给解析器，覆盖不到「定位读取 + 区间搬运」这一段。
  *
  * 用例分三层：
- *   1. 十个容器的样本落到真实文件后走文件源重写，逐字段读回并核对音频区未被改动；
+ *   1. 八个容器的样本落到真实文件后走文件源重写，逐字段读回并核对音频区未被改动；
  *   2. 二次写入（标签长度变化）后躯干偏移仍须正确；
  *   3. 超大文件：无损与线性 PCM 容器的块表只读块头，故不受尺寸限制；
  *      Ogg/Opus 仍需整条包流，超限按约定跳过。
@@ -86,14 +86,13 @@ class MetadataRewriteFileSourceTest {
     }
 
     /**
-     * 超大文件的区间读写（WAV/AIFF/DSF/APE）：块表只读块头、标签区定点读取、音频体按区间搬运，
+     * 超大文件的区间读写（WAV/DSF/APE）：块表只读块头、标签区定点读取、音频体按区间搬运，
      * 故文件大小不再构成重写上限；音频区必须逐字节保持原样。
      */
     @Test
     fun largeLosslessContainersAreRewrittenThroughRangeIo() {
         val audio = ByteArray(AUDIO_BYTES) { (it % 253).toByte() }
         assertLargeRewrite(wav(audio), "large.wav")
-        assertLargeRewrite(aiff(audio), "large.aiff")
         assertLargeRewrite(dsf(audio), "large.dsf")
         assertLargeRewrite(ape(audio), "large.ape")
     }
@@ -206,21 +205,6 @@ class MetadataRewriteFileSourceTest {
         return out.toByteArray()
     }
 
-    // 最小 AIFF：COMM 块 + SSND 音频块（块头为标识 + 大端长度）
-    private fun aiff(audio: ByteArray): ByteArray {
-        val out = ByteArrayOutputStream()
-        out.write("FORM".toByteArray(Charsets.US_ASCII))
-        out.write(beInt(AIFF_FORM_SIZE_BASE + audio.size))
-        out.write("AIFF".toByteArray(Charsets.US_ASCII))
-        out.write("COMM".toByteArray(Charsets.US_ASCII))
-        out.write(beInt(COMM_BYTES))
-        out.write(ByteArray(COMM_BYTES))
-        out.write("SSND".toByteArray(Charsets.US_ASCII))
-        out.write(beInt(audio.size))
-        out.write(audio)
-        return out.toByteArray()
-    }
-
     // 最小 DSF：28 字节文件头 + fmt 块 + data 块；文件头只回填长度与 metadata 指针
     private fun dsf(audio: ByteArray): ByteArray {
         val out = ByteArrayOutputStream()
@@ -306,8 +290,6 @@ class MetadataRewriteFileSourceTest {
         const val STREAMINFO_BYTES = 34
         const val FMT_BYTES = 16
         const val RIFF_SIZE_BASE = 36
-        const val AIFF_FORM_SIZE_BASE = 38
-        const val COMM_BYTES = 18
         const val DSF_HEADER_BYTES = 28
         const val DSF_FMT_CHUNK_BYTES = 52
         const val DSF_DATA_HEADER_BYTES = 12
@@ -328,7 +310,7 @@ class MetadataRewriteFileSourceTest {
         val COVER = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()) + ByteArray(60) { it.toByte() }
 
         val FIXTURES = listOf(
-            "sample.wav", "sample.aiff", "sample.aifc", "sample.flac", "sample.mp3",
+            "sample.wav", "sample.flac", "sample.mp3",
             "sample.m4a", "sample.opus", "sample.dsf", "sample.dff", "sample.ape",
         )
     }

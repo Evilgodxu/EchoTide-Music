@@ -3,7 +3,7 @@ package com.yichao.evilgodxu.data.music.metadata
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 
-// ID3v2 标签的帧与标签构造：MP3、WAV 以及 AIFF/AIFC、DSDIFF、DSF 内嵌的 ID3 块共用同一套帧编码。
+// ID3v2 标签的帧与标签构造：MP3、WAV 以及 DSDIFF、DSF 内嵌的 ID3 块共用同一套帧编码。
 // 新建标签统一取 v2.4（文本 UTF-8、内容描述符以单 0 结尾、长度字段为同步安全整数），
 // 读取既有标签时按标签自身的版本解析，避免把 v2.3 的帧当 v2.4 读。
 // 写入端与内嵌歌词读取器的编码分支一一对应：v2.4 用 UTF-8，v2.3 用带 BOM 的 UTF-16

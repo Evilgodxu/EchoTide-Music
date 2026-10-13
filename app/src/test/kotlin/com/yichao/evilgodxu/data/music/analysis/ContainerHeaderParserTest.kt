@@ -68,12 +68,6 @@ class ContainerHeaderParserTest {
     }
 
     @Test
-    fun aiffCommIsParsed() {
-        val bytes = aiff(channels = 2, sampleRate = 44_100, bitDepth = 16)
-        assertEquals(ContainerFormat(44_100, 16, 2), ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()))
-    }
-
-    @Test
     fun apeHeaderIsParsed() {
         val bytes = ape(channels = 2, sampleRate = 44_100, bitDepth = 24)
         assertEquals(ContainerFormat(44_100, 24, 2), ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()))
@@ -229,31 +223,6 @@ class ContainerHeaderParserTest {
             .ascii("RIFF").u32le((4 + fmtChunk.size + dataChunk.size).toLong())
             .ascii("WAVE").splice(fmtChunk).splice(dataChunk)
             .toBytes()
-    }
-
-    // AIFF：采样率为 80 位 IEEE 扩展精度浮点，COMM 块体偏移 8 起共 10 字节
-    private fun aiff(channels: Int, sampleRate: Int, bitDepth: Int): ByteArray {
-        val comm = Builder()
-            .u16be(channels).u32be(0).u16be(bitDepth)
-            .splice(extended80(sampleRate))
-            .toBytes()
-        val commChunk = Builder().ascii("COMM").u32be(comm.size.toLong()).splice(comm).toBytes()
-        return Builder()
-            .ascii("FORM").u32be((4 + commChunk.size).toLong())
-            .ascii("AIFF").splice(commChunk)
-            .toBytes()
-    }
-
-    // 80 位扩展精度：15 位偏置指数（偏置 16383）+ 64 位显式整数尾数
-    private fun extended80(value: Int): ByteArray {
-        var exponent = -1
-        var rest = value.toLong()
-        while (rest > 0) {
-            rest = rest shr 1
-            exponent++
-        }
-        val mantissa = value.toLong() shl (63 - exponent)
-        return Builder().u16be(16383 + exponent).u64be(mantissa).toBytes()
     }
 
     private fun ape(channels: Int, sampleRate: Int, bitDepth: Int): ByteArray = Builder()

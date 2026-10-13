@@ -19,11 +19,11 @@ internal object TrackAudioInfoReader {
     // 只存在于容器头中（有损编码则两者皆空），故一并纳入。
     // .m4p（受保护 AAC）与 .m4r（铃声）内容恒为有损，容器头给不出东西，留给 mime 那条路
     private val CONTAINER_HEADER_FORMATS = setOf(
-        "FLAC", "WAV", "WAVE", "RF64", "AIFF", "AIF", "AIFC",
+        "FLAC", "WAV", "WAVE", "RF64",
         "ALAC", "M4A", "M4B", "MP4", "APE", "DSF", "DFF",
     )
 
-    // 容器头窗口：定长头块（STREAMINFO/fmt/COMM/APE 头/DSD 头）都在文件头部，
+    // 容器头窗口：定长头块（STREAMINFO/fmt/APE 头/DSD 头）都在文件头部，
     // 16KB 足以覆盖前置元数据块偏移与 MP4 的 ftyp+free+moov 前段；
     // 窗口内找不到头结构即放弃解析，不无限扩大读取量
     private const val HEADER_WINDOW_BYTES = 16 * 1024
@@ -240,8 +240,6 @@ private val FORMAT_EXTENSION_NAMES = mapOf(
     "APE" to "APE",
     "ALAC" to "ALAC",
     "WMA" to "WMA",
-    "AIFF" to "AIFF",
-    "AIF" to "AIFF",
     "DSF" to "DSF",
     "DFF" to "DFF",
     "MID" to "MID",

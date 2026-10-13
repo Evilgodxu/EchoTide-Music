@@ -68,7 +68,7 @@ object MusicScanner {
 
     // 扫描设备本地音乐文件，过滤时长 >= 30 秒的音频
     // 仅从 MediaStore 游标读取基础元数据，封面延迟加载，不阻塞扫描
-    // 平台读不到标签的容器（WAV/AIFF/DSF/APE）同样不在此处打开文件：逐曲读文件会让耗时随
+    // 平台读不到标签的容器（WAV/DSF/APE）同样不在此处打开文件：逐曲读文件会让耗时随
     // 曲库规模线性增长，其标签补全改由刷新编排按需执行（见 EmbeddedTagBackfill）
     suspend fun scan(context: Context): List<MusicTrack> = withContext(Dispatchers.IO) {
         val tracks = mutableListOf<MusicTrack>()

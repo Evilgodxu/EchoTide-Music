@@ -3,9 +3,8 @@ package com.yichao.evilgodxu.data.music.metadata
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 
-// 无损与线性 PCM 容器的标签读写：AIFF/AIFC、DSDIFF、DSF、APE、WAV。
-//   · AIFF/AIFC 与 DSDIFF 同属 IFF 分块容器，标签是容器内的 "ID3 " 块；两者块头同为
-//     「4 字节标识 + 大端长度」，只有长度字段位宽（32 位 / 64 位）不同，共用一套实现；
+// 无损与线性 PCM 容器的标签读写：DSDIFF、DSF、APE、WAV。
+//   · DSDIFF 属 IFF 分块容器，标签是容器内的 "ID3 " 块（块头为「4 字节标识 + 大端长度」）；
 //   · WAV 同属分块容器（块头为「4 字节标识 + 小端长度」），二进制标签写在容器内的 "ID3 " 块，
 //     文本标签按 RIFF 惯例写在 LIST/INFO 块；
 //   · DSF 的标签是文件末尾的 ID3v2 标签，位置由文件头 metadata 指针给出，
@@ -25,11 +24,7 @@ internal object LosslessContainerTags {
     // ---- 容器识别 ----
 
     fun matches(bytes: ByteArray): Boolean =
-        isAiff(bytes) || isDff(bytes) || isDsf(bytes) || isApe(bytes) || isWav(bytes)
-
-    fun isAiff(bytes: ByteArray): Boolean =
-        bytes.startsWithAscii("FORM", 0) &&
-            (bytes.startsWithAscii("AIFF", FORM_TYPE_OFFSET_32) || bytes.startsWithAscii("AIFC", FORM_TYPE_OFFSET_32))
+        isDff(bytes) || isDsf(bytes) || isApe(bytes) || isWav(bytes)
 
     fun isDff(bytes: ByteArray): Boolean =
         bytes.startsWithAscii("FRM8", 0) && bytes.startsWithAscii("DSD ", FORM_TYPE_OFFSET_64)
@@ -41,7 +36,7 @@ internal object LosslessContainerTags {
     fun isWav(bytes: ByteArray): Boolean =
         bytes.startsWithAscii("RIFF", 0) && bytes.startsWithAscii("WAVE", 8)
 
-    // 标签可能位于音频之后、需要读尾窗才能定位的容器：WAV 与 AIFF/DSDIFF 的 "ID3 " 块、
+    // 标签可能位于音频之后、需要读尾窗才能定位的容器：WAV 与 DSDIFF 的 "ID3 " 块、
     // DSF 的尾部标签、APE 的 APEv2 均落在音频数据之后。
     // 其余容器（FLAC/M4A/Ogg/MP3）的标签都在头部，读尾窗只是平白多读数据
     fun usesTrailingTag(header: ByteArray): Boolean = matches(header)
@@ -104,7 +99,6 @@ internal object LosslessContainerTags {
         if (source.size == TagSource.UNKNOWN_SIZE) return null
         val magic = source.readAt(0, FORM_MAGIC_BYTES) ?: return null
         return when {
-            isAiff(magic) -> writeIff(source, AIFF_FORM, fields, cover, removeCover)
             isDff(magic) -> writeIff(source, DFF_FORM, fields, cover, removeCover)
             isWav(magic) -> writeWav(source, fields, cover, removeCover)
             isDsf(magic) -> writeDsf(source, fields, cover, removeCover)
@@ -113,7 +107,7 @@ internal object LosslessContainerTags {
         }
     }
 
-    // IFF 分块容器（AIFF/AIFC、DSDIFF）：重建 FORM/FRM8 内的块序列，
+    // IFF 分块容器（DSDIFF）：重建 FRM8 内的块序列，
     // 标签块置于音频块之前——头部窗口必然覆盖该位置，读回无需扫描音频体。
     // 块表只读块头，音频块之外的保留块体定点读取，音频块本体按区间搬运
     private fun writeIff(
@@ -576,8 +570,8 @@ internal object LosslessContainerTags {
     ): List<EmbeddedTag> {
         val tags = mutableListOf<EmbeddedTag>()
         when {
-            isAiff(header) || isDff(header) -> {
-                val form = if (isAiff(header)) AIFF_FORM else DFF_FORM
+            isDff(header) -> {
+                val form = DFF_FORM
                 // 块表在头窗内即可定位标签块；块体（可能含大封面）越出窗口时定点读取
                 findIffTagChunkRange(header, 4 + form.sizeBytes + 4, form.sizeBytes)?.let { range ->
                     val bytes = if (range.last <= header.size) {
@@ -1031,13 +1025,11 @@ internal object LosslessContainerTags {
     private fun intBytesLE(value: Int): ByteArray =
         byteArrayOf(value.toByte(), (value shr 8).toByte(), (value shr 16).toByte(), (value shr 24).toByte())
 
-    // 标签块标识：AIFF 与 DSDIFF 均以大写 "ID3 " 写入，读取时兼收小写变体；WAV 的 ID3 块同理
+    // 标签块标识：DSDIFF 以大写 "ID3 " 写入，读取时兼收小写变体；WAV 的 ID3 块同理
     private const val TAG_CHUNK_ID = "ID3 "
     private val IFF_TAG_CHUNK_IDS = setOf("ID3 ", "id3 ")
     private val WAV_TAG_CHUNK_IDS = setOf("ID3 ", "id3 ")
-    private val AIFF_FORM = IffForm("FORM", setOf("AIFF", "AIFC"), setOf("SSND"), IFF_TAG_CHUNK_IDS, 4)
     private val DFF_FORM = IffForm("FRM8", setOf("DSD "), setOf("DSD ", "DST "), IFF_TAG_CHUNK_IDS, 8)
-    private const val FORM_TYPE_OFFSET_32 = 8
     private const val FORM_TYPE_OFFSET_64 = 12
 
     // 容器标识窗口：IFF 的形态字段最远落在偏移 12（FRM8 + 64 位长度），16 字节足以判定容器

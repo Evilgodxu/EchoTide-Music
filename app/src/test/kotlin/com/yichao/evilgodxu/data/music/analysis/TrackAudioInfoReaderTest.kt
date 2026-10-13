@@ -26,7 +26,6 @@ class TrackAudioInfoReaderTest {
     fun losslessAndPcmContainersAreRead() {
         assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.flac"))
         assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.wav"))
-        assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.aiff"))
         assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.dsf"))
         assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.ape"))
     }
