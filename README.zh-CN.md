@@ -4,15 +4,15 @@
 
 # 忆潮音乐 · Echo Tide
 
-**沉浸式音乐播放器**
+**沉浸聆听,忠于原声**
 
-**这是一个风格老派轻量且简约的沉浸式音乐播放器**
+*为无损与 Hi-Res 曲库而生——USB 直出、全曲频谱、逐字歌词。*
 
 [English](README.md) | **简体中文**
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-4.7.0-informational)
+![Version](https://img.shields.io/badge/version-5.1.0-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.0-blue)
@@ -23,6 +23,22 @@
 <img src="docs/Screenshot/promo-hero.webp" width="100%" alt="忆潮音乐 界面预览：带壳截图的竖屏播放器、横屏播放器与横屏 3D 封面轮播" />
 
 </div>
+
+## 核心特性
+
+- **竖横两态皆沉浸**——带壳式竖屏播放器与横屏 3D 封面轮播,背景取自封面色,随音乐流动。
+
+- **USB 直出**——绕过系统混音器,按所接解码器声明的位深直写;直出期间联动免打扰。
+
+- **无损与高解析全链路**——WAV、AIFF、DSF、DFF、APE 等容器自行解析,区间流式标签 I/O 改写标签时不必把整个文件读进内存。
+
+- **全曲频谱分析**——并行流水线解码整曲为可渲染的时频矩阵,可查看亦可导出为图片。
+
+- **歌词细到逐字**——同一份绝对毫秒时间轴驱动逐字高亮,另有全文编辑与排版控制。
+
+- **心动模式**——副歌由纯歌词分析在后台全库扫描中定位并落盘,播放时只查表。
+
+- **迷你播放器**——悬浮窗让音乐在应用之外继续,一键即回到完整界面。
 
 ## 产品展示
 
@@ -60,43 +76,45 @@
 │   └── src/main/
 │       ├── kotlin/com/yichao/evilgodxu/
 │       │   ├── data/                    # 数据层
-│       │   │   ├── cache/               #   缓存台账(分类 / 占用统计 / 冷启动回收)
-│       │   │   ├── music/               #   曲库扫描 / 在线音源 / 元数据 / 代理音源
-│       │   │   │   ├── api/             #     搜索服务、翻译接口与网络客户端
-│       │   │   │   ├── analysis/        #     无损格式、音频信息读取、FFT 与全曲频谱
-│       │   │   │   ├── clip/            #     分享、默认铃声 / 闹钟设置、可读 URI 解析、频谱图导出
-│       │   │   │   ├── download/        #     在线曲目下载与缓存
-│       │   │   │   ├── highlight/       #     副歌(高潮)定位(纯歌词分析)、全库片段表(后台扫描 + 落盘)，供心动模式查表裁剪播放
-│       │   │   │   ├── metadata/        #     封面管理、元数据与歌词读写(区间流式标签读写)、元数据缓存、相册图片写入
+│       │   │   ├── cache/               #   缓存台账(分类登记表 / 逐类占用统计 / 冷启动回收)
+│       │   │   ├── music/               #   音乐领域
+│       │   │   │   ├── analysis/        #     无损容器、PCM 格式、FFT 与全曲频谱、容器头解析
+│       │   │   │   ├── api/             #     歌曲 / 封面 / 歌词获取、歌词编解码(LRC / QRC / KRC / lrcx)、音质、翻译与网络客户端
+│       │   │   │   ├── clip/            #     分享、默认铃声 / 闹钟设置、可读本地 URI、频谱图导出
+│       │   │   │   ├── download/        #     曲目下载与缓存
+│       │   │   │   ├── highlight/       #     副歌(高潮)定位(纯歌词分析)、全库片段表(后台扫描 + 落盘)
+│       │   │   │   ├── metadata/        #     封面流水线与取色、元数据与歌词读写(区间流式标签读写)、内嵌标签补全、各级缓存
 │       │   │   │   ├── model/           #     曲目与搜索数据模型(以平台键为身份)
-│       │   │   │   ├── panel/           #     共享播放状态持有器与搜索逻辑
-│       │   │   │   ├── playback/        #     播放状态、播放器工具、队列切换、歌单排序、常听、心动模式片段装载、USB 直出与免打扰、按设备音频输出(含缓冲策略)、输出延迟实测、音频信息快照(含蓝牙链路与编解码器解析)
+│       │   │   │   ├── panel/           #     共享播放状态持有器、搜索逻辑与歌词翻译
+│       │   │   │   ├── playback/        #     播放状态、队列切换、排序、常听、USB 直出与免打扰、按设备音频输出(含缓冲策略)、输出延迟实测、音频信息快照(含蓝牙链路与编解码器解析)
 │       │   │   │   ├── proxy/           #     代理音源(导入 / 解析 / 引擎 / 存储)与自定义平台注册表
-│       │   │   │   ├── recommend/       #     歌词文本清洗(与副歌定位共用)
+│       │   │   │   ├── recommend/       #     歌词文本特征(与副歌定位共用)
 │       │   │   │   ├── MusicScanner.kt  #     MediaStore 扫描与曲目补全
 │       │   │   │   └── PlaylistRefresher.kt  # 播放列表刷新流程
-│       │   │   ├── playlist/            #   歌单存储(智能 / 自定义)与分组
+│       │   │   ├── persistence/         #   持久化落点声明与共享路径(磁盘文件名的唯一事实来源)
+│       │   │   ├── playlist/            #   歌单存储(智能 / 自定义)、分组与歌手页曲序
 │       │   │   ├── repository/          #   设置仓库
 │       │   │   └── settings/            #   设置 DataStore、播放与歌词排版偏好、启动语言镜像
-│       │   ├── floatingwindow/          # 迷你播放器悬浮窗管理、控制器与外部音频后台播放装载
+│       │   ├── floatingwindow/          # 迷你播放器悬浮窗管理与控制器
 │       │   │   └── miniplayer/          #   迷你播放器浮层 / 紧凑条 / 展开式播放列表
 │       │   ├── localization/            # 应用内多语言管理
 │       │   ├── log/                     # CrashLogManager
 │       │   ├── navigation/              # Navigation3 类型安全路由与导航宿主
-│       │   ├── permission/              # 权限、悬浮窗授权与电池优化白名单监控
+│       │   ├── permission/              # 权限、悬浮窗授权、电池优化白名单与前台状态监控
 │       │   ├── screens/                 # 页面(首页 / 设置 / 存储 / 排版 / 频谱 / 元数据)
-│       │   │   ├── home/                #   首页播放器 + 权限流程 + 歌单 + 在线搜索
-│       │   │   │   ├── compact/         #     竖屏组装器、播放器与部件
-│       │   │   │   ├── expanded/        #     横屏组装器、播放器与部件
-│       │   │   │   └── component/       #     analysis / audioinfo / bar / dialog / panel / permission / player / playlist / queue / search / shell / swipe
+│       │   │   ├── home/                #   首页播放器 + 权限流程 + 歌单(含歌手页) + 在线搜索
+│       │   │   │   ├── compact/         #     竖屏组装器(compact/player:竖屏播放器)
+│       │   │   │   ├── expanded/        #     横屏组装器(expanded/player:横屏播放器)
+│       │   │   │   └── component/       #     analysis / audioinfo / bar / dialog / panel / permission / player / playlist(含 playlist/expanded)/ queue / search / shell / swipe
 │       │   │   ├── settings/            #   外观 / 存储 / 语言 / 播放 / 代理音源 / 关于
-│       │   │   ├── cache/               #   存储 / 缓存管理
+│       │   │   │   └── component/       #     appearance / cache / dialog / entry / info / language / playback / proxy
+│       │   │   ├── cache/               #   存储 / 缓存管理(compact / expanded / component)
 │       │   │   ├── spectrum/            #   频谱分析页(compact / expanded / component)
-│       │   │   ├── typography/          #   歌词排版设置
+│       │   │   ├── typography/          #   歌词排版设置(compact / expanded / component)
 │       │   │   └── metadata/            #   元数据编辑页(compact / expanded / component)
 │       │   ├── service/                 # MediaSessionService 播放引擎
 │       │   ├── theme/                   # Material 3 配色与字体
-│       │   ├── ui/                      # 全局共享 UI(component:封面渐隐 CoverFade、对话框骨架 AppDialog;另含 component/dialog、component/player、component/section、icons)
+│       │   ├── ui/                      # 全局共享 UI:封面渐隐 / 过渡 / 预取 / 流动帧存储,对话框与选择器骨架,播放器与分区部件,图标
 │       │   ├── update/                  # 检查更新、应用内更新与 APK 校验
 │       │   ├── utils/                   # 通用工具
 │       │   ├── windowsize/              # 窗口尺寸类与横屏形态判定
@@ -105,10 +123,11 @@
 │       │   ├── MainActivity.kt          # 唯一 Activity(系统栏、外部意图、启动语言)
 │       │   └── MainViewModel.kt         # Activity 专属 ViewModel(含 AppUiState)
 │       └── res/                         # 资源(values / values-en)
+├── baselineprofile/                     # 基准配置与启动配置源集
 ├── gradle/
 │   ├── libs.versions.toml               # 版本目录(依赖管理)
 │   └── wrapper/
-├── docs/                                # 代理音源规范、界面截图与注意事项
+├── docs/                                # 代理音源规范、界面截图、注意事项与 APK 报告
 ├── LICENSE
 ├── build.gradle.kts
 ├── settings.gradle.kts
@@ -138,11 +157,17 @@
 
 - **各平台歌词统一收口**——`LyricCodec` 把 LRC、QRC、KRC、lrcx 归一为同一份 `LyricLine` 列表,逐字时间轴一律为绝对毫秒,跨平台比较与「逐字优先、无字标签则退化为逐行」的策略只需实现一次。
 
+- **副歌片段先于需要而算好**——副歌定位是纯歌词分析,以后台全库扫描完成并落为片段表;播放侧只查表,切歌与切模式都不触发分析,也不依赖歌词何时到位。
+
+- **音频链路随输出设备而定**——输出按设备重建,USB 直出因此能写出部分解码器声明的 24/32 位打包整型,其余输出回落到系统混音器。
+
 - **音频信息面板读的是播放链路**——`AudioInfoCollector` 从共享播放状态组装快照,同一面板覆盖扬声器、USB 解码器与蓝牙链路,界面侧无需分支。
 
 - **标签改写走区间 I/O**——`TagSource` 只暴露区间读取与区间搬运,数百 MB 的高解析文件改标签时不再整文件驻留内存。
 
 - **元数据编辑是搭在该路径上的页面**——编辑会话按曲目区分,每次回到前台重读文件标签,未到自动保存窗口的改动在离开时补写,因此该页没有保存入口。
+
+- **落盘产出在产出处声明**——每份持久化存储都在读写它的代码旁声明自己的 `PersistedData`(名字与落盘形态),再由 `StorageRegistry` 归入存储页的某一类。名字只写一处,改名绝不会让读写方与统计方指向不同文件;未登记的产出也只会以兜底行现形,不会从合计里凭空消失。
 
 ## 权限
 
@@ -151,7 +176,7 @@
 | 悬浮窗 | 后台播放时的迷你播放器,及其展开的播放列表 |
 | 全部文件访问 | 导入与管理本地音乐文件 |
 | 音乐访问(`READ_MEDIA_AUDIO`) | 读取设备曲库并播放 |
-| 图片(`READ_MEDIA_IMAGES`) | 内嵌封面与本地封面候选;Android 14「选中的照片」部分授权同样视为已授权 |
+| 图片(`READ_MEDIA_IMAGES`、`READ_MEDIA_VISUAL_USER_SELECTED`) | 内嵌封面与本地封面候选;Android 14「选中的照片」部分授权同样视为已授权 |
 | 蓝牙(`BLUETOOTH_CONNECT`) | 读取当前蓝牙输出设备的名称、地址与协商出的编解码器(音频信息) |
 | 前台服务(`mediaPlayback`、`FOREGROUND_SERVICE_MEDIA_PLAYBACK`) | 后台播放 + 通知栏 / 锁屏控制 |
 | 通知(`POST_NOTIFICATIONS`) | 版本更新下载完成通知(Android 13+) |
@@ -210,7 +235,7 @@ python tools/make_promo_hero.py
 
 ## 免责声明
 
-搜索服务依赖公共网络接口。内置搜索服务仅覆盖基础的歌曲、封面与歌词搜索,并不承诺播放能力——只有当音源返回可播放直链时,应用才谈得上试听与免费歌曲;音质升级依赖代理音源。歌词自动补译依赖有道公开的免鉴权翻译接口,其可用性、限流策略与译文质量均由该服务决定。接口可用性随地区与歌曲而异。应用仅供个人学习交流使用,请支持正版版权方。
+忆潮音乐是一款面向本地曲库的播放器,应用仅供个人学习交流使用,请支持正版版权方。
 
 ## 致谢
 

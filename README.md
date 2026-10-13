@@ -4,15 +4,15 @@
 
 # Echo Tide · 忆潮音乐
 
-**Immersive music player**
+**Immersive listening, true to the source**
 
-**An old-school, lightweight and minimal immersive music player**
+*Built for lossless and Hi-Res libraries — direct USB output, full-track spectrum, word-level lyrics.*
 
 **English** | [简体中文](README.zh-CN.md)
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-4.7.0-informational)
+![Version](https://img.shields.io/badge/version-5.1.0-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.0-blue)
@@ -23,6 +23,22 @@
 <img src="docs/Screenshot/promo-hero.webp" width="100%" alt="Echo Tide preview: framed portrait player, landscape player and landscape 3D cover carousel" />
 
 </div>
+
+## Highlights
+
+- **Immersive, in both forms** — a framed portrait player and a landscape 3D cover carousel, resting on a background that borrows its colour from the cover art and drifts with the music.
+
+- **Direct USB output** — bypasses the system mixer and writes at the bit depth the connected DAC advertises, handing notifications over to Do-Not-Disturb while it plays.
+
+- **Lossless and Hi-Res, end to end** — WAV, AIFF, DSF, DFF, APE and more are parsed from scratch, and ranged streaming tag I/O rewrites their tags without pulling the whole file into memory.
+
+- **Full-track spectrum analysis** — a parallel decode pipeline turns an entire track into a renderable time-frequency matrix, ready to inspect or export as an image.
+
+- **Lyrics, down to the word** — one absolute-millisecond timeline drives word-level highlighting, with full-text editing and typography controls.
+
+- **Highlight mode** — chorus segments are located by pure lyric analysis in a background library scan and persisted, so playback only consults a table.
+
+- **A mini player that stays out of the way** — a floating overlay keeps the music going outside the app, and the full player is one tap away.
 
 ## Showcase
 
@@ -60,43 +76,45 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 │   └── src/main/
 │       ├── kotlin/com/yichao/evilgodxu/
 │       │   ├── data/                    # Data layer
-│       │   │   ├── cache/               #   Cache inventory (categories, usage, cold-start reclaim)
-│       │   │   ├── music/               #   Music scanning / online sources / metadata / proxy source
-│       │   │   │   ├── api/             #     Search services, translation endpoint & HTTP client
-│       │   │   │   ├── analysis/        #     Lossless-format, audio info, FFT & full-track spectrogram
-│       │   │   │   ├── clip/            #     Sharing, default ringtone / alarm installer, readable URIs, spectrum image export
-│       │   │   │   ├── download/        #     Online track download & cache
-│       │   │   │   ├── highlight/       #     Chorus (highlight) location (pure lyric analysis) & whole-library segment table (background scan + persist), drives chorus-only playback
-│       │   │   │   ├── metadata/        #     Cover management, metadata & lyric read/write (ranged streaming tag I/O), metadata cache, gallery image writes
-│       │   │   │   ├── model/           #     Track & search data models (platform key as identity)
-│       │   │   │   ├── panel/           #     Shared playback state holder & search logic
-│       │   │   │   ├── playback/        #     Playback state, player helper, queue switch, playlist sorting, recent plays, chorus-segment loading, USB direct output & Do Not Disturb, per-device audio sink (incl. buffer policy), output-latency measurement, audio-info snapshot (incl. Bluetooth link & codec resolution)
+│       │   │   ├── cache/               #   Cache ledger (category registry, per-category usage sampling, cold-start reclaim)
+│       │   │   ├── music/               #   Music domain
+│       │   │   │   ├── analysis/        #     Lossless containers, PCM formats, FFT & full-track spectrogram, container headers
+│       │   │   │   ├── api/             #     Song / cover / lyric retrieval, lyric codec (LRC / QRC / KRC / lrcx), quality, translation & HTTP client
+│       │   │   │   ├── clip/            #     Sharing, default ringtone / alarm installer, readable local URIs, spectrum image export
+│       │   │   │   ├── download/        #     Track download & cache
+│       │   │   │   ├── highlight/       #     Chorus (highlight) location by pure lyric analysis & whole-library segment table (background scan + persist)
+│       │   │   │   ├── metadata/        #     Cover pipeline & colour extraction, metadata / lyric read-write (ranged streaming tag I/O), embedded-tag backfill, caches
+│       │   │   │   ├── model/           #     Track & search models (platform key as identity)
+│       │   │   │   ├── panel/           #     Shared playback state holder, search logic & lyric translation
+│       │   │   │   ├── playback/        #     Playback state, queue switch, sorting, recent plays, direct USB output & Do Not Disturb, per-device audio sink (incl. buffer policy), output-latency measurement, audio-info snapshot (incl. Bluetooth link & codec resolution)
 │       │   │   │   ├── proxy/           #     Proxy source (import / parse / engine / store) & custom-platform registry
-│       │   │   │   ├── recommend/       #     Lyric text cleanup shared with chorus location
+│       │   │   │   ├── recommend/       #     Lyric text features shared with chorus location
 │       │   │   │   ├── MusicScanner.kt  #     MediaStore scanning & track enrichment
 │       │   │   │   └── PlaylistRefresher.kt  # Playlist refresh pipeline
-│       │   │   ├── playlist/            #   Playlist store (smart & custom) & grouping
+│       │   │   ├── persistence/         #   Persisted-data declarations & shared on-disk paths (single source of truth for file names)
+│       │   │   ├── playlist/            #   Playlist store (smart & custom), grouping & per-artist track order
 │       │   │   ├── repository/          #   Settings repository
 │       │   │   └── settings/            #   Settings DataStore, playback & lyric-layout preferences, boot language mirror
-│       │   ├── floatingwindow/          # Mini player overlay manager, controller & external-audio background playback loader
+│       │   ├── floatingwindow/          # Mini player overlay manager & controller
 │       │   │   └── miniplayer/          #   Mini player overlay / bar / expandable playlist
 │       │   ├── localization/            # In-app localization manager
 │       │   ├── log/                     # CrashLogManager
 │       │   ├── navigation/              # Navigation3 typed routes & nav host
-│       │   ├── permission/              # Permission, overlay-grant & battery-whitelist monitors
+│       │   ├── permission/              # Permission, overlay-grant, battery-whitelist & foreground monitors
 │       │   ├── screens/                 # Screens (home / settings / cache / typography / spectrum / metadata)
-│       │   │   ├── home/                #   Home player + permission flow + playlists + online search
-│       │   │   │   ├── compact/         #     Portrait assembly, player & player parts
-│       │   │   │   ├── expanded/        #     Landscape assembly, player & player parts
-│       │   │   │   └── component/       #     analysis / audioinfo / bar / dialog / panel / permission / player / playlist / queue / search / shell / swipe
+│       │   │   ├── home/                #   Home player + permission flow + playlists (incl. artist pages) + online search
+│       │   │   │   ├── compact/         #     Portrait assembly (compact/player: portrait player)
+│       │   │   │   ├── expanded/        #     Landscape assembly (expanded/player: landscape player)
+│       │   │   │   └── component/       #     analysis / audioinfo / bar / dialog / panel / permission / player / playlist (incl. playlist/expanded) / queue / search / shell / swipe
 │       │   │   ├── settings/            #   Appearance / cache / language / playback / proxy source / about
-│       │   │   ├── cache/               #   Storage / cache management
+│       │   │   │   └── component/       #     appearance / cache / dialog / entry / info / language / playback / proxy
+│       │   │   ├── cache/               #   Storage / cache management (compact / expanded / component)
 │       │   │   ├── spectrum/            #   Spectrum analysis page (compact / expanded / component)
-│       │   │   ├── typography/          #   Lyric typography settings
+│       │   │   ├── typography/          #   Lyric typography settings (compact / expanded / component)
 │       │   │   └── metadata/            #   Metadata editing page (compact / expanded / component)
 │       │   ├── service/                 # MediaSessionService playback engine
-│       │   ├── theme/                   # Material 3 color & typography
-│       │   ├── ui/                      # Shared UI (component: cover-fade CoverFade, dialog skeleton AppDialog; also component/dialog, component/player, component/section, icons)
+│       │   ├── theme/                   # Material 3 colour & typography
+│       │   ├── ui/                      # Shared UI: cover fade / transition / prefetch / flow-frame store, dialog & picker skeletons, player & section pieces, icons
 │       │   ├── update/                  # Version check, in-app update & APK hash verification
 │       │   ├── utils/                   # Shared utilities
 │       │   ├── windowsize/              # Window size class & landscape form detection
@@ -105,10 +123,11 @@ Both portrait and landscape are designed for minimal distraction and maximum imm
 │       │   ├── MainActivity.kt          # Sole activity (system bars, external intents, boot language)
 │       │   └── MainViewModel.kt         # Activity-scoped ViewModel (incl. AppUiState)
 │       └── res/                         # Resources (values / values-en)
+├── baselineprofile/                     # Baseline & startup profile source set
 ├── gradle/
 │   ├── libs.versions.toml               # Version catalog (dependencies)
 │   └── wrapper/
-├── docs/                                # Proxy source spec, screenshots & notes
+├── docs/                                # Proxy source spec, screenshots, notes & APK report
 ├── LICENSE
 ├── build.gradle.kts
 ├── settings.gradle.kts
@@ -138,11 +157,17 @@ A few decisions shape the rest of the codebase:
 
 - **Every platform's lyrics normalise in one place** — `LyricCodec` folds LRC, QRC, KRC and lrcx into a single `LyricLine` list with word timelines in absolute milliseconds, so cross-platform comparison and the "word-level first, line-level fallback" policy exist only once.
 
+- **Highlight segments are computed before they are needed** — chorus location is pure lyric analysis, run as a background whole-library scan and persisted as a segment table; playback only looks the table up, so changing track or mode never triggers analysis and never depends on when the lyrics happen to arrive.
+
+- **The audio path follows the output device** — the sink is rebuilt per device, so direct USB output can write the packed 24/32-bit formats some DACs advertise, while every other output falls back to the system mixer.
+
 - **The audio info panel reads the playback path** — `AudioInfoCollector` builds its snapshot from the shared playback state, so one panel covers speakers, USB DACs and Bluetooth links without branching on the UI side.
 
 - **Tag rewriting streams through ranged I/O** — `TagSource` exposes only ranged reads and ranged copies, so editing the tags of a large Hi-Res file never loads the whole file into memory.
 
 - **Metadata editing is a page built on that path** — the session is keyed by track, re-reads the file's tags whenever the page returns to the foreground and auto-flushes pending edits, which is why the page has no save button.
+
+- **On-disk output is declared where it is produced** — every persisted store carries its own `PersistedData` (name + on-disk kind) beside the code that writes it, and `StorageRegistry` maps each one to a category for the storage page. A name is written once, so a rename can never leave the reader and the accountant pointing at different files; anything left unregistered still surfaces as a fallback row instead of vanishing from the total.
 
 ## Permissions
 
@@ -151,7 +176,7 @@ A few decisions shape the rest of the codebase:
 | Display over other apps | Mini player during background playback, and the playlist it expands into |
 | All files access | Import and manage local music files |
 | Music access (`READ_MEDIA_AUDIO`) | Play tracks from the device library |
-| Images (`READ_MEDIA_IMAGES`) | Embedded art & local cover candidates — Android 14's *selected photos* grant counts as granted |
+| Images (`READ_MEDIA_IMAGES`, `READ_MEDIA_VISUAL_USER_SELECTED`) | Embedded art & local cover candidates — Android 14's *selected photos* grant counts as granted |
 | Bluetooth (`BLUETOOTH_CONNECT`) | Name, address and negotiated codec of the current Bluetooth output device (audio info) |
 | Foreground service (`mediaPlayback`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`) | Background playback with notification / lock-screen controls |
 | Notifications (`POST_NOTIFICATIONS`) | Update download completion notification (Android 13+) |
@@ -210,7 +235,7 @@ python tools/make_promo_hero.py
 
 ## Disclaimer
 
-Search services rely on public web endpoints and cover basic song, cover and lyric search only — playback is not among the capabilities they promise, so trial clips and free tracks play only when a source happens to return a playable URL, and audio-quality upgrades depend on a proxy source. Lyric auto-translation relies on Youdao's public keyless translation endpoint, whose availability, rate limiting and translation quality are entirely up to that service. Availability varies by region and song. The app is for personal study and communication only — please support the copyright holders.
+Echo Tide is a player for the local library you already own, and is intended for personal study and communication only — please support the copyright holders.
 
 ## Acknowledgements
 

@@ -1,8 +1,8 @@
-# APK 体检报告：EchoTideMusic-5.0.0-arm64-v8a.apk
+# APK 体检报告：EchoTideMusic-5.1.0-arm64-v8a.apk
 
-- 应用：`com.yichao.evilgodxu` 5.0.0
-- 体积：5.35 MiB（5610851 字节）
-- 条目：40，容器开销 36.9 KiB
+- 应用：`com.yichao.evilgodxu` 5.1.0
+- 体积：5.26 MiB（5511295 字节）
+- 条目：40，容器开销 23.6 KiB
 - 构建工具：build-tools 37.0.0
 - ZIP 对齐：通过
 - 后处理可回收：97 B
@@ -17,30 +17,30 @@
 
 | 分组 | 条目 | 原始 | 占用 | 占比 |
 | --- | ---: | ---: | ---: | ---: |
-| `classes2.dex` | 1 | 5.12 MiB | 5.12 MiB | 96.3% |
-| `resources.arsc` | 1 | 69.6 KiB | 69.6 KiB | 1.3% |
+| `classes2.dex` | 1 | 5.04 MiB | 5.04 MiB | 96.2% |
+| `resources.arsc` | 1 | 68.4 KiB | 68.4 KiB | 1.3% |
 | `assets/` | 3 | 141.1 KiB | 52.9 KiB | 1.0% |
 | `classes.dex` | 1 | 30.9 KiB | 30.9 KiB | 0.6% |
 | `lib/**/*.so` | 2 | 17.5 KiB | 17.5 KiB | 0.3% |
 | `res/` | 17 | 19.0 KiB | 16.8 KiB | 0.3% |
 | `kotlin/` | 8 | 52.7 KiB | 12.1 KiB | 0.2% |
-| `AndroidManifest.xml` | 1 | 13.2 KiB | 3.2 KiB | 0.1% |
-| `META-INF/` | 6 | 350 B | 333 B | 0.0% |
+| `AndroidManifest.xml` | 1 | 12.9 KiB | 3.2 KiB | 0.1% |
+| `META-INF/` | 6 | 350 B | 332 B | 0.0% |
 
 ## 最大条目
 
 | 条目 | 原始 | 占用 | 方式 |
 | --- | ---: | ---: | --- |
-| `classes2.dex` | 5.12 MiB | 5.12 MiB | STORED |
-| `resources.arsc` | 69.6 KiB | 69.6 KiB | STORED |
+| `classes2.dex` | 5.04 MiB | 5.04 MiB | STORED |
+| `resources.arsc` | 68.4 KiB | 68.4 KiB | STORED |
 | `assets/PublicSuffixDatabase.list` | 129.6 KiB | 41.5 KiB | DEFLATE |
 | `classes.dex` | 30.9 KiB | 30.9 KiB | STORED |
-| `assets/dexopt/baseline.prof` | 10.2 KiB | 10.2 KiB | STORED |
+| `assets/dexopt/baseline.prof` | 10.1 KiB | 10.1 KiB | STORED |
 | `lib/arm64-v8a/libandroidx.graphics.path.so` | 9.9 KiB | 9.9 KiB | STORED |
 | `lib/arm64-v8a/libdatastore_shared_counter.so` | 7.6 KiB | 7.6 KiB | STORED |
 | `kotlin/kotlin.kotlin_builtins` | 30.8 KiB | 5.4 KiB | DEFLATE |
 | `res/sK.webp` | 4.3 KiB | 4.3 KiB | STORED |
-| `AndroidManifest.xml` | 13.2 KiB | 3.2 KiB | DEFLATE |
+| `AndroidManifest.xml` | 12.9 KiB | 3.2 KiB | DEFLATE |
 | `res/Sn.webp` | 3.0 KiB | 3.0 KiB | STORED |
 | `res/20.png` | 2.6 KiB | 2.6 KiB | STORED |
 | `res/qs.webp` | 1.9 KiB | 1.9 KiB | STORED |
@@ -52,9 +52,9 @@
 | 条目 | 体积变化 | 原因 |
 | --- | ---: | --- |
 | `assets/PublicSuffixDatabase.list` | -28 B | 已 deflate，压缩级别提升至 9 |
-| `META-INF/services/ca0` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
-| `META-INF/services/cz2` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
-| `META-INF/services/q7` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
+| `META-INF/services/l7` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
+| `META-INF/services/pw2` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
+| `META-INF/services/z90` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
 | `kotlin/collections/collections.kotlin_builtins` | -18 B | 已 deflate，压缩级别提升至 9 |
 | `kotlin/kotlin.kotlin_builtins` | -36 B | 已 deflate，压缩级别提升至 9 |
 | `kotlin/reflect/reflect.kotlin_builtins` | -9 B | 已 deflate，压缩级别提升至 9 |
