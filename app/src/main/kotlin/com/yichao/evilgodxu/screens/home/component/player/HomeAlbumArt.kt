@@ -17,6 +17,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.data.music.metadata.CoverColorCache
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.theme.md_theme_dark_background
@@ -30,16 +32,15 @@ import com.yichao.evilgodxu.ui.component.rememberLargeCoverState
 import com.yichao.evilgodxu.ui.component.rememberVisibleSession
 import com.yichao.evilgodxu.ui.component.trackSlideTransform
 
-// 首页大封面：竖屏沉浸封面与横屏融合封面铺满首屏，取图分三步 ——
-// 1. 先以系统最大档略缩图占位出图（列表点选任意曲目时内嵌原图的读取与解码可能要 1–3 秒，封面不能空等）；
+// 首页大封面：竖屏沉浸封面与横屏融合封面铺满首屏，取图分两级 ——
+// 1. 以该曲持久化的背景色铺底，其上垫一张已就位的低清缩略图（当前曲落盘的缩略图或预取进内存的列表档，见 rememberLargeCoverState）；
 // 2. 异步解码内嵌原图（长边至 LargeCoverStore.MAX_EDGE_PX），相邻曲目另按 当前 → 下一 → 上一 预热；
-// 3. 高清就位后按「底层常驻 + 上层淡入」替换占位图（见 CoverTransition）。
-// 第 3 步不能直接换画面：两级取图的清晰度差与新封面入场都经这一层过渡，直接替换会闪一下再跳一下。
+// 高清就位后按「底层常驻 + 上层淡入」覆盖低清底图（见 CoverTransition），
+// 于是取图期间始终有图可看，升清是一次渐进淡入而不是先空等再跳变。
+// 底面用背景色而非音符占位符：底图与背景同源，取图期间露出的不是一块与背景割裂的深色。
 // 缩放由 ImageDecoder 按精确目标尺寸重采样完成（线性过滤 + 多级 mipmap），
 // 大比例缩小时边缘与细线不会出现毛刺与锯齿；结果以 WebP 落盘并驻留当前/下一/上一三张，
-// 冷启动与往返切歌直接命中，取不到封面即显示占位符，不回退在线封面地址。
-// 三级之间不留黑窗：新曲目的封面仍在取图时先沿用上一张已就位的封面，只有确认这首确实没有封面
-// 才回到占位符——占位符是与页面底色同为近黑的色块，换曲时直接露出来就是一次黑闪
+// 冷启动与往返切歌直接命中，取不到封面即保持底图，不回退在线封面地址。
 //
 // 换曲目则走整幅横移（见 trackSlideTransform）：方向取自本次变更的类型，与歌曲信息同一套判定。
 // 上下两首都已预热在内存，入场的一层从进场那一刻就是成图，不必用过渡遮盖取图空窗；
@@ -52,8 +53,9 @@ internal fun HomeAlbumArt(
     kind: TrackSwitchKind,
     modifier: Modifier = Modifier,
 ) {
-    // 上一张已就位的封面：新曲目的封面还在取图时先沿用它，而不退回占位符。
-    // 占位符是与页面底色同为近黑的色块，换曲取图期间直接露出来就是一次黑闪
+    val playbackState = LocalMusicPanelStateHolder.current.state
+    // 上一张已就位的封面：正图与底图都没有时才沿用它，而不落到近黑的占位块上。
+    // 占位块是与页面底色同为近黑的色块，换曲取图期间直接露出来就是一次黑闪
     var lastShown by remember { mutableStateOf<ImageBitmap?>(null) }
     // 回前台不补播切歌过渡：后台期间应用不可见，那几次切歌谁也没看见；重新可见时才被应用的
     // 一次变更若按横移补播，返回前台就成了「先看到上一首，再看着它切走」。
@@ -79,15 +81,23 @@ internal fun HomeAlbumArt(
             label = "homeCover",
         ) { layer ->
             val state = rememberLargeCoverState(layer)
-            // 取图中且暂无图可显示时沿用上一张；已确认这首没有封面则退回占位符（此时 lastShown 不参与）
-            val shown = state.cover ?: lastShown.takeIf { state.pending }
-            // 只在真正取到图时更新：占位与「暂无」都不该顶掉已就位的一张
+            // 正图未就位时先看本曲自己的低清底图；底图也还没有（首启、取色未落盘）才沿用上一张已就位的封面
+            val shown = state.cover ?: lastShown.takeIf { state.pending && state.base == null }
+            // 只在真正取到图时更新：底图与「暂无」都不该顶掉已就位的一张
             LaunchedEffect(state.cover) { state.cover?.let { lastShown = it } }
+            // 占位底色取该曲持久化的背景色：与沉浸背景同源，底图与随后覆盖的高清都落在同一色底上。
+            // 尚未取色时退回深色主题背景色，避免浅色主题下首帧浅色闪烁
+            val placeholderColor = layer?.let { target ->
+                CoverColorCache.get(target.audioUri)?.representative
+                    ?: playbackState.restoredBackgroundColorFor(target)
+            } ?: md_theme_dark_background
             CoverTransition(
                 bitmap = shown,
+                baseBitmap = state.base,
                 contentDescription = layer?.title,
-                // 首页背景恒为深色，占位块固定用深色主题背景色，避免浅色主题下首帧浅色闪烁
-                placeholderColor = md_theme_dark_background,
+                placeholderColor = placeholderColor,
+                // 底面已有背景色与低清缩略图，不再需要音符图标兜底
+                placeholderIconSize = null,
             )
         }
     }

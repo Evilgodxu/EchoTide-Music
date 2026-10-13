@@ -63,30 +63,18 @@ internal object LargeCoverStore {
     /** 缓存落点：供缓存台账统计与回收引用，路径只在此定义一次 */
     fun location(context: Context): File = File(context.cacheDir, DIR_NAME)
 
-    /** 同步取已驻留的封面；未驻留返回 null，由调用方回退首帧缩略图或异步取图 */
+    /** 同步取已驻留的封面；未驻留返回 null，由显示端垫上底图与背景色后异步取图 */
     fun peek(audioUri: String): Bitmap? = resident.get(audioUri)
 
     /**
-     * 一阶段取图：只取能立刻拿到的档位 —— 内存驻留 → 落盘高清档 → 系统最大档略缩图。
+     * 取高清档：内存驻留 → 落盘高清档 → 解码内嵌原图（长边至 [MAX_EDGE_PX]）。
      *
-     * 用户从列表直接点选任意曲目时，该曲目没有预取过，高清原图的读取与解码可能要 1–3 秒
-     * （尤其是内嵌封面很大的无损文件）。先以系统略缩图出图，再由 [get] 解码高清原图无缝替换，
-     * 封面首帧就不会空等。
+     * 首帧不必由本入口负责：显示端在它之外还铺了该曲持久化的背景色与一张已就位的低清缩略图
+     * （见 rememberLargeCoverState），所以这里可以一路等到高清档，不必再插一层系统略缩图 ——
+     * 那一层与低清档同物不同尺寸，多解一次只是重复开销。
+     *
+     * 无可用封面时返回 null，由显示端保持已出的底图或显示占位图。
      */
-    suspend fun quick(context: Context, track: MusicTrack): Bitmap? {
-        resident.get(track.audioUri)?.let { return it }
-        val startGeneration = generation
-        val cached = withContext(Dispatchers.IO) { decodeFile(fileFor(context, track.audioUri)) }
-        // 落盘档须与本次取图同代：作废（封面重写）期间读到或回填的旧档一律丢弃，
-        // 否则它会被重新驻留、并作为「首帧图」交给显示端，封面停在旧图
-        if (cached != null && startGeneration == generation) {
-            resident.put(track.audioUri, cached)
-            return cached
-        }
-        return MusicCoverLoader.load(context, track, MusicCoverLoader.SYSTEM_THUMBNAIL_MAX_SIZE_PX)
-    }
-
-    /** 二阶段取图：解码内嵌原图得到长边至 [MAX_EDGE_PX] 的高清档；无可用封面时返回 null，由显示端显示占位图 */
     suspend fun get(context: Context, track: MusicTrack): Bitmap? {
         resident.get(track.audioUri)?.let { return it }
         val key = track.audioUri

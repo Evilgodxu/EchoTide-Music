@@ -40,8 +40,12 @@ internal const val COVER_FADE_IN_MS = 500
  * 这里让底层那张始终保持完全不透明铺满容器，新到的一张叠在其上、alpha 由 0 动画到 1，
  * 过渡全程至少有一层以实色盖住底色；上层完全显示后才撤下底层，回到单层驻留。
  *
- * [bitmap] 为空即无封面可显示，两层的空缺都由 [placeholderColor] 的占位块补上——
- * 占位块同样以实色垫底与淡入，故「换曲 → 该曲确认无封面」的落位过程也不塌陷亮度。
+ * [bitmap] 为空即无正图可显示，空出的位置由「[placeholderColor] 铺底 + [baseBitmap]」补上——
+ * [baseBitmap] 是调用方已就位的低清档（大封面复用持久化背景色与预取的小缩略图），
+ * 正图到位后淡入覆盖它，于是取图全程有图可看，且「低清 → 高清」的升清是渐进的一次淡入而非跳变。
+ * 底图与正图同用 [ContentScale.Crop]、同一构图，升清时不会错位。
+ * 两者都缺席时才退回图标兜底（[placeholderIconSize] 非空），图标也算作占位块的实色垫底，
+ * 故「换曲 → 该曲确认无封面」的落位过程同样不塌陷亮度。
  *
  * [animated] 为假时不做过渡、直接替换，并跳过两层的全部开销：
  * 用于封面不随播放变更的场景（3D 轮播的格位、封面替换对话框的对比图）。
@@ -57,7 +61,10 @@ internal fun CoverTransition(
     contentDescription: String?,
     placeholderColor: Color,
     modifier: Modifier = Modifier,
-    placeholderIconSize: Dp = 24.dp,
+    // 低清底图：正图未就位时垫在底色的位置上；为空即只剩底色（或图标兜底）
+    baseBitmap: ImageBitmap? = null,
+    // 兜底图标尺寸：为空即不叠图标。底图本身有内容时不叠，图标只服务「什么都没有」的场合
+    placeholderIconSize: Dp? = 24.dp,
     animated: Boolean = true,
     fadeInMillis: Int = COVER_FADE_IN_MS,
 ) {
@@ -94,6 +101,7 @@ internal fun CoverTransition(
     Box(modifier = modifier) {
         CoverLayer(
             bitmap = base,
+            baseBitmap = baseBitmap,
             contentDescription = contentDescription,
             placeholderColor = placeholderColor,
             placeholderIconSize = placeholderIconSize,
@@ -101,6 +109,7 @@ internal fun CoverTransition(
         if (fading) {
             CoverLayer(
                 bitmap = incoming,
+                baseBitmap = baseBitmap,
                 contentDescription = contentDescription,
                 placeholderColor = placeholderColor,
                 placeholderIconSize = placeholderIconSize,
@@ -111,14 +120,15 @@ internal fun CoverTransition(
     }
 }
 
-// 单层封面内容：有位图即整幅铺满，无位图即占位块。
+// 单层封面内容：有位图即整幅铺满；无位图即占位（底色 + 低清底图，或底色 + 图标）。
 // 底层与上层共用这一份实现，两层的构图、缩放与过滤口径因此完全一致，过渡期间不会错位或清晰度突变
 @Composable
 private fun CoverLayer(
     bitmap: ImageBitmap?,
+    baseBitmap: ImageBitmap?,
     contentDescription: String?,
     placeholderColor: Color,
-    placeholderIconSize: Dp,
+    placeholderIconSize: Dp?,
     modifier: Modifier = Modifier,
 ) {
     if (bitmap != null) {
@@ -135,18 +145,29 @@ private fun CoverLayer(
         )
     } else {
         Box(
-            // 占位块颜色由调用方给定：首页背景恒为深色，取固定的深色主题背景色而非随主题变化的 surface
+            // 占位块颜色由调用方给定：首页大封面取该曲持久化的背景色，其余封面取随主题的 surfaceVariant
             modifier = modifier
                 .fillMaxSize()
                 .background(placeholderColor),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = AppIcons.MusicNote,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(placeholderIconSize),
-            )
+            when {
+                // 底图与正图同一构图口径，升清前后不位移；它只是低清，放大由绘制过滤承担
+                baseBitmap != null -> Image(
+                    bitmap = baseBitmap,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    filterQuality = FilterQuality.High,
+                    modifier = Modifier.fillMaxSize(),
+                )
+
+                placeholderIconSize != null -> Icon(
+                    imageVector = AppIcons.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(placeholderIconSize),
+                )
+            }
         }
     }
 }
