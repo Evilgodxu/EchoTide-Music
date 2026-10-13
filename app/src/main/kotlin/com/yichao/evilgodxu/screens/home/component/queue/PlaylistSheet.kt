@@ -180,7 +180,8 @@ internal fun PlaylistSheet(
     val shareChooserTitle = stringResource(R.string.playlist_advanced_menu_share)
     // 后台预读整份播放列表的歌词：曲目集合变化即触发，不等面板展开逐行懒加载，
     // 展开时歌词已就绪；幂等，已缓存/补全中/全量补全中的曲目自动跳过。
-    // 封面不在此列：它按显示尺寸取图，由可视区邻域预取负责（见 CoverPrefetch）
+    // 封面不在此列：它按显示尺寸取图，进首页由 QueueCoverPreload 以当前曲目为中心辐射预取，
+    // 滚动中由 CoverPrefetch 按可视区维持同规模窗口
     val playlistTrackIds = remember(tracks) { tracks.map { it.id } }
     LaunchedEffect(playlistTrackIds) {
         val currentId = playbackState.currentTrack?.id
@@ -188,6 +189,11 @@ internal fun PlaylistSheet(
             .sortedBy { it.id != currentId }
             .forEach { playbackState.requestMetadata(it) }
     }
+    // 曲目行封面：进首页即以当前曲目为中心向外辐射预取一批，同样不等面板展开
+    QueueCoverPreload(
+        tracks = tracks,
+        currentTrackId = playbackState.currentTrack?.id,
+    )
     Box(Modifier.fillMaxSize()) {
         // 遮罩，点击收起
         AnimatedVisibility(
@@ -409,7 +415,8 @@ internal fun PlaylistSheet(
                     val lyricSnippets = remember(searchHits) {
                         searchHits.mapNotNull { hit -> hit.lyricSnippet?.let { hit.index to it } }.toMap()
                     }
-                    // 曲目行封面：可视区邻域提前取图，滚动进入视口时不再先闪占位符。
+                    // 曲目行封面：滚动中始终以当前视口为中心维持取图窗口，按滚动方向优先取前方
+                    // （进入首页时由 QueueCoverPreload 以当前曲目为中心先辐射一批，此处接手滚动）。
                     // 列表项是过滤后的下标，须经 filteredIndices 回填到真实曲目
                     CoverPrefetch(listState) { index ->
                         filteredIndices.getOrNull(index)?.let { tracks.getOrNull(it) }
