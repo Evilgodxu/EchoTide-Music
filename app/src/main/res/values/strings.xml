@@ -413,7 +413,7 @@
     <string name="cache_screen_title">存储管理</string>
     <string name="cache_group_system">临时文件（可清理）</string>
     <string name="cache_group_private">应用数据</string>
-    <string name="cache_group_user">用户数据</string>
+    <string name="cache_group_user">用户数据（持久化）</string>
     <string name="cache_total">共计占用 %1$s</string>
     <string name="cache_refreshing">加载中…</string>
     <string name="cache_pull_refresh">下拉刷新列表</string>
@@ -429,7 +429,19 @@
     <string name="cache_category_lyric">歌词缓存</string>
     <string name="cache_category_audio">歌曲缓存</string>
     <string name="cache_category_update">更新安装包</string>
-    <string name="cache_category_preference">用户偏好</string>
+    <string name="cache_category_playlist">自定义歌单</string>
+    <string name="cache_category_artist_order">歌手曲序</string>
+    <string name="cache_category_proxy_source">代理音源</string>
+    <string name="cache_category_recent_played">最近播放</string>
+    <string name="cache_category_search_history">搜索历史</string>
+    <string name="cache_category_playlist_cache">播放列表缓存</string>
+    <string name="cache_category_boot_mirror">启动镜像</string>
+    <string name="cache_category_boot_language">启动语言</string>
+    <string name="cache_category_update_info">待更新信息</string>
+    <string name="cache_category_settings">设置与播放状态</string>
+    <string name="cache_category_highlight">心动高亮段</string>
+    <string name="cache_category_reclaim_record">缓存回收记录</string>
+    <string name="cache_category_other">其它持久化数据</string>
 
     <!-- 卡片与排版设置 -->
     <string name="typography_screen_title">歌词排版设置</string>

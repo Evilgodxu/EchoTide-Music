@@ -209,7 +209,8 @@ private fun CacheUsageRow(usage: CacheUsage) {
     }
 }
 
-// 分类展示名一律取自资源，与日志台账中的内部标签互不牵连
+// 分类展示名一律取自资源，与日志台账中的内部标签互不牵连。
+// 用户数据逐份存储各占一行，故这里的映射与存储逐项对应
 @get:StringRes
 private val CacheCategory.labelRes: Int
     get() = when (this) {
@@ -219,5 +220,17 @@ private val CacheCategory.labelRes: Int
         CacheCategory.LYRIC -> R.string.cache_category_lyric
         CacheCategory.AUDIO -> R.string.cache_category_audio
         CacheCategory.UPDATE_PACKAGE -> R.string.cache_category_update
-        CacheCategory.PREFERENCE -> R.string.cache_category_preference
+        CacheCategory.PLAYLIST -> R.string.cache_category_playlist
+        CacheCategory.ARTIST_ORDER -> R.string.cache_category_artist_order
+        CacheCategory.PROXY_SOURCE -> R.string.cache_category_proxy_source
+        CacheCategory.RECENT_PLAYED -> R.string.cache_category_recent_played
+        CacheCategory.SEARCH_HISTORY -> R.string.cache_category_search_history
+        CacheCategory.PLAYLIST_CACHE -> R.string.cache_category_playlist_cache
+        CacheCategory.BOOT_MIRROR -> R.string.cache_category_boot_mirror
+        CacheCategory.BOOT_LANGUAGE -> R.string.cache_category_boot_language
+        CacheCategory.UPDATE_INFO -> R.string.cache_category_update_info
+        CacheCategory.SETTINGS -> R.string.cache_category_settings
+        CacheCategory.HIGHLIGHT -> R.string.cache_category_highlight
+        CacheCategory.RECLAIM_RECORD -> R.string.cache_category_reclaim_record
+        CacheCategory.OTHER_PERSISTED -> R.string.cache_category_other
     }
