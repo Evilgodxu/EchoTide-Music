@@ -17,7 +17,6 @@ class LosslessFormatTest {
         assertTrue(isLosslessFormatName("flac"))
         assertTrue(isLosslessFormatName("FLAC"))
         assertTrue(isLosslessFormatName("AppleLossless"))
-        assertTrue(isLosslessFormatName("dsf"))
     }
 
     @Test

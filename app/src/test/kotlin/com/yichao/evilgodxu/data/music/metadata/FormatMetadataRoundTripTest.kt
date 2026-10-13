@@ -120,7 +120,7 @@ class FormatMetadataRoundTripTest(private val fixture: String) {
         @Parameterized.Parameters(name = "{0}")
         fun fixtures(): List<String> = listOf(
             "sample.wav", "sample.flac", "sample.mp3",
-            "sample.m4a", "sample.opus", "sample.ogg", "sample.dsf", "sample.dff", "sample.ape",
+            "sample.m4a", "sample.opus", "sample.ogg",
         )
     }
 }

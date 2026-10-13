@@ -16,9 +16,9 @@ import org.junit.Test
  * 按区间搬运音频躯干，而字节入口把整段文件交给解析器，覆盖不到「定位读取 + 区间搬运」这一段。
  *
  * 用例分三层：
- *   1. 八个容器的样本落到真实文件后走文件源重写，逐字段读回并核对音频区未被改动；
+ *   1. 各容器的样本落到真实文件后走文件源重写，逐字段读回并核对音频区未被改动；
  *   2. 二次写入（标签长度变化）后躯干偏移仍须正确；
- *   3. 超大文件：无损与线性 PCM 容器的块表只读块头，故不受尺寸限制；
+ *   3. 超大文件：WAV 的块表只读块头，故不受尺寸限制；
  *      Ogg/Opus 仍需整条包流，超限按约定跳过。
  */
 class MetadataRewriteFileSourceTest {
@@ -86,15 +86,13 @@ class MetadataRewriteFileSourceTest {
     }
 
     /**
-     * 超大文件的区间读写（WAV/DSF/APE）：块表只读块头、标签区定点读取、音频体按区间搬运，
+     * 超大文件的区间读写（WAV）：块表只读块头、标签区定点读取、音频体按区间搬运，
      * 故文件大小不再构成重写上限；音频区必须逐字节保持原样。
      */
     @Test
-    fun largeLosslessContainersAreRewrittenThroughRangeIo() {
+    fun largeWavIsRewrittenThroughRangeIo() {
         val audio = ByteArray(AUDIO_BYTES) { (it % 253).toByte() }
         assertLargeRewrite(wav(audio), "large.wav")
-        assertLargeRewrite(dsf(audio), "large.dsf")
-        assertLargeRewrite(ape(audio), "large.ape")
     }
 
     /**
@@ -205,30 +203,6 @@ class MetadataRewriteFileSourceTest {
         return out.toByteArray()
     }
 
-    // 最小 DSF：28 字节文件头 + fmt 块 + data 块；文件头只回填长度与 metadata 指针
-    private fun dsf(audio: ByteArray): ByteArray {
-        val out = ByteArrayOutputStream()
-        val header = ByteArray(DSF_HEADER_BYTES)
-        "DSD ".toByteArray(Charsets.US_ASCII).copyInto(header, 0)
-        leLong(DSF_HEADER_BYTES.toLong()).copyInto(header, 4)
-        leLong((DSF_HEADER_BYTES + DSF_FMT_CHUNK_BYTES + DSF_DATA_HEADER_BYTES + audio.size).toLong()).copyInto(header, 12)
-        out.write(header)
-        out.write("fmt ".toByteArray(Charsets.US_ASCII))
-        out.write(leLong(DSF_FMT_CHUNK_BYTES.toLong()))
-        out.write(ByteArray(DSF_FMT_CHUNK_BYTES - DSF_DATA_HEADER_BYTES))
-        out.write("data".toByteArray(Charsets.US_ASCII))
-        out.write(leLong((DSF_DATA_HEADER_BYTES + audio.size).toLong()))
-        out.write(audio)
-        return out.toByteArray()
-    }
-
-    // 最小 APE：标识 + 头段占位 + 音频体，无既有标签
-    private fun ape(audio: ByteArray): ByteArray = ByteArrayOutputStream().apply {
-        write("MAC ".toByteArray(Charsets.US_ASCII))
-        write(ByteArray(APE_HEADER_PAD))
-        write(audio)
-    }.toByteArray()
-
     // Ogg 形状的超大文件：只用于触发页序列重排的尺寸上限，不做结构解析
     private fun opusShaped(): ByteArray = ByteArrayOutputStream().apply {
         write("OggS".toByteArray(Charsets.US_ASCII))
@@ -274,9 +248,6 @@ class MetadataRewriteFileSourceTest {
     private fun beInt(value: Int): ByteArray =
         ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(value).array()
 
-    private fun leLong(value: Long): ByteArray =
-        ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(value).array()
-
     private fun tempDir(): File = File(System.getProperty("java.io.tmpdir"), "yichao-metadata-rewrite").apply { mkdirs() }
 
     private companion object {
@@ -290,10 +261,6 @@ class MetadataRewriteFileSourceTest {
         const val STREAMINFO_BYTES = 34
         const val FMT_BYTES = 16
         const val RIFF_SIZE_BASE = 36
-        const val DSF_HEADER_BYTES = 28
-        const val DSF_FMT_CHUNK_BYTES = 52
-        const val DSF_DATA_HEADER_BYTES = 12
-        const val APE_HEADER_PAD = 4
         const val OGG_PAGE_HEADER_PAD = 28
         const val TAIL_MARKER_BYTES = 64
 
@@ -311,7 +278,7 @@ class MetadataRewriteFileSourceTest {
 
         val FIXTURES = listOf(
             "sample.wav", "sample.flac", "sample.mp3",
-            "sample.m4a", "sample.opus", "sample.dsf", "sample.dff", "sample.ape",
+            "sample.m4a", "sample.opus",
         )
     }
 }

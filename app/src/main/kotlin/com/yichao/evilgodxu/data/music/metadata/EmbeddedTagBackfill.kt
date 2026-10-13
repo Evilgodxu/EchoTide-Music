@@ -7,7 +7,7 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 /**
  * 内嵌标签补全：用音频文件自身的文本标签补齐平台元数据提取器读不到的标题 / 艺术家 / 专辑。
  *
- * 只服务平台读不出标签的容器（WAV、DSDIFF、DSF、APE，见 [LosslessContainerTags]）：
+ * 只服务平台读不出标签的容器（WAV，见 [LosslessContainerTags]）：
  * 这些容器的标签不在 MediaStore 的支持范围内，MediaProvider 只能给出文件名派生的标题与
  * <unknown> 占位艺术家。MP3 / FLAC / M4A / Ogg 的标签平台读得到，不在本对象范围内，
  * 一律不为它们打开文件 —— 打开文件是本流程唯一的开销，判定必须收在容器维度上而非标签维度上。
@@ -19,7 +19,7 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 internal object EmbeddedTagBackfill {
 
     /** 平台读不出标签的容器扩展名，用于在打开文件之前排除绝大多数曲目 */
-    private val CONTAINER_EXTENSIONS = setOf("wav", "dff", "dsf", "ape")
+    private val CONTAINER_EXTENSIONS = setOf("wav")
 
     // 已确认读不出内嵌标签的文件：补全会随切歌单、媒体变更等入口反复触发，没有这层记忆
     // 就会对同一批文件反复打开。只在进程内驻留——跨启动重读一次的代价有限，

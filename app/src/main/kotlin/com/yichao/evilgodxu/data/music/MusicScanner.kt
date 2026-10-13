@@ -68,7 +68,9 @@ object MusicScanner {
 
     // 扫描设备本地音乐文件，过滤时长 >= 30 秒的音频
     // 仅从 MediaStore 游标读取基础元数据，封面延迟加载，不阻塞扫描
-    // 平台读不到标签的容器（WAV/DSF/APE）同样不在此处打开文件：逐曲读文件会让耗时随
+    // 只纳入白名单内的容器（本应用能装载播放的音频格式）：无平台提取器、播不出声的容器
+    // （APE/DSD/WMA 等）纳入曲库只会得到一首点不响的条目，故在扫描期即排除。
+    // 平台读不到标签的容器（WAV）同样不在此处打开文件：逐曲读文件会让耗时随
     // 曲库规模线性增长，其标签补全改由刷新编排按需执行（见 EmbeddedTagBackfill）
     suspend fun scan(context: Context): List<MusicTrack> = withContext(Dispatchers.IO) {
         val tracks = mutableListOf<MusicTrack>()
@@ -109,6 +111,8 @@ object MusicScanner {
                     val path = if (dataIdx >= 0) cursor.getString(dataIdx).orEmpty() else ""
                     // 跳过 APK 抽取目录下的资源包音频（音效/环境声等），避免被误判为音乐
                     if (isNonMusicPath(path)) continue
+                    // 非白名单容器的音频不入库：装载不了就播不出声，留着只在曲库里添乱
+                    if (!hasSupportedAudioExtension(path)) continue
                     val audioUri = ContentUris.withAppendedId(
                         MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                         id
@@ -155,6 +159,21 @@ private val NON_MUSIC_PATH_MARKERS = listOf(
 // 判断是否为非音乐的应用程序资源音频
 private fun isNonMusicPath(path: String): Boolean =
     path.isNotBlank() && NON_MUSIC_PATH_MARKERS.any { marker -> path.contains(marker, ignoreCase = true) }
+
+// 曲库白名单：仅纳入本应用能装载播放的音频容器。判据是 media3 的提取器表——
+// 没有提取器的容器（APE、DSD 的 .dsf/.dff、WMA 等）连媒体项都装载不了、必然报错，
+// 纳入曲库只会得到一首点不响的条目，故在扫描期即排除。扩展名取自 MediaStore 的 DATA 路径，
+// 无扩展名者无从判定，一并排除。
+private val SUPPORTED_AUDIO_EXTENSIONS = setOf(
+    "mp3", "mpeg", "flac", "wav", "wave",
+    "m4a", "m4b", "mp4", "aac", "alac", "3gp",
+    "ogg", "oga", "opus", "mka", "webm", "amr",
+)
+
+// 路径扩展名是否属于曲库白名单。先取最后一段路径再取扩展名：目录名里可能带点号，
+// 直接对整条路径做 substringAfterLast('.') 会把目录误当扩展名
+private fun hasSupportedAudioExtension(path: String): Boolean =
+    path.substringAfterLast('/').substringAfterLast('.', "").lowercase() in SUPPORTED_AUDIO_EXTENSIONS
 
 // 解析音频 URI 对应的本地文件真实路径，用于跨 URI 形态识别同一文件：
 // 同一文件可能以 MediaStore 行、SAF 文档 URI、直路文件路径等多种形态出现

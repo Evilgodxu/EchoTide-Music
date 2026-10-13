@@ -4,7 +4,7 @@ import com.yichao.evilgodxu.data.music.playback.AudioSignalPathFormat
 
 // 无损格式集合：命中的格式已无需再升级
 private val LOSSLESS_FORMATS = setOf(
-    "FLAC", "WAV", "WAVE", "ALAC", "APE", "PCM", "DSD", "DSF", "DFF",
+    "FLAC", "WAV", "WAVE", "ALAC", "PCM",
 )
 
 // 判定展示格式是否已达到无损；格式名未知时不视为无损

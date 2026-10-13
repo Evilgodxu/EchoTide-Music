@@ -24,9 +24,6 @@ internal object AudioMetaProbe {
         bytes.matches(0, "fLaC") -> flac(bytes)
         bytes.matches(0, "OggS") -> ogg(bytes)
         bytes.matches(0, "RIFF") -> riff(bytes)
-        bytes.matches(0, "FRM8") -> iff(bytes, 8)
-        bytes.matches(0, "DSD ") -> dsf(bytes)
-        bytes.matches(0, "MAC ") -> ape(bytes)
         bytes.matches(4, "ftyp") -> mp4(bytes)
         else -> error("未支持的容器: " + String(bytes, 0, minOf(12, bytes.size), StandardCharsets.ISO_8859_1))
     }
@@ -39,9 +36,6 @@ internal object AudioMetaProbe {
             .filterNot { it.matches(0, "OpusTags") || it.matches(0, "\u0001vorbis") || it.matches(0, "\u0003vorbis") }
             .joinByteArrays()
         bytes.matches(0, "RIFF") -> riffChunks(bytes, 12, 4).first { it.id == "data" }.payload(bytes)
-        bytes.matches(0, "FRM8") -> iffChunks(bytes, 16, 8).first { it.id == "DSD " }.payload(bytes)
-        bytes.matches(0, "DSD ") -> dsfAudio(bytes)
-        bytes.matches(0, "MAC ") -> bytes.copyOfRange(0, apeTagStart(bytes))
         bytes.matches(4, "ftyp") -> mp4Audio(bytes)
         else -> error("未支持的容器")
     }
@@ -255,79 +249,6 @@ internal object AudioMetaProbe {
         return builder.build()
     }
 
-    // IFF 分块容器（DSDIFF）：块头为「标识 + 大端长度」
-    private fun iff(bytes: ByteArray, sizeBytes: Int): Meta {
-        val builder = Builder()
-        iffChunks(bytes, 4 + sizeBytes + 4, sizeBytes).forEach { chunk ->
-            if (chunk.id == "ID3 " || chunk.id == "id3 ") builder.id3(chunk.payload(bytes))
-        }
-        return builder.build()
-    }
-
-    private fun dsf(bytes: ByteArray): Meta {
-        val builder = Builder()
-        val pointer = leLong(bytes, 20).toInt()
-        if (pointer in 10 until bytes.size) builder.id3(bytes.copyOfRange(pointer, bytes.size))
-        return builder.build()
-    }
-
-    private fun dsfAudio(bytes: ByteArray): ByteArray {
-        var p = 28
-        while (p + 12 <= bytes.size) {
-            val id = String(bytes, p, 4, StandardCharsets.ISO_8859_1)
-            val size = leLong(bytes, p + 4).toInt()
-            if (size < 12 || p + size > bytes.size) break
-            if (id == "data") return bytes.copyOfRange(p + 12, p + size)
-            p += size
-        }
-        return ByteArray(0)
-    }
-
-    private fun ape(bytes: ByteArray): Meta {
-        val builder = Builder()
-        val end = if (bytes.matches(bytes.size - 128, "TAG")) bytes.size - 128 else bytes.size
-        val footer = end - APE_FOOTER_BYTES
-        if (footer < 0 || !bytes.matches(footer, "APETAGEX")) return builder.build()
-        val tagSize = leInt(bytes, footer + 12)
-        val count = leInt(bytes, footer + 16)
-        var p = footer + APE_FOOTER_BYTES - tagSize
-        repeat(maxOf(0, minOf(count, MAX_COMMENT_ENTRIES))) {
-            if (p + 8 > bytes.size) return builder.build()
-            val valueSize = leInt(bytes, p)
-            val flags = leInt(bytes, p + 4)
-            p += 8
-            val keyEnd = (p until bytes.size).firstOrNull { bytes[it] == 0.toByte() } ?: return builder.build()
-            val key = String(bytes, p, keyEnd - p, StandardCharsets.ISO_8859_1)
-            p = keyEnd + 1
-            if (valueSize < 0 || p + valueSize > bytes.size) return builder.build()
-            val value = bytes.copyOfRange(p, p + valueSize)
-            p += valueSize
-            when (key.lowercase()) {
-                "title" -> builder.title = String(value, StandardCharsets.UTF_8)
-                "artist" -> builder.artist = String(value, StandardCharsets.UTF_8)
-                "album" -> builder.album = String(value, StandardCharsets.UTF_8)
-                "lyrics" -> builder.lyrics = String(value, StandardCharsets.UTF_8)
-                "cover art (front)" -> {
-                    // 二进制条目：值 = 文件名 + \0 + 图片数据
-                    val separator = value.indexOf(0)
-                    if (separator >= 0 && flags and 0x2 != 0) {
-                        builder.cover = value.copyOfRange(separator + 1, value.size)
-                    }
-                }
-            }
-        }
-        return builder.build()
-    }
-
-    private fun apeTagStart(bytes: ByteArray): Int {
-        val end = if (bytes.matches(bytes.size - 128, "TAG")) bytes.size - 128 else bytes.size
-        val footer = end - APE_FOOTER_BYTES
-        if (footer < 0 || !bytes.matches(footer, "APETAGEX")) return end
-        val tagSize = leInt(bytes, footer + 12)
-        val hasHeader = leInt(bytes, footer + 20) and 0x80000000.toInt() != 0
-        return footer + APE_FOOTER_BYTES - tagSize - if (hasHeader) APE_FOOTER_BYTES else 0
-    }
-
     private fun mp4(bytes: ByteArray): Meta {
         val builder = Builder()
         walkMp4(bytes, 0, bytes.size, builder, 0)
@@ -411,19 +332,6 @@ internal object AudioMetaProbe {
         var p = from
         while (p + 4 + sizeBytes <= bytes.size) {
             val size = leInt(bytes, p + 4)
-            val start = p + 4 + sizeBytes
-            if (size < 0 || start + size > bytes.size) break
-            chunks += Chunk(String(bytes, p, 4, StandardCharsets.ISO_8859_1), start, size)
-            p = start + size + (size and 1)
-        }
-        return chunks
-    }
-
-    private fun iffChunks(bytes: ByteArray, from: Int, sizeBytes: Int): List<Chunk> {
-        val chunks = mutableListOf<Chunk>()
-        var p = from
-        while (p + 4 + sizeBytes <= bytes.size) {
-            val size = if (sizeBytes == 4) beInt(bytes, p + 4) else beLong(bytes, p + 4).toInt()
             val start = p + 4 + sizeBytes
             if (size < 0 || start + size > bytes.size) break
             chunks += Chunk(String(bytes, p, 4, StandardCharsets.ISO_8859_1), start, size)
@@ -516,9 +424,6 @@ internal object AudioMetaProbe {
             (bytes[at].toInt() and 0xFF shl 24) or (bytes[at + 1].toInt() and 0xFF shl 16) or
                 (bytes[at + 2].toInt() and 0xFF shl 8) or (bytes[at + 3].toInt() and 0xFF)
 
-    private fun beLong(bytes: ByteArray, at: Int): Long =
-        if (at + 8 > bytes.size) 0L else (beInt(bytes, at).toLong() shl 32) or (beInt(bytes, at + 4).toLong() and 0xFFFFFFFFL)
-
     private fun leInt(bytes: ByteArray, at: Int): Int =
         if (at + 4 > bytes.size) 0 else
             (bytes[at].toInt() and 0xFF) or (bytes[at + 1].toInt() and 0xFF shl 8) or
@@ -528,7 +433,6 @@ internal object AudioMetaProbe {
         if (at + 8 > bytes.size) 0L else (leInt(bytes, at).toLong() and 0xFFFFFFFFL) or (leInt(bytes, at + 4).toLong() shl 32)
 
     private const val MAX_COMMENT_ENTRIES = 4096
-    private const val APE_FOOTER_BYTES = 32
     private const val OPUS_TAGS = "OpusTags"
     private const val VORBIS_COMMENT_MARKER = "\u0003vorbis"
 }

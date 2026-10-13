@@ -21,9 +21,9 @@ internal object EmbeddedCoverReader {
 
     // 容器类型探测前缀长度：仅需覆盖各容器的魔数
     private const val CONTAINER_PROBE_BYTES = 16
-    // 自实现解析的头部窗口：IFF 块表与 DSF 头都在文件头部
+    // 自实现解析的头部窗口：RIFF 块表在文件头部
     private const val HEADER_CAP = 512 * 1024
-    // 尾部窗口：WAV/DSF/APE 的标签紧贴文件末尾
+    // 尾部窗口：WAV 的标签紧贴文件末尾
     private const val TAIL_CAP = 2 * 1024 * 1024
 
     // 读取结果三态。必须区分「文件读不出」与「文件正常但没有内嵌封面」：
@@ -77,7 +77,7 @@ internal object EmbeddedCoverReader {
 
     private fun readPicture(context: Context, audioUri: String, path: String): Picture {
         val prefix = LocalAudioSource.read(context, path, audioUri, 0L, CONTAINER_PROBE_BYTES)
-        // 平台读不到标签的容器（APE/DSF/DFF 无平台元数据支持，WAV 的容器内 ID3 块平台也不读取）
+        // 平台读不到标签的容器（WAV 的容器内 ID3 块平台不读取）
         // 先走自实现解析：先调平台提取器只是多开一次必然落空的提取器
         if (prefix != null && isCoverFallbackContainer(prefix)) {
             return readPictureByContainerTags(context, audioUri, path, prefix)
@@ -119,7 +119,7 @@ internal object EmbeddedCoverReader {
         return bytes?.let { Picture.Found(it) }
     }
 
-    // 是否值得走自实现解析：DSDIFF、DSF、APE 以及 RIFF/WAVE
+    // 是否值得走自实现解析：RIFF/WAVE
     private fun isCoverFallbackContainer(prefix: ByteArray): Boolean =
         LosslessContainerTags.matches(prefix)
 

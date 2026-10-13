@@ -19,21 +19,15 @@ internal data class ContainerFormat(
 )
 
 // 音频容器头部规格解析：只读文件头的元数据块，不依赖平台解码器。
-// 覆盖 FLAC、WAV/RF64、ALAC（MP4 音轨）、APE、DSF、DFF——APE 与 DSD 无平台
-// 解码器，容器头是这些格式唯一的规格来源。解析器全部是纯函数（字节数组 + 窗口在文件中的
+// 覆盖 FLAC、WAV/RF64、ALAC（MP4 音轨）。解析器全部是纯函数（字节数组 + 窗口在文件中的
 // 绝对偏移 → 规格），与文件 IO 解耦，既便于单测，也让「读多少字节」由调用方按格式决定。
 //
 // 解析一律先校验魔数与块结构，再读字段：容器头被 ID3v2 标签或私有块顶偏时宁可返回 null，
 // 也不在错误的位置上取出一组看似合理的采样率/位深
 internal object ContainerHeaderParser {
 
-    // DSD 的物理位深恒为 1bit。DSF 的 "bits per sample" 字段标注的是位序（1=LSB/8=MSB），
-    // 不是位深；直接采用会把 MSB 优先的文件误报成 8bit
-    private const val DSD_BIT_DEPTH = 1
-
-    // 采样率上限：PCM 容器最高到 DXD 量级，DSD 是 MHz 量级，两者分开校验
+    // 采样率上限：PCM 容器最高到 DXD 量级
     private const val PCM_MAX_SAMPLE_RATE = 768_000
-    private const val DSD_MAX_SAMPLE_RATE = 45_158_400L
 
     // MP4 采样描述中代表线性 PCM 的条目类型：只有这些类型的 msamplesize 是真实位深
     private val LINEAR_PCM_ENTRY_TYPES = setOf(
@@ -53,16 +47,13 @@ internal object ContainerHeaderParser {
         return when {
             buf.matches(0, "fLaC") -> parseFlac(buf, 0)
             buf.matches(0, "RIFF") || buf.matches(0, "RF64") -> parseRiff(buf, 0)
-            buf.matches(0, "MAC ") -> parseApe(buf, 0)
-            buf.matches(0, "DSD ") -> parseDsf(buf, 0)
-            buf.matches(0, "FRM8") && buf.matches(12, "DSD ") -> parseDff(buf, 0)
             isMp4Like(buf) -> parseMp4(buf, windowStart, fileLength)
             else -> null
         }
     }
 
     // ID3v2 前置标签的总字节数（10 字节头 + 同步安全长度字段）；无标签返回 0。
-    // 部分下载源会在 FLAC/APE/DSF 前写入 ID3v2，此时容器魔数不在文件首字节，
+    // 部分下载源会在 FLAC 前写入 ID3v2，此时容器魔数不在文件首字节，
     // 调用方据本偏移重新定位容器头。长度字段异常偏大时按无标签处理，
     // 避免畸形标签把读取位置推到文件之外
     fun id3v2TagSize(buf: ByteArray): Int {
@@ -147,76 +138,6 @@ internal object ContainerHeaderParser {
             }
             // 块按偶数字节对齐
             p = (bodyEnd + (size and 1L)).toInt()
-        }
-        return null
-    }
-
-    // ---- APE ----
-
-    // MAC 描述符第 8 字节起的 32 位字段给出描述符总长，APE_HEADER 紧随其后；
-    // 位深/声道/采样率位于 APE_HEADER 偏移 16/18/20。描述符长度随版本变化（3.98+ 为 52），
-    // 字段越界时按现行版本长度兜底
-    private fun parseApe(buf: ByteArray, from: Int): ContainerFormat? {
-        if (!buf.matches(from, "MAC ")) return null
-        val descriptorBytes = u32le(buf, from + 8)
-        val headerOffset = if (descriptorBytes in APE_MIN_DESCRIPTOR_BYTES..APE_MAX_DESCRIPTOR_BYTES) {
-            descriptorBytes.toInt()
-        } else {
-            APE_MODERN_DESCRIPTOR_BYTES
-        }
-        val headerAt = from + headerOffset
-        if (headerAt + APE_HEADER_BYTES > buf.size) return null
-        return containerFormatOf(
-            sampleRate = u32le(buf, headerAt + 20),
-            bitDepth = u16le(buf, headerAt + 16),
-            channels = u16le(buf, headerAt + 18),
-        )
-    }
-
-    // ---- DSF ----
-
-    // DSD 块 28 字节后是 fmt 块，声道数与采样率位于 fmt 块偏移 24/28
-    private fun parseDsf(buf: ByteArray, from: Int): ContainerFormat? {
-        if (!buf.matches(from, "DSD ")) return null
-        val fmtAt = from + DSF_DSD_CHUNK_BYTES
-        if (!buf.matches(fmtAt, "fmt ") || fmtAt + DSF_FMT_CHUNK_BYTES > buf.size) return null
-        return dsdFormatOf(u32le(buf, fmtAt + 28), u32le(buf, fmtAt + 24))
-    }
-
-    // ---- DFF ----
-
-    // FRM8 → PROP → SND 下的子块给出采样率（FS）与声道数（CHNL）。
-    // 块为「4 字节标识 + 8 字节大端长度」结构，载荷按偶数字节对齐
-    private fun parseDff(buf: ByteArray, from: Int): ContainerFormat? {
-        if (!buf.matches(from, "FRM8") || !buf.matches(from + 12, "DSD ")) return null
-        val prop = findDffChunk(buf, from + 16, buf.size, "PROP") ?: return null
-        if (prop.size < 4 || !buf.matches(prop.body, "SND ")) return null
-        val end = prop.body + prop.size
-        var sampleRate = 0L
-        var channels = 0L
-        var p = prop.body + 4
-        while (p + DFF_CHUNK_HEADER_BYTES <= end) {
-            val size = u64be(buf, p + 4)
-            val body = p + DFF_CHUNK_HEADER_BYTES
-            if (size <= 0 || body + size > end) break
-            when {
-                buf.matches(p, "FS  ") && size >= 4 -> sampleRate = u32be(buf, body)
-                buf.matches(p, "CHNL") && size >= 2 -> channels = u16be(buf, body).toLong()
-            }
-            p = (body + size + (size and 1L)).toInt()
-        }
-        return dsdFormatOf(sampleRate, channels)
-    }
-
-    // DSDIFF 块定位：返回载荷起点与长度；块结构不成立时终止遍历
-    private fun findDffChunk(buf: ByteArray, from: Int, to: Int, id: String): DffChunk? {
-        var p = from
-        while (p + DFF_CHUNK_HEADER_BYTES <= to && p + DFF_CHUNK_HEADER_BYTES <= buf.size) {
-            val size = u64be(buf, p + 4)
-            val body = p + DFF_CHUNK_HEADER_BYTES
-            if (size <= 0 || body + size > to) return null
-            if (buf.matches(p, id)) return DffChunk(body, size.toInt())
-            p = (body + size + (size and 1L)).toInt()
         }
         return null
     }
@@ -360,13 +281,6 @@ internal object ContainerHeaderParser {
         return ContainerFormat(sampleRate.toInt(), bitDepth, channels)
     }
 
-    // DSD 规格校验：采样率为 MHz 量级（DSD64 起为 2.8224MHz），位深恒为 1bit
-    private fun dsdFormatOf(sampleRate: Long, channels: Long): ContainerFormat? {
-        if (sampleRate !in 1..DSD_MAX_SAMPLE_RATE) return null
-        if (channels !in 1..MAX_CHANNELS.toLong()) return null
-        return ContainerFormat(sampleRate.toInt(), DSD_BIT_DEPTH, channels.toInt())
-    }
-
     // ---- 字节与编码工具 ----
 
     private fun ByteArray.matches(at: Int, text: String): Boolean {
@@ -413,20 +327,10 @@ internal object ContainerHeaderParser {
             ((buf[at + 2].toLong() and 0xFF) shl 16) or
             ((buf[at + 3].toLong() and 0xFF) shl 24)
 
-    // DSDIFF 块：载荷起点与长度
-    private class DffChunk(val body: Int, val size: Int)
-
     private const val ID3V2_HEADER_BYTES = 10
     private const val MAX_ID3V2_BYTES = 32 * 1024 * 1024
     private const val FLAC_STREAMINFO_BYTES = 34
     private const val WAVE_FORMAT_EXTENSIBLE = 0xFFFE
-    private const val APE_MIN_DESCRIPTOR_BYTES = 24L
-    private const val APE_MAX_DESCRIPTOR_BYTES = 1024L
-    private const val APE_MODERN_DESCRIPTOR_BYTES = 52
-    private const val APE_HEADER_BYTES = 24
-    private const val DSF_DSD_CHUNK_BYTES = 28
-    private const val DSF_FMT_CHUNK_BYTES = 52
-    private const val DFF_CHUNK_HEADER_BYTES = 12
     private const val BOX_HEADER_BYTES = 8
     private const val LARGE_BOX_HEADER_BYTES = 16
     // AudioSampleEntry 固定字段长度：6 保留 + 2 数据引用索引 + 20 版本/声道/位深/采样率

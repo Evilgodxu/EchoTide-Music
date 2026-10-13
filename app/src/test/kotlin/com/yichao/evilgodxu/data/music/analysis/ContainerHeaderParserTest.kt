@@ -68,25 +68,6 @@ class ContainerHeaderParserTest {
     }
 
     @Test
-    fun apeHeaderIsParsed() {
-        val bytes = ape(channels = 2, sampleRate = 44_100, bitDepth = 24)
-        assertEquals(ContainerFormat(44_100, 24, 2), ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()))
-    }
-
-    @Test
-    fun dsfFmtReportsOneBitPhysicalDepth() {
-        // DSF 的 "bits per sample" 字段标注位序（1=LSB/8=MSB），物理位深恒为 1
-        val bytes = dsf(channels = 2, sampleRate = 2_822_400, bitOrderFlag = 8)
-        assertEquals(ContainerFormat(2_822_400, 1, 2), ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()))
-    }
-
-    @Test
-    fun dffPropIsParsed() {
-        val bytes = dff(channels = 2, sampleRate = 5_644_800)
-        assertEquals(ContainerFormat(5_644_800, 1, 2), ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()))
-    }
-
-    @Test
     fun alacBitDepthComesFromMagicCookie() {
         // 采样描述自带的 samplesize（16）对 ALAC 是名义值，真实位深在 alac 幻数盒中；
         // 幻数盒成立也正面认定了码流，容器因此能给出码流名（扩展名 .m4a 说不出这个）
@@ -163,10 +144,6 @@ class ContainerHeaderParserTest {
 
         fun u64be(value: Int) = u64be(value.toLong())
 
-        fun u64le(value: Long) = apply { u32le(value and 0xFFFFFFFFL); u32le(value ushr 32) }
-
-        fun u64le(value: Int) = u64le(value.toLong())
-
         fun zeros(count: Int) = apply { repeat(count) { u8(0) } }
 
         fun splice(bytes: ByteArray) = apply { out.write(bytes) }
@@ -224,41 +201,6 @@ class ContainerHeaderParserTest {
             .ascii("WAVE").splice(fmtChunk).splice(dataChunk)
             .toBytes()
     }
-
-    private fun ape(channels: Int, sampleRate: Int, bitDepth: Int): ByteArray = Builder()
-        .ascii("MAC ").u16le(3980).u16le(0)
-        .u32le(52).u32le(24).u32le(0).u32le(0).u32le(0).u32le(0).u32le(0)
-        .zeros(16)
-        .u16le(2000).u16le(0).u32le(73_728).u32le(0).u32le(0)
-        .u16le(bitDepth).u16le(channels).u32le(sampleRate.toLong())
-        .toBytes()
-
-    private fun dsf(channels: Int, sampleRate: Int, bitOrderFlag: Int): ByteArray = Builder()
-        .ascii("DSD ").u64le(28).u64le(0).u64le(0)
-        .ascii("fmt ").u64le(52)
-        .u32le(1).u32le(0).u32le(2).u32le(channels.toLong())
-        .u32le(sampleRate.toLong()).u32le(bitOrderFlag.toLong())
-        .u64le(0).u32le(4096).u32le(0)
-        .toBytes()
-
-    // DFF：FRM8 → FVER → PROP（SND 下的 FS/CHNL/ABSS）
-    private fun dff(channels: Int, sampleRate: Int): ByteArray {
-        val fver = dffChunk("FVER", Builder().u32be(0x01050000L).toBytes())
-        val snd = Builder()
-            .ascii("SND ")
-            .splice(dffChunk("FS  ", Builder().u32be(sampleRate.toLong()).toBytes()))
-            .splice(dffChunk("CHNL", Builder().u16be(channels).zeros(2).toBytes()))
-            .toBytes()
-        val prop = dffChunk("PROP", snd)
-        return Builder()
-            .ascii("FRM8").u64be((4 + fver.size + prop.size).toLong())
-            .ascii("DSD ").splice(fver).splice(prop)
-            .toBytes()
-    }
-
-    private fun dffChunk(id: String, body: ByteArray): ByteArray = Builder()
-        .ascii(id).u64be(body.size.toLong()).splice(body)
-        .toBytes()
 
     private fun alacFile(bitDepth: Int, channels: Int, sampleRate: Int): ByteArray {
         val cookie = Builder()

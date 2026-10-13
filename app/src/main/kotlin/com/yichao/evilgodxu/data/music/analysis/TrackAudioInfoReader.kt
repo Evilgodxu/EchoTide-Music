@@ -14,16 +14,16 @@ import java.io.InputStream
 // 本地音频格式信息读取：解码头未给出或冷启动未播放时，直接读文件元数据补齐
 internal object TrackAudioInfoReader {
 
-    // 容器头可解析的扩展名：无损与线性 PCM 容器，含 DSD 与 APE 这类无平台解码器的格式。
+    // 容器头可解析的扩展名：无损与线性 PCM 容器。
     // M4A/MP4/M4B 同属 ISO-BMFF（有声书的 .m4b 同样可能装 ALAC）——这些容器的位深与码流名
     // 只存在于容器头中（有损编码则两者皆空），故一并纳入。
     // .m4p（受保护 AAC）与 .m4r（铃声）内容恒为有损，容器头给不出东西，留给 mime 那条路
     private val CONTAINER_HEADER_FORMATS = setOf(
         "FLAC", "WAV", "WAVE", "RF64",
-        "ALAC", "M4A", "M4B", "MP4", "APE", "DSF", "DFF",
+        "ALAC", "M4A", "M4B", "MP4",
     )
 
-    // 容器头窗口：定长头块（STREAMINFO/fmt/APE 头/DSD 头）都在文件头部，
+    // 容器头窗口：定长头块（STREAMINFO/fmt）都在文件头部，
     // 16KB 足以覆盖前置元数据块偏移与 MP4 的 ftyp+free+moov 前段；
     // 窗口内找不到头结构即放弃解析，不无限扩大读取量
     private const val HEADER_WINDOW_BYTES = 16 * 1024
@@ -54,7 +54,7 @@ internal object TrackAudioInfoReader {
     fun readContainerFormat(context: Context, track: MusicTrack): ContainerFormat? {
         if (!isContainerHeaderFormat(track.path)) return null
         val head = readSlice(context, track, 0L, HEADER_WINDOW_BYTES) ?: return null
-        // ID3v2 前置标签（部分下载源在 FLAC/APE/DSF 前写入）把容器魔数顶到标签之后，
+        // ID3v2 前置标签（部分下载源在 FLAC 前写入）把容器魔数顶到标签之后，
         // 按标签长度重新定位后再读一个窗口
         val id3Size = ContainerHeaderParser.id3v2TagSize(head)
         val bodyStart = if (id3Size > 0) id3Size.toLong() else 0L
@@ -237,11 +237,8 @@ private val FORMAT_EXTENSION_NAMES = mapOf(
     "MP4" to "M4A",
     "OGG" to "OGG",
     "OPUS" to "OPUS",
-    "APE" to "APE",
     "ALAC" to "ALAC",
     "WMA" to "WMA",
-    "DSF" to "DSF",
-    "DFF" to "DFF",
     "MID" to "MID",
     "MIDI" to "MIDI",
 )

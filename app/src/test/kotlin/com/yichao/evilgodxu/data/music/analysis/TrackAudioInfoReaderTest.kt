@@ -26,8 +26,15 @@ class TrackAudioInfoReaderTest {
     fun losslessAndPcmContainersAreRead() {
         assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.flac"))
         assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.wav"))
-        assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.dsf"))
-        assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.ape"))
+    }
+
+    @Test
+    fun formatsWithoutPlatformExtractorAreNotRead() {
+        // DSD（.dsf/.dff）与 APE（.ape）无媒体提取器、无从播放，相关支持已整体移除，
+        // 故不再为它们开文件读容器头
+        assertFalse(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.dsf"))
+        assertFalse(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.dff"))
+        assertFalse(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.ape"))
     }
 
     @Test

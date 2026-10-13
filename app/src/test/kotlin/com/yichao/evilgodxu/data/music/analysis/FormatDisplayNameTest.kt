@@ -18,7 +18,7 @@ class FormatDisplayNameTest {
     fun singleCodecExtensionNamesTheFormat() {
         assertEquals("FLAC", formatDisplayName("/music/a.flac", "audio/flac"))
         assertEquals("MP3", formatDisplayName("/music/a.mp3", "audio/mpeg"))
-        assertEquals("DSF", formatDisplayName("/music/a.dsf", null))
+        assertEquals("OPUS", formatDisplayName("/music/a.opus", null))
         assertEquals("WAV", formatDisplayName("/music/a.wav", null))
         // .mpeg 文件即 MPEG 音频，展示名统一为 MP3（与曲库分类里的映射同源）
         assertEquals("MP3", formatDisplayName("/music/a.mpeg", null))

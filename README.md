@@ -36,7 +36,7 @@
 
 - **Immersive, in both forms** — a framed portrait player and a landscape 3D cover carousel, resting on a background that borrows its colour from the cover art and drifts with the music.
 - **Direct USB output** — bypasses the system mixer and writes at the bit depth the connected DAC advertises, handing notifications over to Do-Not-Disturb while it plays.
-- **Lossless and Hi-Res, end to end** — WAV, DSF, DFF, APE and more are parsed from scratch, and ranged streaming tag I/O rewrites their tags without pulling the whole file into memory.
+- **Lossless and Hi-Res, end to end** — the containers the platform cannot read (WAV among them) are parsed from scratch, and ranged streaming tag I/O rewrites their tags without pulling the whole file into memory.
 - **Full-track spectrum analysis** — a parallel decode pipeline turns an entire track into a renderable time-frequency matrix, ready to inspect or export as an image.
 - **Lyrics, down to the word** — one absolute-millisecond timeline drives word-level highlighting, with full-text editing and typography controls.
 - **Highlight mode** — chorus segments are located by pure lyric analysis in a background library scan and persisted, so playback only consults a table.
