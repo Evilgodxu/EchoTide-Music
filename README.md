@@ -6,7 +6,7 @@
 
 **Immersive listening, true to the source**
 
-*Built for lossless and Hi-Res libraries — direct USB output, full-track spectrum, word-level lyrics.*
+*Built for your local lossless and Hi-Res library — direct USB output, full-track spectrum, word-level lyrics.*
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -26,23 +26,23 @@
 
 ## Highlights
 
-- **Immersive, in both forms** — a framed portrait player and a landscape 3D cover carousel, resting on a background that borrows its colour from the cover art and drifts with the music.
+- **Immersive, portrait or landscape** — each orientation gets a layout of its own, and landscape hides a 3D cover carousel one tap away; the backdrop is diffused from the cover art, recolours the whole screen as tracks change, and drifts slowly when enabled.
 
-- **Direct USB output** — bypasses the system mixer and writes at the bit depth the connected DAC advertises, handing notifications over to Do-Not-Disturb while it plays.
+- **Direct USB output** — opens a dedicated output stream at the format your DAC declares (sample rate, channels, bit depth), so playback is never resampled by the system. An alarms-only Do Not Disturb takes over for the duration: notifications and ringtones fall silent, the music plays on. If the device offers no matching format, playback falls back to the system mixer — and the audio info panel always shows which path is in use.
 
-- **Lossless and Hi-Res, end to end** — WAV, AIFF, DSF, DFF, APE and more are parsed from scratch, and ranged streaming tag I/O rewrites their tags without pulling the whole file into memory.
+- **Containers the platform can't read, parsed in-house** — WAV, AIFF, DSF, DFF and APE have their format details, embedded covers and tags parsed by the app itself; tag rewrites stream through ranged I/O, so a Hi-Res file of several hundred megabytes never has to fit in memory.
 
-- **Full-track spectrum analysis** — a parallel decode pipeline turns an entire track into a renderable time-frequency matrix, ready to inspect or export as an image.
+- **Full-track spectrum analysis** — the whole song is decoded across all cores into a complete spectrogram; look closely, or save and share it as an image.
 
-- **Lyrics, down to the word** — one absolute-millisecond timeline drives word-level highlighting, with full-text editing and typography controls.
+- **Lyrics, down to the word** — LRC, QRC, KRC and more fold into a single millisecond timeline driving word-level highlighting that bounces in time; the full text is editable and the typography is yours to tune.
 
-- **Highlight mode** — chorus segments are located by pure lyric analysis in a background library scan and persisted, so playback only consults a table.
+- **Highlight mode** — the queue, distilled to choruses: each track plays just its 30–45 s chorus. Segments are located by pure lyric analysis in a background library scan and stored up front, so playback is a table lookup — instant, with no analysis on the fly.
 
-- **A mini player that stays out of the way** — a floating overlay keeps the music going outside the app, and the full player is one tap away.
+- **A mini player that stays out of the way** — the music follows you out of the app: play, skip, switch modes and unfold the playlist from a floating bar; one tap on the cover and you are back in the full player.
 
 ## Showcase
 
-Both portrait and landscape are designed for minimal distraction and maximum immersion.
+Portrait or landscape — both are built for one thing: minimal distraction, maximum immersion.
 
 | Portrait player | Landscape player | Landscape 3D carousel |
 | :---: | :---: | :---: |
@@ -235,7 +235,7 @@ python tools/make_promo_hero.py
 
 ## Disclaimer
 
-Echo Tide is a player for the local library you already own, and is intended for personal study and communication only — please support the copyright holders.
+Echo Tide is a player for the local library you already own, intended for personal study and communication only — please support the copyright holders.
 
 ## Acknowledgements
 
