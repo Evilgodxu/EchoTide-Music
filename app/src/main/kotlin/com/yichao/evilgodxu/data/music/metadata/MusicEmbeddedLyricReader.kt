@@ -15,7 +15,8 @@ import kotlinx.coroutines.withContext
 // 尾窗之外的标签再按绝对偏移定点读取
 internal object MusicEmbeddedLyricReader {
 
-    // 非 MP3 容器读取的头部字节上限（FLAC/OGG 注释与 M4A moov 均位于文件头部附近）
+    // 非 MP3 容器读取的头部字节上限：FLAC/OGG 的注释块位于文件头部附近。
+    // M4A 不走头窗——其歌词原子可能被大封面顶出窗口，改按盒子头定点下钻（见 readMp4Lyrics）
     private const val HEADER_CAP = 512 * 1024
     // 尾部窗口上限：WAV/DSF/APE 的标签紧贴文件末尾，尾窗只需覆盖标签自身
     private const val TAIL_CAP = 2 * 1024 * 1024
@@ -28,6 +29,9 @@ internal object MusicEmbeddedLyricReader {
     // Ogg 注释包标记：Opus 为包标识 "OpusTags"，Vorbis 为包类型 3 + "vorbis"
     private const val OPUS_COMMENT_MARKER = "OpusTags"
     private const val VORBIS_COMMENT_MARKER = "\u0003vorbis"
+    // M4A 歌词原子的两种写法：iTunes 风格与非 © 前缀写法
+    private const val LYRICS_ATOM = "©lyr"
+    private const val BARE_LYRICS_ATOM = "lyr"
 
     suspend fun read(context: Context, track: MusicTrack): List<LyricLine> = withContext(Dispatchers.IO) {
         try {
@@ -58,6 +62,12 @@ internal object MusicEmbeddedLyricReader {
             ) ?: return null
             return Id3v2Tag.readUslt(tag, 0)
         }
+        // M4A 的歌词原子与文本标签同在 ilst 下，可能排在大封面之后，头窗取不到，故按盒子头定点下钻
+        if (prefix.startsWith("ftyp", 4)) {
+            return readMp4Lyrics(LocalAudioSource.size(context, track.path, track.audioUri)) { offset, count ->
+                LocalAudioSource.read(context, track.path, track.audioUri, offset, count)
+            }
+        }
         val header = LocalAudioSource.read(context, track.path, track.audioUri, 0L, HEADER_CAP) ?: prefix
         return extractLyrics(header) ?: extractLyricsFromTail(context, track, header)
     }
@@ -65,10 +75,42 @@ internal object MusicEmbeddedLyricReader {
     // 按容器格式提取内嵌歌词文本，未找到返回 null。
     // 无独立解析分支的容器交给容器标签层处理（AIFF/DSDIFF 的 ID3 块置于音频之前，头窗即可覆盖）
     internal fun extractLyrics(bytes: ByteArray): String? = when {
-        isMp4(bytes) -> extractMp4Lyrics(bytes)
+        isMp4(bytes) -> readMp4Lyrics(bytes.size.toLong()) { offset, count -> sliceOf(bytes, offset, count) }
         isFlac(bytes) -> extractFlacLyrics(bytes)
         isOgg(bytes) -> extractOggLyrics(bytes)
         else -> LosslessContainerTags.readLyrics(bytes, null, 0L, null)
+    }
+
+    /**
+     * M4A 的内嵌歌词：©lyr / lyr 普通原子与 ---- 自由格式原子（键名 lyrics）。
+     *
+     * 不按固定头窗解析：ilst 下的封面原子（covr，可达数 MB）常排在歌词原子之前，头窗遇到超出窗口的
+     * 盒子会判结构不完整，于是整份标签一个字段都取不到。改按盒子头逐层定点下钻，封面只读其盒子头。
+     */
+    internal fun readMp4Lyrics(fileSize: Long?, readAt: (Long, Int) -> ByteArray?): String? {
+        var found: String? = null
+        Mp4TagReader.forEachAtom(fileSize, readAt) { atom ->
+            val lyrics = when (atom.type) {
+                LYRICS_ATOM, BARE_LYRICS_ATOM -> decodeDataAtom(atom.payload, 0, atom.payload.size)
+                MusicMetadataWriter.FREE_FORM_ATOM ->
+                    decodeFreeformLyrics(atom.payload, 0, atom.payload.size)
+                else -> null
+            }
+            if (lyrics == null) {
+                true
+            } else {
+                found = lyrics
+                false
+            }
+        }
+        return found
+    }
+
+    // 内存字节的定点读取：越界或读不满即返回 null
+    private fun sliceOf(bytes: ByteArray, offset: Long, count: Int): ByteArray? {
+        if (offset < 0L || count <= 0 || offset + count > bytes.size) return null
+        val from = offset.toInt()
+        return bytes.copyOfRange(from, from + count)
     }
 
     // 标签位于音频之后的容器：WAV（容器内 "ID3 " 块，旧布局则在文件末尾的带 footer 标签）、
@@ -145,28 +187,6 @@ internal object MusicEmbeddedLyricReader {
             }
         }
         return fallback
-    }
-
-    // M4A：递归遍历 moov/udta/meta/ilst，取 ©lyr(或 lyr) 与 ----:LYRICS 自定义原子
-    private fun extractMp4Lyrics(bytes: ByteArray): String? =
-        extractMp4LyricsAt(bytes, 0, bytes.size, isMeta = false)
-
-    private fun extractMp4LyricsAt(bytes: ByteArray, start: Int, end: Int, isMeta: Boolean): String? {
-        // meta 原子在子原子前有 4 字节版本/标志
-        var p = start + if (isMeta) 4 else 0
-        while (p + 8 <= end) {
-            val size = int32BE(bytes, p)
-            if (size < 8 || p + size > end) return null
-            val type = String(bytes, p + 4, 4, StandardCharsets.ISO_8859_1)
-            when (type) {
-                "©lyr", "lyr" -> decodeDataAtom(bytes, p + 8, p + size)?.let { return it }
-                "----" -> decodeFreeformLyrics(bytes, p + 8, p + size)?.let { return it }
-                "moov", "udta", "meta", "ilst" ->
-                    extractMp4LyricsAt(bytes, p + 8, p + size, isMeta = type == "meta")?.let { return it }
-            }
-            p += size
-        }
-        return null
     }
 
     // 定位 data 子原子：原子长度为「4 字节类型 + 4 字节区域设置 + 载荷」，

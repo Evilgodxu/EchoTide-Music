@@ -58,9 +58,6 @@ internal object MusicMetadataEditor {
         TagField.REPLAY_GAIN_REFERENCE_LOUDNESS to listOf("REPLAYGAIN_REFERENCE_LOUDNESS"),
     )
 
-    // MP4 的容器原子：只有这些原子内部还嵌套子原子，其余按叶子解析
-    private val MP4_CONTAINER_TYPES = setOf("moov", "udta", "meta", "ilst")
-
     /**
      * 表单回填内容。字段集合只含文本标签，内嵌歌词单独给出：
      * 歌词有「缓存文件」与「文件内嵌」两份副本，两者并非总在同一次事务里落盘（内嵌写入可能失败），
@@ -156,18 +153,26 @@ internal object MusicMetadataEditor {
         fields.entries().forEach { (field, value) -> if (field != TagField.LYRICS) put(field, value) }
     }
 
-    // FLAC/Ogg 的 Vorbis 注释与 M4A 的 ilst 原子：头窗内的结构解析
+    // FLAC/Ogg 的 Vorbis 注释块在头窗内，按窗口解析；M4A 的 ilst 可能被大封面顶出头窗，
+    // 改由 Mp4TagReader 按盒子头定点下钻
     private fun readHeadTaggedFields(
         context: Context,
         track: MusicTrack,
         prefix: ByteArray,
-    ): TrackTagFields? {
-        if (!prefix.startsWith("fLaC") && !prefix.startsWith("OggS") && !prefix.startsWith("ftyp", 4)) return null
-        val header = LocalAudioSource.read(context, track.path, track.audioUri, 0L, HEADER_CAP) ?: return null
-        if (prefix.startsWith("ftyp", 4)) return readMp4Fields(header)
-        val comments = if (prefix.startsWith("fLaC")) flacComments(header) else oggComments(header)
-        return comments?.let { readVorbisFields(it) }
+    ): TrackTagFields? = when {
+        prefix.startsWith("ftyp", 4) -> readMp4Fields(context, track)
+        prefix.startsWith("fLaC") || prefix.startsWith("OggS") -> {
+            val header = LocalAudioSource.read(context, track.path, track.audioUri, 0L, HEADER_CAP)
+                ?: return null
+            val comments = if (prefix.startsWith("fLaC")) flacComments(header) else oggComments(header)
+            comments?.let { readVorbisFields(it) }
+        }
+        else -> null
     }
+
+    // 定点读取回调：按绝对偏移取盒子头与命中原子的载荷，不把头窗整段读进内存
+    private fun readAt(context: Context, track: MusicTrack): (Long, Int) -> ByteArray? =
+        { offset, count -> LocalAudioSource.read(context, track.path, track.audioUri, offset, count) }
 
     // Vorbis 注释中的字段读取：键名大小写不敏感，按候选键序取首个非空值
     private fun readVorbisFields(comments: List<String>): TrackTagFields? {
@@ -202,11 +207,22 @@ internal object MusicMetadataEditor {
         else -> {
             // 先判容器再读窗口：其余容器没有可取回歌词的落点，不必为此多读一个头窗
             if (!prefix.startsWith("fLaC") && !prefix.startsWith("OggS") && !prefix.startsWith("ftyp", 4)) return null
-            val header = LocalAudioSource.read(context, track.path, track.audioUri, 0L, HEADER_CAP) ?: return null
             when {
-                prefix.startsWith("fLaC") -> readVorbisField(header, LYRICS_KEYS) { flacComments(it) }
-                prefix.startsWith("OggS") -> readVorbisField(header, LYRICS_KEYS) { oggComments(it) }
-                else -> MusicEmbeddedLyricReader.extractLyrics(header)
+                // M4A 的歌词原子与文本标签同在 ilst 下，可能排在大封面之后，同样按盒子头定点下钻
+                prefix.startsWith("ftyp", 4) -> MusicEmbeddedLyricReader.readMp4Lyrics(
+                    LocalAudioSource.size(context, track.path, track.audioUri),
+                    readAt(context, track),
+                )
+
+                else -> {
+                    val header = LocalAudioSource.read(context, track.path, track.audioUri, 0L, HEADER_CAP)
+                        ?: return null
+                    if (prefix.startsWith("fLaC")) {
+                        readVorbisField(header, LYRICS_KEYS) { flacComments(it) }
+                    } else {
+                        readVorbisField(header, LYRICS_KEYS) { oggComments(it) }
+                    }
+                }
             }
         }
     }
@@ -293,92 +309,13 @@ internal object MusicMetadataEditor {
         return fields
     }
 
-    // M4A：递归遍历 ilst，取全量字段。普通文本原子按键名取值，音轨号/碟号为二进制，
-    // 其余字段以 ---- 自由格式原子承载
-    private fun readMp4Fields(bytes: ByteArray): TrackTagFields? {
-        val result = LinkedHashMap<TagField, String>()
-        val freeform = LinkedHashMap<String, String>()
-        walkMp4Atoms(bytes, 0, bytes.size, false) { type, payloadStart, payloadEnd ->
-            when {
-                type == MusicMetadataWriter.FREE_FORM_ATOM -> readMp4Freeform(bytes, payloadStart, payloadEnd)?.let { (key, value) -> freeform[key] = value }
-                else -> MusicMetadataWriter.MP4_ATOMS.entries.firstOrNull { it.value == type }?.let { entry ->
-                    val payload = readMp4DataPayload(bytes, payloadStart, payloadEnd) ?: return@walkMp4Atoms
-                    val value = if (entry.key == TagField.TRACK_NUMBER || entry.key == TagField.DISC_NUMBER) {
-                        mp4TrackNumber(payload)
-                    } else {
-                        String(payload, StandardCharsets.UTF_8).takeIf { it.isNotBlank() }
-                    }
-                    if (value != null && entry.key !in result) result[entry.key] = value
-                }
-            }
-        }
-        MusicMetadataWriter.MP4_FREEFORM_KEYS.forEach { (field, key) ->
-            freeform[key]?.let { if (field !in result) result[field] = it }
-        }
-        return result.takeIf { it.isNotEmpty() }?.let { TrackTagFields.build { it.forEach { (f, v) -> put(f, v) } } }
-    }
+    // M4A：标签全由 Mp4TagReader 按盒子头定点下钻读取（ilst 下的封面会把标签顶出头窗）
+    private fun readMp4Fields(context: Context, track: MusicTrack): TrackTagFields? =
+        Mp4TagReader.readFields(
+            LocalAudioSource.size(context, track.path, track.audioUri),
+            readAt(context, track),
+        )
 
-    // 遍历 MP4 原子树：只按盒子头定位，meta 原子在子原子之前另有 4 字节版本与标志
-    private fun walkMp4Atoms(
-        bytes: ByteArray,
-        start: Int,
-        end: Int,
-        skipHeader: Boolean,
-        visit: (type: String, payloadStart: Int, payloadEnd: Int) -> Unit,
-    ) {
-        var p = start + if (skipHeader) 4 else 0
-        while (p + 8 <= end) {
-            val size = int32BE(bytes, p)
-            if (size < 8 || p + size > end) return
-            val type = String(bytes, p + 4, 4, StandardCharsets.ISO_8859_1)
-            val payloadStart = p + 8
-            val payloadEnd = p + size
-            visit(type, payloadStart, payloadEnd)
-            if (type in MP4_CONTAINER_TYPES) walkMp4Atoms(bytes, payloadStart, payloadEnd, type == "meta", visit)
-            p += size
-        }
-    }
-
-    // data 子原子的载荷：头 16 字节（4 类型 + 4 区域 + 8 版本标志）之后为数据
-    private fun readMp4DataPayload(bytes: ByteArray, start: Int, end: Int): ByteArray? {
-        var p = start
-        while (p + 8 <= end) {
-            val size = int32BE(bytes, p)
-            if (size < 8 || p + size > end) return null
-            if (String(bytes, p + 4, 4, StandardCharsets.ISO_8859_1) == "data") {
-                if (size <= 16) return null
-                return bytes.copyOfRange(p + 16, p + size)
-            }
-            p += size
-        }
-        return null
-    }
-
-    // 音轨号/碟号的二进制载荷：2 字节保留 + 编号(2) + 总数(2)，编号为 0 时视为未写入
-    private fun mp4TrackNumber(payload: ByteArray): String? {
-        if (payload.size < 4) return null
-        val number = ((payload[2].toInt() and 0xff) shl 8) or (payload[3].toInt() and 0xff)
-        if (number <= 0) return null
-        val total = if (payload.size >= 6) ((payload[4].toInt() and 0xff) shl 8) or (payload[5].toInt() and 0xff) else 0
-        return if (total > 0) "$number/$total" else number.toString()
-    }
-
-    // 自由格式原子：name 子原子给出键名，data 子原子给出值
-    private fun readMp4Freeform(bytes: ByteArray, start: Int, end: Int): Pair<String, String>? {
-        var key: String? = null
-        var value: String? = null
-        var p = start
-        while (p + 8 <= end) {
-            val size = int32BE(bytes, p)
-            if (size < 8 || p + size > end) return null
-            when (String(bytes, p + 4, 4, StandardCharsets.ISO_8859_1)) {
-                "name" -> if (size > 12) key = String(bytes, p + 12, size - 12, StandardCharsets.UTF_8)
-                "data" -> if (size > 16) value = String(bytes, p + 16, size - 16, StandardCharsets.UTF_8)
-            }
-            p += size
-        }
-        return if (key != null && value != null && value.isNotBlank()) key to value else null
-    }
 
     private fun ByteArray.startsWith(value: String): Boolean =
         size >= value.length && String(this, 0, value.length, StandardCharsets.US_ASCII) == value
@@ -388,10 +325,6 @@ internal object MusicMetadataEditor {
 
     private fun ByteArray.indexOfAscii(value: String): Int =
         (0..(size - value.length).coerceAtLeast(0)).firstOrNull { startsWith(value, it) } ?: -1
-
-    private fun int32BE(bytes: ByteArray, p: Int): Int =
-        (bytes[p].toInt() and 0xff shl 24) or (bytes[p + 1].toInt() and 0xff shl 16) or
-            (bytes[p + 2].toInt() and 0xff shl 8) or (bytes[p + 3].toInt() and 0xff)
 
     private fun intLE(bytes: ByteArray, p: Int): Int =
         (bytes[p].toInt() and 0xff) or (bytes[p + 1].toInt() and 0xff shl 8) or

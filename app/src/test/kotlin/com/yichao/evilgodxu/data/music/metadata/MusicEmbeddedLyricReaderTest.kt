@@ -5,7 +5,6 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -19,23 +18,28 @@ class MusicEmbeddedLyricReaderTest {
     private val lyrics = "[00:01.00]第一行\n[00:03.50]第二行"
 
     @Test
-    fun mp4LyricsAtomIsDecodedWithinHeaderWindow() {
-        // 与实测样本一致的规模：歌词原子落在 512KB 头窗的后段，其 data 子原子声明的长度
-        // 覆盖到窗口外——按偏移当长度解码时区间起点 463908、长度 486236，必然越界
+    fun mp4LyricsAtomIsDecoded() {
+        // 载荷取 22KB：大于定点读取的小块窗口，顺带覆盖大块直读分支
         val payload = lyrics + " ".repeat(DATA_ATOM_PAYLOAD_BYTES - lyrics.toByteArray(StandardCharsets.UTF_8).size)
-        val buffer = mp4WithLyricsAt(LYRICS_ATOM_OFFSET, payload)
-        assertEquals(HEADER_WINDOW_BYTES, buffer.size)
-        assertEquals(payload, MusicEmbeddedLyricReader.extractLyrics(buffer))
-        assertTrue(MusicEmbeddedLyricReader.extractLyrics(buffer)!!.startsWith(lyrics))
+        assertEquals(payload, MusicEmbeddedLyricReader.extractLyrics(mp4("©lyr" to dataAtom(payload))))
     }
 
     @Test
     fun mp4LyricsAtomWithShortDataAtomIsRejected() {
         // data 子原子只声明 8 字节、容纳不下版本与区域设置字段：视为损坏，不得解码出脏数据
-        val buffer = ByteArray(64)
-        ftypAtom(16).copyInto(buffer, 0)
-        atom("©lyr", int32BE(8) + "data".toByteArray(StandardCharsets.ISO_8859_1)).copyInto(buffer, 16)
-        assertNull(MusicEmbeddedLyricReader.extractLyrics(buffer))
+        val shortData = int32BE(8) + "data".toByteArray(StandardCharsets.ISO_8859_1)
+        assertNull(MusicEmbeddedLyricReader.extractLyrics(mp4("©lyr" to shortData)))
+    }
+
+    @Test
+    fun mp4LyricsAfterCoverLargerThanHeaderWindowAreFound() {
+        // 实测样本的形态：ilst 下 covr 排在 ©lyr 之前且远超头窗（旧实现的 512KB），
+        // 按固定头窗解析会因 covr 越窗而把整份标签读空，歌词也就一并丢掉
+        val bytes = mp4(
+            "covr" to dataAtom(ByteArray(COVER_BYTES), kind = 13),
+            "©lyr" to dataAtom(lyrics),
+        )
+        assertEquals(lyrics, MusicEmbeddedLyricReader.extractLyrics(bytes))
     }
 
     @Test
@@ -61,24 +65,24 @@ class MusicEmbeddedLyricReaderTest {
         assertEquals("[00:01.00]第一行\n[00:03.50]第二行", MusicEmbeddedLyricReader.extractLyrics(bytes))
     }
 
-    // 512KB 头窗内的 MP4：ftyp 原子占位到 lyricsAtomOffset 处，其后的 ©lyr 原子承载歌词，
-    // data 子原子紧随其后，故子原子起点为 lyricsAtomOffset + 8
-    private fun mp4WithLyricsAt(lyricsAtomOffset: Int, payload: String): ByteArray {
-        val buffer = ByteArray(HEADER_WINDOW_BYTES)
-        ftypAtom(lyricsAtomOffset).copyInto(buffer, 0)
-        atom("©lyr", dataAtom(payload)).copyInto(buffer, lyricsAtomOffset)
-        return buffer
+    // 嵌套结构：ftyp → moov → udta → meta → ilst → 各标签原子（与写入端的排布一致）
+    private fun mp4(vararg atoms: Pair<String, ByteArray>): ByteArray {
+        val ilst = box("ilst", atoms.fold(ByteArray(0)) { acc, (type, body) -> acc + box(type, body) })
+        // meta 原子在子原子之前另有 4 字节版本与标志
+        val meta = box("meta", ByteArray(4) + box("hdlr", ByteArray(0)) + ilst)
+        val moov = box("moov", box("mvhd", ByteArray(8)) + box("udta", meta))
+        return box("ftyp", "M4A ".toByteArray(StandardCharsets.ISO_8859_1) + ByteArray(16)) + moov
     }
 
-    private fun ftypAtom(size: Int): ByteArray =
-        int32BE(size) + "ftyp".toByteArray(StandardCharsets.ISO_8859_1) + ByteArray(size - 8)
-
-    private fun atom(type: String, body: ByteArray): ByteArray =
+    private fun box(type: String, body: ByteArray): ByteArray =
         int32BE(body.size + 8) + type.toByteArray(StandardCharsets.ISO_8859_1) + body
 
-    // data 子原子：长度(4) + "data"(4) + 版本与标志(4) + 区域设置(4) + 载荷
-    private fun dataAtom(payload: String): ByteArray {
-        val body = ByteArray(8) + payload.toByteArray(StandardCharsets.UTF_8)
+    // data 子原子：类型/区域/版本标志 16 字节头 + 载荷
+    private fun dataAtom(payload: String, kind: Int = 1): ByteArray =
+        dataAtom(payload.toByteArray(StandardCharsets.UTF_8), kind)
+
+    private fun dataAtom(payload: ByteArray, kind: Int = 1): ByteArray {
+        val body = int32BE(kind) + ByteArray(4) + payload
         return int32BE(body.size + 8) + "data".toByteArray(StandardCharsets.ISO_8859_1) + body
     }
 
@@ -89,11 +93,9 @@ class MusicEmbeddedLyricReaderTest {
         byteArrayOf(value.toByte(), (value shr 8).toByte(), (value shr 16).toByte(), (value shr 24).toByte())
 
     private companion object {
-        // 读取端 512KB 头窗
-        const val HEADER_WINDOW_BYTES = 512 * 1024
-        // ©lyr 原子起点：使 data 子原子落在 463892，载荷起点即日志中越界的 463908
-        const val LYRICS_ATOM_OFFSET = 463_884
-        // data 子原子的载荷长度：22344 字节，占据 463908..486252
+        // 合成封面取 1MB：务必超过旧实现的 512KB 头窗
+        const val COVER_BYTES = 1024 * 1024
+        // 歌词载荷长度：大于定点读取的小块窗口（16KB），覆盖大块直读分支
         const val DATA_ATOM_PAYLOAD_BYTES = 22_344
     }
 }

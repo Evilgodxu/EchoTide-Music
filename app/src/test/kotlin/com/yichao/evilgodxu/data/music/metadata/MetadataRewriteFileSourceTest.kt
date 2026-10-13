@@ -118,6 +118,51 @@ class MetadataRewriteFileSourceTest {
         }
     }
 
+    /**
+     * 分片 MP4（DASH 式 moof+mdat 序列）的重写：搬运判据须按「一侧的合计」而不是「单个盒子」。
+     *
+     * 成百上千组成对的 moof+mdat 每块都不大，合计却可达数百 MB；按整段读进内存会把进程推到
+     * 系统内存回收线以下（被系统杀死且不产生崩溃日志）。本用例的尾部块超过单块上限，
+     * 只有把尾部按区间搬运才能重写成功。
+     */
+    @Test
+    fun fragmentedMp4IsRewrittenByStreamingTheTrailingRun() {
+        val source = fragmentedMp4()
+        assertTrue("样本的尾部块未超过单块搬运上限，用例失去意义", BIG_MDAT_BYTES > 32 * 1024 * 1024)
+
+        val work = File(tempDir(), "fragmented.m4a").apply { writeBytes(source) }
+        try {
+            val rewritten = MusicMetadataWriter.rewriteFileBytes(work, TITLE, ARTIST, ALBUM, null, LYRICS)
+            assertNotNull("分片 MP4 未重写（尾部被判为超出搬运上限）", rewritten)
+            assertEquals("分片 MP4 标题未写入", TITLE, AudioMetaProbe.read(rewritten!!).title)
+            // 尾部落位一致：搬运区间的终点与源一致，说明整段尾部未被截断
+            assertArrayEquals(
+                "分片 MP4 尾部落位错误",
+                source.copyOfRange(source.size - TAIL_MARKER_BYTES, source.size),
+                rewritten.copyOfRange(rewritten.size - TAIL_MARKER_BYTES, rewritten.size),
+            )
+            // 大块内容原样保留：按标记定位后逐点抽查，避免只看文件首尾而漏掉中间错位
+            val sourceStart = indexOfAscii(source, "HEAD")
+            val rewrittenStart = indexOfAscii(rewritten, "HEAD")
+            assertTrue("未在源文件中找到 mdat 起始标记", sourceStart >= 0)
+            assertTrue("未在重写结果中找到 mdat 起始标记", rewrittenStart >= 0)
+            assertArrayEquals(
+                "分片 MP4 的 mdat 内容被改动",
+                source.copyOfRange(sourceStart, sourceStart + TAIL_MARKER_BYTES),
+                rewritten.copyOfRange(rewrittenStart, rewrittenStart + TAIL_MARKER_BYTES),
+            )
+        } finally {
+            work.delete()
+        }
+    }
+
+    private fun indexOfAscii(bytes: ByteArray, marker: String): Int {
+        val target = marker.toByteArray(Charsets.US_ASCII)
+        return (0..(bytes.size - target.size)).firstOrNull { start ->
+            target.indices.all { bytes[start + it] == target[it] }
+        } ?: -1
+    }
+
     private fun assertLargeRewrite(source: ByteArray, name: String) {
         assertTrue("$name 样本未超过 Ogg 页序列重排上限，用例失去意义", source.size > OGG_PARSE_LIMIT_BYTES)
         val work = File(tempDir(), name).apply { writeBytes(source) }
@@ -208,6 +253,37 @@ class MetadataRewriteFileSourceTest {
         write(ByteArray(AUDIO_BYTES))
     }.toByteArray()
 
+    // 分片 MP4：ftyp + free + moov(ilst) + moof + 大 mdat + moof + 小 mdat。
+    // moov 在最前（faststart），尾部一侧字节更多，故尾部整段按区间搬运
+    private fun fragmentedMp4(): ByteArray {
+        val ilst = mp4Box("ilst", mp4Box("©nam", mp4DataAtom("原标题")))
+        val meta = mp4Box("meta", ByteArray(4) + mp4Box("hdlr", ByteArray(8)) + ilst)
+        val moov = mp4Box("moov", mp4Box("mvhd", ByteArray(96)) + mp4Box("udta", meta))
+        val bigMdatBody = ByteArray(BIG_MDAT_BYTES) { (it % 251).toByte() }
+        // 尾部标记：块首与块末各放一处，验证搬运区间两端都落位正确
+        "HEAD".toByteArray(Charsets.US_ASCII).copyInto(bigMdatBody, 0)
+        "TAIL".toByteArray(Charsets.US_ASCII).copyInto(bigMdatBody, BIG_MDAT_BYTES - 4)
+        return ByteArrayOutputStream().apply {
+            write(mp4Box("ftyp", "M4A ".toByteArray(Charsets.ISO_8859_1) + ByteArray(16)))
+            write(mp4Box("free", ByteArray(74)))
+            write(moov)
+            write(mp4Box("moof", ByteArray(1024)))
+            write(mp4Box("mdat", bigMdatBody))
+            write(mp4Box("moof", ByteArray(1024)))
+            write(mp4Box("mdat", ByteArray(64) { 7 }))
+        }.toByteArray()
+    }
+
+    private fun mp4Box(type: String, body: ByteArray): ByteArray =
+        beInt(body.size + 8) + type.toByteArray(Charsets.ISO_8859_1) + body
+
+    // data 子原子：类型/区域/版本标志 16 字节头 + 载荷
+    private fun mp4DataAtom(text: String): ByteArray {
+        val payload = text.toByteArray(Charsets.UTF_8)
+        val body = beInt(1) + ByteArray(4) + payload
+        return mp4Box("data", body)
+    }
+
     private fun leInt(value: Int): ByteArray =
         ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(value).array()
 
@@ -244,6 +320,9 @@ class MetadataRewriteFileSourceTest {
 
         // 音频体大小取「上限 + 余量」：仅为越界验证，不追求更大的样本
         const val AUDIO_BYTES = OGG_PARSE_LIMIT_BYTES + 2 * 1024 * 1024
+
+        // 分片 MP4 尾部的大块：超过单块搬运上限（写入端的 MAX_IN_MEMORY_BYTES）
+        const val BIG_MDAT_BYTES = 34 * 1024 * 1024
 
         // 最小 JPEG 头 + 载荷：与写入端的魔数嗅探口径一致
         val COVER = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()) + ByteArray(60) { it.toByte() }

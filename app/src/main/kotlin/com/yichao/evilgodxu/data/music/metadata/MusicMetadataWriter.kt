@@ -268,7 +268,7 @@ internal object MusicMetadataWriter {
             isMp3(head) -> mp3Plan(source, head, fields, cover, removeCover)
             isFlac(head) -> flacPlan(source, fields, cover, removeCover)
             isMp4(head) -> mp4Plan(source, fields, cover, removeCover)
-            isOpus(head) -> oggPlan(source, fields, cover, removeCover)
+            isOgg(head) -> oggPlan(source, fields, cover, removeCover)
             LosslessContainerTags.matches(head) -> losslessPlan(source, fields, cover, removeCover)
             else -> null
         }
@@ -403,10 +403,14 @@ internal object MusicMetadataWriter {
     private class Mp4TopBox(val type: String, val offset: Long, val size: Long)
 
     /**
-     * M4A/MP4：顶层盒子表按盒子头逐个定位，moov 盒整体读入重建，mdat 盒按区间原样搬运。
+     * M4A/MP4：顶层盒子表按盒子头逐个定位，moov 盒整体读入重建，样本数据按一条连续区间流式搬运。
      *
-     * moov 位于 mdat 之前时音频数据整体后移，chunk 偏移随 moov 尺寸变化同步修正；
-     * 位于其后时音频数据位置未变，无需修正。
+     * 需要重建的只有 moov，故把被它分开的两侧中**字节更多的一侧**作为搬运区间，另一侧（只含
+     * ftyp/free 这类小盒子）按字面字节重建。判据必须按「合计」而不是「单个盒子」：
+     * DASH 式分片 MP4 的尾部是成百上千组成对的 moof+mdat，每块都不大，合计却可达数百 MB，
+     * 按整段读进内存会把进程推到系统内存回收线以下（被系统杀死且没有崩溃日志）。
+     *
+     * moov 在搬运区间之前时样本数据整体后移，chunk 偏移随 moov 尺寸变化同步修正。
      */
     private fun mp4Plan(
         source: TagSource,
@@ -415,34 +419,53 @@ internal object MusicMetadataWriter {
         removeCover: Boolean,
     ): RewritePlan? {
         val boxes = readMp4TopBoxes(source) ?: return null
-        val mdat = boxes.firstOrNull { it.type == "mdat" } ?: return null
         val moov = boxes.firstOrNull { it.type == "moov" } ?: return null
         val moovBytes = readParseWindow(source, moov.offset, moov.size, "MP4 moov 盒") ?: return null
         val parsed = Mp4Atom.parseAll(moovBytes)?.singleOrNull()?.takeIf { it.type == "moov" } ?: return null
         val originalSize = parsed.build().size
         parsed.replaceMetadata(fields, cover, removeCover)
         val sizeDelta = parsed.build().size - originalSize
-        if (sizeDelta != 0 && moov.offset < mdat.offset) parsed.adjustChunkOffsets(sizeDelta)
+
+        val before = boxes.filter { it.offset < moov.offset }
+        val after = boxes.filter { it.offset > moov.offset }
+        val beforeBytes = before.sumOf { it.size }
+        val afterBytes = after.sumOf { it.size }
+        val streamAfter = afterBytes >= beforeBytes
+        // 搬运区间在 moov 之后时样本随之移动，chunk 偏移须按尺寸差修正；在其之前时样本未动
+        if (sizeDelta != 0 && streamAfter) parsed.adjustChunkOffsets(sizeDelta)
         val rebuiltMoov = parsed.build()
-        val headBoxes = boxes.filter { it.offset < mdat.offset }
-        val tailBoxes = boxes.filter { it.offset > mdat.offset }
-        if ((headBoxes + tailBoxes).any { it.type != "moov" && it.size > MAX_IN_MEMORY_BYTES }) {
-            // 音频盒子之外的顶层盒子异常巨大：多为多段 mdat 或结构异常的容器，不做搬运
-            CrashLogManager.logException(
-                "MusicMetadataWriter",
-                "MP4 顶层盒子超出搬运上限，跳过元数据重写: 大小=${source.size}B",
-            )
-            return null
-        }
+
         val head = ByteArrayOutputStream()
-        headBoxes.forEach { box ->
-            if (box.type == "moov") head.write(rebuiltMoov) else source.copyRange(box.offset, box.offset + box.size, head)
+        if (streamAfter) {
+            // 前导小盒子 + 重建的 moov，其后全部原样搬运
+            if (beforeBytes > MAX_IN_MEMORY_BYTES) {
+                return refuseOversizedBoxes(source, "moov 之前 ${beforeBytes}B 须按字面重建")
+            }
+            before.forEach { source.copyRange(it.offset, it.offset + it.size, head) }
+            head.write(rebuiltMoov)
+            return RewritePlan(head.toByteArray(), moov.offset + moov.size, source.size, ByteArray(0))
         }
+        // moov 在样本数据之后：前导小盒子按字面写出，样本整段搬运，重建的 moov 追在末尾
+        val streamStart = before.firstOrNull { it.size > MAX_IN_MEMORY_BYTES }?.offset ?: moov.offset
+        val lead = before.filter { it.offset < streamStart }
+        val tailBytes = afterBytes + moov.size
+        if (tailBytes > MAX_IN_MEMORY_BYTES || lead.sumOf { it.size } > MAX_IN_MEMORY_BYTES) {
+            return refuseOversizedBoxes(source, "moov 周围 ${maxOf(tailBytes, lead.sumOf { it.size })}B 须按字面重建")
+        }
+        lead.forEach { source.copyRange(it.offset, it.offset + it.size, head) }
         val tail = ByteArrayOutputStream()
-        tailBoxes.forEach { box ->
-            if (box.type == "moov") tail.write(rebuiltMoov) else source.copyRange(box.offset, box.offset + box.size, tail)
-        }
-        return RewritePlan(head.toByteArray(), mdat.offset, mdat.offset + mdat.size, tail.toByteArray())
+        tail.write(rebuiltMoov)
+        after.forEach { source.copyRange(it.offset, it.offset + it.size, tail) }
+        return RewritePlan(head.toByteArray(), streamStart, moov.offset, tail.toByteArray())
+    }
+
+    // 顶层盒子超出搬运上限：多为多段 mdat 或结构异常的容器，放弃本次重写
+    private fun refuseOversizedBoxes(source: TagSource, detail: String): RewritePlan? {
+        CrashLogManager.logException(
+            "MusicMetadataWriter",
+            "MP4 顶层盒子超出搬运上限，跳过元数据重写: 大小=${source.size}B（$detail）",
+        )
+        return null
     }
 
     // 顶层盒子表：逐个读盒子头并按声明的长度定位下一个，数据区不进入内存。
@@ -492,7 +515,7 @@ internal object MusicMetadataWriter {
     }
 
     /**
-     * Ogg/Opus：标签包与音频包同处一条页序列，标签长度变化会改变标签页数，
+     * Ogg（Opus 与 Vorbis）：标签包与音频包同处一条页序列，标签长度变化会改变标签页数，
      * 其后每页的序号与 CRC 都要随之重排，故需要整条包流才能定位。
      * 超过 [OGG_PARSE_LIMIT_BYTES] 即跳过本次重写并记日志，不把大文件读进堆。
      */
@@ -511,7 +534,7 @@ internal object MusicMetadataWriter {
         }
         val bytes = source.readAt(0, source.size.toInt()) ?: return null
         if (bytes.size.toLong() < source.size) return null
-        return writeOpus(bytes, fields, cover, removeCover)?.toPlan(ByteArrayTagSource(bytes))
+        return writeOggComments(bytes, fields, cover, removeCover)?.toPlan(ByteArrayTagSource(bytes))
     }
 
     // 把整文件解析结果转为重写方案：音频体区间落在给定的字节源上，写出时按区间搬运
@@ -594,7 +617,10 @@ internal object MusicMetadataWriter {
 
     private fun isMp4(bytes: ByteArray) = bytes.size >= 12 && String(bytes, 4, 4, StandardCharsets.US_ASCII) == "ftyp"
     private fun isFlac(bytes: ByteArray) = bytes.startsWith("fLaC")
-    private fun isOpus(bytes: ByteArray) = bytes.startsWith("OggS") && bytes.indexOf("OpusHead".toByteArray()) >= 0
+
+    // Ogg 容器：Opus 与 Vorbis 的注释包位置与结构由 writeOggComments 按包头分辨。
+    // 只认 OggS 而不认 OpusHead——Vorbis 的包头不含 "OpusHead"，此前这类文件整体写不进标签
+    private fun isOgg(bytes: ByteArray) = bytes.startsWith("OggS")
 
     // MP3：既有标签区作为帧改写底本，音频帧按标签结束偏移整段搬运。
     // 帧的编解码与保帧规则统一由 Id3v2Tag 承担，与 WAV/AIFF/DSF 内嵌的 ID3 块走同一实现
@@ -710,31 +736,44 @@ internal object MusicMetadataWriter {
         return out.toByteArray()
     }
 
-    private fun writeOpus(
+    private fun writeOggComments(
         source: ByteArray,
         fields: TrackTagFields,
         cover: ByteArray?,
         removeCover: Boolean,
     ): WriteResult? {
         val parsed = OggFile.parse(source) ?: return null
-        val tagsIndex = parsed.packets.indexOfFirst { it.data.startsWith("OpusTags") }
-        if (tagsIndex < 0) return null
-        parsed.packets[tagsIndex] = parsed.packets[tagsIndex].copy(
-            data = updateOpusTags(parsed.packets[tagsIndex].data, fields, cover, removeCover),
+        val commentsIndex = parsed.packets.indexOfFirst { it.data.isOggCommentPacket() }
+        if (commentsIndex < 0) return null
+        parsed.packets[commentsIndex] = parsed.packets[commentsIndex].copy(
+            data = updateCommentPacket(parsed.packets[commentsIndex].data, fields, cover, removeCover),
         )
         return WriteResult.Full(OggFile.build(parsed))
     }
 
-    private fun updateOpusTags(
+    // 注释包的两种包头：Opus 为包标识 "OpusTags"，Vorbis 为包类型 3 + "vorbis"。
+    // 两者载荷结构一致（LE 长度的 vendor + 字段数 + 「KEY=value」字段），差别只在包头与结尾
+    private const val OPUS_COMMENT_HEADER = "OpusTags"
+    private const val VORBIS_COMMENT_HEADER = "\u0003vorbis"
+
+    // Vorbis 的注释头包以框架位（1 位，恒为 1）结束，占末尾一个字节；缺它解码器判流损坏
+    private const val VORBIS_FRAMING_BYTE = 1
+
+    private fun ByteArray.isOggCommentPacket(): Boolean =
+        startsWith(OPUS_COMMENT_HEADER) || startsWith(VORBIS_COMMENT_HEADER)
+
+    private fun updateCommentPacket(
         original: ByteArray,
         fields: TrackTagFields,
         cover: ByteArray?,
         removeCover: Boolean,
     ): ByteArray {
+        val opus = original.startsWith(OPUS_COMMENT_HEADER)
+        val header = if (opus) OPUS_COMMENT_HEADER else VORBIS_COMMENT_HEADER
         val replacedKeys = mutableSetOf<String>()
         fields.entries().forEach { (field, _) -> VORBIS_KEYS[field]?.let { replacedKeys += it } }
         if (cover != null || removeCover) replacedKeys += "METADATA_BLOCK_PICTURE"
-        val values = mutableListOf<String>(); var p = 8
+        val values = mutableListOf<String>(); var p = header.length
         var vendor = "EdgeGesture".toByteArray()
         if (p + 4 <= original.size) {
             val vendorLength = intLE(original, p)
@@ -757,8 +796,11 @@ internal object MusicMetadataWriter {
         }
         fields.entries().forEach { (field, value) -> VORBIS_KEYS[field]?.let { values += "$it=$value" } }
         if (cover != null) values += "METADATA_BLOCK_PICTURE=" + java.util.Base64.getEncoder().encodeToString(pictureBlock(cover))
-        val out = ByteArrayOutputStream(); out.write("OpusTags".toByteArray()); out.write(intBytesLE(vendor.size)); out.write(vendor); out.write(intBytesLE(values.size))
+        val out = ByteArrayOutputStream()
+        out.write(header.toByteArray())
+        out.write(intBytesLE(vendor.size)); out.write(vendor); out.write(intBytesLE(values.size))
         values.forEach { val bytes = it.toByteArray(); out.write(intBytesLE(bytes.size)); out.write(bytes) }
+        if (!opus) out.write(VORBIS_FRAMING_BYTE)
         return out.toByteArray()
     }
 

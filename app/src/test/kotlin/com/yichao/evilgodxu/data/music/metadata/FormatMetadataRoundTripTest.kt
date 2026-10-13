@@ -92,8 +92,8 @@ class FormatMetadataRoundTripTest(private val fixture: String) {
     // 应用自身的内嵌歌词读取器：MP3 走 ID3 USLT，FLAC/OGG/M4A 走容器注释，其余走容器标签层
     private fun appLyrics(bytes: ByteArray): String? = when {
         fixture.endsWith(".mp3") -> Id3v2Tag.readUslt(bytes, 0)
-        fixture.endsWith(".flac") || fixture.endsWith(".opus") || fixture.endsWith(".m4a") ->
-            MusicEmbeddedLyricReader.extractLyrics(bytes)
+        fixture.endsWith(".flac") || fixture.endsWith(".opus") || fixture.endsWith(".m4a") ||
+            fixture.endsWith(".ogg") -> MusicEmbeddedLyricReader.extractLyrics(bytes)
         else -> LosslessContainerTags.readLyrics(bytes, bytes, 0L, null)
     }
 
@@ -120,7 +120,7 @@ class FormatMetadataRoundTripTest(private val fixture: String) {
         @Parameterized.Parameters(name = "{0}")
         fun fixtures(): List<String> = listOf(
             "sample.wav", "sample.aiff", "sample.aifc", "sample.flac", "sample.mp3",
-            "sample.m4a", "sample.opus", "sample.dsf", "sample.dff", "sample.ape",
+            "sample.m4a", "sample.opus", "sample.ogg", "sample.dsf", "sample.dff", "sample.ape",
         )
     }
 }
