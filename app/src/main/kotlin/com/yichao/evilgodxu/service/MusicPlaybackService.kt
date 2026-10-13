@@ -26,6 +26,7 @@ import androidx.media3.session.MediaSessionService
 import com.yichao.evilgodxu.App
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
+import com.yichao.evilgodxu.data.music.analysis.formatDisplayName
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.playback.AudioSignalPathFormat
 import com.yichao.evilgodxu.data.music.playback.DecodedOutputFormat
@@ -281,12 +282,7 @@ class MusicPlaybackService : MediaSessionService() {
                 }
                 // 每次轨道切换后按解码格式更新信号路径状态
                 val fileFormat = format?.let { f ->
-                    currentTrack?.path
-                        ?.substringAfterLast('.', "")
-                        ?.takeIf { it.isNotBlank() }
-                        ?.uppercase()
-                        ?.let { if (it == "MPEG") "MP3" else it }
-                        ?: TrackAudioInfoReader.mimeToFormatName(f.sampleMimeType)
+                    formatDisplayName(currentTrack?.path, f.sampleMimeType)
                 }
                 if (format != null) {
                     // 采样率/声道取解码格式的实际值，缺失项留空交由展示层跳过，不用固定值顶替

@@ -14,10 +14,13 @@ import java.io.InputStream
 // 本地音频格式信息读取：解码头未给出或冷启动未播放时，直接读文件元数据补齐
 internal object TrackAudioInfoReader {
 
-    // 容器头可解析的扩展名：无损与线性 PCM 容器，含 DSD 与 APE 这类无平台解码器的格式
+    // 容器头可解析的扩展名：无损与线性 PCM 容器，含 DSD 与 APE 这类无平台解码器的格式。
+    // M4A/MP4/M4B 同属 ISO-BMFF（有声书的 .m4b 同样可能装 ALAC），CAF 装 ALAC 或线性 PCM——
+    // 这些容器的位深与码流名只存在于容器头中（有损编码则两者皆空），故一并纳入。
+    // .m4p（受保护 AAC）与 .m4r（铃声）内容恒为有损，容器头给不出东西，留给 mime 那条路
     private val CONTAINER_HEADER_FORMATS = setOf(
         "FLAC", "WAV", "WAVE", "RF64", "AIFF", "AIF", "AIFC",
-        "ALAC", "M4A", "MP4", "APE", "DSF", "DFF",
+        "ALAC", "M4A", "M4B", "MP4", "CAF", "APE", "DSF", "DFF",
     )
 
     // 容器头窗口：定长头块（STREAMINFO/fmt/COMM/APE 头/DSD 头）都在文件头部，
@@ -49,7 +52,7 @@ internal object TrackAudioInfoReader {
     // 实际格式由容器魔数判定而非扩展名——扩展名只决定该文件是否值得读盘，
     // 被改名或加挂了 ID3v2 标签的文件同样能解析出真实规格
     fun readContainerFormat(context: Context, track: MusicTrack): ContainerFormat? {
-        if (!isContainerHeaderFormat(track)) return null
+        if (!isContainerHeaderFormat(track.path)) return null
         val head = readSlice(context, track, 0L, HEADER_WINDOW_BYTES) ?: return null
         // ID3v2 前置标签（部分下载源在 FLAC/APE/DSF 前写入）把容器魔数顶到标签之后，
         // 按标签长度重新定位后再读一个窗口
@@ -83,7 +86,8 @@ internal object TrackAudioInfoReader {
         if (formatName == null && sampleRate == null && bitrateKbps == null) return null
         val container = readContainerFormat(context, track)
         return AudioSignalPathFormat(
-            format = formatName,
+            // 容器头读的就是采样描述，码流名以它最直接；读不出时才用扩展名/mime 定出的那个
+            format = container?.codecName ?: formatName,
             sampleRate = sampleRate,
             outputRate = sampleRate,
             bitDepth = container?.bitDepth,
@@ -92,17 +96,18 @@ internal object TrackAudioInfoReader {
         )
     }
 
+    // 展示用格式名：容器扩展名说不出码流，须借 mime；其余扩展名即码流名，不必为此再读一次元数据
     private fun trackFormatName(context: Context, track: MusicTrack): String? =
-        track.path
-            .substringAfterLast('.', "")
-            .uppercase()
-            .takeIf { it.isNotBlank() }
-            ?: readMimeFormat(context, track)
+        formatDisplayName(
+            track.path,
+            if (extensionNamesFormat(track.path)) null else readMimeFormat(context, track),
+        )
 
     // mime 映射为展示用格式名；已知格式统一命名，其余取 mime 尾段
     fun mimeToFormatName(mime: String?): String? = when (mime) {
         "audio/mpeg" -> "MP3"
         "audio/flac" -> "FLAC"
+        "audio/alac" -> "ALAC"
         "audio/wav", "audio/x-wav" -> "WAV"
         "audio/ogg" -> "OGG"
         "audio/mp4", "audio/aac" -> "AAC"
@@ -214,9 +219,11 @@ internal object TrackAudioInfoReader {
     }
 
     // 是否属于可直接解析容器头的格式：扩展名门限，避免对有损格式做无谓读盘。
-    // M4A/MP4 一并纳入——ALAC 的位深只存在于容器头中（有损编码则该字段留空）
-    private fun isContainerHeaderFormat(track: MusicTrack): Boolean =
-        track.path.substringAfterLast('.', "").uppercase() in CONTAINER_HEADER_FORMATS
+    // 本判据只决定「要不要开文件读一个窗口」，与格式名怎么定无关（后者的规则见 [formatDisplayName]）；
+    // 但两者必须对得上——容器扩展名一族（格式名定不出码流的那一族）若在此被挡下，
+    // 容器头这条正面认定路径就形同虚设
+    internal fun isContainerHeaderFormat(path: String?): Boolean =
+        path?.substringAfterLast('.', "")?.uppercase()?.let { it in CONTAINER_HEADER_FORMATS } == true
 }
 
 // 已知音频扩展名到展示名的映射
