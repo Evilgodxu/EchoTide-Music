@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <linux/usb/ch9.h>
 #include <linux/usbdevice_fs.h>
+#include <poll.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -18,6 +19,17 @@ constexpr const char* kTag = "UsbIsoStream";
 
 /** 等时包完成状态：-EXDEV 表示部分包出错，属正常范畴，不当成整条传输失败 */
 constexpr int kStatusPartial = -EXDEV;
+
+/**
+ * 无完成事件时每次等待的上限（毫秒）。
+ *
+ * 回收线程不用阻塞式 REAPURB 而自行等待完成事件，就是为了让停机路径有确定的收尾时机：阻塞式调用在
+ * "此刻恰好没有在飞的 URB"时会一直等下去，停机就卡在 join 上——表现是整个进程失去响应。
+ */
+constexpr int kReapWaitMs = 5;
+
+/** 停机后等待在飞 URB 回收的上限：超时即放弃释放其内存（见析构），不再无限等下去 */
+constexpr int kDrainTimeoutMs = 200;
 
 void logInfo(const std::string& message) {
     __android_log_print(ANDROID_LOG_INFO, kTag, "%s", message.c_str());
@@ -66,6 +78,16 @@ std::unique_ptr<UsbIsoStream> UsbIsoStream::create(const Config& config, std::st
 
 UsbIsoStream::~UsbIsoStream() {
     stop();
+    // 回收通道已断时会有 URB 落在内核手里。内核持有 usbdevfs_urb 结构与数据缓冲的指针，并在回收时把
+    // 状态与各包实际长度写回其中，此刻释放用户态内存即 use-after-free——症状是进程无声消失、不留异常。
+    // 故这种情形下**故意不释放**：把这一块留在进程里（仅在设备异常消失且回收通道已断时出现），
+    // 换取绝不误伤无关内存
+    if (abandoned_.load()) {
+        for (auto& urb : urbs_) {
+            (void) urb.release();
+        }
+        if (feedback_) (void) feedback_.release();
+    }
     // 关闭本层自己复制的那份 fd（见 start）。停机后回收线程已 join，此时不再有 ioctl 在飞
     if (fd_ >= 0) {
         ::close(fd_);
@@ -200,8 +222,12 @@ void UsbIsoStream::setPaused(bool paused) {
 }
 
 void UsbIsoStream::stop() {
+    // 先落 running_ 再撤 URB：fillAndSubmit 的入口以此为准，此后不会再投出新的 URB，
+    // 撤下的那一批因此就是最后一批
     running_ = false;
     discardAll();
+    // join 返回即保证在飞 URB 已全部回收（或已标记放弃）。析构路径与关闭 fd 都以此为前提：
+    // 内核持有未回收 URB 的指针，早一刻释放就是 use-after-free
     if (reapThread_.joinable()) reapThread_.join();
     {
         std::lock_guard<std::mutex> lock(ringMutex_);
@@ -216,28 +242,62 @@ UsbIsoStream::Stats UsbIsoStream::stats() const {
     result.framesSent = framesSent_.load();
     result.framesPlayed = framesPlayed_.load();
     result.underruns = underruns_.load();
+    result.missedFrames = missedFrames_.load();
+    result.urbErrors = urbErrors_.load();
     result.transferErrors = transferErrors_.load();
     result.disconnected = disconnected_.load();
     return result;
 }
 
 void UsbIsoStream::reapLoop() {
-    while (running_.load()) {
+    using SteadyClock = std::chrono::steady_clock;
+    SteadyClock::time_point drainDeadline{};
+    while (true) {
+        const bool running = running_.load();
+        const int pending = inFlightCount_.load();
+        if (!running) {
+            // 停机后只回收、不再投递：在飞的那些必须全部收回来，否则析构路径就不敢释放它们的内存
+            if (pending == 0) break;
+            if (drainDeadline == SteadyClock::time_point{}) {
+                drainDeadline = SteadyClock::now() + std::chrono::milliseconds(kDrainTimeoutMs);
+            } else if (SteadyClock::now() > drainDeadline) {
+                abandoned_ = true;
+                logError("停机时仍有 " + std::to_string(pending) + " 个 URB 未回收，放弃释放其内存");
+                break;
+            }
+        }
+
         usbdevfs_urb* completed = nullptr;
-        if (ioctl(fd_, USBDEVFS_REAPURB, &completed) < 0) {
+        // 非阻塞回收 + 等完成事件：usbfs 在有待回收 URB 时置 POLLOUT，故这是"等"而非"轮询"。
+        // 不用阻塞式 REAPURB 的原因在停机：那时若恰好没有在飞 URB（提交全部失败等情形），
+        // 阻塞式调用会一直等下去，停机就卡在 join 上
+        if (ioctl(fd_, USBDEVFS_REAPURBNDELAY, &completed) < 0) {
             const int code = errno;
             if (code == EINTR) continue;
-            if (!running_.load()) break;
-            // 设备被拔出或连接已关闭：两条路都意味着本次输出终止
+            if (code == EAGAIN || code == EWOULDBLOCK) {
+                if (!running_.load() && inFlightCount_.load() == 0) break;
+                pollfd waiting{fd_, POLLOUT, 0};
+                const int ready = poll(&waiting, 1, kReapWaitMs);
+                // 设备断开时 poll 立刻以 POLLHUP 返回而不置 POLLOUT，此时短等一次再试，
+                // 免得在"再也等不到完成事件"的状态下空转
+                if (ready > 0 && (waiting.revents & (POLLHUP | POLLERR)) != 0 &&
+                    (waiting.revents & POLLOUT) == 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+                continue;
+            }
+            // 回收通道已断（设备消失或连接关闭）：此后任何 URB 都收不回来，故记下放弃
             logError("回收 URB 失败：" + errnoText(code));
             disconnected_ = true;
             running_ = false;
+            if (inFlightCount_.load() > 0) abandoned_ = true;
             break;
         }
         if (completed == nullptr) continue;
 
         if (feedback_ && completed == feedback_->urb) {
             feedback_->inFlight = false;
+            inFlightCount_.fetch_sub(1);
             const int received = completed->iso_frame_desc[0].actual_length != 0
                                      ? int(completed->iso_frame_desc[0].actual_length)
                                      : int(completed->actual_length);
@@ -248,20 +308,26 @@ void UsbIsoStream::reapLoop() {
             continue;
         }
 
+        Urb* slot = findSlot(completed);
+        // 不属于本层的 URB：不该出现，忽略以免误减在飞数
+        if (slot == nullptr) continue;
+        slot->inFlight = false;
+        inFlightCount_.fetch_sub(1);
+
         if (completed->status != 0 && completed->status != kStatusPartial) {
             ++transferErrors_;
+            ++urbErrors_;
             if (completed->status == -ENODEV || completed->status == -ESHUTDOWN) {
-                logError("数据端点已不可用，本次输出终止");
+                // 设备已不可用：不再投递，但**继续回收**——剩下的那些仍在内核手里，
+                // 此刻退出会让它们永远收不回来，析构路径就只能放弃释放
                 disconnected_ = true;
                 running_ = false;
-                break;
+                continue;
             }
         }
-        if (!running_.load()) break;
         // 回收即表示这一批已由主机侧送出，按各包实际长度累计供播放位置取用。撤下的 URB 以错误完成，
         // 其 actual_length 不反映真实送出量，故只在成功与部分成功时计入
-        Urb* slot = findSlot(completed);
-        if (slot != nullptr && (completed->status == 0 || completed->status == kStatusPartial)) {
+        if (completed->status == 0 || completed->status == kStatusPartial) {
             uint64_t played = 0;
             const unsigned packets = completed->number_of_packets;
             for (unsigned i = 0; i < packets; ++i) {
@@ -272,8 +338,10 @@ void UsbIsoStream::reapLoop() {
             const uint64_t actualFrames = played / size_t(config_.frameBytes);
             framesPlayed_ += std::min<uint64_t>(slot->realBytes / size_t(config_.frameBytes), actualFrames);
         }
-        fillAndSubmit(completed);
+        if (running_.load()) fillAndSubmit(completed);
     }
+    // 收尾：仍有在飞即意味着它们的内存不能释放，供析构路径判断
+    if (inFlightCount_.load() > 0) abandoned_ = true;
 }
 
 UsbIsoStream::Urb* UsbIsoStream::findSlot(usbdevfs_urb* urb) {
@@ -287,6 +355,8 @@ UsbIsoStream::Urb* UsbIsoStream::findSlot(usbdevfs_urb* urb) {
 void UsbIsoStream::fillAndSubmit(usbdevfs_urb* urb) {
     Urb* slot = findSlot(urb);
     if (slot == nullptr) return;
+    // 停机后不再投递：在飞的那些要全部收回来，此时再投出新的就永远收不回来了
+    if (!running_.load()) return;
 
     const bool paused = paused_.load();
     uint8_t* buffer = slot->buffer.data();
@@ -304,7 +374,11 @@ void UsbIsoStream::fillAndSubmit(usbdevfs_urb* urb) {
             // 补零而非缩短包长：等时端点上短包会让设备的时间轴出现缺口并产生可闻的断续
             std::fill(buffer + offset + got, buffer + offset + want, uint8_t(0));
             // 暂停不是欠载：此刻本就不该有数据送出
-            if (!paused && primed_.load()) ++underruns_;
+            if (!paused && primed_.load()) {
+                ++underruns_;
+                // 少送了多少帧同样记下：听感上的断口长度由它决定，光有次数判不出轻重
+                missedFrames_ += (want - got) / size_t(config_.frameBytes);
+            }
         }
         realBytes += got;
         framesSent_ += got / size_t(config_.frameBytes);
@@ -344,12 +418,13 @@ void UsbIsoStream::fillAndSubmit(usbdevfs_urb* urb) {
         return;
     }
     slot->inFlight = true;
+    inFlightCount_.fetch_add(1);
     // 环里腾出了空间，唤醒可能正在等空间的播放线程
     ringCv_.notify_one();
 }
 
 void UsbIsoStream::submitFeedback() {
-    if (!feedback_) return;
+    if (!feedback_ || feedbackDisabled_.load()) return;
     usbdevfs_urb* urb = feedback_->urb;
     urb->type = USBDEVFS_URB_TYPE_ISO;
     urb->endpoint = config_.feedbackEndpoint;
@@ -370,27 +445,29 @@ void UsbIsoStream::submitFeedback() {
         const int code = errno;
         ++transferErrors_;
         feedback_->inFlight = false;
-        // 反馈端点提交不上不必终止整条流：它只是自适应时钟的跟随手段，缺了包长退回标称值而已
+        // 反馈端点提交不上不必终止整条流：它只是自适应时钟的跟随手段，缺了包长退回标称值而已。
+        // 但**不能就此释放它**——停机路径可能正拿它的指针去撤 URB，故只作废、留着内存
         if (isFatalSubmitError(code)) {
             logError("提交反馈 URB 失败：" + errnoText(code));
-            feedback_.reset();
+            feedbackDisabled_ = true;
         }
         return;
     }
     feedback_->inFlight = true;
+    inFlightCount_.fetch_add(1);
 }
 
 void UsbIsoStream::discardAll() {
-    // 撤下在飞的 URB：内核会把它们以失败完成，阻塞在回收上的线程因此得以返回
+    // 撤下在飞的 URB：内核会把它们以失败完成，回收线程因此得以把它们收回来。
+    // 恰好在此刻刚提交、没被撤到的那一个不必特殊处理——它是等时 URB，最迟一个 URB 的时长后自行完成，
+    // 停机路径会等它回到手上再释放（见 reapLoop 的收尾与析构）
     for (auto& urb : urbs_) {
-        if (urb->inFlight) {
+        if (urb->inFlight.exchange(false)) {
             ioctl(fd_, USBDEVFS_DISCARDURB, urb->urb);
-            urb->inFlight = false;
         }
     }
-    if (feedback_ && feedback_->inFlight) {
+    if (feedback_ && feedback_->inFlight.exchange(false)) {
         ioctl(fd_, USBDEVFS_DISCARDURB, feedback_->urb);
-        feedback_->inFlight = false;
     }
 }
 

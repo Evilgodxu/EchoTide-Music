@@ -55,7 +55,10 @@ internal object UsbIsoNative {
  * 建流前设备必须已被 [UsbExclusiveDac] 接管、且已按 [UsbAudioOutputFormat] 完成就绪（采样率与备用设置）——
  * 等时端点只存在于非零的备用设置上，未选定前那条端点在设备侧并不存在。
  *
- * 线程约定：`write`/`drain` 在同一播放线程调用，`stop` 可从任意线程调用。
+ * 线程约定：**所有进入原生层的调用都在播放线程上**（`write`/`drain`/`setPaused`/`stop`/`stats`），
+ * 而 `close` 是句柄的终点——它与上述调用同处一条线程，故不需要锁。这条约定是硬要求而非风格问题：
+ * 句柄就是原生对象的指针，`close` 之后任何一次进入原生层的调用都是 use-after-free。
+ * 界面侧要把延迟读出来，得走 [UsbExclusiveAudioSink.latencyReading] 的缓存快照，不能直接来这里取。
  *
  * 输入必须是**直接缓冲**，且数据**已按设备子槽排布**（见 [packToSubslot]）：原生层只按
  * `声道数 × 子槽字节数` 切包投递，不做任何样本格式转换。打包留在 Kotlin 是因为它是可判定的纯变换，
@@ -72,6 +75,8 @@ internal class UsbIsoOutput private constructor(
     val bufferFrames: Int,
 ) : Closeable {
 
+    /** 按易变发布：关停在播放线程上发生，而别的线程可能正拿这个实例读容量这类不变量 */
+    @Volatile
     private var closed = false
 
     /**
@@ -111,9 +116,17 @@ internal class UsbIsoOutput private constructor(
     }
 
     fun stats(): Stats {
-        if (closed) return Stats(0, 0, 0, 0, true)
+        if (closed) return Stats(0, 0, 0, 0, 0, 0, disconnected = true)
         val values = UsbIsoNative.stats(handle)
-        return Stats(values[0], values[1], values[2], values[3], values[4] != 0L)
+        return Stats(
+            framesSent = values[0],
+            framesPlayed = values[1],
+            underruns = values[2],
+            missedFrames = values[3],
+            urbErrors = values[4],
+            transferErrors = values[5],
+            disconnected = values[6] != 0L,
+        )
     }
 
     /** 已由主机侧实际送出的帧数：播放位置只能取自它，见 [Stats.framesPlayed] */
@@ -132,6 +145,10 @@ internal class UsbIsoOutput private constructor(
         /** 已由主机侧送出的帧数；与 [framesSent] 差着在飞 URB 那一整段 */
         val framesPlayed: Long,
         val underruns: Long,
+        /** 因环内无数据而少送的帧数：与欠载次数合看才知道断口有多长 */
+        val missedFrames: Long,
+        /** 以错误状态完成的 URB 个数：等时传输没有重传，这些 URB 承载的音频真的没送出去 */
+        val urbErrors: Long,
         val transferErrors: Long,
         val disconnected: Boolean,
     )

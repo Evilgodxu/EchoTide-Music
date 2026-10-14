@@ -55,6 +55,19 @@ public:
          */
         uint64_t framesPlayed = 0;
         uint64_t underruns = 0;
+        /**
+         * 因环内无数据而少送的帧数：欠载次数只说明"断了几次"，这个数才说明"断了多久"。
+         *
+         * 等时端点上缺的这几帧不会补回来，听感上就是一次断口——判定颤音这类瞬时异常，两者的量级同样要紧。
+         */
+        uint64_t missedFrames = 0;
+        /**
+         * 以错误状态完成的 URB 个数（不含部分成功）。
+         *
+         * 等时传输没有重传，这类 URB 承载的音频就是真的没送出去。与欠载分开计：欠载是本层没数据可送，
+         * 这个数是数据已交出去、主机控制器却没能送达——两者的排查方向不同。
+         */
+        uint64_t urbErrors = 0;
         uint64_t transferErrors = 0;
         bool disconnected = false;
     };
@@ -108,14 +121,14 @@ private:
     uint32_t nextPacketFrames();
     void onFeedback(const uint8_t* data, int length);
     size_t readRing(uint8_t* destination, size_t bytes);
-
     struct Urb {
         /** usbdevfs_urb 及其尾部柔性数组成员 iso_frame_desc[] 的存放地 */
         std::vector<uint64_t> descriptor;
         /** 数据缓冲：packetsPerUrb × maxPacketBytes，按最坏情况分配以免单包越界 */
         std::vector<uint8_t> buffer;
         usbdevfs_urb* urb = nullptr;
-        bool inFlight = false;
+        /** 是否已被提交给内核：回收线程与停机路径都会读写，故按原子量发布 */
+        std::atomic<bool> inFlight{false};
         /** 本批中包含的真实音频字节数：回收时据此计入"已送出"，静音填充的部分不算 */
         size_t realBytes = 0;
     };
@@ -124,12 +137,19 @@ private:
         std::vector<uint64_t> descriptor;
         std::vector<uint8_t> buffer;
         usbdevfs_urb* urb = nullptr;
-        bool inFlight = false;
+        std::atomic<bool> inFlight{false};
     };
 
     Config config_;
     std::vector<std::unique_ptr<Urb>> urbs_;
     std::unique_ptr<FeedbackUrb> feedback_;
+    /**
+     * 反馈端点已不可用：不再提交，但**不释放** [feedback_]。
+     *
+     * 释放会让停机路径手里的指针失效（它可能正拿这个指针去撤 URB），而反馈只是自适应时钟的跟随手段，
+     * 缺了它包长退回标称值即可，不值得为它引入一处悬空指针。
+     */
+    std::atomic<bool> feedbackDisabled_{false};
     /** 本层自己持有的 fd：建流时从调用方给的 fd 复制一份，见 start() */
     int fd_ = -1;
     bool highSpeed_ = false;
@@ -158,8 +178,20 @@ private:
     std::atomic<bool> paused_{false};
     std::atomic<bool> primed_{false};
     std::atomic<bool> disconnected_{false};
+    /**
+     * 在内核手里的 URB 个数（含反馈端点那个）。
+     *
+     * 停机路径据此判断"能不能释放这些内存"：内核持有 usbdevfs_urb 结构体与数据缓冲的指针，并在回收时
+     * 写回状态与各包实际长度，故**未回收的 URB 一经释放就是 use-after-free**——写回落在已被复用或已归还
+     * 的堆内存上，进程可能当场消失且不留任何异常。
+     */
+    std::atomic<int> inFlightCount_{0};
+    /** 停机时未能回收的 URB 数大于零：此时必须放弃释放，见析构 */
+    std::atomic<bool> abandoned_{false};
     std::atomic<uint64_t> framesSent_{0};
     std::atomic<uint64_t> framesPlayed_{0};
     std::atomic<uint64_t> underruns_{0};
+    std::atomic<uint64_t> missedFrames_{0};
+    std::atomic<uint64_t> urbErrors_{0};
     std::atomic<uint64_t> transferErrors_{0};
 };
