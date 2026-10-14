@@ -36,6 +36,7 @@ import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.UsbDirectOutput
 import com.yichao.evilgodxu.data.music.playback.alac.AlacAudioRenderer
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
+import com.yichao.evilgodxu.data.music.playback.usb.SystemMediaVolume
 import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveAudioSink
 import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveOutput
 import com.yichao.evilgodxu.data.music.playback.usb.UsbOutputSink
@@ -62,6 +63,11 @@ class MusicPlaybackService : MediaSessionService() {
     private lateinit var usbDirectOutput: UsbDirectOutput
     /** USB 独占：把 USB 音频接口收归本应用（内核驱动随之解绑），与直出互斥的第二条路 */
     private lateinit var usbExclusiveOutput: UsbExclusiveOutput
+    /**
+     * 系统媒体音量。本应用的音量由系统掌管（播放器音量恒为 1），而独占绕开混音器后系统音量不再作用于
+     * 这条流，故由独占写出侧自己施加——见 [SystemMediaVolume]。
+     */
+    private lateinit var systemMediaVolume: SystemMediaVolume
     /** 直出期间的系统免打扰：随输出成色进出 */
     private lateinit var directOutputDoNotDisturb: DirectOutputDoNotDisturb
     // 播放设置的读取与直出都要求主线程：ExoPlayer 与其 AudioTrack 均只在主线程访问
@@ -157,6 +163,10 @@ class MusicPlaybackService : MediaSessionService() {
             exclusive = UsbExclusiveAudioSink(
                 session = {
                     if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.currentSession() else null
+                },
+                // 独占绕开混音器，系统音量得由本层施加；未装配时按满幅，不影响其它路径
+                systemVolume = {
+                    if (::systemMediaVolume.isInitialized) systemMediaVolume.gain() else 1f
                 },
             ),
             exclusiveReady = {
@@ -411,9 +421,12 @@ class MusicPlaybackService : MediaSessionService() {
         usbExclusiveOutput = UsbExclusiveOutput(context = this) { state ->
             CrashLogManager.logInfo("MusicPlaybackService", "USB 独占成色：$state")
         }
+        // 系统音量只在独占成立期间才有必要订阅：其余路径由平台的混音器施加音量，本层不参与
+        systemMediaVolume = SystemMediaVolume(this, audioManager)
         serviceScope.launch {
             usbExclusiveOutputModeFlow().collect { enabled ->
                 usbExclusiveOutput.setEnabled(enabled)
+                if (enabled) systemMediaVolume.start() else systemMediaVolume.stop()
             }
         }
     }
@@ -565,6 +578,7 @@ class MusicPlaybackService : MediaSessionService() {
         usbDirectOutput.release()
         // 独占必须显式归还：接口不还，内核的音频驱动就一直是解绑状态，该解码器在系统音频里始终不出现
         if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.close()
+        if (::systemMediaVolume.isInitialized) systemMediaVolume.close()
         // 服务销毁时成色回调已无从投递（作用域已取消），免打扰在此直接兜底还原
         directOutputDoNotDisturb.release()
         mediaSession?.release()

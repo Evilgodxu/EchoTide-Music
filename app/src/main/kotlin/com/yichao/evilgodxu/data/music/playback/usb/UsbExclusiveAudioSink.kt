@@ -52,6 +52,13 @@ internal class UsbExclusiveAudioSink(
      * 拿不到会话即在配置期判失败，由上层退回平台路径。
      */
     private val session: () -> UsbExclusiveDac?,
+    /**
+     * 系统媒体音量（线性增益，0..1）。
+     *
+     * 必须自己施加：绕开混音器即绕开 `AudioManager` 的音量，而本应用的音量由系统掌管（播放器音量恒为 1），
+     * 不取过来这条流就永远停在满幅——听感上是"太响且调不动"。见 [SystemMediaVolume]。
+     */
+    private val systemVolume: () -> Float = { 1f },
 ) : AudioSink {
 
     private var listener: AudioSink.Listener = SILENT_LISTENER
@@ -92,6 +99,9 @@ internal class UsbExclusiveAudioSink(
 
     /** 输入缓冲长度不成样本整数倍是否已留痕：一次会话只记一条 */
     private var alignmentReported = false
+
+    /** 上次记日志的音量：按取值去重，免得每块缓冲都写一行 */
+    private var lastLoggedVolume = Float.NaN
 
     // 诊断留痕：欠载按秒收敛记录，避免日志刷成流水账
     private var lastStatsMs = 0L
@@ -154,6 +164,7 @@ internal class UsbExclusiveAudioSink(
         checkpointPending = true
         checkpoints.clear()
         alignmentReported = false
+        lastLoggedVolume = Float.NaN
         lastReportedUnderruns = 0
         lastStatsMs = 0
 
@@ -447,7 +458,7 @@ internal class UsbExclusiveAudioSink(
     private fun convert(source: ByteBuffer, format: Format): ByteBuffer {
         val bytesPerSample = Util.getPcmFrameSize(format.pcmEncoding, 1)
         val output = scratchBuffer(source.remaining() / bytesPerSample * subslotBytes)
-        val leftover = packToSubslot(source, output, format.pcmEncoding, subslotBytes, volume)
+        val leftover = packToSubslot(source, output, format.pcmEncoding, subslotBytes, appliedVolume())
         if (leftover > 0 && !alignmentReported) {
             alignmentReported = true
             CrashLogManager.logInfo(
@@ -457,6 +468,21 @@ internal class UsbExclusiveAudioSink(
         }
         output.flip()
         return output
+    }
+
+    /**
+     * 本次写出实际施加的音量：播放器音量与系统音量的乘积。
+     *
+     * 两者相乘而非取其一：播放器音量平时恒为 1（本应用的音量由系统掌管），但心动模式的片段首尾靠它做
+     * 淡入淡出，独占路径上那次斜坡也得照常生效。等于 1 时打包器整段缩放不参与，写出仍是逐位原样。
+     */
+    private fun appliedVolume(): Float {
+        val gain = (volume * systemVolume()).coerceIn(0f, 1f)
+        if (gain != lastLoggedVolume) {
+            lastLoggedVolume = gain
+            CrashLogManager.logInfo(LOG_TAG, "软件音量：${(gain * 100).toInt()}%")
+        }
+        return gain
     }
 
     private fun scratchBuffer(size: Int): ByteBuffer {
