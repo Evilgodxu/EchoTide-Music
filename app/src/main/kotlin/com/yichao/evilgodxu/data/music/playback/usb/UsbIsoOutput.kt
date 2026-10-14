@@ -1,11 +1,7 @@
 package com.yichao.evilgodxu.data.music.playback.usb
 
-import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.Closeable
 import java.nio.ByteBuffer
-
-// 诊断日志的类名前缀：建流、欠载与终止都记在此名下
-private const val LOG_TAG = "UsbIsoOutput"
 
 /**
  * 原生等时输出的绑定。
@@ -22,7 +18,7 @@ internal object UsbIsoNative {
         System.loadLibrary("echotide_usb_iso")
     }
 
-    /** 建流；返回句柄，失败返回 0（原因已由原生层写日志） */
+    /** 建流；返回句柄，失败返回 0（原因由原生层写入 logcat） */
     external fun open(
         fd: Int,
         outEndpoint: Int,
@@ -127,16 +123,7 @@ internal class UsbIsoOutput private constructor(
     override fun close() {
         if (closed) return
         closed = true
-        val finalStats = UsbIsoNative.stats(handle).let {
-            Stats(it[0], it[1], it[2], it[3], it[4] != 0L)
-        }
         UsbIsoNative.close(handle)
-        CrashLogManager.logInfo(
-            LOG_TAG,
-            "等时输出已关闭：装入 ${finalStats.framesSent} 帧，送出 ${finalStats.framesPlayed} 帧，" +
-                "欠载 ${finalStats.underruns} 次，传输错误 ${finalStats.transferErrors} 次" +
-                if (finalStats.disconnected) "，设备已断开" else "",
-        )
     }
 
     data class Stats(
@@ -162,17 +149,10 @@ internal class UsbIsoOutput private constructor(
         /**
          * 按 [format] 与 [sampleRate] 建立等时输出。
          *
-         * 失败返回 null 并留痕：独占直出是可选的一路，建不起输出应当退回，而不是把播放带走。
+         * 失败返回 null：独占是可选的一路，建不起输出应当退回，而不是把播放带走。
          */
         fun create(deviceFd: Int, format: UsbAudioOutputFormat, sampleRate: Int): UsbIsoOutput? {
-            if (format.formatTag != PCM_FORMAT_TAG) {
-                CrashLogManager.logInfo(
-                    LOG_TAG,
-                    "备用设置 ${format.interfaceNumber}.${format.altSetting} 非 PCM（格式标签 " +
-                        "${format.formatTag}），不参与等时输出",
-                )
-                return null
-            }
+            if (format.formatTag != PCM_FORMAT_TAG) return null
             val frameBytes = format.frameBytes
             val ringBytes = (frameBytes * sampleRate * RING_SECONDS).toInt()
                 .coerceAtLeast(frameBytes * PACKETS_PER_URB * URB_COUNT)
@@ -189,14 +169,7 @@ internal class UsbIsoOutput private constructor(
                 urbCount = URB_COUNT,
                 ringBytes = ringBytes,
             )
-            if (handle == 0L) {
-                CrashLogManager.logInfo(
-                    LOG_TAG,
-                    "等时输出建立失败：${sampleRate}Hz/${format.channels}ch/" +
-                        "${format.subslotBytes}字节槽，端点 0x${format.endpointAddress.toString(16)}",
-                )
-                return null
-            }
+            if (handle == 0L) return null
             return UsbIsoOutput(
                 handle = handle,
                 frameBytes = frameBytes,

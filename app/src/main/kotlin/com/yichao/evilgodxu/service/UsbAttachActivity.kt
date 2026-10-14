@@ -9,11 +9,7 @@ import com.yichao.evilgodxu.App
 import com.yichao.evilgodxu.MainActivity
 import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveDac
 import com.yichao.evilgodxu.data.settings.saveUsbExclusiveOutputMode
-import com.yichao.evilgodxu.log.CrashLogManager
 import kotlinx.coroutines.launch
-
-// 日志前缀：接入入口的每次取舍都记在此名下
-private const val LOG_TAG = "UsbAttachActivity"
 
 /**
  * USB 接入时的接管入口：无界面，接住系统的选择框，然后把应用带到前台。
@@ -36,19 +32,12 @@ class UsbAttachActivity : Activity() {
         super.onCreate(savedInstanceState)
         val device = intent?.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
         if (device == null || !UsbExclusiveDac.isAudioDac(device)) {
-            CrashLogManager.logInfo(LOG_TAG, "接入的设备不是 USB 音频解码器，不接管")
             finish()
             return
         }
         // 落盘走进程级作用域：本入口紧接着就结束，绑定 Activity 生命周期的作用域会被随即取消
         val app = application as App
-        app.appScope.launch {
-            saveUsbExclusiveOutputMode(true)
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "已在系统弹窗中选中本应用，${device.productName ?: device.deviceName} 交由独占接管",
-            )
-        }
+        app.appScope.launch { saveUsbExclusiveOutputMode(true) }
         // 先起界面再结束自己：本入口没有界面，若先结束，这次启动就可能随任务的清理一起被丢掉
         startActivity(Intent(this, MainActivity::class.java))
         finish()

@@ -154,13 +154,8 @@ internal class IntPcmAudioSink(
     /** 参数是否已变、需要在下次写入处重新落锚点 */
     private var checkpointPending = true
 
-    /** 输入缓冲长度不成样本整数倍是否已留痕：一次会话只记一条 */
-    private var alignmentReported = false
-
-    /** 诊断留痕：欠载事件按秒收敛记录，避免日志刷成流水账 */
+    /** 上次接纳写入的时刻：欠载回调按接口约定要给出「距上次接纳写入」的间隔 */
     private var lastAcceptedWriteMs = 0L
-    private var lastUnderrunLoggedMs = 0L
-    private var underrunCount = 0
 
     override fun setListener(listener: AudioSink.Listener) {
         this.listener = listener
@@ -182,17 +177,6 @@ internal class IntPcmAudioSink(
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
         val format = audioSinkConfig.format
         inputFormat = format
-        // 可观测性：本类只拿得到解码输出格式，无从分辨「源本就是 16 位」与「高分辨率源被上游降级为
-        // 16 位」——两者到这里都是 16 位输入。补零写出逐位无损，故日志只陈述这一事实，再按源分列结论，
-        // 不把正常的 16 位源断言成丢精度。
-        if (format.pcmEncoding == C.ENCODING_PCM_16BIT) {
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "${bitDepthLabel(outputEncoding)}输出收到 16 位输入：左移补零写出，逐位无损；" +
-                    "源为 16 位及以下即完整精度，源为高分辨率则低位系上游解码器所丢；" +
-                    "sampleRate=${format.sampleRate}Hz channelCount=${format.channelCount}",
-            )
-        }
         outputChannelMask = format.channelMask.takeIf { it != Format.NO_VALUE }
             ?: Util.getAudioTrackChannelConfig(format.channelCount)
         outputFrameSize = Util.getPcmFrameSize(outputEncoding, format.channelCount)
@@ -202,7 +186,6 @@ internal class IntPcmAudioSink(
         writtenPcmBytes = 0
         checkpointPending = true
         checkpoints.clear()
-        alignmentReported = false
     }
 
     override fun handleBuffer(
@@ -490,11 +473,6 @@ internal class IntPcmAudioSink(
         if (created.state != AudioTrack.STATE_INITIALIZED) {
             trackState = created.state
             created.release()
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "${bitDepthLabel(outputEncoding)}轨道未初始化成功：" +
-                    "${sampleRate}Hz/${format.channelCount}ch ${bufferSize}字节",
-            )
             throw AudioSink.InitializationException(
                 "${bitDepthLabel(outputEncoding)}轨道未初始化",
                 trackState,
@@ -542,14 +520,6 @@ internal class IntPcmAudioSink(
         audioTrackConfig = trackConfig
         // 音频信息面板的写出编码取自这一事件，漏发会让面板显示未建立
         listener.onAudioTrackInitialized(trackConfig)
-        val actualFrames = created1.getBufferSizeInFrames()
-        CrashLogManager.logInfo(
-            LOG_TAG,
-            "${bitDepthLabel(outputEncoding)}输出已建立：${sampleRate}Hz/${format.channelCount}ch " +
-                "请求缓冲=${bufferSize}字节，实际容量=${actualFrames}帧" +
-                "(${actualFrames * 1000 / sampleRate}ms)，" +
-                "上报渲染器休眠上界=${getAudioTrackBufferSizeUs() / 1000}ms",
-        )
         return created1
     }
 
@@ -566,18 +536,15 @@ internal class IntPcmAudioSink(
         audioTrackConfig = null
     }
 
-    /** 把整块输入转成所设位深的整型帧；输入被消费到末位，余量无法构成样本时留痕 */
+    /**
+     * 把整块输入转成所设位深的整型帧。
+     *
+     * 输入被消费到末位，末尾凑不满一个样本的余字节由转换一并跳过（见 [packIntPcm]）。
+     */
     private fun convert(source: ByteBuffer, format: Format): ByteBuffer {
         val bytesPerSample = Util.getPcmFrameSize(format.pcmEncoding, 1)
         val output = scratchBuffer(source.remaining() / bytesPerSample * bytesPerOutputSample)
-        val leftover = packIntPcm(source, output, format.pcmEncoding, outputEncoding)
-        if (leftover > 0 && !alignmentReported) {
-            alignmentReported = true
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "解码缓冲长度不是样本整数倍，末尾余字节已跳过：编码=${format.pcmEncoding}",
-            )
-        }
+        packIntPcm(source, output, format.pcmEncoding, outputEncoding)
         output.flip()
         return output
     }
@@ -614,7 +581,7 @@ internal class IntPcmAudioSink(
     private fun createWriteException(e: AudioOutput.WriteException): AudioSink.WriteException =
         AudioSink.WriteException(e.errorCode, checkNotNull(inputFormat), e.isRecoverable)
 
-    /** 把输出的欠载事件如实转给渲染器并留痕：是否欠载由媒体3 的输出实现判定，本层不另作推断 */
+    /** 把输出的欠载事件如实转给渲染器：是否欠载由媒体3 的输出实现判定，本层不另作推断 */
     private val outputListener = object : AudioOutput.Listener {
         override fun onPositionAdvancing(playoutStartSystemTimeMs: Long) {
             listener.onPositionAdvancing(playoutStartSystemTimeMs)
@@ -625,19 +592,7 @@ internal class IntPcmAudioSink(
         override fun onOffloadPresentationEnded() = Unit
 
         override fun onUnderrun() {
-            underrunCount++
-            val track = audioTrack
             val nowMs = clock.elapsedRealtime()
-            if (track != null && nowMs - lastUnderrunLoggedMs >= TRACE_INTERVAL_MS) {
-                lastUnderrunLoggedMs = nowMs
-                val writtenFrames = writtenPcmBytesAsFrames()
-                CrashLogManager.logInfo(
-                    LOG_TAG,
-                    "输出欠载：第 ${underrunCount} 次，已写=${writtenFrames}帧 " +
-                        "播放头=${track.playbackHeadPosition}帧 缓冲=${track.bufferSizeInFrames}帧，" +
-                        "距上次接纳写入 ${nowMs - lastAcceptedWriteMs}ms",
-                )
-            }
             listener.onUnderrun(
                 /* bufferSize= */ trackBufferBytes,
                 /* bufferSizeMs= */ trackBufferSizeMs(),
@@ -656,8 +611,6 @@ internal class IntPcmAudioSink(
     )
 
     private companion object {
-        /** 诊断留痕的最小间隔：按秒记录，避免把日志刷成流水账 */
-        const val TRACE_INTERVAL_MS = 1000L
 
         /** 播放头按无符号 32 位解释：它是按帧计数的回绕值 */
         const val UNSIGNED_INT_MASK = 0xFFFFFFFFL
@@ -677,7 +630,7 @@ internal class IntPcmAudioSink(
     }
 }
 
-// 位深名：仅用于诊断日志；两种打包整型的取值与平台公开常量同值
+// 位深名：供初始化失败的异常消息使用；两种打包整型的取值与平台公开常量同值
 private fun bitDepthLabel(encoding: Int): String = when (encoding) {
     C.ENCODING_PCM_24BIT -> "24 位整型"
     C.ENCODING_PCM_32BIT -> "32 位整型"
@@ -710,7 +663,7 @@ internal fun intPcmFormatSupport(pcmEncoding: Int): Int {
  * 32 位及以下源逐位无损，浮点源按中间态取整。
  *
  * 循环以「剩余字节够一个样本」为条件：缓冲长度不是样本整数倍时余数无法构成样本，按剩余量判断会读到
- * limit 之外并抛 BufferUnderflowException——余数在此一并跳过，由调用方留痕。
+ * limit 之外并抛 BufferUnderflowException——余数在此一并跳过。
  *
  * @return 末尾无法构成样本的字节数，正常为 0。
  */

@@ -6,7 +6,7 @@ import com.yichao.evilgodxu.data.music.playback.UsbExclusiveDeviceInfo
 import com.yichao.evilgodxu.data.music.playback.outputEncodingOfBitDepth
 import com.yichao.evilgodxu.log.CrashLogManager
 
-// 日志前缀：只读描述符这条路上的取舍记在此名下
+// 异常日志的类名前缀：只读描述符只有读出问题时才记
 private const val LOG_TAG = "UsbAudioCapabilities"
 
 /**

@@ -3,7 +3,7 @@ package com.yichao.evilgodxu.data.music.playback
 import android.app.NotificationManager
 import com.yichao.evilgodxu.log.CrashLogManager
 
-// 诊断日志的类名前缀：与直出同处一条链路，免打扰的进出决策都记在此名下
+// 异常日志的类名前缀：免打扰的读写只有出错时才记（进出决策不写日志）
 private const val LOG_TAG = "DirectOutputDoNotDisturb"
 
 /**
@@ -71,7 +71,6 @@ class DirectOutputDoNotDisturb(
         if (!setFilter(NotificationManager.INTERRUPTION_FILTER_ALARMS)) return
         restoreFilter = current
         holding = true
-        logInfo("直出进入免打扰：置为仅闹钟，原档位 ${filterName(current)}")
     }
 
     private fun exitSilence() {
@@ -79,9 +78,7 @@ class DirectOutputDoNotDisturb(
         // 先落状态再写系统：写失败也视为已放弃接管，避免残留标记让下次还原写在错误的档位上
         val filter = restoreFilter
         holding = false
-        if (setFilter(filter)) {
-            logInfo("直出结束退出免打扰：还原为 ${filterName(filter)}")
-        }
+        setFilter(filter)
     }
 
     private fun currentFilter(): Int? = runCatching { readFilter() }
@@ -93,8 +90,6 @@ class DirectOutputDoNotDisturb(
             CrashLogManager.logException(LOG_TAG, "写入系统免打扰档位失败：${filterName(filter)}", it)
         }
         .isSuccess
-
-    private fun logInfo(message: String) = CrashLogManager.logInfo(LOG_TAG, message)
 
     private fun filterName(filter: Int): String = when (filter) {
         NotificationManager.INTERRUPTION_FILTER_ALL -> "允许全部打扰"

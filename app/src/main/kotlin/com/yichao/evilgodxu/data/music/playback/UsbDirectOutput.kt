@@ -21,7 +21,7 @@ private val USB_OUTPUT_TYPES = setOf(
     AudioDeviceInfo.TYPE_USB_ACCESSORY,
 )
 
-// 诊断日志的类名前缀：日志文件按「类名: 描述」成条，直出链路的决策结果都记在此名下
+// 异常日志的类名前缀：直出链路只有出错时才记（正常的路由决策不写日志）
 private const val LOG_TAG = "UsbDirectOutput"
 
 /**
@@ -73,8 +73,7 @@ private const val LOG_TAG = "UsbDirectOutput"
  *   跟着重配（见 [PerDeviceAudioSink.syncRouting]），否则状态与实际写出会各说一套。
  *
  * 直出能否成立取决于设备接入与厂商声明，判定依据只在设备现场可得，故开关状态与每次路由重算
- * 的结论都写入诊断日志（设置页可分享），使「设备已识别而直出未生效」能在日志中定位到具体环节；
- * 解码格式与设备声明的档位（采样率、编码）另由音频信息面板直接展示，日志不再重复罗列。
+ * 的结论由音频信息面板直接展示：设备识别、格式是否能对齐、路由是否钉定，都在那里逐项可见。
  *
  * 线程：直出配置必须在音频轨建立之前下发，而解码格式只有播放线程在音频输出重配那一刻才拿得到，
  * 故 [onTrackFormatChanged] 由播放线程调用；[setEnabled] 与 [release] 由主线程调用——两处的重算
@@ -150,15 +149,6 @@ class UsbDirectOutput(
     @Volatile
     private var decodedPcmEncoding = 0
 
-    /**
-     * 上一条诊断日志的正文。
-     *
-     * 设备插拔回调与轨道回调都会触发路由重算，同一结论因此会被反复求出；去重后每条结论只在发生变化时
-     * 落盘，日志读到的才是「何时因何原因变化」，而不是一串同义重复行。
-     */
-    @Volatile
-    private var lastDiagnostic: String? = null
-
     /** 输出成色变更回调：[AudioOutputMode.MIXER] 表示已回到系统混音输出 */
     var onRoutingChanged: ((AudioOutputMode) -> Unit)? = null
 
@@ -203,13 +193,12 @@ class UsbDirectOutput(
     fun setEnabled(value: Boolean) {
         if (enabled == value) return
         enabled = value
-        logDiagnostic(if (value) "直出开关打开，开始尝试接管输出路由" else "直出开关关闭")
         if (value) {
             registerCallback()
             refreshOutputRouting()
         } else {
-            releaseConfiguration("开关关闭")
-            keepAlive.release("直出开关关闭")
+            releaseConfiguration()
+            keepAlive.release()
             unregisterCallback()
         }
     }
@@ -264,9 +253,8 @@ class UsbDirectOutput(
         val attributes = acceptedMixerAttributes ?: return
         targetDevice?.let { unrealizableFormatsDeviceId = it.id }
         unrealizableFormats += attributes.format
-        logDiagnostic("直出格式不可用（已受理但建不起轨或写不出），记为不可用并改挂下一档：${describeMixer(attributes)}")
         if (!applyNextDirectCandidate()) {
-            releaseConfiguration("直出格式不可用")
+            releaseConfiguration()
         }
     }
 
@@ -287,8 +275,6 @@ class UsbDirectOutput(
         val accepted = applyDirectMixer(device, candidates) ?: return false
         pinPreferredDevice(device)
         updateRouting(device, accepted)
-        // 成色未变时 [updateRouting] 不发声，改挂后的写出格式在此留痕——音频输出的写出编码取的就是它
-        logDiagnostic("直出格式已改挂：${describeMixer(accepted)}")
         return true
     }
 
@@ -308,7 +294,7 @@ class UsbDirectOutput(
         decodedSampleRate = sampleRate
         decodedChannelCount = channelCount
         this.decodedPcmEncoding = decodedPcmEncoding
-        // 解码格式改由音频信息面板的「解码输出」一行展示，日志不再重复记录
+        // 解码格式改由音频信息面板的「解码输出」一行展示
         refreshOutputRouting()
     }
 
@@ -326,8 +312,8 @@ class UsbDirectOutput(
 
     fun release() {
         enabled = false
-        releaseConfiguration("直出释放")
-        keepAlive.release("直出释放")
+        releaseConfiguration()
+        keepAlive.release()
         unregisterCallback()
     }
 
@@ -341,7 +327,7 @@ class UsbDirectOutput(
             unrealizableFormatsDeviceId = device?.id
         }
         // 保活输出随设备走：设备换了或拔了先释放，下面的空表分支再按需建立
-        if (keepAlive.heldDeviceId != device?.id) keepAlive.release("USB 输出设备变更")
+        if (keepAlive.heldDeviceId != device?.id) keepAlive.release()
         // 设备声明的动态混音端口条目：直出档位一律取自这里，不再按源格式另拼候选（见 [directMixerCandidates]）
         var supported = declaredFormatsFor(device)
         // 空表不是终局结论：平台的应答取决于本应用此刻在该设备上有没有输出。故空表时先保有一路静音输出
@@ -351,13 +337,12 @@ class UsbDirectOutput(
             keepAlive.hold(device)
             supported = declaredFormatsFor(device)
             if (supported.isNotEmpty()) {
-                logDiagnostic("保活输出使动态混音端口查询恢复应答：${deviceLabel(device)}")
             }
         }
         // 保活轨与设备声明的档位同名时会被平台的「编码、声道掩码、采样率三项一致即挂上偏好流」吸入直出流，
         // 而直出流多出一条音轨就不再旁路混音；此时放弃保活，宁可退回今天的行为
         if (keepAlive.format != null && supported.any { it.format == keepAlive.format }) {
-            keepAlive.release("保活轨格式与设备声明档位同名")
+            keepAlive.release()
         }
         // 本地记录只在平台侧仍持有该偏好时才算数：偏好会被 audioserver 重启、厂商策略变更等外部原因清除，
         // 而本地记录不会随之改变，此后仍会指示按直出格式建轨——该格式此刻已无专用输出流承载，
@@ -365,33 +350,22 @@ class UsbDirectOutput(
         if (device != null && acceptedMixerAttributes != null &&
             readAcceptedMixerAttributes(device) == null
         ) {
-            logDiagnostic("系统侧已不持有直出偏好，重新下发：${deviceLabel(device)}")
             acceptedMixerAttributes = null
         }
         val built = directMixerCandidates(supported)
         // 已被实测证伪建不出音频轨的格式不再入选：再选只会再失败一次（见 [reportUnrealizableFormat]）
         val candidates = built.filterNot { it.format in unrealizableFormats }
-        // 直出无从成立：撤销配置，交回系统混音。归因与结论一次取出——撤销说明与日志结论同出此处，
-        // 两处才不会各说一套。构造出的候选全被剔除时，原因落在「格式建不出音频轨」而非「设备无条目」
+        // 直出无从成立：撤销配置，交回系统混音
         if (device == null || candidates.isEmpty()) {
-            val (releaseReason, conclusion) =
-                noDirectOutputReason(device, supported, built.isNotEmpty())
-            releaseConfiguration(releaseReason)
-            logDiagnostic(conclusion)
+            releaseConfiguration()
             return
         }
         if (device != targetDevice) {
-            releaseConfiguration("改用其它 USB 输出设备")
+            releaseConfiguration()
             // 属性先于路由下发：播放改道到该设备时，才按已配置的属性建立专用输出流
             val accepted = applyDirectMixer(device, candidates)
             pinPreferredDevice(device)
             updateRouting(device, accepted)
-            if (accepted == null) {
-                logDiagnostic(
-                    "USB 输出路由已钉定，但混音器属性未被系统受理，播放仍走系统混音：" +
-                        deviceLabel(device)
-                )
-            }
             return
         }
         // 已钉定同一设备时，只有「当前候选里已有格式被系统受理」才不再下发：未受理、专用输出流已被撤销、
@@ -404,55 +378,13 @@ class UsbDirectOutput(
     }
 
     /**
-     * 直出无从成立的原因，以及写给日志的结论（前者进撤销说明，后者进诊断日志）。
-     *
-     * 归因分三侧：**设备侧**（没有设备、没取到动态混音端口、端口没有匹配当前格式的条目）、**曲目侧**
-     * （解码格式尚未上报、解码输出不是线性 PCM）与**建轨侧**（候选格式已被实测证伪建不出音频轨，
-     * [allCandidatesUnrealizable]）。曲目侧那两种都会随音频输出上报而自行重试，建轨侧则说明设备侧与
-     * 格式侧都没问题、卡在本应用的音频轨；三者混作一句「设备无可承载条目」，会把排查引到错误方向。
-     * 两份结论同出此处，同一个判定不会在两处被写成两种说法。
-     */
-    private fun noDirectOutputReason(
-        device: AudioDeviceInfo?,
-        supported: List<AudioMixerAttributes>,
-        allCandidatesUnrealizable: Boolean = false,
-    ): Pair<String, String> {
-        val label = device?.let(::deviceLabel)
-        return when {
-            device == null ->
-                "无 USB 输出设备" to "未找到 USB 输出设备，直出未生效"
-            supported.isEmpty() ->
-                "设备未取到动态混音端口" to
-                    "USB 设备 $label 未取到动态混音端口（厂商未声明，或设备当前没有输出、平台便不作应答），" +
-                    "解码格式 ${describeDecodedFormat()}"
-            decodedSampleRate <= 0 ->
-                "解码格式尚未取得" to
-                    "USB 设备 $label 已声明动态混音端口，但解码格式尚未取得（尚未起播），"
-            !Util.isEncodingLinearPcm(decodedPcmEncoding) ->
-                "解码输出不是线性 PCM" to
-                    "USB 设备 $label 已声明动态混音端口，但本曲解码输出不是线性 PCM，无位深可对齐，" +
-                    "直出无从成立，解码输出 ${describeDecodedFormat()}"
-            // 候选本身构造出来了，只是格式已被实测证伪「建不出音频轨」——与「设备没有可承载条目」是两回事，
-            // 归到后者会把排查引向设备能力不足
-            allCandidatesUnrealizable ->
-                "直出候选的格式建不起音频轨" to
-                    "USB 设备 $label 上构造出的直出候选格式均已实测建不起音频轨（偏好已撤销并记为不可用），" +
-                    "直出未生效，本条曲目解码输出 ${describeDecodedFormat()}"
-            else ->
-                "设备未提供可承载当前格式的混音器条目" to
-                    "USB 设备 $label 的动态混音端口既无与源同率的条目、也无同族整数倍条目，直出未生效，" +
-                    "本条曲目解码输出 ${describeDecodedFormat()}"
-        }
-    }
-
-    /**
      * 依次下发候选，返回首个被系统受理的那条；都未受理时为 null。
      *
      * 逐档回落：首选条目被拒后仍按设备声明的其它条目再试，声明里有可承载条目时直出照样成立。
      *
      * 未受理的取值不进 [acceptedMixerAttributes]（落定在调用方）：被拒可能只是当时的现场使然（设备正被
      * 别的输出占着、上一条属性留下的专用流尚未释放），记成「已下发」会让同一条属性在之后的换曲里再不被
-     * 重试，直出因此再也回不来；重试的代价只是重复下发一次，重复的结论由 [logDiagnostic] 去重。
+     * 重试，直出因此再也回不来；重试的代价只是重复下发一次。
      */
     private fun applyDirectMixer(
         device: AudioDeviceInfo,
@@ -460,9 +392,6 @@ class UsbDirectOutput(
     ): AudioMixerAttributes? {
         for (candidate in candidates) {
             if (postMixerAttributes(device, candidate)) return candidate
-            logDiagnostic(
-                "USB 输出拒绝首选混音器属性：${deviceLabel(device)}，${describeMixer(candidate)}"
-            )
         }
         return null
     }
@@ -492,22 +421,20 @@ class UsbDirectOutput(
             }
             .getOrNull()
 
-    /** 撤销直出配置并解除路由钉定；[reason] 是本次撤销的原因，仅用于日志留痕 */
-    private fun releaseConfiguration(reason: String) {
+    /** 撤销直出配置并解除路由钉定 */
+    private fun releaseConfiguration() {
         val device = targetDevice ?: return
         // 拔出时 APM 已在断连路径内清除该端口的偏好，此处 clear 会返回 NAME_NOT_FOUND；
         // 属性归属 uid 不符时返回 PERMISSION_DENIED。两者都无需处理
         runCatching { audioManager.clearPreferredMixerAttributes(playbackAttributes, device) }
         pinPreferredDevice(null)
-        logDiagnostic("已解除 USB 直出（$reason）：${deviceLabel(device)}")
         updateRouting(null, null)
     }
 
     /**
      * 直出状态的唯一出口：记录钉定设备与已受理的属性，据此推出成色对外通知。
      *
-     * 赋值与通知同处一处，内部状态与上报值才不会脱节；成色变化即写日志——成色是「设备是否可用、
-     * 格式能否对齐、属性是否被受理」共同作用的结论，变化点正是定位问题的入口。
+     * 赋值与通知同处一处，内部状态与上报值才不会脱节。
      */
     private fun updateRouting(device: AudioDeviceInfo?, attributes: AudioMixerAttributes?) {
         targetDevice = device
@@ -515,14 +442,6 @@ class UsbDirectOutput(
         val mode = modeOf(device, attributes)
         if (mode == reportedMode) return
         reportedMode = mode
-        logDiagnostic(
-            when {
-                device == null || attributes == null -> "输出成色：系统混音"
-                else ->
-                    "输出成色：源格式直出，" +
-                        "${deviceLabel(device)}，${describeMixer(attributes)}"
-            }
-        )
         onRoutingChanged?.invoke(mode)
     }
 
@@ -530,29 +449,9 @@ class UsbDirectOutput(
     private fun modeOf(device: AudioDeviceInfo?, attributes: AudioMixerAttributes?): AudioOutputMode =
         if (device == null || attributes == null) AudioOutputMode.MIXER else AudioOutputMode.FORMAT_LOCKED
 
-    /**
-     * 写一条诊断日志。
-     *
-     * 同一结论只落盘一次：路由重算由设备回调与轨道回调共同驱动，重复条目会把「变化点」淹没，
-     * 而定位问题靠的正是变化点。结论变化时照常记录。
-     */
-    private fun logDiagnostic(message: String) {
-        if (message == lastDiagnostic) return
-        lastDiagnostic = message
-        CrashLogManager.logInfo(LOG_TAG, message)
-    }
-
     // 设备名：平台未上报名称时退回设备编号，保证同类设备的多个实例在日志中仍可区分
     private fun deviceLabel(device: AudioDeviceInfo): String =
         device.productName?.toString()?.takeIf { it.isNotBlank() } ?: "id=${device.id}"
-
-    // 当前解码格式：混音器属性需与之逐字段一致，三项都写出来才能看出匹配失败究竟卡在哪一项
-    private fun describeDecodedFormat(): String =
-        if (decodedSampleRate > 0) {
-            "${decodedSampleRate}Hz/${decodedChannelCount}ch/${encodingName(decodedPcmEncoding)}"
-        } else {
-            "未取得（尚未起播）"
-        }
 
     private fun describeMixer(attributes: AudioMixerAttributes): String =
         "${behaviorName(attributes.mixerBehavior)} " +

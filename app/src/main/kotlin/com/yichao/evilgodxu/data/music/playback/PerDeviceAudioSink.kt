@@ -379,12 +379,6 @@ class PerDeviceAudioSink(
         // 轨道本体同理：退出方的轨道已随复位释放，留在手里只会让延迟读到已作废的实例
         onOutputEncodingChanged(null)
         onAudioTrackChanged(null)
-        // 切换点会改变写出路径，是否接续播放又决定播放能否推进，两项一并留痕：日志里读得到「换了变体」，
-        // 才解释得了某一次为什么没有出声
-        CrashLogManager.logInfo(
-            LOG_TAG,
-            "变体切换：$outgoingVariant → $variant，${if (playRequested) "接续播放" else "保持暂停"}",
-        )
         // 进入方此前也是在退出使用的那一刻被复位的，此刻两个变体都不在播，而渲染器只在停止 → 启动的
         // 转换点上下发 [play]，换曲重配恰好落在播放中时不会有第二次——故按登记的播放意图补上一次。
         // 少了这一次，进入方的音频轨建起后不会被启动，位置随之停滞：渲染器此时「已就绪且正在播放」
@@ -414,20 +408,13 @@ class PerDeviceAudioSink(
      * 本次配置的插值器：直出给出的倍率大于 1、且解码编码插得动时才有。
      *
      * 编码插不动却仍按倍率开轨，落到「写出率与混音器属性不符 + AudioFlinger 静默混音」的组合上，
-     * 故退回按源采样率写出并留痕。这种情况正常不会出现：直出挑倍率档时已按同一个解码编码筛过
+     * 故退回按源采样率写出。这种情况正常不会出现：直出挑倍率档时已按同一个解码编码筛过
      * （两处的取值同出 [onDecodedFormatChanged] 那一次上报），此处是兜底。
      */
     private fun buildUpsampler(format: Format): SameFamilyUpsampler? {
         val multiple = directOutputRateMultiple()
         if (multiple <= 1) return null
-        if (!canInterpolatePcm(format.pcmEncoding)) {
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "直出倍率档为 ×$multiple，但解码编码插不动（编码 ${format.pcmEncoding}），" +
-                    "本次按源采样率写出",
-            )
-            return null
-        }
+        if (!canInterpolatePcm(format.pcmEncoding)) return null
         return SameFamilyUpsampler(multiple)
     }
 
@@ -631,7 +618,6 @@ class PerDeviceAudioSink(
             onDirectOutputUnrealizable()
             if (upsampler?.multiple != directOutputRateMultiple()) {
                 pendingUpsampled = null
-                CrashLogManager.logInfo(LOG_TAG, "直出倍率已变，按新档整体重配")
                 runCatching { configure(checkNotNull(lastConfig)) }.onFailure {
                     CrashLogManager.logException(LOG_TAG, "倍率变更后的重配失败", it)
                 }

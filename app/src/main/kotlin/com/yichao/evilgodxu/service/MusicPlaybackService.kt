@@ -441,8 +441,7 @@ class MusicPlaybackService : MediaSessionService() {
         }
         // 独占同样在会话建立后装配。它自己订阅 USB 的接入/拔出与授权结果，故只需喂开关与成色出口；
         // 成色不由开关代替——开关开着而设备没接入、没授权、接管失败时，播放仍走平台路径
-        usbExclusiveOutput = UsbExclusiveOutput(context = this) { state ->
-            CrashLogManager.logInfo("MusicPlaybackService", "USB 独占成色：$state")
+        usbExclusiveOutput = UsbExclusiveOutput(context = this) {
             // 设备信息随接管与归还同步：接管期间该设备已从系统音频里消失，面板只能由此取，
             // 交还后随之清空，以免面板继续展示一台已不在手里的设备
             stateHolder.state.usbExclusiveDevice = usbExclusiveOutput.deviceInfo()

@@ -21,7 +21,7 @@ private const val ACTION_USB_PERMISSION = "com.yichao.evilgodxu.USB_PERMISSION"
 /** 授权请求的 `PendingIntent` 请求码：同一时刻只会有一次未决请求，固定值即可 */
 private const val PERMISSION_REQUEST_CODE = 1
 
-/** 独占路径的成色：界面与日志据此区分"开关开着"与"真的接管到了" */
+/** 独占路径的成色：界面据此区分"开关开着"与"真的接管到了" */
 internal sealed interface UsbExclusiveState {
 
     /** 开关关闭 */
@@ -68,7 +68,7 @@ internal class UsbExclusiveOutput(
     @Volatile
     private var claim: UsbExclusiveDac? = null
 
-    /** 已请求授权而尚未作答的设备，仅用于日志与去重 */
+    /** 已请求授权而尚未作答的设备，仅用于去重 */
     private var awaiting: UsbDevice? = null
 
     private var state: UsbExclusiveState = UsbExclusiveState.Disabled
@@ -146,9 +146,7 @@ internal class UsbExclusiveOutput(
 
     /** 尝试接管当前接入的解码器；没有设备或没有授权都如实发布对应成色 */
     private fun acquire() {
-        val manager = usbManager
-        if (manager == null) {
-            CrashLogManager.logInfo(LOG_TAG, "本机没有 USB 主机服务，独占不可用")
+        val manager = usbManager ?: run {
             publish(UsbExclusiveState.AwaitingDevice)
             return
         }
@@ -170,7 +168,7 @@ internal class UsbExclusiveOutput(
         val opened = UsbExclusiveDac.open(manager, device)
         if (opened == null) {
             // 接管失败不重试：同一原因反复接管只会反复解开又挂回内核驱动，比不接管更糟。
-            // 等下一次开关或拔插再试，失败原因已由 UsbExclusiveDac 写入日志
+            // 等下一次开关或拔插再试；失败原因由 UsbExclusiveDac 在异常日志里给出
             publish(UsbExclusiveState.AwaitingDevice)
             return
         }
@@ -190,7 +188,6 @@ internal class UsbExclusiveOutput(
             PendingIntent.FLAG_MUTABLE,
         )
         manager.requestPermission(device, pending)
-        CrashLogManager.logInfo(LOG_TAG, "已请求 ${device.deviceName} 的 USB 访问授权")
     }
 
     @Synchronized
@@ -200,10 +197,6 @@ internal class UsbExclusiveOutput(
         awaiting = null
         if (device == null) return
         if (!granted) {
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "用户拒绝了 ${device.deviceName} 的访问授权，独占不成立（重新开关或重新插拔可再问一次）",
-            )
             publish(UsbExclusiveState.AwaitingDevice)
             return
         }
@@ -224,7 +217,6 @@ internal class UsbExclusiveOutput(
         val current = claim ?: return
         // 拔出的可能是另一台设备，只有手里的那台走了才作废会话
         if (current.device.deviceName != device.deviceName) return
-        CrashLogManager.logInfo(LOG_TAG, "${current.deviceName} 已拔出，独占会话作废")
         releaseClaim()
         if (enabled) acquire() else publish(UsbExclusiveState.Disabled)
     }
@@ -238,7 +230,6 @@ internal class UsbExclusiveOutput(
     @Synchronized
     fun onStreamFailed() {
         if (claim == null) return
-        CrashLogManager.logInfo(LOG_TAG, "独占链路失效，已归还设备")
         releaseClaim()
         publish(UsbExclusiveState.AwaitingDevice)
     }

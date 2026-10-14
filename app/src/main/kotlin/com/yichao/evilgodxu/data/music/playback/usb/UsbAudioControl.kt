@@ -3,7 +3,7 @@ package com.yichao.evilgodxu.data.music.playback.usb
 import android.hardware.usb.UsbDeviceConnection
 import com.yichao.evilgodxu.log.CrashLogManager
 
-// 诊断日志的类名前缀：每次控制请求的成败都记在此名下
+// 异常日志的类名前缀：控制请求只有抛出或未完成时才记（正常收发不写日志）
 private const val LOG_TAG = "UsbAudioControl"
 
 // 类特定请求都不该长等：超时即判失败，避免卡住播放线程
@@ -157,7 +157,6 @@ internal class UsbAudioControl(
                 (UsbAudioRequests.unsigned16(current, 2) shl 16)
             if (rate > 0) return listOf(rate)
         }
-        CrashLogManager.logInfo(LOG_TAG, "时钟 $clockSourceId 的档位读不到，该格式的候选档位为空")
         return emptyList()
     }
 
@@ -185,7 +184,6 @@ internal class UsbAudioControl(
         if (current == rate) return current
         // 时钟源声明为不可写、且此刻有确定的速率：不试写，直接如实回报
         device.clock(clockSourceId)?.takeIf { !it.frequencyWritable && current != 0 }?.let {
-            CrashLogManager.logInfo(LOG_TAG, "时钟 $clockSourceId 固定为 ${current}Hz，无法改设 ${rate}Hz")
             return current
         }
         if (!controlOut(
@@ -317,12 +315,7 @@ internal class UsbAudioControl(
         }.onFailure {
             CrashLogManager.logException(LOG_TAG, "控制请求 $request 抛出异常", it)
         }.getOrDefault(-1)
-        if (transferred == data.size) return true
-        CrashLogManager.logInfo(
-            LOG_TAG,
-            "控制请求 $request 未完成：wValue=$value wIndex=$index 长度=$transferred/${data.size}",
-        )
-        return false
+        return transferred == data.size
     }
 
     private fun controlIn(
@@ -338,12 +331,7 @@ internal class UsbAudioControl(
         }.onFailure {
             CrashLogManager.logException(LOG_TAG, "控制请求 $request 抛出异常", it)
         }.getOrDefault(-1)
-        if (transferred == length) return true
-        CrashLogManager.logInfo(
-            LOG_TAG,
-            "控制请求 $request 未取回预期长度：wValue=$value wIndex=$index 长度=$transferred/$length",
-        )
-        return false
+        return transferred == length
     }
 
     private companion object {

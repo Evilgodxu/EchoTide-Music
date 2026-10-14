@@ -7,7 +7,7 @@ import android.media.AudioManager
 import android.media.AudioTrack
 import com.yichao.evilgodxu.log.CrashLogManager
 
-// 诊断日志的类名前缀：保活输出的建立与释放都记在此名下
+// 异常日志的类名前缀：保活输出只有建立失败时才记（正常进出不写日志）
 private const val LOG_TAG = "SilentKeepAliveOutput"
 
 // 取不到设备默认输出采样率时的兜底：只影响保活轨自身的申报，与音乐写出无关
@@ -29,7 +29,7 @@ private val KEEP_ALIVE_ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
  * 要解决的问题（真机上踩过）：`getSupportedMixerAttributes` 按「该设备上此刻有没有输出」应答，
  * 应用没有输出时一律得空表，而空表有两种含义（厂商未声明动态混音端口，或设备此刻没有输出）。
  * 后一种会把直出锁在门外且从此不再回来：撤销直出会一并解除路由钉定，此后新起的输出不再落在该设备上，
- * 查询于是永远得空表——现象是后几首一路系统混音，日志里连一条候选下发都没有。
+ * 查询于是永远得空表——现象是后几首一路系统混音，且设备侧看不出任何异常。
  * 保活输出即为此而设：设备上始终有一路本应用的输出，查询便有描述符可应答。
  * 同一状态下系统与其它应用的音频也正缺一个落点，该路输出同时承接它们（官方对 USB 直出的指引
  * 正是「改用混音器属性而非直接抢占 USB 设备」，以免限制其它应用的媒体播放、丢失设备上的闹钟与铃声）。
@@ -70,20 +70,19 @@ internal class SilentKeepAliveOutput(private val audioManager: AudioManager) {
     @Synchronized
     fun hold(device: AudioDeviceInfo) {
         if (heldDeviceId == device.id) return
-        release("改用其它 USB 输出设备")
+        release()
         create(device)
     }
 
-    /** 释放保活输出；未保有时为无操作。[reason] 仅用于日志留痕 */
+    /** 释放保活输出；未保有时为无操作 */
     @Synchronized
-    fun release(reason: String = "直出结束") {
+    fun release() {
         val held = track ?: return
         track = null
         heldDeviceId = null
         format = null
         runCatching { held.release() }
             .onFailure { CrashLogManager.logException(LOG_TAG, "释放保活输出失败", it) }
-        log("保活输出已释放（$reason）")
     }
 
     private fun create(device: AudioDeviceInfo) {
@@ -115,24 +114,20 @@ internal class SilentKeepAliveOutput(private val audioManager: AudioManager) {
         }.getOrNull() ?: return
         if (created.state != AudioTrack.STATE_INITIALIZED) {
             created.release()
-            log("保活输出未初始化成功，放弃保活：${deviceLabel(device)}")
             return
         }
         // 钉定路由是本输出唯一的动作：钉不上说明它落在别处，占不到该设备上的输出，留着只会白耗一条输出
         val pinned = runCatching { created.setPreferredDevice(device) }.getOrDefault(false)
         if (!pinned) {
             created.release()
-            log("保活输出路由钉定失败，放弃保活：${deviceLabel(device)}")
             return
         }
         track = created
         format = audioFormat
         heldDeviceId = device.id
-        log("保活输出已建立：${deviceLabel(device)} ${sampleRate}Hz/单声道/16位整型，路由已钉定")
     }
 
     private fun deviceLabel(device: AudioDeviceInfo): String =
         device.productName?.toString()?.takeIf { it.isNotBlank() } ?: "id=${device.id}"
 
-    private fun log(message: String) = CrashLogManager.logInfo(LOG_TAG, message)
 }

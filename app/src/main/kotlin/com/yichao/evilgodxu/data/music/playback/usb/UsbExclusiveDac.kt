@@ -8,7 +8,7 @@ import com.yichao.evilgodxu.data.music.playback.UsbExclusiveDeviceInfo
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.Closeable
 
-// 诊断日志的类名前缀：接管与归还的每次决策都记在此名下
+// 异常日志的类名前缀：接管与归还只有出错时才记（正常路径不写日志）
 private const val LOG_TAG = "UsbExclusiveDac"
 
 /**
@@ -91,25 +91,12 @@ internal class UsbExclusiveDac private constructor(
 
         if (uacVersion == 2) {
             clockSource = descriptors.resolveClockSource(format.clockId) { control.selectedClockPin(it) }
-            if (clockSource == 0) {
-                CrashLogManager.logInfo(LOG_TAG, "格式 ${label(format)} 回溯不到时钟源，无法确定采样率")
-                return false
-            }
+            if (clockSource == 0) return false
             // UAC2 的档位不在描述符里：先问时钟，再据实核对源速率是否被支持
             val supported = clockRates.getOrPut(clockSource) { control.readClockRates(clockSource) }
-            if (supported.isNotEmpty() && !supported.contains(sampleRate)) {
-                CrashLogManager.logInfo(
-                    LOG_TAG,
-                    "时钟 $clockSource 不支持 ${sampleRate}Hz，可用档位 $supported",
-                )
-                return false
-            }
+            if (supported.isNotEmpty() && !supported.contains(sampleRate)) return false
             deviceRate = control.setClockRate(clockSource, sampleRate)
         } else if (!format.supportsRate(sampleRate)) {
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "格式 ${label(format)} 未声明 ${sampleRate}Hz，声明档位 ${describeRates(format)}",
-            )
             return false
         }
 
@@ -126,20 +113,11 @@ internal class UsbExclusiveDac private constructor(
         }
 
         if (deviceRate != 0 && deviceRate != sampleRate) {
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "已请求 ${sampleRate}Hz，设备实际为 ${deviceRate}Hz，本次输出不成立",
-            )
             // 退回零带宽：留在已切换的备用设置上会让设备继续占用带宽
             selectAlternateSetting(format.interfaceNumber, 0)
             activeStreamInterface = 0
             return false
         }
-        CrashLogManager.logInfo(
-            LOG_TAG,
-            "已就绪：${label(format)} ${sampleRate}Hz" +
-                if (clockSource != 0) "（时钟 $clockSource）" else "",
-        )
         return true
     }
 
@@ -161,22 +139,9 @@ internal class UsbExclusiveDac private constructor(
         val target = (0 until device.interfaceCount)
             .map { device.getInterface(it) }
             .firstOrNull { it.id == interfaceNumber && it.alternateSetting == altSetting }
-        if (target == null) {
-            CrashLogManager.logInfo(LOG_TAG, "设备未暴露接口 $interfaceNumber 的备用设置 $altSetting")
-            return false
-        }
-        if (!connection.setInterface(target)) {
-            CrashLogManager.logInfo(LOG_TAG, "切换接口 $interfaceNumber 到备用设置 $altSetting 失败")
-            return false
-        }
-        return true
+            ?: return false
+        return connection.setInterface(target)
     }
-
-    private fun label(format: UsbAudioOutputFormat): String =
-        "接口${format.interfaceNumber}.${format.altSetting}"
-
-    private fun describeRates(format: UsbAudioOutputFormat): String =
-        if (format.continuousRates) "${format.minRate}..${format.maxRate}Hz" else "${format.rates}"
 
     private var closed = false
 
@@ -191,8 +156,6 @@ internal class UsbExclusiveDac private constructor(
         }
         runCatching { connection.close() }
             .onFailure { CrashLogManager.logException(LOG_TAG, "关闭设备连接失败", it) }
-        // 归还后内核驱动须重新绑定，该设备才会重新出现在系统音频里——恢复不是瞬时的
-        CrashLogManager.logInfo(LOG_TAG, "已归还 $deviceName")
     }
 
     companion object {
@@ -209,22 +172,12 @@ internal class UsbExclusiveDac private constructor(
          * 调用方须已取得该设备的 USB 访问授权（[UsbManager.requestPermission] 的结果）：本节制不申请权限，
          * 因为权限弹窗属于交互，应由界面层决定何时打断用户。
          *
-         * 失败一律返回 null 并留痕，不向上抛：接管失败意味本次直出用不上独占，退回平台路径即可，
-         * 不该把播放带走。
+         * 失败一律返回 null，不向上抛：接管失败意味本次播放用不上独占，退回平台路径即可，
+         * 不该把播放带走。失败原因随异常入日志。
          */
         fun open(manager: UsbManager, device: UsbDevice): UsbExclusiveDac? {
-            if (!manager.hasPermission(device)) {
-                CrashLogManager.logInfo(
-                    LOG_TAG,
-                    "未取得 ${device.deviceName} 的 USB 访问授权，无法接管",
-                )
-                return null
-            }
-            val connection = manager.openDevice(device)
-            if (connection == null) {
-                CrashLogManager.logInfo(LOG_TAG, "打开 ${device.deviceName} 失败，系统未返回连接")
-                return null
-            }
+            if (!manager.hasPermission(device)) return null
+            val connection = manager.openDevice(device) ?: return null
             val claimed = mutableListOf<UsbInterface>()
             try {
                 for (intf in UsbAudioInterfaces.playbackInterfaces(device)) {
@@ -245,12 +198,6 @@ internal class UsbExclusiveDac private constructor(
                         "描述符未给出可播放的音频格式（UAC 版本 ${parsed.uacVersion}）",
                     )
                 }
-                CrashLogManager.logInfo(
-                    LOG_TAG,
-                    "已接管 ${device.deviceName}：接口 ${claimed.joinToString { it.id.toString() }}，" +
-                        "该设备已从系统音频中移除",
-                )
-                CrashLogManager.logInfo(LOG_TAG, "描述符摘要：${summarize(parsed)}")
                 return UsbExclusiveDac(device, parsed, connection, claimed)
             } catch (t: Throwable) {
                 CrashLogManager.logException(LOG_TAG, "接管 ${device.deviceName} 失败，已回滚", t)
@@ -260,33 +207,6 @@ internal class UsbExclusiveDac private constructor(
                 runCatching { connection.close() }
                 return null
             }
-        }
-
-        /**
-         * 描述符摘要，供真机上判断"设备到底声明了什么"。
-         *
-         * 直出能否成立取决于设备自报的档位，而这套信息在系统侧读不到、只能从原始描述符解析，
-         * 故接管成功后整条摘要入日志，避免逐台设备靠猜。
-         */
-        private fun summarize(parsed: UsbAudioDevice): String {
-            val formats = parsed.outputs.joinToString(separator = " | ") { format ->
-                val rates = when {
-                    format.continuousRates -> "${format.minRate}..${format.maxRate}Hz(连续)"
-                    format.rates.isEmpty() -> "速率由时钟应答"
-                    else -> format.rates.joinToString("/") + "Hz"
-                }
-                buildString {
-                    append("接口${format.interfaceNumber}.${format.altSetting} ")
-                    append("${format.channels}ch/${format.subslotBytes}字节槽/${format.bitResolution}位 ")
-                    append(rates)
-                    if (format.syncType == UsbAudioSyncType.ASYNCHRONOUS) {
-                        append(" 异步(反馈端点0x${format.feedbackEndpoint.toString(16)})")
-                    }
-                    if (format.clockId != 0) append(" 时钟${format.clockId}")
-                }
-            }
-            return "UAC${parsed.uacVersion} 控制接口${parsed.controlInterfaceNumber} " +
-                "格式[$formats] 时钟[${parsed.clocks.joinToString { "${it.id}/${it.kind}" }}]"
         }
     }
 }

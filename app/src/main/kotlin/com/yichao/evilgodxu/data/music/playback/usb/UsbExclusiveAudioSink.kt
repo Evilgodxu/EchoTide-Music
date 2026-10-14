@@ -14,12 +14,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.audio.AudioSink
 import com.yichao.evilgodxu.data.music.playback.OutputLatencyReading
-import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-
-// 类名前缀：配置、建流、欠载与排空都记在此名下
-private const val LOG_TAG = "UsbExclusiveSink"
 
 // 帧数换算毫秒用的系数：与 OutputLatency 同口径
 private const val MILLIS_PER_SECOND = 1_000f
@@ -113,13 +109,7 @@ internal class UsbExclusiveAudioSink(
     /** 曲末是否已排空：排空之后环与在飞 URB 都已送出，待播判定转为「无」 */
     private var drained = false
 
-    /** 输入缓冲长度不成样本整数倍是否已留痕：一次会话只记一条 */
-    private var alignmentReported = false
-
-    /** 上次记日志的音量：按取值去重，免得每块缓冲都写一行 */
-    private var lastLoggedVolume = Float.NaN
-
-    // 诊断留痕：欠载按秒收敛记录，避免日志刷成流水账
+    // 欠载按秒收敛上报，避免把回调刷成流水账
     private var lastStatsMs = 0L
     private var lastReportedUnderruns = 0L
 
@@ -179,8 +169,6 @@ internal class UsbExclusiveAudioSink(
         writtenFrames = 0
         checkpointPending = true
         checkpoints.clear()
-        alignmentReported = false
-        lastLoggedVolume = Float.NaN
         lastReportedUnderruns = 0
         lastStatsMs = 0
 
@@ -188,16 +176,8 @@ internal class UsbExclusiveAudioSink(
         if (active == null) {
             throw AudioSink.ConfigurationException("独占会话不在（设备未接入或未授权）", format)
         }
-        val bitDepth = sourceBitDepthOf(format.pcmEncoding)
         val selected = selectFormat(active, format)
-        if (selected == null) {
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "设备未声明可原样送出的格式：${format.sampleRate}Hz/${format.channelCount}ch/" +
-                    "${bitDepth}位；设备档位 ${describeFormats(active.formats)}",
-            )
-            throw AudioSink.ConfigurationException("设备未声明匹配的播放格式", format)
-        }
+            ?: throw AudioSink.ConfigurationException("设备未声明匹配的播放格式", format)
         if (!active.prepareStream(selected, format.sampleRate)) {
             throw AudioSink.ConfigurationException("设备未接受该采样率", format)
         }
@@ -208,12 +188,6 @@ internal class UsbExclusiveAudioSink(
         outputFrameBytes = selected.frameBytes
         outputChannelMask = format.channelMask.takeIf { it != Format.NO_VALUE }
             ?: Util.getAudioTrackChannelConfig(format.channelCount)
-        CrashLogManager.logInfo(
-            LOG_TAG,
-            "独占输出已配置：${active.deviceName} ${format.sampleRate}Hz/${format.channelCount}ch，" +
-                "接口${selected.interfaceNumber}.${selected.altSetting} ${selected.subslotBytes}字节槽" +
-                "（有效位深 ${selected.bitResolution} 位），输入编码 ${format.pcmEncoding}",
-        )
     }
 
     /** 从设备声明的格式里挑出能原样送出本次解码输出的那一个；挑不出即本次不成立 */
@@ -338,12 +312,6 @@ internal class UsbExclusiveAudioSink(
         output.stop()
         handledEndOfStream = true
         drained = true
-        val stats = output.stats()
-        CrashLogManager.logInfo(
-            LOG_TAG,
-            "曲末已排空：装入 ${stats.framesSent} 帧，送出 ${stats.framesPlayed} 帧，" +
-                "欠载 ${stats.underruns} 次，传输错误 ${stats.transferErrors} 次",
-        )
     }
 
     override fun isEnded(): Boolean = output == null || (handledEndOfStream && !hasPendingData())
@@ -481,13 +449,6 @@ internal class UsbExclusiveAudioSink(
         listener.onAudioTrackInitialized(trackConfigOf(created))
         // 面板的"输出编码"取自这里：设备实际收到的是子槽排布，故报的是子槽宽度对应的编码
         onOutputEncodingChanged(encodingForSubslot(created.subslotBytes))
-        CrashLogManager.logInfo(
-            LOG_TAG,
-            "等时输出已建立：${created.sampleRate}Hz/${created.channels}ch/" +
-                "${created.subslotBytes}字节槽，缓冲 ${created.bufferFrames} 帧" +
-                "(${bufferMillis(created)}ms)，上报渲染器休眠上界=" +
-                "${getAudioTrackBufferSizeUs() / 1000}ms",
-        )
         return created
     }
 
@@ -517,18 +478,15 @@ internal class UsbExclusiveAudioSink(
         onOutputEncodingChanged(null)
     }
 
-    /** 把整块输入按设备子槽打包；输入被消费到末位，余量无法构成样本时留痕 */
+    /**
+     * 把整块输入按设备子槽打包。
+     *
+     * 输入被消费到末位，末尾凑不满一个样本的余字节由打包器一并跳过（见 [packToSubslot]）。
+     */
     private fun convert(source: ByteBuffer, format: Format): ByteBuffer {
         val bytesPerSample = Util.getPcmFrameSize(format.pcmEncoding, 1)
         val output = scratchBuffer(source.remaining() / bytesPerSample * subslotBytes)
-        val leftover = packToSubslot(source, output, format.pcmEncoding, subslotBytes, appliedVolume())
-        if (leftover > 0 && !alignmentReported) {
-            alignmentReported = true
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "解码缓冲长度不是样本整数倍，末尾余字节已跳过：编码=${format.pcmEncoding}",
-            )
-        }
+        packToSubslot(source, output, format.pcmEncoding, subslotBytes, appliedVolume())
         output.flip()
         return output
     }
@@ -539,14 +497,7 @@ internal class UsbExclusiveAudioSink(
      * 两者相乘而非取其一：播放器音量平时恒为 1（本应用的音量由系统掌管），但心动模式的片段首尾靠它做
      * 淡入淡出，独占路径上那次斜坡也得照常生效。等于 1 时打包器整段缩放不参与，写出仍是逐位原样。
      */
-    private fun appliedVolume(): Float {
-        val gain = (volume * systemVolume()).coerceIn(0f, 1f)
-        if (gain != lastLoggedVolume) {
-            lastLoggedVolume = gain
-            CrashLogManager.logInfo(LOG_TAG, "软件音量：${(gain * 100).toInt()}%")
-        }
-        return gain
-    }
+    private fun appliedVolume(): Float = (volume * systemVolume()).coerceIn(0f, 1f)
 
     private fun scratchBuffer(size: Int): ByteBuffer {
         val current = scratch
@@ -586,15 +537,6 @@ internal class UsbExclusiveAudioSink(
                 /* bufferSizeMs= */ bufferMillis(output),
                 /* elapsedSinceLastFeedMs= */ elapsed.coerceIn(0, STATS_INTERVAL_MS),
             )
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "等时输出欠载：累计 ${stats.underruns} 次（装入 ${stats.framesSent} 帧，" +
-                    "送出 ${stats.framesPlayed} 帧，传输错误 ${stats.transferErrors} 次），" +
-                    "距上次接纳写入 ${elapsed}ms",
-            )
-        }
-        if (stats.disconnected) {
-            CrashLogManager.logInfo(LOG_TAG, "等时输出检测到设备已断开，本次输出作废")
         }
     }
 
@@ -644,11 +586,3 @@ private fun encodingForSubslot(subslotBytes: Int): Int = when (subslotBytes) {
     3 -> C.ENCODING_PCM_24BIT
     else -> C.ENCODING_PCM_32BIT
 }
-
-/** 设备格式的简写列表，供真机上判断"设备到底声明了什么" */
-private fun describeFormats(formats: List<UsbAudioOutputFormat>): String =
-    formats.joinToString(separator = " | ") { format ->
-        "${format.channels}ch/${format.subslotBytes}字节槽/${format.bitResolution}位 " +
-            if (format.continuousRates) "${format.minRate}..${format.maxRate}Hz"
-            else format.rates.joinToString("/") + "Hz"
-    }

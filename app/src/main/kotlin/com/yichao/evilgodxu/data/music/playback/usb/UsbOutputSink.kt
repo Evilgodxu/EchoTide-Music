@@ -116,14 +116,8 @@ internal class UsbOutputSink(
     private fun switchTo(next: Route, audioSinkConfig: AudioSink.AudioSinkConfig) {
         if (next != route) {
             val outgoing = activeRoute
-            val from = route
             route = next
             outgoing.reset()
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "路由切换：${if (from == Route.EXCLUSIVE) "独占" else "平台"} → " +
-                    "${if (next == Route.EXCLUSIVE) "独占" else "平台"}",
-            )
             onRouteChanged(next == Route.EXCLUSIVE)
         }
         if (next == Route.PLATFORM) {

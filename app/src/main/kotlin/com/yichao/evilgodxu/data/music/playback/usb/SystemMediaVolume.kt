@@ -89,14 +89,7 @@ internal class SystemMediaVolume(
 
     private fun reread() {
         lastReadMs = SystemClock.elapsedRealtime()
-        val next = readGain()
-        if (next != currentGain) {
-            CrashLogManager.logInfo(
-                LOG_TAG,
-                "系统媒体音量 → 软件音量：${(next * 100).toInt()}%（独占路径绕开混音器，系统音量须自己施加）",
-            )
-        }
-        currentGain = next
+        currentGain = readGain()
     }
 
     private fun readGain(): Float {
