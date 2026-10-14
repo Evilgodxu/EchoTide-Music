@@ -37,7 +37,7 @@ private const val STATS_INTERVAL_MS = 1000L
  *
  * 与平台路径的三处必然差别：
  * - **没有播放头可读**。等时端点只报告"这批送出去了"，没有设备侧的播出台账，故位置按原生层回收 URB 时
- *   累计的实际帧数估算（见 [UsbIsoOutput.playedFrames]）——提交量会整体偏前一个在飞时长，
+ *   累计的实际帧数估算（见 [UsbIsoOutput.stats]）——提交量会整体偏前一个在飞时长，
  *   拿它报位置会让曲末判定提前；
  * - **音量与音效得自己做**。绕开混音器即绕开平台的音量与效果链，`AudioManager` 的音量不再作用于这条流；
  * - **曲末必须显式排空**。平台路径的尾巴由音频轨自己播完，等时路径的数据还在环与在飞 URB 里，
@@ -114,10 +114,19 @@ internal class UsbExclusiveAudioSink(
     private var writtenFrames = 0L
 
     /**
-     * 最近一次由播放线程读到的"已送出帧数"快照。
+     * 最近一次由播放线程读到的"已从环取走帧数"（原生层装入 URB 的量）。
      *
-     * 界面要的"缓冲驻留"是「已写出 − 已送出」，而后者只能问原生层（它有回收 URB 时的实际长度）。
-     * 把这份读数留在播放线程上取、供界面读，界面才不会为了一个数字去碰原生句柄。
+     * 界面要的"缓冲驻留"是「已写出 − 已取走」，而后者只能问原生层。把这份读数留在播放线程上取、
+     * 供界面读，界面才不会为了一个数字去碰原生句柄。
+     */
+    @Volatile
+    private var cachedSentFrames = 0L
+
+    /**
+     * 最近一次由播放线程读到的"已送出帧数"（原生层回收 URB 时累计的实际长度）。
+     *
+     * 与 [cachedSentFrames] 同一次 `stats()` 取回：只有同一刻的一对才能相减出在飞量，分两次取会跨过
+     * 一个取走周期。待播判定与播放位置都取本值。
      */
     @Volatile
     private var cachedPlayedFrames = 0L
@@ -194,6 +203,7 @@ internal class UsbExclusiveAudioSink(
         drained = false
         pendingOutput = null
         writtenFrames = 0
+        cachedSentFrames = 0
         cachedPlayedFrames = 0
         checkpointPending = true
         checkpoints.clear()
@@ -297,6 +307,10 @@ internal class UsbExclusiveAudioSink(
         releaseOutput()
         pendingOutput = null
         writtenFrames = 0
+        // 下一条输出是全新的原生流，它的两个计数从零起算；旧快照留着会让新流刚起步时的驻留算出负值
+        // 而被压成 0，直到播放线程取回新快照为止
+        cachedSentFrames = 0
+        cachedPlayedFrames = 0
         handledEndOfStream = false
         drained = false
         checkpointPending = true
@@ -365,7 +379,10 @@ internal class UsbExclusiveAudioSink(
         val output = output ?: return false
         if (pendingOutput != null) return true
         if (drained) return false
-        return paused || writtenFrames > playedFrames(output)
+        // 先取一次进度再判暂停：暂停期间原生层不再从环里取数据，但暂停那一刻的最后一批取走仍会落账，
+        // 这次刷新让面板读到的驻留停在环的真实存量上，而不是上一个读周期里偏低的"已取走"量
+        val played = progressFrames(output)
+        return paused || writtenFrames > played
     }
 
     override fun getCurrentPositionUs(sourceEnded: Boolean): Long {
@@ -376,7 +393,7 @@ internal class UsbExclusiveAudioSink(
         // （含渲染器时间偏移，量级在 1e12 微秒），已写出时长只是输出侧的时长（量级在曲目时长内），
         // 拿后者钳前者会把渲染器时间偏移一并削掉，上报位置随之跌出时间轴
         val outputPositionUs = minOf(
-            framesToDurationUs(playedFrames(output), format.sampleRate),
+            framesToDurationUs(progressFrames(output), format.sampleRate),
             framesToDurationUs(writtenFrames, format.sampleRate),
         )
         var checkpoint = checkpoints.first()
@@ -442,10 +459,11 @@ internal class UsbExclusiveAudioSink(
      * 本层输出链路的延迟读数；未建立输出时为 null。
      *
      * 这条路上没有音频轨可读，故读数只能自己算。与平台路径同口径地切成两段，但只有一段能测：
-     * - **本层缓冲驻留**——已写出而尚未送出的部分，即环形缓冲里的存量加在飞的 URB 那一小段。
-     *   它是这条路上唯一可测的一段，也正是缓冲策略能调的那一段；
+     * - **本层缓冲驻留**——还留在环形缓冲里、尚未被取走的那一段，即 [ringResidentFrames]。它是这条路上
+     *   唯一可测的一段，也正是缓冲策略能调的那一段；
      * - **缓冲之后那一段**（设备传输与解码器自身的排队）在 usbfs 上没有可查询的口子，一律不产出。
-     *   不接受用别的量顶替：把「测不到」显示成「很短」比空着更糟。
+     *   不接受用别的量顶替：把「测不到」显示成「很短」比空着更糟。已取走而尚未送出的在飞 URB 段同属
+     *   这一档而不计入驻留——它是主机侧的传输在途量，不是本层缓冲里的存量，计入会让驻留超过缓冲容量。
      *
      * 因此全链路同样不产出——它由两段相加得出，缺一段就不是全链路。
      */
@@ -457,22 +475,25 @@ internal class UsbExclusiveAudioSink(
             trackBufferFrames = bufferFrames,
             trackBufferMs = bufferFrames * MILLIS_PER_SECOND / sampleRate,
             afterTrackMs = null,
-            // 驻留不可能为负：已写出的量取自本层记账，已送出的量取自原生层累计，后者恒不超前。
             // 读数取播放线程留下的快照而非直接问原生层——句柄会随播放结束被释放，界面不该去碰它
-            trackResidentMs = (writtenFrames - cachedPlayedFrames).coerceAtLeast(0) *
+            trackResidentMs = ringResidentFrames(writtenFrames, cachedSentFrames, bufferFrames) *
                 MILLIS_PER_SECOND / sampleRate,
             fullChainMs = null,
         )
     }
 
     /**
-     * 读一次"已送出帧数"，并把读数留下供界面取用。
+     * 读一次原生层的进度并把两个计数留下供界面取用，返回"已由主机侧送出"的帧数。
      *
      * 必须在播放线程上调用：它要进原生层，而句柄的释放也在播放线程上——同一条线程才不会有机会读到
-     * 已释放的对象。界面侧的 [latencyReading] 因此只读 [cachedPlayedFrames]。
+     * 已释放的对象。界面侧的 [latencyReading] 因此只读 [cachedSentFrames] 与 [cachedPlayedFrames]。
      */
-    private fun playedFrames(output: UsbIsoOutput): Long =
-        output.playedFrames().also { cachedPlayedFrames = it }
+    private fun progressFrames(output: UsbIsoOutput): Long {
+        val stats = output.stats()
+        cachedSentFrames = stats.framesSent
+        cachedPlayedFrames = stats.framesPlayed
+        return stats.framesPlayed
+    }
 
     /** 建起等时输出；未建起时向上抛出初始化异常，由渲染器按可恢复与否处置 */
     private fun ensureOutput(): UsbIsoOutput {
@@ -518,6 +539,7 @@ internal class UsbExclusiveAudioSink(
         output.stop()
         output.close()
         this.output = null
+        cachedSentFrames = 0
         cachedPlayedFrames = 0
         listener.onAudioTrackReleased(trackConfigOf(output))
         onOutputEncodingChanged(null)
@@ -570,7 +592,7 @@ internal class UsbExclusiveAudioSink(
         Util.sampleCountToDurationUs(output.bufferFrames.toLong(), output.sampleRate) / 1000
 
     /**
-     * 按秒读一次原生层的欠载计数并如实上报，同时刷新供界面取用的"已送出帧数"快照。
+     * 按秒读一次原生层的欠载计数并如实上报，同时刷新供界面取用的进度快照。
      *
      * 等时端点上的欠载与平台路径上的欠载是同一件事（数据没跟上设备的消费），故走同一个 `onUnderrun`
      * 回调；计数只在原生层有意义——它才知道每个 URB 回收时包里到底有没有数据。
@@ -580,6 +602,7 @@ internal class UsbExclusiveAudioSink(
         if (lastStatsMs != 0L && nowMs - lastStatsMs < STATS_INTERVAL_MS) return
         lastStatsMs = nowMs
         val stats = output.stats()
+        cachedSentFrames = stats.framesSent
         cachedPlayedFrames = stats.framesPlayed
 
         if (stats.underruns != lastReportedUnderruns) {
@@ -614,6 +637,18 @@ internal class UsbExclusiveAudioSink(
         }
     }
 }
+
+/**
+ * 本层环形缓冲此刻的存量（帧）。
+ *
+ * 口径与平台路径的"音频轨驻留"一致：只算还留在缓冲里、尚未被取走的那一段。两个方向都要收：
+ *
+ * - 上界按容量收。已取走的量取自播放线程留下的快照，可能比此刻的已写出量落后一个读周期，算出来会偏向
+ *   高估；而缓冲容不下更多，超过容量只可能是这份滞后，按容量封顶才是此刻的真值；
+ * - 下界按零收。已写出恒不落后于已取走，负值只可能来自快照与记账错位，压成 0 而不是把负数报给界面。
+ */
+internal fun ringResidentFrames(writtenFrames: Long, sentFrames: Long, bufferFrames: Int): Long =
+    (writtenFrames - sentFrames).coerceIn(0L, bufferFrames.toLong())
 
 /**
  * 解码输出的位深。

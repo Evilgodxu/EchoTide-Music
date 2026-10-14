@@ -32,4 +32,24 @@ class UsbExclusiveAudioSinkTest {
         assertEquals(0, sourceBitDepthOf(C.ENCODING_INVALID))
         assertEquals(0, sourceBitDepthOf(C.ENCODING_AAC_LC))
     }
+
+    // 驻留只算还在环里的那一段：已取走（装入 URB）的量不计，否则面板上它会超过"输出缓冲"这一行
+    @Test
+    fun residentCountsOnlyWhatIsStillInRing() {
+        assertEquals(3528, ringResidentFrames(writtenFrames = 3528, sentFrames = 0, bufferFrames = 3528))
+        assertEquals(705, ringResidentFrames(writtenFrames = 4233, sentFrames = 3528, bufferFrames = 3528))
+        assertEquals(0, ringResidentFrames(writtenFrames = 3528, sentFrames = 3528, bufferFrames = 3528))
+    }
+
+    // 已取走的量取自播放线程留下的快照，落后于已写出量时按容量封顶——缓冲容不下更多，超出只可能是这份滞后
+    @Test
+    fun residentIsCappedAtCapacity() {
+        assertEquals(3528, ringResidentFrames(writtenFrames = 5000, sentFrames = 1000, bufferFrames = 3528))
+    }
+
+    // 负值只可能来自快照与记账错位，压成 0 而不是把负驻留报给界面
+    @Test
+    fun residentNeverGoesNegative() {
+        assertEquals(0, ringResidentFrames(writtenFrames = 100, sentFrames = 400, bufferFrames = 3528))
+    }
 }

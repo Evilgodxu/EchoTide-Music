@@ -129,9 +129,6 @@ internal class UsbIsoOutput private constructor(
         )
     }
 
-    /** 已由主机侧实际送出的帧数：播放位置只能取自它，见 [Stats.framesPlayed] */
-    fun playedFrames(): Long = if (closed) 0L else UsbIsoNative.stats(handle)[1]
-
     @Synchronized
     override fun close() {
         if (closed) return
