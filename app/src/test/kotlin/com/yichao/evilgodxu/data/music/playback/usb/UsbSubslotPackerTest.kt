@@ -94,16 +94,77 @@ class UsbSubslotPackerTest {
         assertArrayEquals(bytes(0xFF, 0x7F), subslot(asInt, 2))
     }
 
+    // 满幅音量不得动到任何一个字节：独占直出的价值就在于原样送出
+    @Test
+    fun unityVolumeIsBitPerfect() {
+        assertArrayEquals(
+            bytes(0x00, 0x40),
+            pack(byteBuffer(0x00, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 2, volume = 1f),
+        )
+    }
+
+    // 半幅：左对齐 32 位下的取值恰好减半，取高字节后也跟着减半
+    @Test
+    fun volumeHalvesTheSample() {
+        assertArrayEquals(
+            bytes(0x00, 0x20),
+            pack(byteBuffer(0x00, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 2, volume = 0.5f),
+        )
+    }
+
+    // 零音量即静音：整段输出全零，不留残值
+    @Test
+    fun zeroVolumeSilencesTheSample() {
+        assertArrayEquals(
+            bytes(0x00, 0x00),
+            pack(byteBuffer(0x00, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 2, volume = 0f),
+        )
+    }
+
+    // 超过满幅的音量一律按满幅处理：放大没有意义，而越过整型边界会变成削顶失真
+    @Test
+    fun overUnityVolumeClampsInsteadOfClipping() {
+        assertArrayEquals(
+            bytes(0x00, 0x40),
+            pack(byteBuffer(0x00, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 2, volume = 4f),
+        )
+    }
+
+    // 满幅负值在任何音量下都不该翻正：移位必须保持补码语义
+    // 源 0xC000（16 位补码 -16384）半幅即 -8192，落在 16 位槽里是 0xE000
+    @Test
+    fun negativeSampleStaysNegativeUnderVolume() {
+        assertArrayEquals(
+            bytes(0x00, 0xE0),
+            pack(byteBuffer(0x00, 0xC0), C.ENCODING_PCM_16BIT, subslotBytes = 2, volume = 0.5f),
+        )
+    }
+
+    // 定点增益的边界取值：满幅及以上一律满幅，负音量按零处理
+    @Test
+    fun gainEncodingCoversTheBoundaries() {
+        assertEquals(UNITY_GAIN_Q15, volumeToGainQ15(1f))
+        assertEquals(UNITY_GAIN_Q15, volumeToGainQ15(2f))
+        assertEquals(0, volumeToGainQ15(0f))
+        assertEquals(0, volumeToGainQ15(-1f))
+        assertEquals(UNITY_GAIN_Q15 / 2, volumeToGainQ15(0.5f))
+    }
+
     private fun subslot(value: Int, subslotBytes: Int): ByteArray {
         val buffer = ByteBuffer.allocate(subslotBytes).order(ByteOrder.nativeOrder())
         writeSubslot(buffer, value, subslotBytes)
         return buffer.array()
     }
 
-    private fun pack(source: ByteBuffer, encoding: Int, subslotBytes: Int): ByteArray {
+    private fun pack(
+        source: ByteBuffer,
+        encoding: Int,
+        subslotBytes: Int,
+        volume: Float = 1f,
+    ): ByteArray {
         // 容量按最坏情况给足：每个源字节最多产出一个输出字节
         val output = ByteBuffer.allocate(source.remaining() * subslotBytes).order(ByteOrder.nativeOrder())
-        packToSubslot(source, output, encoding, subslotBytes)
+        packToSubslot(source, output, encoding, subslotBytes, volume)
         val written = ByteArray(output.position())
         output.flip()
         output.get(written)

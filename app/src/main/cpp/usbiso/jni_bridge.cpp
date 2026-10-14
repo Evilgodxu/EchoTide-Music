@@ -90,15 +90,16 @@ extern "C" JNIEXPORT jlongArray JNICALL
 Java_com_yichao_evilgodxu_data_music_playback_usb_UsbIsoNative_stats(
         JNIEnv* env, jclass clazz, jlong handle) {
     (void) clazz;
-    jlong values[4] = {0, 0, 0, 0};
+    jlong values[5] = {0, 0, 0, 0, 0};
     if (UsbIsoStream* stream = fromHandle(handle)) {
         const UsbIsoStream::Stats stats = stream->stats();
         values[0] = jlong(stats.framesSent);
-        values[1] = jlong(stats.underruns);
-        values[2] = jlong(stats.transferErrors);
-        values[3] = stats.disconnected ? 1 : 0;
+        values[1] = jlong(stats.framesPlayed);
+        values[2] = jlong(stats.underruns);
+        values[3] = jlong(stats.transferErrors);
+        values[4] = stats.disconnected ? 1 : 0;
     }
-    jlongArray result = env->NewLongArray(4);
-    if (result != nullptr) env->SetLongArrayRegion(result, 0, 4, values);
+    jlongArray result = env->NewLongArray(5);
+    if (result != nullptr) env->SetLongArrayRegion(result, 0, 5, values);
     return result;
 }

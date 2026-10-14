@@ -43,34 +43,37 @@ internal object UsbIsoNative {
 
     external fun close(handle: Long)
 
-    /** [总帧数, 欠载次数, 传输错误数, 是否已断开] */
+    /** `[已装入帧数, 已送出帧数, 欠载次数, 传输错误数, 是否已断开]` */
     external fun stats(handle: Long): LongArray
 }
 
 /**
  * 一路等时输出：把 PCM 直接交给 USB 解码器的等时端点。
  *
- * 建流前设备必须已被 [UsbExclusiveDac] 接管、且已选定 [UsbAudioOutputFormat] 对应的备用设置——
- * 等时端点只存在于非零的 alt setting 上，未选定前那条端点在设备侧并不存在。
+ * 建流前设备必须已被 [UsbExclusiveDac] 接管、且已按 [UsbAudioOutputFormat] 完成就绪（采样率与备用设置）——
+ * 等时端点只存在于非零的备用设置上，未选定前那条端点在设备侧并不存在。
  *
  * 线程约定：`write`/`drain` 在同一播放线程调用，`stop` 可从任意线程调用。
- * 输入必须是**直接缓冲**，且数据为交错 int32 小端、左对齐（与 [IntPcmAudioSink] 的写出编码一致），
- * 由原生层按其位宽重新打包成端点的子槽宽度。
+ *
+ * 输入必须是**直接缓冲**，且数据**已按设备子槽排布**（见 [packToSubslot]）：原生层只按
+ * `声道数 × 子槽字节数` 切包投递，不做任何样本格式转换。打包留在 Kotlin 是因为它是可判定的纯变换，
+ * 能在 JVM 上逐字节核对，不必把正确性押在真机试听上。
  */
 internal class UsbIsoOutput private constructor(
     private val handle: Long,
     /** 每帧字节数：声道数 × 子槽字节数，用于把字节数换算成帧数 */
     private val frameBytes: Int,
-    /** 采样间隔：原生层只能按包计数，帧数由它换算 */
     val sampleRate: Int,
     val channels: Int,
     val subslotBytes: Int,
+    /** 环形缓冲可容纳的帧数：供渲染器估计休眠上界 */
+    val bufferFrames: Int,
 ) : Closeable {
 
     private var closed = false
 
     /**
-     * 阻塞写入若干帧。返回接纳的帧数；为负表示本次输出已终止（停止或设备拔出）。
+     * 阻塞写入若干帧，缓冲位置随之推进。返回接纳的帧数；为负表示本次输出已终止（停止或设备拔出）。
      *
      * 只接受直接缓冲：数据要交给原生层零拷贝写入，堆上缓冲得先复制一份，而直出链路上每一点额外
      * 拷贝都落在音频路径上。
@@ -80,6 +83,7 @@ internal class UsbIsoOutput private constructor(
         val bytes = frames * frameBytes
         val accepted = UsbIsoNative.write(handle, pcm, pcm.position(), bytes)
         if (accepted <= 0) return -1
+        pcm.position(pcm.position() + accepted)
         return accepted / frameBytes
     }
 
@@ -93,29 +97,35 @@ internal class UsbIsoOutput private constructor(
     }
 
     fun stats(): Stats {
-        if (closed) return Stats(0, 0, 0, true)
+        if (closed) return Stats(0, 0, 0, 0, true)
         val values = UsbIsoNative.stats(handle)
-        return Stats(values[0], values[1], values[2], values[3] != 0L)
+        return Stats(values[0], values[1], values[2], values[3], values[4] != 0L)
     }
+
+    /** 已由主机侧实际送出的帧数：播放位置只能取自它，见 [Stats.framesPlayed] */
+    fun playedFrames(): Long = if (closed) 0L else UsbIsoNative.stats(handle)[1]
 
     @Synchronized
     override fun close() {
         if (closed) return
         closed = true
         val finalStats = UsbIsoNative.stats(handle).let {
-            Stats(it[0], it[1], it[2], it[3] != 0L)
+            Stats(it[0], it[1], it[2], it[3], it[4] != 0L)
         }
         UsbIsoNative.close(handle)
         CrashLogManager.logInfo(
             LOG_TAG,
-            "等时输出已关闭：共送出 ${finalStats.framesSent} 帧，" +
+            "等时输出已关闭：装入 ${finalStats.framesSent} 帧，送出 ${finalStats.framesPlayed} 帧，" +
                 "欠载 ${finalStats.underruns} 次，传输错误 ${finalStats.transferErrors} 次" +
                 if (finalStats.disconnected) "，设备已断开" else "",
         )
     }
 
     data class Stats(
+        /** 已装入 URB 的帧数 */
         val framesSent: Long,
+        /** 已由主机侧送出的帧数；与 [framesSent] 差着在飞 URB 那一整段 */
+        val framesPlayed: Long,
         val underruns: Long,
         val transferErrors: Long,
         val disconnected: Boolean,
@@ -169,7 +179,14 @@ internal class UsbIsoOutput private constructor(
                 )
                 return null
             }
-            return UsbIsoOutput(handle, frameBytes, sampleRate, format.channels, format.subslotBytes)
+            return UsbIsoOutput(
+                handle = handle,
+                frameBytes = frameBytes,
+                sampleRate = sampleRate,
+                channels = format.channels,
+                subslotBytes = format.subslotBytes,
+                bufferFrames = ringBytes / frameBytes,
+            )
         }
 
         /** 格式标签中表示 PCM（Type I）的取值 */

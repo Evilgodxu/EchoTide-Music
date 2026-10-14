@@ -181,6 +181,7 @@ void UsbIsoStream::stop() {
 UsbIsoStream::Stats UsbIsoStream::stats() const {
     Stats result;
     result.framesSent = framesSent_.load();
+    result.framesPlayed = framesPlayed_.load();
     result.underruns = underruns_.load();
     result.transferErrors = transferErrors_.load();
     result.disconnected = disconnected_.load();
@@ -224,6 +225,16 @@ void UsbIsoStream::reapLoop() {
             }
         }
         if (!running_.load()) break;
+        // 回收即表示这一批已由主机侧送出，按各包实际长度累计供播放位置取用。撤下的 URB 以错误完成，
+        // 其 actual_length 不反映真实送出量，故只在成功与部分成功时计入
+        if (completed->status == 0 || completed->status == kStatusPartial) {
+            uint64_t played = 0;
+            const unsigned packets = completed->number_of_packets;
+            for (unsigned i = 0; i < packets; ++i) {
+                played += completed->iso_frame_desc[i].actual_length;
+            }
+            framesPlayed_ += played / size_t(config_.frameBytes);
+        }
         fillAndSubmit(completed);
     }
 }

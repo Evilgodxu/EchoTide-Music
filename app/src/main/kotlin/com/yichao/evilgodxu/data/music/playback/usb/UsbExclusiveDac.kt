@@ -41,6 +41,17 @@ internal class UsbExclusiveDac private constructor(
     /** 类特定控制：采样率与音量。全部走公开的控制传输，不依赖原生层。 */
     val control = UsbAudioControl(connection, descriptors)
 
+    /**
+     * 设备节点的文件描述符。
+     *
+     * 原生等时层正是拿它经 usbfs 提交 URB 的：`UsbManager.openDevice` 给的就是这一个 fd，
+     * 而公开的 Java USB 主机 API 没有等时传输的入口，所以它必须交给原生层。
+     */
+    val fileDescriptor: Int get() = connection.fileDescriptor
+
+    /** 已就绪的流接口号：停止输出时据此把接口退回零带宽；0 表示当前未就绪 */
+    private var activeStreamInterface = 0
+
     /** 已读过的时钟档位：同一时钟源会被多个格式共用，逐格式重问纯属多余 */
     private val clockRates = mutableMapOf<Int, List<Int>>()
 
@@ -85,6 +96,7 @@ internal class UsbExclusiveDac private constructor(
         }
 
         if (!selectAlternateSetting(format.interfaceNumber, format.altSetting)) return false
+        activeStreamInterface = format.interfaceNumber
 
         if (uacVersion == 1) {
             // 只有"多档位或可设"的端点上这一请求才有意义；单档固定的设备不必也不该去设
@@ -102,6 +114,7 @@ internal class UsbExclusiveDac private constructor(
             )
             // 退回零带宽：留在已切换的备用设置上会让设备继续占用带宽
             selectAlternateSetting(format.interfaceNumber, 0)
+            activeStreamInterface = 0
             return false
         }
         CrashLogManager.logInfo(
@@ -110,6 +123,19 @@ internal class UsbExclusiveDac private constructor(
                 if (clockSource != 0) "（时钟 $clockSource）" else "",
         )
         return true
+    }
+
+    /**
+     * 把流接口退回零带宽，但保留接管。
+     *
+     * 停止输出时调用：留在非零备用设置上会让设备白白占着带宽与时钟（部分解码器随之显示"有信号"），
+     * 而接管本身要继续持有——换曲时若重新 claim 一次，内核驱动的解绑与重挂会白走一遍。
+     */
+    fun idle() {
+        val streamInterface = activeStreamInterface
+        if (streamInterface == 0) return
+        activeStreamInterface = 0
+        selectAlternateSetting(streamInterface, 0)
     }
 
     /** 选定备用设置。等时端点只在非零备用设置上存在，未选定前设备侧并没有那条端点。 */

@@ -45,7 +45,15 @@ public:
     };
 
     struct Stats {
+        /** 已装入 URB 的帧数：提交即计入 */
         uint64_t framesSent = 0;
+        /**
+         * 已由主机侧送出的帧数：URB 回收时按各包实际长度累计。
+         *
+         * 与 framesSent 差着在飞 URB 那一整段（本层默认 8×8 个服务间隔，高速下约 8ms）。播放位置只能
+         * 取自本值——按提交量报位置会让进度条与曲末判定整体偏前，而设备内部缓冲的那点余量已小到不必再管。
+         */
+        uint64_t framesPlayed = 0;
         uint64_t underruns = 0;
         uint64_t transferErrors = 0;
         bool disconnected = false;
@@ -131,6 +139,7 @@ private:
     std::atomic<bool> primed_{false};
     std::atomic<bool> disconnected_{false};
     std::atomic<uint64_t> framesSent_{0};
+    std::atomic<uint64_t> framesPlayed_{0};
     std::atomic<uint64_t> underruns_{0};
     std::atomic<uint64_t> transferErrors_{0};
 };
