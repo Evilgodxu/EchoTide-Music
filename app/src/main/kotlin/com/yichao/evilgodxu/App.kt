@@ -40,7 +40,13 @@ import okio.Path.Companion.toOkioPath
 // 经 ProvideAppDependencies 注入 Compose 树，系统创建的组件经 (application as App) 取用
 class App : Application() {
 
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /**
+     * 进程级作用域。
+     *
+     * 供没有自身生命周期的系统组件使用：例如 USB 接入那个无界面入口——它在 onCreate 里就要结束，
+     * 绑定到 Activity 生命周期的作用域会被随即取消，落盘根本来不及发生。
+     */
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val settingsRepository: SettingsRepository by lazy { SettingsRepository(this) }
     val localizationManager: LocalizationManager by lazy { LocalizationManager(this) }

@@ -98,6 +98,24 @@
             </intent-filter>
         </activity>
 
+        <!-- USB 接入的接管入口：无界面，存在的唯一目的是让系统在插入音频类 USB 设备时弹出
+             「用哪个应用打开」的选择框——系统只对**有应用认领**的设备弹窗，没有这条声明就什么都不会发生。
+             exported 是该机制的既定形态（弹窗由系统发起、选中后由系统启动本活动）；
+             范围由 usb_device_filter 限到音频类，故不会在插 U 盘、键鼠时来打扰 -->
+        <activity
+            android:name=".service.UsbAttachActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_device_filter" />
+        </activity>
+
         <!-- 音乐播放前台服务：媒体会话控制通知栏/锁屏。
              须 exported 才能被系统媒体会话框架与外部控制器绑定；无权限保护是
              MediaSessionService 的既定形态——会话只暴露播放控制，不接受任意指令 -->
