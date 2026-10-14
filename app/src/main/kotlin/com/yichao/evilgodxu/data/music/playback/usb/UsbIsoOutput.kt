@@ -31,6 +31,7 @@ internal object UsbIsoNative {
         interval: Int,
         packetsPerUrb: Int,
         urbCount: Int,
+        inFlightTargetMs: Int,
         ringBytes: Int,
     ): Long
 
@@ -152,8 +153,22 @@ internal class UsbIsoOutput private constructor(
         /** 每个 URB 承载的服务间隔数 */
         private const val PACKETS_PER_URB = 8
 
-        /** 在飞的 URB 个数：留够余量，调度抖动时才不至于断流 */
-        private const val URB_COUNT = 8
+        /**
+         * 在飞 URB 个数的下限：整数个 URB 才构成流水线。
+         *
+         * 真实个数由原生层按下面的目标时长与实际包率抬高——高速下一个 URB 只有 1ms，拿固定个数当余量
+         * 会在不同总线速度下差出八倍（见 [IN_FLIGHT_TARGET_MS]）。
+         */
+        private const val MIN_URB_COUNT = 8
+
+        /**
+         * 在飞段的目标时长（毫秒）：调度余量按时间给定，由原生层按实际包率折算成 URB 个数。
+         *
+         * 这一段是唯一能吸收**线程被抢占**的余量——环里存多少都不作数：回收线程不跑，环里的数据一个字节
+         * 也送不出去，设备侧照样断流（欠载计数也不会响，它只认「取数据时环是空的」）。高速下取到 16ms，
+         * 全速下一个 URB 本就长达 8 个服务间隔、按 [MIN_URB_COUNT] 已得 64ms，故由原生层取两者之大者。
+         */
+        private const val IN_FLIGHT_TARGET_MS = 16
 
         /**
          * 按 [format] 与 [sampleRate] 建立等时输出。
@@ -164,10 +179,14 @@ internal class UsbIsoOutput private constructor(
             if (format.formatTag != PCM_FORMAT_TAG) return null
             val frameBytes = format.frameBytes
             // 环长取与直出路径同一个目标帧数（见 PlaybackBufferPolicy）：两条路的缓冲深度一致，
-            // 同一台设备上换开关才不会换一种断流/滞后表现。建流自身另有下限，空间不足以容下整段
-            // 在飞 URB 时按它抬回
-            val ringFrames = PlaybackBufferPolicy.targetBufferFrames(sampleRate)
-                .coerceAtLeast(PACKETS_PER_URB * URB_COUNT)
+            // 同一台设备上换开关才不会换一种断流/滞后表现。另不小于在飞段的**目标**时长——环比在飞段
+            // 还短时播放线程写不进、回收线程也腾不出，表现为周期性停顿。全速下的实际在飞段（64ms）比这个
+            // 目标更长，而目标帧数（80ms 基准）两者都盖得住；这一类偏差由原生层按实际结果核一次并留痕，
+            // 不在这里推算
+            val ringFrames = maxOf(
+                PlaybackBufferPolicy.targetBufferFrames(sampleRate),
+                sampleRate * IN_FLIGHT_TARGET_MS / 1000,
+            )
             val ringBytes = frameBytes * ringFrames
             val handle = UsbIsoNative.open(
                 fd = deviceFd,
@@ -179,7 +198,8 @@ internal class UsbIsoOutput private constructor(
                 sampleRate = sampleRate,
                 interval = format.interval,
                 packetsPerUrb = PACKETS_PER_URB,
-                urbCount = URB_COUNT,
+                urbCount = MIN_URB_COUNT,
+                inFlightTargetMs = IN_FLIGHT_TARGET_MS,
                 ringBytes = ringBytes,
             )
             if (handle == 0L) return null

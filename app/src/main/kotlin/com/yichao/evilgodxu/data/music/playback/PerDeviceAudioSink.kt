@@ -280,9 +280,10 @@ class PerDeviceAudioSink(
             .setAudioOutputProvider(
                 TrackCapturingOutputProvider(
                     provider = AudioTrackAudioOutputProvider.Builder(context)
-                        // 缓冲按本应用的口径显式申请：媒体3 的 PCM 默认值虽同为 500ms，但那只覆盖它自己
-                        // 建轨的这一路——自建音频轨的打包整型变体与独占的等时环都不经它，靠默认值就只剩
-                        // 一处受管，三条路径的缓冲深度会各自漂移（见 PlaybackBufferPolicy）
+                        // 缓冲按本应用的口径显式申请：媒体3 对 PCM 自带的默认值是 500ms，比本应用的
+                        // 目标长得多，而它只覆盖媒体3 自己建轨的这一路——自建音频轨的打包整型变体与
+                        // 独占的等时环都不经它，靠它就会让三条路径的缓冲深度各自漂移
+                        // （见 PlaybackBufferPolicy）
                         .setAudioTrackBufferSizeProvider(PlaybackBufferPolicy.provider)
                         // 低延迟只在系统混音路径上开启：该路径要求采样率对齐设备原生采样率、会引入
                         // 重采样，且音效处理在这条路径上不可用（与本应用的「禁用音效」诉求一致）；

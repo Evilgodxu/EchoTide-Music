@@ -38,8 +38,10 @@ public:
         int interval = 1;
         /** 每个 URB 承载的服务间隔数 */
         int packetsPerUrb = 0;
-        /** 在飞的 URB 个数，决定可容忍的调度抖动 */
+        /** 在飞 URB 个数的**下限**：本层另按 [inFlightTargetMs] 与真实包率抬高，见 start() */
         int urbCount = 0;
+        /** 在飞段的目标时长（毫秒）：调度余量按时间给定，由本层折算成 URB 个数 */
+        int inFlightTargetMs = 0;
         /** 环形缓冲容量（字节） */
         int ringBytes = 0;
     };
@@ -50,8 +52,9 @@ public:
         /**
          * 已由主机侧送出的帧数：URB 回收时按各包实际长度累计。
          *
-         * 与 framesSent 差着在飞 URB 那一整段（本层默认 8×8 个服务间隔，高速下约 8ms）。播放位置只能
-         * 取自本值——按提交量报位置会让进度条与曲末判定整体偏前，而设备内部缓冲的那点余量已小到不必再管。
+         * 与 framesSent 差着在飞 URB 那一整段（本层按目标时长折算，高速下约 16ms、全速下约 64ms）。
+         * 播放位置只能取自本值——按提交量报位置会让进度条与曲末判定整体偏前，而设备内部缓冲的那点余量
+         * 已小到不必再管。
          */
         uint64_t framesPlayed = 0;
         uint64_t underruns = 0;
@@ -142,6 +145,19 @@ private:
     bool highSpeed_ = false;
     int packetsPerSecond_ = 0;
     uint32_t maxFramesPerPacket_ = 0;
+    /** 实际使用的在飞 URB 个数：由配置下限与目标时长共同求出，见 start() */
+    int urbCount_ = 0;
+    /** 在飞段的时长（微秒）：主机侧能撑住的时间上限，也是判断送流是否误期的阈值 */
+    int64_t inFlightUs_ = 0;
+    /**
+     * 送流误期到设备侧真出现缺口的累计量，由回收线程写、停机 join 之后读，故无需同步。
+     *
+     * 这一项才是「送流线程被抢占」的直接读数：环里剩多少、音频轨留多长都看不见它——回收线程不跑，
+     * 已提交的包送完之后就没有后续，HCD 无包可发即缺口。只在误期超过在飞段时计数，正常送流恒为 0。
+     */
+    uint64_t hostGapCount_ = 0;
+    uint64_t hostGapMs_ = 0;
+    uint64_t longestStallMs_ = 0;
 
     // 环形缓冲：播放线程写、回收线程读
     std::vector<uint8_t> ring_;
