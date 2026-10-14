@@ -422,8 +422,6 @@ class MusicPlaybackService : MediaSessionService() {
         // 不能以设置开关代替——开关打开而设备不支撑时播放仍走系统混音
         usbDirectOutput.onRoutingChanged = { mode ->
             stateHolder.state.directOutputMode = mode
-            // 直出成立即交回整曲播放：片段首尾的音量淡入淡出在直出链路上无从实施
-            stateHolder.state.onDirectOutputModeChanged(mode)
             // 成色在曲中才变化时（开关打开、设备接入、重算后恢复）写出变体还没跟上，补一次重配；
             // 变体未变时该方法自行跳过，故这里无须判断成色
             perDeviceSink.syncRouting()
@@ -433,6 +431,9 @@ class MusicPlaybackService : MediaSessionService() {
         serviceScope.launch {
             usbDirectOutputModeFlow().collect { enabled ->
                 usbDirectOutput.setEnabled(enabled)
+                // 开关的启用状态同步给播放状态：心动模式据此判断能否进入，见 isImmersiveOutput
+                stateHolder.state.usbDirectOutputEnabled = enabled
+                stateHolder.state.onImmersiveOutputChanged()
             }
         }
         // 独占同样在会话建立后装配。它自己订阅 USB 的接入/拔出与授权结果，故只需喂开关与成色出口；
@@ -449,6 +450,8 @@ class MusicPlaybackService : MediaSessionService() {
             usbExclusiveOutputModeFlow().collect { enabled ->
                 usbExclusiveOutput.setEnabled(enabled)
                 if (enabled) systemMediaVolume.start() else systemMediaVolume.stop()
+                stateHolder.state.usbExclusiveEnabled = enabled
+                stateHolder.state.onImmersiveOutputChanged()
             }
         }
     }

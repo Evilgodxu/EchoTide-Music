@@ -786,6 +786,16 @@ class MusicPlaybackState(
      */
     var usbExclusiveDevice by mutableStateOf<UsbExclusiveDeviceInfo?>(null)
 
+    /**
+     * 两个 USB 输出开关的启用状态，由播放服务从设置订阅后写入。
+     *
+     * 心动模式的准入直接看这两个开关，而不是看输出成色：两条路的成色都要等设备接入、属性和格式被受理
+     * 之后才成立，而用户的取向在拨动开关那一刻就定了——等到成色成立才挡，中间那段时间里仍能进入片段
+     * 播放，取向自相矛盾。
+     */
+    var usbDirectOutputEnabled by mutableStateOf(false)
+    var usbExclusiveEnabled by mutableStateOf(false)
+
     // 收藏的歌曲 ID 集合（面板级内存状态）
     var likedIds by mutableStateOf<Set<Long>>(emptySet())
 
@@ -2036,15 +2046,23 @@ class MusicPlaybackState(
     // 上一首索引
     fun previousIndex(): Int = calculateIndex(direction = -1, repeatOne = false)
 
+    /**
+     * 当前是否有 USB 输出开关处于启用。
+     *
+     * 直出与独占都属沉浸式输出（整曲保真聆听），与「把每首裁成 30–45 秒片段」的心动模式取向相斥，
+     * 故任一开关启用即不接受心动模式。
+     */
+    val immersiveOutputActive: Boolean
+        get() = isImmersiveOutput(usbDirectOutputEnabled, usbExclusiveEnabled)
+
     // ===== UI 层状态写入口：悬浮窗 UI 统一通过这些方法写入状态，避免直接对 public var 赋值 =====
     // 方法与属性 setter 同名会冲突，故用 @JvmName 指定不同 JVM 名
     @JvmName("updatePlayMode")
     fun setPlayMode(mode: PlayMode) {
         if (playMode == mode) return
-        // 直出期间不接受心动模式：直出为整曲保真聆听服务，与「把每首裁成 30–45 秒片段」的取向相斥。
-        // 界面据此说明缘由而不是静默不响应
-        if (mode == PlayMode.Highlight && directOutputMode != AudioOutputMode.MIXER) {
-            highlightExitNotice = HighlightExitReason.DirectOutput
+        // 沉浸式输出期间不接受心动模式：界面据此说明缘由而不是静默不响应
+        if (mode == PlayMode.Highlight && immersiveOutputActive) {
+            highlightExitNotice = HighlightExitReason.ImmersiveOutput
             return
         }
         val previous = playMode
@@ -2075,11 +2093,17 @@ class MusicPlaybackState(
      *
      * 成色回调来自播放线程与主线程两处，故统一切到主线程再改播放模式。
      */
-    fun onDirectOutputModeChanged(mode: AudioOutputMode) {
-        if (mode == AudioOutputMode.MIXER || playMode != PlayMode.Highlight) return
+    /**
+     * USB 输出开关变化：一经启用即退出心动模式。
+     *
+     * 开关可以在曲中才被拨动，此时模式不能就这么留在片段播放上——片段首尾的音量淡入淡出在沉浸链路上
+     * 无从实施，队列项也仍是裁过的那些。调用方须先写好开关状态再调本方法：判据读的是当前状态。
+     */
+    fun onImmersiveOutputChanged() {
+        if (!immersiveOutputActive || playMode != PlayMode.Highlight) return
         playbackScope.launch {
             if (playMode != PlayMode.Highlight) return@launch
-            highlightExitNotice = HighlightExitReason.DirectOutput
+            highlightExitNotice = HighlightExitReason.ImmersiveOutput
             setPlayMode(PlayMode.RepeatAll)
         }
     }
@@ -2216,9 +2240,24 @@ enum class HighlightExitReason {
     /** 整队列都定位不到副歌，继续跳过只会回绕空转 */
     NoChorus,
 
-    /** 音频直出成立：取向与片段播放相斥，片段模式随之退出 */
-    DirectOutput,
+    /**
+     * USB 输出开关启用：取向与片段播放相斥，片段模式随之退出。
+     *
+     * 直出与独占共用一个缘由：两者的取向完全一致（整曲保真、不裁片段），差别只在实现——一个走平台的
+     * 专用输出流，一个自己接管接口——提示语里一并说明即可，不必分成两条。
+     */
+    ImmersiveOutput,
 }
+
+/**
+ * 两个 USB 输出开关中是否有任一启用。
+ *
+ * 判据取开关而不是输出成色：成色要等设备接入、属性与格式被受理之后才成立，而用户的取向在拨动开关那一刻
+ * 就定了；等成色成立才挡，中间那段时间里心动模式仍能进入。开关互斥（见 `PlaybackPrefs`），但此处不依赖
+ * 那一点——两个都传进来，任一为真即算。
+ */
+internal fun isImmersiveOutput(usbDirectOutputEnabled: Boolean, usbExclusiveEnabled: Boolean): Boolean =
+    usbDirectOutputEnabled || usbExclusiveEnabled
 
 // 播放状态持久化快照：调用时刻即采集，避免写入协程回读时状态已被后续流程（如 release）清空
 private data class SavedPlaybackState(

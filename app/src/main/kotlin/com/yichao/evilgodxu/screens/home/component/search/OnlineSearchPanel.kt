@@ -136,8 +136,8 @@ internal fun OnlineSearchPanel(
                 playbackState.highlightExitNotice = null
                 val message = when (reason) {
                     HighlightExitReason.NoChorus -> R.string.music_panel_highlight_exit_notice
-                    HighlightExitReason.DirectOutput ->
-                        R.string.music_panel_highlight_exit_direct_output
+                    HighlightExitReason.ImmersiveOutput ->
+                        R.string.music_panel_highlight_exit_immersive_output
                 }
                 Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             }
