@@ -2,7 +2,6 @@ package com.yichao.evilgodxu.data.music.playback.usb
 
 import android.content.Context
 import android.database.ContentObserver
-import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
@@ -10,7 +9,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.Closeable
-import kotlin.math.pow
+import kotlin.math.roundToInt
 
 // 类名前缀：音量的订阅与重读都记在此名下
 private const val LOG_TAG = "SystemMediaVolume"
@@ -30,8 +29,10 @@ private const val REREAD_INTERVAL_MS = 500L
  * 绕开了混音器——`AudioManager` 的音量不再作用于这条流。于是系统音量滑杆与音量键会变成"按了没反应"，
  * 而链路停在满幅：听感上就是"太响且调不动"。唯一的解是自己施加，把系统音量取出来当软件音量。
  *
- * 取的是**平台的音量曲线**而不是按档位线性摊分：系统的媒体音量曲线在低档位压得很深（首档常达数十 dB），
- * 线性摊分会让最低一档也相当响，与系统自身的行为对不上。
+ * 换算走档位百分比：先把当前档位折算成 0..100 的整数百分比，再归一化成 0.0..1.0 的软件音量。
+ * 不经 `getStreamVolumeDb` 的平台曲线——那条曲线按 USB 设备类别查表，且**因机而异**：多数机型把中低
+ * 档位压到数十 dB 以下，换算成幅度后整条链路近乎无声，同一档位在不同手机上响度天差地别。档位百分比
+ * 与机型无关，是这里唯一说得清的口径。
  */
 internal class SystemMediaVolume(
     private val context: Context,
@@ -98,28 +99,22 @@ internal class SystemMediaVolume(
             ?: return 1f
         val max = runCatching { manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }.getOrNull()
             ?: 0
-        if (max <= 0) return 1f
-        val clamped = index.coerceIn(0, max)
-        // 按 USB 设备类别取曲线：实际发声的就是这台解码器，拿别的类别的曲线会与听感对不上。
-        // 该查询只按类别查表，与设备当前是否在系统里无关——独占期间它正是被本应用拿走了，
-        // 而这里要的恰恰是"若由系统来放，它会衰减多少"
-        val db = runCatching {
-            manager.getStreamVolumeDb(AudioManager.STREAM_MUSIC, clamped, AudioDeviceInfo.TYPE_USB_DEVICE)
-        }.getOrNull()
-        if (db != null) return dbToLinearGain(db)
-        return clamped.toFloat() / max
+        return systemVolumeGain(index, max)
     }
 }
 
 /**
- * 分贝到线性增益。
+ * 当前档位占最大档位的百分比，取整到 0..100。
  *
- * 取平台曲线而不是按档位线性摊分，原因见 [SystemMediaVolume]；这里把曲线给出的衰减换算成幅度乘数。
- * 静音档在平台上就是负无穷，对应增益 0；放大（正分贝）一律按满幅处理——独占链路上放大没有意义，
- * 越过整型边界听到的会是削顶失真。
+ * 归一化以这个整数百分比为基准（见 [systemVolumeGain]），于是用户看到的"音量百分之几"与实际施加的
+ * 幅度是同一个数，中间不再夹任何非线性换算。
+ *
+ * [max] 非正表示读不到最大档位：此时没有可比的基准，按满幅处理——压低音量只会把用户挡在声音之外。
  */
-internal fun dbToLinearGain(db: Float): Float {
-    if (db.isNaN()) return 1f
-    if (db == Float.NEGATIVE_INFINITY) return 0f
-    return 10f.pow(db / 20f).coerceIn(0f, 1f)
+internal fun volumePercent(index: Int, max: Int): Int {
+    if (max <= 0) return 100
+    return (index.coerceIn(0, max) * 100f / max).roundToInt()
 }
+
+/** 档位到软件音量的整条换算：档位 → 0..100 整数百分比 → 归一化到 0.0f..1.0f */
+internal fun systemVolumeGain(index: Int, max: Int): Float = volumePercent(index, max) / 100f
