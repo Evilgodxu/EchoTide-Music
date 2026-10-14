@@ -38,6 +38,102 @@ internal class UsbExclusiveDac private constructor(
     /** 设备声明的可播放格式；写出侧只从中挑选，不做事前建轨试探 */
     val formats: List<UsbAudioOutputFormat> get() = descriptors.outputs
 
+    /** 类特定控制：采样率与音量。全部走公开的控制传输，不依赖原生层。 */
+    val control = UsbAudioControl(connection, descriptors)
+
+    /** 已读过的时钟档位：同一时钟源会被多个格式共用，逐格式重问纯属多余 */
+    private val clockRates = mutableMapOf<Int, List<Int>>()
+
+    /**
+     * 让设备按 [format] 与 [sampleRate] 就绪，成功即可以该格式建流。
+     *
+     * 两种版本的顺序**相反**，不可互换：
+     * - UAC2 的采样率在时钟实体上，必须在切换备用设置**之前**设——切换会把流接口带入工作带宽，
+     *   此时时钟若仍在旧速率，部分设备会拒绝切换或直接按旧速率工作；
+     * - UAC1 的采样率挂在流端点上，而端点只存在于非零备用设置上，故必须在切换**之后**设。
+     *
+     * 设完一律回读核对。设备完全可能静默把请求改成它支持的档位，此时如实判为失败：直出讲究数据原样，
+     * "以设备实际速率工作却当作按源速率送出"会表现为没报错但时间轴不对，比直接失败更难查。
+     */
+    fun prepareStream(format: UsbAudioOutputFormat, sampleRate: Int): Boolean {
+        val uacVersion = descriptors.uacVersion
+        var deviceRate = 0
+        var clockSource = 0
+
+        if (uacVersion == 2) {
+            clockSource = descriptors.resolveClockSource(format.clockId) { control.selectedClockPin(it) }
+            if (clockSource == 0) {
+                CrashLogManager.logInfo(LOG_TAG, "格式 ${label(format)} 回溯不到时钟源，无法确定采样率")
+                return false
+            }
+            // UAC2 的档位不在描述符里：先问时钟，再据实核对源速率是否被支持
+            val supported = clockRates.getOrPut(clockSource) { control.readClockRates(clockSource) }
+            if (supported.isNotEmpty() && !supported.contains(sampleRate)) {
+                CrashLogManager.logInfo(
+                    LOG_TAG,
+                    "时钟 $clockSource 不支持 ${sampleRate}Hz，可用档位 $supported",
+                )
+                return false
+            }
+            deviceRate = control.setClockRate(clockSource, sampleRate)
+        } else if (!format.supportsRate(sampleRate)) {
+            CrashLogManager.logInfo(
+                LOG_TAG,
+                "格式 ${label(format)} 未声明 ${sampleRate}Hz，声明档位 ${describeRates(format)}",
+            )
+            return false
+        }
+
+        if (!selectAlternateSetting(format.interfaceNumber, format.altSetting)) return false
+
+        if (uacVersion == 1) {
+            // 只有"多档位或可设"的端点上这一请求才有意义；单档固定的设备不必也不该去设
+            val rateSettable = format.rateControlOnEndpoint || format.continuousRates ||
+                format.rates.size > 1
+            if (rateSettable) {
+                deviceRate = control.setEndpointRate(format.endpointAddress, sampleRate)
+            }
+        }
+
+        if (deviceRate != 0 && deviceRate != sampleRate) {
+            CrashLogManager.logInfo(
+                LOG_TAG,
+                "已请求 ${sampleRate}Hz，设备实际为 ${deviceRate}Hz，本次输出不成立",
+            )
+            // 退回零带宽：留在已切换的备用设置上会让设备继续占用带宽
+            selectAlternateSetting(format.interfaceNumber, 0)
+            return false
+        }
+        CrashLogManager.logInfo(
+            LOG_TAG,
+            "已就绪：${label(format)} ${sampleRate}Hz" +
+                if (clockSource != 0) "（时钟 $clockSource）" else "",
+        )
+        return true
+    }
+
+    /** 选定备用设置。等时端点只在非零备用设置上存在，未选定前设备侧并没有那条端点。 */
+    private fun selectAlternateSetting(interfaceNumber: Int, altSetting: Int): Boolean {
+        val target = (0 until device.interfaceCount)
+            .map { device.getInterface(it) }
+            .firstOrNull { it.id == interfaceNumber && it.alternateSetting == altSetting }
+        if (target == null) {
+            CrashLogManager.logInfo(LOG_TAG, "设备未暴露接口 $interfaceNumber 的备用设置 $altSetting")
+            return false
+        }
+        if (!connection.setInterface(target)) {
+            CrashLogManager.logInfo(LOG_TAG, "切换接口 $interfaceNumber 到备用设置 $altSetting 失败")
+            return false
+        }
+        return true
+    }
+
+    private fun label(format: UsbAudioOutputFormat): String =
+        "接口${format.interfaceNumber}.${format.altSetting}"
+
+    private fun describeRates(format: UsbAudioOutputFormat): String =
+        if (format.continuousRates) "${format.minRate}..${format.maxRate}Hz" else "${format.rates}"
+
     private var closed = false
 
     @Synchronized
