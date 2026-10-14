@@ -8,7 +8,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # 不引入任何第三方库：等时传输所需的全部 ABI 都在平台 sysroot 里
 add_library(echotide_usb_iso SHARED
         echotide_usb_iso/UsbIsoStream.cpp
-        echotide_usb_iso/jni_bridge.cpp)
+        echotide_usb_iso/jni_bridge.cpp
+        echotide_usb_iso/crash_recorder.cpp)
 
 target_compile_options(echotide_usb_iso PRIVATE -Wall -Wextra)
 target_link_libraries(echotide_usb_iso log)

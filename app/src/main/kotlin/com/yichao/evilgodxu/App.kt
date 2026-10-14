@@ -27,6 +27,7 @@ import com.yichao.evilgodxu.floatingwindow.LocalMiniPlayerController
 import com.yichao.evilgodxu.floatingwindow.MiniPlayerController
 import com.yichao.evilgodxu.localization.LocalizationManager
 import com.yichao.evilgodxu.log.CrashLogManager
+import com.yichao.evilgodxu.log.NativeCrashMonitor
 import com.yichao.evilgodxu.update.LocalUpdateViewModel
 import com.yichao.evilgodxu.update.UpdateViewModel
 import kotlinx.coroutines.CoroutineScope
@@ -74,6 +75,10 @@ class App : Application() {
         enableStrictModeInDebugBuild()
         // 最先初始化崩溃日志，捕获启动阶段异常
         CrashLogManager.init(this)
+        // 原生崩溃单独一条链：Java 侧崩溃会落进上面的日志，原生信号（SIGSEGV 等）则直接杀进程、
+        // 什么都不留。先回收上次可能留下的记录，再为本进程装上处理器
+        NativeCrashMonitor.recover(this)
+        NativeCrashMonitor.install(this)
         // 首帧前同步预置上次播放状态：曲目、进度、背景取色与封面/歌词一并就位，
         // 使首页首帧即是完整内容，不必先渲染空态与占位符再等异步恢复（见 seedFromBootMirror）。
         // 这是启动关键路径上的刻意读盘，与语言镜像同理，异步化会让空窗又回到首帧上
