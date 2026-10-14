@@ -22,12 +22,14 @@ import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.repository.SettingsRepository
 import com.yichao.evilgodxu.data.settings.bootstrapAppLanguage
 import com.yichao.evilgodxu.data.settings.settingsDataStore
+import com.yichao.evilgodxu.data.settings.usbExclusiveOutputModeFlow
 import com.yichao.evilgodxu.data.settings.writeBootLanguage
 import com.yichao.evilgodxu.floatingwindow.LocalMiniPlayerController
 import com.yichao.evilgodxu.floatingwindow.MiniPlayerController
 import com.yichao.evilgodxu.localization.LocalizationManager
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.log.NativeCrashMonitor
+import com.yichao.evilgodxu.service.setUsbAttachEntryEnabled
 import com.yichao.evilgodxu.update.LocalUpdateViewModel
 import com.yichao.evilgodxu.update.UpdateViewModel
 import kotlinx.coroutines.CoroutineScope
@@ -93,6 +95,11 @@ class App : Application() {
         appScope.launch {
             runCatching { settingsDataStore.data.first() }
             runCatching { writeBootLanguage(applicationContext, applicationContext.bootstrapAppLanguage()) }
+        }
+        // USB 接入入口跟着独占开关启停：开关关着时该入口不认领设备，系统也就不会弹「用哪个应用打开」。
+        // 订阅落盘值而非开关回调，故设置页之外的写入同样生效（见 setUsbAttachEntryEnabled）
+        appScope.launch {
+            runCatching { usbExclusiveOutputModeFlow().collect { setUsbAttachEntryEnabled(it) } }
         }
         // 收窄图片内存缓存到进程堆的 10%，把堆留给 ExoPlayer 高解析度音频缓冲，
         // 缓解封面解码与播放并发时的 OOM；
