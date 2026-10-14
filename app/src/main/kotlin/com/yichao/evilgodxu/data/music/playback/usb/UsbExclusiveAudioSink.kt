@@ -53,12 +53,12 @@ internal class UsbExclusiveAudioSink(
      */
     private val session: () -> UsbExclusiveDac?,
     /**
-     * 系统媒体音量（线性增益，0..1）。
+     * 应用自持音量（线性增益，0..1），档位由 [com.yichao.evilgodxu.data.music.playback.ExclusiveVolume] 持有。
      *
-     * 必须自己施加：绕开混音器即绕开 `AudioManager` 的音量，而本应用的音量由系统掌管（播放器音量恒为 1），
-     * 不取过来这条流就永远停在满幅——听感上是"太响且调不动"。见 [SystemMediaVolume]。
+     * 必须自己施加：绕开混音器即绕开 `AudioManager` 的音量，不施加这条流就永远停在满幅。独占期间系统
+     * 媒体音量已不再参与（音量键也已被会话的远端音量通道接管），故这里的取值与系统音量无关。
      */
-    private val systemVolume: () -> Float = { 1f },
+    private val appVolume: () -> Float = { 1f },
     /**
      * 写出编码的上报出口：等时输出建立时报出设备实际收到的位深，释放时报空。
      *
@@ -71,8 +71,14 @@ internal class UsbExclusiveAudioSink(
     private var listener: AudioSink.Listener = SILENT_LISTENER
     private var clock: Clock = Clock.DEFAULT
     private var audioAttributes = AudioAttributes.DEFAULT
-    /** 播放器音量：平时恒为 1（本应用的音量由系统掌管），心动模式的片段淡入淡出靠它 */
+    /** 播放器音量：平时恒为 1，心动模式的片段淡入淡出靠它 */
     private var volume = 1f
+
+    /** 上一块缓冲收敛到的定点增益：本块由它斜到目标值，音量改动才不落在缓冲边界上 */
+    private var appliedGainQ15 = UNITY_GAIN_Q15
+
+    /** 下一块缓冲是否直接从目标增益起步：跳转与重配之后，旧增益属于上一段声音，不该斜过去 */
+    private var rampJumpNext = false
 
     /** 是否处于暂停：暂停期间待播量必须保留，见 [hasPendingData] */
     private var paused = false
@@ -194,6 +200,7 @@ internal class UsbExclusiveAudioSink(
         lastStatsMs = 0
         lastFedMs = 0
         lastReportedUnderruns = 0
+        rampJumpNext = true
 
         val active = session()
         if (active == null) {
@@ -283,6 +290,7 @@ internal class UsbExclusiveAudioSink(
     // 跳转后媒体时间与已写出时长不再连续，须在新缓冲处重新落锚点，位置换算才不会沿用旧锚点
     override fun handleDiscontinuity() {
         checkpointPending = true
+        rampJumpNext = true
     }
 
     override fun flush() {
@@ -293,6 +301,7 @@ internal class UsbExclusiveAudioSink(
         drained = false
         checkpointPending = true
         checkpoints.clear()
+        rampJumpNext = true
     }
 
     override fun reset() {
@@ -387,7 +396,7 @@ internal class UsbExclusiveAudioSink(
     }
 
     /**
-     * 音量改由本层施加（见 [packToSubslot] 的 volume 参数），不转发给任何平台对象。
+     * 音量改由本层施加（见 [targetGainQ15] 与 [packToSubslot] 的增益参数），不转发给任何平台对象。
      *
      * 真正的作用点在样本打包处，那里每次写入都读一遍本取值——绕开混音器之后，平台的音量与
      * `AudioManager` 都不再作用于这条流，软件音量是唯一还剩的手段。等于 1 时整段缩放不参与。
@@ -521,18 +530,24 @@ internal class UsbExclusiveAudioSink(
     private fun convert(source: ByteBuffer, format: Format): ByteBuffer {
         val bytesPerSample = Util.getPcmFrameSize(format.pcmEncoding, 1)
         val output = scratchBuffer(source.remaining() / bytesPerSample * subslotBytes)
-        packToSubslot(source, output, format.pcmEncoding, subslotBytes, appliedVolume())
+        val target = targetGainQ15()
+        // 跳转与重配之后从目标值直接起步：此刻的旧增益属于上一段声音，斜过去只是把一个不该存在的过渡
+        // 补进新段落里
+        val from = if (rampJumpNext) target else appliedGainQ15
+        rampJumpNext = false
+        appliedGainQ15 = target
+        packToSubslot(source, output, format.pcmEncoding, subslotBytes, from, target)
         output.flip()
         return output
     }
 
     /**
-     * 本次写出实际施加的音量：播放器音量与系统音量的乘积。
+     * 本次写出应收敛到的定点增益：播放器音量与应用音量的乘积。
      *
-     * 两者相乘而非取其一：播放器音量平时恒为 1（本应用的音量由系统掌管），但心动模式的片段首尾靠它做
-     * 淡入淡出，独占路径上那次斜坡也得照常生效。等于 1 时打包器整段缩放不参与，写出仍是逐位原样。
+     * 两者相乘而非取其一：播放器音量平时恒为 1，但心动模式的片段首尾靠它做淡入淡出，独占路径上那次
+     * 斜坡也得照常生效。等于满幅时打包器整段缩放不参与，写出仍是逐位原样。
      */
-    private fun appliedVolume(): Float = (volume * systemVolume()).coerceIn(0f, 1f)
+    private fun targetGainQ15(): Int = volumeToGainQ15((volume * appVolume()).coerceIn(0f, 1f))
 
     private fun scratchBuffer(size: Int): ByteBuffer {
         val current = scratch

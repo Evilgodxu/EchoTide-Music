@@ -16,10 +16,13 @@ import java.nio.ByteBuffer
  * 因此调用方必须先确认子槽容得下源位深再打包：[planUsbOutput] 已经把这一步挡在选择之前，本函数不做
  * 静默降级——源位深更深时低位会被直接丢弃，而"少了几位"这种事在听感上未必立刻可辨，比直接失败更难查。
  *
- * [volume] 是软件音量：raw 路径绕过了混音器，`AudioManager` 的音量与音效都不再作用于这条流，
- * 系统音量滑杆若想要有用就只能自己做。等于 1 时整段缩放不参与，写出仍是逐位原样——独占直出的价值
- * 正在于此，不该因为一个恒为满幅的乘数而被牺牲掉。小于 1 时按线性幅度缩放（与媒体3 的音量口径一致），
- * 并带半步进位以免每次向下取整都引入同样的直流偏置。
+ * 音量按 15 位定点增益施加：raw 路径绕过了混音器，`AudioManager` 的音量与音效都不再作用于这条流，
+ * 系统音量滑杆若想要有用就只能自己做。起止增益相同且为满幅时整段缩放不参与，写出仍是逐位原样——独占
+ * 直出的价值正在于此，不该因为一个恒为满幅的乘数而被牺牲掉。小于 1 时按线性幅度缩放（与媒体3 的音量
+ * 口径一致），并带半步进位以免每次向下取整都引入同样的直流偏置。
+ *
+ * 起止增益不同即在**本块缓冲内**逐样本斜到目标值：音量键按下即生效，而一次改动不会在缓冲边界上留一个
+ * 台阶。台阶本身未必听成咔哒，但每块缓冲都来一次就是持续的背景噪声。
  *
  * 打包留在 Kotlin 而非原生层，是因为它是可判定的纯变换：能在 JVM 上逐字节核对，就不必把正确性押在
  * 真机试听上。
@@ -32,15 +35,28 @@ internal fun packToSubslot(
     output: ByteBuffer,
     pcmEncoding: Int,
     subslotBytes: Int,
-    volume: Float = 1f,
+    gainFromQ15: Int = UNITY_GAIN_Q15,
+    gainToQ15: Int = gainFromQ15,
 ): Int {
     require(subslotBytes in 1..4) { "子槽宽度只能是 1..4 字节，收到 $subslotBytes" }
     val bytesPerSourceSample = Util.getPcmFrameSize(pcmEncoding, 1)
-    val gain = volumeToGainQ15(volume)
-    val applyGain = gain != UNITY_GAIN_Q15
-    while (source.remaining() >= bytesPerSourceSample) {
-        val value = PcmAudioUtil.readAs32BitIntPcm(source, pcmEncoding)
-        writeSubslot(output, if (applyGain) scaleByGain(value, gain) else value, subslotBytes)
+    if (gainFromQ15 == gainToQ15) {
+        val applyGain = gainFromQ15 != UNITY_GAIN_Q15
+        while (source.remaining() >= bytesPerSourceSample) {
+            val value = PcmAudioUtil.readAs32BitIntPcm(source, pcmEncoding)
+            writeSubslot(output, if (applyGain) scaleByGain(value, gainFromQ15) else value, subslotBytes)
+        }
+    } else {
+        // 斜坡按本块样本数均分：末样本正好落在目标增益上，下一块即从目标值接着走
+        val samples = source.remaining() / bytesPerSourceSample
+        val span = (samples - 1).coerceAtLeast(1)
+        var index = 0
+        while (source.remaining() >= bytesPerSourceSample) {
+            val value = PcmAudioUtil.readAs32BitIntPcm(source, pcmEncoding)
+            val gain = gainFromQ15 + ((gainToQ15 - gainFromQ15).toLong() * index / span).toInt()
+            writeSubslot(output, scaleByGain(value, gain), subslotBytes)
+            index++
+        }
     }
     val leftover = source.remaining()
     if (leftover > 0) {

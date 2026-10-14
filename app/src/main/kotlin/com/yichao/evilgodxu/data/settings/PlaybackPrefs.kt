@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import com.yichao.evilgodxu.data.settings.settingsDataStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -58,6 +59,17 @@ private val usbExclusiveOutputModeKey = booleanPreferencesKey("usb_raw_exclusive
 
 fun Context.usbExclusiveOutputModeFlow(): Flow<Boolean> =
     settingsDataStore.data.map { it[usbExclusiveOutputModeKey] ?: false }
+
+// 独占音量的档位（0..160，每级 0.5 dB）。与独占开关同放一份设置：它是独占的从属状态，开关被带走时
+// 音量没有单独留存的意义。空值表示从未写过（首次安装或从旧版本升级），由播放服务落到默认档
+private val exclusiveVolumeStepKey = intPreferencesKey("usb_exclusive_volume_step")
+
+fun Context.exclusiveVolumeStepFlow(): Flow<Int?> =
+    settingsDataStore.data.map { it[exclusiveVolumeStepKey] }
+
+suspend fun Context.saveExclusiveVolumeStep(step: Int) = withContext(Dispatchers.IO) {
+    settingsDataStore.edit { it[exclusiveVolumeStepKey] = step }
+}
 
 /** 两路互斥的 USB 输出。命名对应各自的机制，而非开关在界面上的位置。 */
 internal enum class UsbOutputKind {

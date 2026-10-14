@@ -6,6 +6,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.PcmAudioUtil
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -150,6 +151,106 @@ class UsbSubslotPackerTest {
         assertEquals(UNITY_GAIN_Q15 / 2, volumeToGainQ15(0.5f))
     }
 
+    // 起止增益相同即整段等增益：音量没变时斜坡不该掺进来，逐字节与单增益的写法一致
+    @Test
+    fun equalGainsLeaveNoRamp() {
+        assertArrayEquals(
+            pack(byteBuffer(0x00, 0x40, 0x00, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 2, volume = 0.5f),
+            packRamped(
+                byteBuffer(0x00, 0x40, 0x00, 0x40),
+                C.ENCODING_PCM_16BIT,
+                subslotBytes = 2,
+                gainFromQ15 = UNITY_GAIN_Q15 / 2,
+            ),
+        )
+    }
+
+    // 斜坡的两端：首样本正在起始增益上，末样本正好落在目标增益上——末样本差一点，下一块缓冲就会
+    // 重新起一个台阶，那正是斜坡要消掉的东西
+    @Test
+    fun rampStartsAtFromAndEndsExactlyAtTarget() {
+        val samples = 5
+        val source = ByteBuffer.allocate(samples * 2).order(ByteOrder.nativeOrder())
+        repeat(samples) { source.putShort(0x7FFF) }
+        source.flip()
+
+        val output = packRamped(
+            source,
+            C.ENCODING_PCM_16BIT,
+            subslotBytes = 2,
+            gainFromQ15 = UNITY_GAIN_Q15 / 2,
+            gainToQ15 = UNITY_GAIN_Q15,
+        )
+
+        // 首样本：0x7FFF 半幅即 16383.5，取高 16 位截断为 16383
+        assertEquals(16383, shortAt(output, 0))
+        // 末样本：目标增益是满幅，样本一位不动
+        assertEquals(32767, shortAt(output, samples - 1))
+    }
+
+    // 斜坡逐样本单调不减：中途回头会听成一次抖动
+    @Test
+    fun rampIsMonotonic() {
+        val samples = 16
+        val source = ByteBuffer.allocate(samples * 2).order(ByteOrder.nativeOrder())
+        repeat(samples) { source.putShort(0x7FFF) }
+        source.flip()
+
+        val output = packRamped(
+            source,
+            C.ENCODING_PCM_16BIT,
+            subslotBytes = 2,
+            gainFromQ15 = UNITY_GAIN_Q15 / 4,
+            gainToQ15 = UNITY_GAIN_Q15,
+        )
+        val values = (0 until samples).map { shortAt(output, it) }
+
+        assertEquals(values.sorted(), values)
+    }
+
+    // 坡度是逐样本插值而不是首样本就用目标值：第二个样本必须仍在起始与目标之间
+    @Test
+    fun rampInterpolatesSampleBySample() {
+        val samples = 3
+        val source = ByteBuffer.allocate(samples * 2).order(ByteOrder.nativeOrder())
+        repeat(samples) { source.putShort(0x7FFF) }
+        source.flip()
+
+        val output = packRamped(
+            source,
+            C.ENCODING_PCM_16BIT,
+            subslotBytes = 2,
+            gainFromQ15 = 0,
+            gainToQ15 = UNITY_GAIN_Q15,
+        )
+
+        assertEquals(0, shortAt(output, 0))
+        assertEquals(16383, shortAt(output, 1))
+        assertEquals(32767, shortAt(output, samples - 1))
+    }
+
+    // 斜坡下负样本仍不翻正：缩放一律按补码语义
+    @Test
+    fun rampKeepsNegativeSamplesNegative() {
+        val samples = 4
+        val source = ByteBuffer.allocate(samples * 2).order(ByteOrder.nativeOrder())
+        repeat(samples) { source.putShort(-16384) }
+        source.flip()
+
+        val output = packRamped(
+            source,
+            C.ENCODING_PCM_16BIT,
+            subslotBytes = 2,
+            gainFromQ15 = UNITY_GAIN_Q15 / 2,
+            gainToQ15 = UNITY_GAIN_Q15,
+        )
+
+        assertTrue((0 until samples).all { shortAt(output, it) < 0 })
+    }
+
+    private fun shortAt(bytes: ByteArray, index: Int): Int =
+        (bytes[index * 2].toInt() and 0xFF) or (bytes[index * 2 + 1].toInt() shl 8)
+
     private fun subslot(value: Int, subslotBytes: Int): ByteArray {
         val buffer = ByteBuffer.allocate(subslotBytes).order(ByteOrder.nativeOrder())
         writeSubslot(buffer, value, subslotBytes)
@@ -161,10 +262,18 @@ class UsbSubslotPackerTest {
         encoding: Int,
         subslotBytes: Int,
         volume: Float = 1f,
+    ): ByteArray = packRamped(source, encoding, subslotBytes, volumeToGainQ15(volume))
+
+    private fun packRamped(
+        source: ByteBuffer,
+        encoding: Int,
+        subslotBytes: Int,
+        gainFromQ15: Int,
+        gainToQ15: Int = gainFromQ15,
     ): ByteArray {
         // 容量按最坏情况给足：每个源字节最多产出一个输出字节
         val output = ByteBuffer.allocate(source.remaining() * subslotBytes).order(ByteOrder.nativeOrder())
-        packToSubslot(source, output, encoding, subslotBytes, volume)
+        packToSubslot(source, output, encoding, subslotBytes, gainFromQ15, gainToQ15)
         val written = ByteArray(output.position())
         output.flip()
         output.get(written)

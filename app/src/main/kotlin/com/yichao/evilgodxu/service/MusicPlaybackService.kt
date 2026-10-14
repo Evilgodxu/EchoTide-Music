@@ -31,22 +31,28 @@ import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.playback.AudioSignalPathFormat
 import com.yichao.evilgodxu.data.music.playback.DecodedOutputFormat
 import com.yichao.evilgodxu.data.music.playback.DirectOutputDoNotDisturb
+import com.yichao.evilgodxu.data.music.playback.ExclusiveVolume
+import com.yichao.evilgodxu.data.music.playback.ExclusiveVolumePlayer
 import com.yichao.evilgodxu.data.music.playback.PerDeviceAudioSink
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.UsbDirectOutput
 import com.yichao.evilgodxu.data.music.playback.alac.AlacAudioRenderer
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
-import com.yichao.evilgodxu.data.music.playback.usb.SystemMediaVolume
 import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveAudioSink
 import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveOutput
 import com.yichao.evilgodxu.data.music.playback.usb.UsbOutputSink
+import com.yichao.evilgodxu.data.settings.exclusiveVolumeStepFlow
+import com.yichao.evilgodxu.data.settings.saveExclusiveVolumeStep
 import com.yichao.evilgodxu.data.settings.usbDirectOutputModeFlow
 import com.yichao.evilgodxu.data.settings.usbExclusiveOutputModeFlow
 import com.yichao.evilgodxu.log.CrashLogManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.ArrayList
 
@@ -64,10 +70,16 @@ class MusicPlaybackService : MediaSessionService() {
     /** USB 独占：把 USB 音频接口收归本应用（内核驱动随之解绑），与直出互斥的第二条路 */
     private lateinit var usbExclusiveOutput: UsbExclusiveOutput
     /**
-     * 系统媒体音量。本应用的音量由系统掌管（播放器音量恒为 1），而独占绕开混音器后系统音量不再作用于
-     * 这条流，故由独占写出侧自己施加——见 [SystemMediaVolume]。
+     * 独占路径的应用自持音量。独占绕开混音器后系统音量不再作用于这条流，响度只能自己做，
+     * 音量键经会话的远端音量通道落到它身上——见 [ExclusiveVolume] 与 [ExclusiveVolumePlayer]。
      */
-    private lateinit var systemMediaVolume: SystemMediaVolume
+    private val exclusiveVolume = ExclusiveVolume()
+
+    /** 把 [exclusiveVolume] 接到媒体会话上：独占成立期间自报远端设备音量，音量键即归应用 */
+    private lateinit var exclusiveVolumePlayer: ExclusiveVolumePlayer
+
+    /** 音量落盘的延时任务：长按音量键会连续改档，合并到最后一次取值再写盘 */
+    private var persistVolumeJob: Job? = null
     /** 直出期间的系统免打扰：随输出成色进出 */
     private lateinit var directOutputDoNotDisturb: DirectOutputDoNotDisturb
     // 播放设置的读取与直出都要求主线程：ExoPlayer 与其 AudioTrack 均只在主线程访问
@@ -167,10 +179,8 @@ class MusicPlaybackService : MediaSessionService() {
             session = {
                 if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.currentSession() else null
             },
-            // 独占绕开混音器，系统音量得由本层施加；未装配时按满幅，不影响其它路径
-            systemVolume = {
-                if (::systemMediaVolume.isInitialized) systemMediaVolume.gain() else 1f
-            },
+            // 独占绕开混音器，故由写出侧施加应用自持的音量；未装配时按满幅，不影响其它路径
+            appVolume = { exclusiveVolume.gain() },
             // 独占这条路上没有音频轨可供平台回填写出编码，故由写出侧直接上报；
             // 不走 reportOutputEncoding：那条出口还兼着"让直出重算路由"的职责，而独占期间直出并不参与
             onOutputEncodingChanged = { encoding ->
@@ -193,6 +203,10 @@ class MusicPlaybackService : MediaSessionService() {
                 if (exclusive && ::usbExclusiveOutput.isInitialized) {
                     stateHolder.state.usbExclusiveDevice = usbExclusiveOutput.deviceInfo()
                 }
+                // 独占承接写出期间把会话切到远端音量：音量键归应用，系统媒体音量一个数都不动；
+                // 退回平台路径即交还系统。回调来自播放线程（渲染器重配点），而播放器状态只能在
+                // 它自己的线程上刷新，故投递一次
+                serviceScope.launch { exclusiveVolumePlayer.setRemote(exclusive) }
             },
             onDecodedFormatChanged = reportDecodedFormat,
             onVariantChanged = reportOutputVariant,
@@ -261,6 +275,11 @@ class MusicPlaybackService : MediaSessionService() {
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
             .build()
+        // 会话侧的设备音量自报：独占成立期间才报远端（音量键归应用），退回平台路径即交还系统。
+        // 播放器一建好就装配，独占路由的回报（渲染器重配点）多半晚于此处
+        exclusiveVolumePlayer = ExclusiveVolumePlayer(player, exclusiveVolume) { step ->
+            persistExclusiveVolume(step)
+        }
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) requestAudioFocus()
@@ -404,7 +423,7 @@ class MusicPlaybackService : MediaSessionService() {
                 stateHolder.state.audioDecoderName = decoderName
             }
         })
-        mediaSession = MediaSession.Builder(this, SkipProxyPlayer(player))
+        mediaSession = MediaSession.Builder(this, SkipProxyPlayer(exclusiveVolumePlayer))
             .setCallback(sessionCallback)
             .build()
         // 直出不参与媒体会话，在会话建立后单独装配；设置变更即刻生效，无需重启服务。
@@ -446,16 +465,38 @@ class MusicPlaybackService : MediaSessionService() {
             // 交还后随之清空，以免面板继续展示一台已不在手里的设备
             stateHolder.state.usbExclusiveDevice = usbExclusiveOutput.deviceInfo()
         }
-        // 系统音量只在独占成立期间才有必要订阅：其余路径由平台的混音器施加音量，本层不参与
-        systemMediaVolume = SystemMediaVolume(this, audioManager)
+        // 独占开关只在此处喂给接管方：接管是否成立由它自己订阅的设备接入与授权结果决定，
+        // 开关开着不等于接管成功，成色另由 UsbOutputSink 按实际路由上报
         serviceScope.launch {
             usbExclusiveOutputModeFlow().collect { enabled ->
                 usbExclusiveOutput.setEnabled(enabled)
-                if (enabled) systemMediaVolume.start() else systemMediaVolume.stop()
                 stateHolder.state.usbExclusiveEnabled = enabled
                 stateHolder.state.onImmersiveOutputChanged()
             }
         }
+        // 上次的档位在起播前恢复：读盘与独占开关的读取走同一份设置，两者都在同一批协程里完成
+        serviceScope.launch {
+            applicationContext.exclusiveVolumeStepFlow().first()?.let(exclusiveVolumePlayer::restoreStep)
+        }
+    }
+
+    /**
+     * 档位落盘。
+     *
+     * 延时合并长按产生的连续改动：档位在长按期间每几十毫秒变一次，逐档写盘等于把写盘频率挂在按键重复率上。
+     * 音量是非关键数据，合并到最后一次取值即可——中途进程被杀只丢最近一次改动。
+     */
+    private fun persistExclusiveVolume(step: Int) {
+        persistVolumeJob?.cancel()
+        persistVolumeJob = serviceScope.launch {
+            delay(VOLUME_PERSIST_DELAY_MS)
+            applicationContext.saveExclusiveVolumeStep(step)
+        }
+    }
+
+    /** 音量落盘的合并窗口：长按音量键的重复间隔远小于它，抬手之后才会真正写盘 */
+    private companion object {
+        const val VOLUME_PERSIST_DELAY_MS = 500L
     }
 
     /** 拦截系统媒体面板和耳机/蓝牙媒体键的上一首/下一首操作 */
@@ -605,7 +646,6 @@ class MusicPlaybackService : MediaSessionService() {
         usbDirectOutput.release()
         // 独占必须显式归还：接口不还，内核的音频驱动就一直是解绑状态，该解码器在系统音频里始终不出现
         if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.close()
-        if (::systemMediaVolume.isInitialized) systemMediaVolume.close()
         // 服务销毁时成色回调已无从投递（作用域已取消），免打扰在此直接兜底还原
         directOutputDoNotDisturb.release()
         mediaSession?.release()
