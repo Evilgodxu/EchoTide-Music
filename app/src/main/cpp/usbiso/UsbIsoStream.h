@@ -112,6 +112,7 @@ private:
     Config config_;
     std::vector<std::unique_ptr<Urb>> urbs_;
     std::unique_ptr<FeedbackUrb> feedback_;
+    /** 本层自己持有的 fd：建流时从调用方给的 fd 复制一份，见 start() */
     int fd_ = -1;
     bool highSpeed_ = false;
     int packetsPerSecond_ = 0;

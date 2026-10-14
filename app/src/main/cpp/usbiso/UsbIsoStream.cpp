@@ -6,6 +6,7 @@
 #include <linux/usbdevice_fs.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
@@ -38,6 +39,16 @@ uint32_t readU32(const uint8_t* p) {
     return uint32_t(p[0]) | (uint32_t(p[1]) << 8) | (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
 }
 
+/**
+ * 提交失败是否意味着这条流再无可能恢复。
+ *
+ * 设备已拔出、连接已关闭、接口已归还，这三类都让后续提交必然同样失败——任其反复失败会让环再也腾不出
+ * 空间，播放线程随之永久阻塞。其余错误（如瞬时带宽不足）留给下一次机会即可。
+ */
+bool isFatalSubmitError(int code) {
+    return code == ENODEV || code == ESHUTDOWN || code == EBADF || code == ENOENT || code == ENXIO;
+}
+
 /** 把 usbdevfs_urb 及其尾部柔性数组成员安置进给定的存储块 */
 usbdevfs_urb* placeUrb(std::vector<uint64_t>& storage, int packetCount) {
     const size_t bytes = sizeof(usbdevfs_urb) + sizeof(usbdevfs_iso_packet_desc) * size_t(packetCount);
@@ -55,6 +66,11 @@ std::unique_ptr<UsbIsoStream> UsbIsoStream::create(const Config& config, std::st
 
 UsbIsoStream::~UsbIsoStream() {
     stop();
+    // 关闭本层自己复制的那份 fd（见 start）。停机后回收线程已 join，此时不再有 ioctl 在飞
+    if (fd_ >= 0) {
+        ::close(fd_);
+        fd_ = -1;
+    }
 }
 
 bool UsbIsoStream::start(const Config& config, std::string& error) {
@@ -64,7 +80,14 @@ bool UsbIsoStream::start(const Config& config, std::string& error) {
         error = "建流参数不完整";
         return false;
     }
-    fd_ = config_.fd;
+    // 自己复制一份 fd 而不是直接用它：调用方随时可能因拔插或归还设备而关掉连接，而内核会把那个编号
+    // 立刻回收给别的打开操作——继续用原编号发 ioctl 就打到别人的文件上去了。复制后本层的生命周期
+    // 与调用方解耦：即便连接已关，本层收到的也只是设备已不可用，而不会误伤无关的文件
+    fd_ = ::dup(config_.fd);
+    if (fd_ < 0) {
+        error = "复制设备文件描述符失败：" + errnoText(errno);
+        return false;
+    }
 
     // 服务间隔频率取决于 USB 速度：高速为 8000 个微帧/秒，其余为 1000 个帧/秒。
     // 速度取自平台自身的查询口（libusb 也是这么得到的），拿不到时按最大包长反推：
@@ -286,8 +309,17 @@ void UsbIsoStream::fillAndSubmit(usbdevfs_urb* urb) {
     urb->usercontext = nullptr;
 
     if (ioctl(fd_, USBDEVFS_SUBMITURB, urb) < 0) {
+        const int code = errno;
         ++transferErrors_;
         slot->inFlight = false;
+        // 提交失败若是设备已不在或接口已被归还，则这条流再无可能恢复：不判定终止的话环再也腾不出空间，
+        // 播放线程会一直等在那里——表现为整曲卡死而不是安静地失败
+        if (isFatalSubmitError(code)) {
+            logError("提交 URB 失败且无法恢复：" + errnoText(code));
+            disconnected_ = true;
+            running_ = false;
+            ringCv_.notify_all();
+        }
         return;
     }
     slot->inFlight = true;
@@ -314,8 +346,14 @@ void UsbIsoStream::submitFeedback() {
     urb->iso_frame_desc[0].actual_length = 0;
     urb->iso_frame_desc[0].status = 0;
     if (ioctl(fd_, USBDEVFS_SUBMITURB, urb) < 0) {
+        const int code = errno;
         ++transferErrors_;
         feedback_->inFlight = false;
+        // 反馈端点提交不上不必终止整条流：它只是自适应时钟的跟随手段，缺了包长退回标称值而已
+        if (isFatalSubmitError(code)) {
+            logError("提交反馈 URB 失败：" + errnoText(code));
+            feedback_.reset();
+        }
         return;
     }
     feedback_->inFlight = true;
