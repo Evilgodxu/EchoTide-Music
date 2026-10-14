@@ -40,6 +40,12 @@
         android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
 
+    <!-- USB 独占直出：自接管 USB 音频接口，需 USB 主机能力。
+         声明为非必需——不支持主机模式或未接解码器的设备照常可用，直出只是其上的可选一路 -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
     <application
         android:name=".App"
         android:allowBackup="true"
