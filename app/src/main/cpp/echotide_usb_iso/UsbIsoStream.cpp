@@ -242,8 +242,6 @@ UsbIsoStream::Stats UsbIsoStream::stats() const {
     result.framesSent = framesSent_.load();
     result.framesPlayed = framesPlayed_.load();
     result.underruns = underruns_.load();
-    result.missedFrames = missedFrames_.load();
-    result.urbErrors = urbErrors_.load();
     result.transferErrors = transferErrors_.load();
     result.disconnected = disconnected_.load();
     return result;
@@ -316,7 +314,6 @@ void UsbIsoStream::reapLoop() {
 
         if (completed->status != 0 && completed->status != kStatusPartial) {
             ++transferErrors_;
-            ++urbErrors_;
             if (completed->status == -ENODEV || completed->status == -ESHUTDOWN) {
                 // 设备已不可用：不再投递，但**继续回收**——剩下的那些仍在内核手里，
                 // 此刻退出会让它们永远收不回来，析构路径就只能放弃释放
@@ -376,8 +373,6 @@ void UsbIsoStream::fillAndSubmit(usbdevfs_urb* urb) {
             // 暂停不是欠载：此刻本就不该有数据送出
             if (!paused && primed_.load()) {
                 ++underruns_;
-                // 少送了多少帧同样记下：听感上的断口长度由它决定，光有次数判不出轻重
-                missedFrames_ += (want - got) / size_t(config_.frameBytes);
             }
         }
         realBytes += got;

@@ -98,19 +98,16 @@ extern "C" JNIEXPORT jlongArray JNICALL
 Java_com_yichao_evilgodxu_data_music_playback_usb_UsbIsoNative_stats(
         JNIEnv* env, jclass clazz, jlong handle) {
     (void) clazz;
-    // 顺序与 Kotlin 侧 Stats 的构造一一对应：装入帧数、送出帧数、欠载次数、少送帧数、
-    // URB 错误数、传输错误数、是否断开
-    constexpr int kValueCount = 7;
-    jlong values[kValueCount] = {0, 0, 0, 0, 0, 0, 0};
+    // 顺序与 Kotlin 侧 Stats 的构造一一对应：装入帧数、送出帧数、欠载次数、传输错误数、是否断开
+    constexpr int kValueCount = 5;
+    jlong values[kValueCount] = {0, 0, 0, 0, 0};
     if (UsbIsoStream* stream = fromHandle(handle)) {
         const UsbIsoStream::Stats stats = stream->stats();
         values[0] = jlong(stats.framesSent);
         values[1] = jlong(stats.framesPlayed);
         values[2] = jlong(stats.underruns);
-        values[3] = jlong(stats.missedFrames);
-        values[4] = jlong(stats.urbErrors);
-        values[5] = jlong(stats.transferErrors);
-        values[6] = stats.disconnected ? 1 : 0;
+        values[3] = jlong(stats.transferErrors);
+        values[4] = stats.disconnected ? 1 : 0;
     }
     jlongArray result = env->NewLongArray(kValueCount);
     if (result != nullptr) env->SetLongArrayRegion(result, 0, kValueCount, values);

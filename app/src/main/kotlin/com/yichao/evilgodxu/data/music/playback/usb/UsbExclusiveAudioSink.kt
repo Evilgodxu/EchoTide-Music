@@ -14,26 +14,14 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.audio.AudioSink
 import com.yichao.evilgodxu.data.music.playback.OutputLatencyReading
-import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-
-// 异常日志的类名前缀：只在等时链路真出了岔子时才记，正常播放一行不写
-private const val LOG_TAG = "UsbExclusiveSink"
 
 // 帧数换算毫秒用的系数：与 OutputLatency 同口径
 private const val MILLIS_PER_SECOND = 1_000f
 
 // 欠载与传输错误的轮询间隔：原生层在另一条线程上计数，本层按秒取一次即可，不必每块缓冲都问
 private const val STATS_INTERVAL_MS = 1000L
-
-/**
- * 判为"待播已很少"的阈值（毫秒）。
- *
- * 播放中的暂停若发生在待播量极少时，说明输出其实已经空了——那不是用户按下的暂停，而是媒体3 把状态
- * 打回了缓冲中。取 20ms：用户按下暂停时缓冲里总有几十毫秒以上，而输出被打空时接近零。
- */
-private const val LOW_PENDING_MS = 20L
 
 /**
  * USB 独占输出：把解码数据经自写的 usbfs 等时层直接交给解码器的等时端点。
@@ -143,15 +131,8 @@ internal class UsbExclusiveAudioSink(
     private var lastStatsMs = 0L
     private var lastReportedUnderruns = 0L
 
-    /** 上一次被接纳写入的时刻：欠载回调与异常留痕都要给出"距上次写入多久"，那是判成因的关键 */
+    /** 上一次被接纳写入的时刻：欠载回调按接口约定要给出"距上次接纳写入"的间隔 */
     private var lastFedMs = 0L
-
-    // 异常留痕的基线：只在计数增长时写一行，且按秒聚合
-    private var lastAnomalyMs = 0L
-    private var lastLoggedUnderruns = 0L
-    private var lastLoggedUrbErrors = 0L
-    private var lastLoggedMissedFrames = 0L
-    private var lastLoggedTransferErrors = 0L
 
     /** 媒体时间锚点：媒体时刻与当时的写出位置配对，查询时按速率外推 */
     private val checkpoints = ArrayDeque<PositionCheckpoint>()
@@ -213,11 +194,6 @@ internal class UsbExclusiveAudioSink(
         lastStatsMs = 0
         lastFedMs = 0
         lastReportedUnderruns = 0
-        lastAnomalyMs = 0
-        lastLoggedUnderruns = 0
-        lastLoggedUrbErrors = 0
-        lastLoggedMissedFrames = 0
-        lastLoggedTransferErrors = 0
 
         val active = session()
         if (active == null) {
@@ -279,7 +255,7 @@ internal class UsbExclusiveAudioSink(
         writtenFrames += accepted
         if (accepted > 0) lastFedMs = clock.elapsedRealtime()
         pendingOutput = converted.takeIf { it.hasRemaining() }
-        reportAnomalies(output)
+        reportUnderruns(output)
         // 余量未清空即未写完：返回 false 让媒体3 以同一缓冲再次调用，由本层继续消费余量
         return pendingOutput == null
     }
@@ -300,24 +276,6 @@ internal class UsbExclusiveAudioSink(
     }
 
     override fun pause() {
-        // 播放中被暂停、且待播已经很少：媒体3 只在"输出已空"或"上游未就绪"时才这么干，而这两者在播放中
-        // 都属于异常。它是"链路欠载 → 状态被打回缓冲中 → 渲染器被停掉"这条因果链的唯一现场，
-        // 与听感上的断口一一对应，故留一行痕；待播充裕的暂停是用户按下的，不记
-        if (!paused) {
-            val active = output
-            if (active != null && !handledEndOfStream && !drained) {
-                val played = playedFrames(active)
-                val pendingMs = (writtenFrames - played).coerceAtLeast(0) * 1000 /
-                    active.sampleRate.coerceAtLeast(1)
-                if (pendingMs < LOW_PENDING_MS) {
-                    CrashLogManager.logInfo(
-                        LOG_TAG,
-                        "播放中被暂停，而待播仅 ${pendingMs}ms（已写出 $writtenFrames 帧、已送出 $played 帧）：" +
-                            "输出其实已经空了，播放状态多半被打回了缓冲中",
-                    )
-                }
-            }
-        }
         paused = true
         output?.setPaused(true)
     }
@@ -596,17 +554,12 @@ internal class UsbExclusiveAudioSink(
         Util.sampleCountToDurationUs(output.bufferFrames.toLong(), output.sampleRate) / 1000
 
     /**
-     * 按秒读一次原生层的计数，只把**异常事件**记下来。
+     * 按秒读一次原生层的欠载计数并如实上报，同时刷新供界面取用的"已送出帧数"快照。
      *
-     * 正常播放一行不写；写的那一条必定对应"这一秒里有音频没送到设备"。三类事件的成因不同，故分开记：
-     * - **欠载**：环里没数据可送，即上游没供上——少送帧数说明断口有多长；
-     * - **URB 错误**：数据交出去了，主机控制器却没送达（等时传输没有重传，这几包就是真的没了）；
-     * - **提交失败**：内核拒绝了这次提交（带宽不足、接口已被归还等）。
-     *
-     * 欠载仍走 media3 的 `onUnderrun` 回调，并补上"距上次接纳写入多久"：这个值把"上游停顿"与
-     * "链路自身出错"区分开——前者会很长，后者不会。
+     * 等时端点上的欠载与平台路径上的欠载是同一件事（数据没跟上设备的消费），故走同一个 `onUnderrun`
+     * 回调；计数只在原生层有意义——它才知道每个 URB 回收时包里到底有没有数据。
      */
-    private fun reportAnomalies(output: UsbIsoOutput) {
+    private fun reportUnderruns(output: UsbIsoOutput) {
         val nowMs = clock.elapsedRealtime()
         if (lastStatsMs != 0L && nowMs - lastStatsMs < STATS_INTERVAL_MS) return
         lastStatsMs = nowMs
@@ -621,25 +574,6 @@ internal class UsbExclusiveAudioSink(
                 /* elapsedSinceLastFeedMs= */ (nowMs - lastFedMs).coerceAtLeast(0),
             )
         }
-
-        val grew = stats.underruns != lastLoggedUnderruns || stats.urbErrors != lastLoggedUrbErrors ||
-            stats.transferErrors != lastLoggedTransferErrors
-        if (!grew) return
-        // 一秒内的多次异常并成一条：要的是"这一秒出了什么、量有多大"，不是逐次流水
-        if (lastAnomalyMs != 0L && nowMs - lastAnomalyMs < STATS_INTERVAL_MS) return
-        val missedFrames = stats.missedFrames - lastLoggedMissedFrames
-        val missedMs = missedFrames * 1000 / output.sampleRate.coerceAtLeast(1)
-        lastAnomalyMs = nowMs
-        lastLoggedUnderruns = stats.underruns
-        lastLoggedUrbErrors = stats.urbErrors
-        lastLoggedMissedFrames = stats.missedFrames
-        lastLoggedTransferErrors = stats.transferErrors
-        CrashLogManager.logInfo(
-            LOG_TAG,
-            "等时链路异常：欠载 ${stats.underruns} 次（少送 $missedFrames 帧 ≈ ${missedMs}ms）、" +
-                "URB 错误 ${stats.urbErrors} 次、提交失败 ${stats.transferErrors} 次；" +
-                "距上次接纳写入 ${nowMs - lastFedMs}ms",
-        )
     }
 
     /** 媒体时间锚点：媒体时刻与当时的写出位置配对，换算时按速率外推 */

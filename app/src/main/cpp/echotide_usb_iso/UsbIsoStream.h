@@ -55,19 +55,6 @@ public:
          */
         uint64_t framesPlayed = 0;
         uint64_t underruns = 0;
-        /**
-         * 因环内无数据而少送的帧数：欠载次数只说明"断了几次"，这个数才说明"断了多久"。
-         *
-         * 等时端点上缺的这几帧不会补回来，听感上就是一次断口——判定颤音这类瞬时异常，两者的量级同样要紧。
-         */
-        uint64_t missedFrames = 0;
-        /**
-         * 以错误状态完成的 URB 个数（不含部分成功）。
-         *
-         * 等时传输没有重传，这类 URB 承载的音频就是真的没送出去。与欠载分开计：欠载是本层没数据可送，
-         * 这个数是数据已交出去、主机控制器却没能送达——两者的排查方向不同。
-         */
-        uint64_t urbErrors = 0;
         uint64_t transferErrors = 0;
         bool disconnected = false;
     };
@@ -191,7 +178,5 @@ private:
     std::atomic<uint64_t> framesSent_{0};
     std::atomic<uint64_t> framesPlayed_{0};
     std::atomic<uint64_t> underruns_{0};
-    std::atomic<uint64_t> missedFrames_{0};
-    std::atomic<uint64_t> urbErrors_{0};
     std::atomic<uint64_t> transferErrors_{0};
 };

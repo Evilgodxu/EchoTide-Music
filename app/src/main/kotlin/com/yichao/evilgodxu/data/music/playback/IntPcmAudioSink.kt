@@ -21,17 +21,11 @@ import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-// 打包整型输出的类名前缀：只在真出了岔子时才写（正常播放一行不写）
+// 打包整型输出的类名前缀
 private const val LOG_TAG = "IntPcmAudioSink"
 
 // 平台下限取不到时的兜底缓冲帧数：仅用于该异常分支的建轨，与常规路径的目标帧数无关
 private const val FALLBACK_BUFFER_FRAMES = 4096
-
-// 欠载留痕的最小间隔：欠载是异常事件，但一次欠载风暴里逐次记会把日志刷成流水账，按秒并成一条
-private const val UNDERRUN_LOG_INTERVAL_MS = 1000L
-
-// 判为"待播已很少"的阈值（毫秒）：播放中被暂停且待播少于此值，说明输出其实已经空了
-private const val LOW_PENDING_MS = 20L
 
 /**
  * 打包整型输出：自行接受解码数据并写出设备动态混音端口声明的打包整型（[outputEncoding]，24 位或 32 位）。
@@ -163,9 +157,6 @@ internal class IntPcmAudioSink(
     /** 上次接纳写入的时刻：欠载回调按接口约定要给出「距上次接纳写入」的间隔 */
     private var lastAcceptedWriteMs = 0L
 
-    /** 上次写欠载日志的时刻：欠载按秒并成一条，避免一次欠载风暴刷屏 */
-    private var lastUnderrunLogMs = 0L
-
     override fun setListener(listener: AudioSink.Listener) {
         this.listener = listener
     }
@@ -239,22 +230,7 @@ internal class IntPcmAudioSink(
     }
 
     override fun pause() {
-        // 播放中被暂停、且待播已经很少：媒体3 只在"输出已空"或"上游未就绪"时才这么干，而这两者在播放中
-        // 都属于异常——它是"音频轨欠载 → 状态被打回缓冲中"这条因果链的现场，与听感上的断口一一对应。
-        // 待播充裕的暂停是用户按下的，不记
-        val active = output
-        if (active != null && !handledEndOfStream) {
-            val pendingFrames = (writtenPcmBytesAsFrames() - consumedFrameCount(active)).coerceAtLeast(0)
-            val sampleRate = outputSampleRate(active) ?: 0
-            if (sampleRate > 0 && pendingFrames * 1000 / sampleRate < LOW_PENDING_MS) {
-                CrashLogManager.logInfo(
-                    LOG_TAG,
-                    "播放中被暂停，而待播仅 ${pendingFrames * 1000 / sampleRate}ms" +
-                        "（已写入 ${writtenPcmBytesAsFrames()} 帧）：输出其实已经空了，播放状态多半被打回了缓冲中",
-                )
-            }
-        }
-        active?.pause()
+        output?.pause()
     }
 
     // 跳转后媒体时间与已写出时长不再连续，须在新缓冲处重新落锚点，位置换算才不会沿用旧锚点
@@ -618,23 +594,11 @@ internal class IntPcmAudioSink(
         override fun onOffloadPresentationEnded() = Unit
 
         override fun onUnderrun() {
-            val nowMs = clock.elapsedRealtime()
-            val elapsedSinceFeed = nowMs - lastAcceptedWriteMs
             listener.onUnderrun(
                 /* bufferSize= */ trackBufferBytes,
                 /* bufferSizeMs= */ trackBufferSizeMs(),
-                /* elapsedSinceLastFeedMs= */ elapsedSinceFeed,
+                /* elapsedSinceLastFeedMs= */ clock.elapsedRealtime() - lastAcceptedWriteMs,
             )
-            // 只记异常：音频轨欠载就是这一秒有数据没续上，与等时端点的欠载是同一件事。
-            // "距上次接纳写入"把"上游停顿"与"链路自身出错"区分开——前者会很长，后者不会
-            if (lastUnderrunLogMs == 0L || nowMs - lastUnderrunLogMs >= UNDERRUN_LOG_INTERVAL_MS) {
-                lastUnderrunLogMs = nowMs
-                CrashLogManager.logInfo(
-                    LOG_TAG,
-                    "音频轨欠载：距上次接纳写入 ${elapsedSinceFeed}ms，缓冲 $trackBufferBytes 字节" +
-                        "（约 ${trackBufferSizeMs()}ms）",
-                )
-            }
         }
 
         override fun onReleased() = Unit

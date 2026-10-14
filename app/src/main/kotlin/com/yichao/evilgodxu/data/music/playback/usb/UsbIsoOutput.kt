@@ -116,16 +116,14 @@ internal class UsbIsoOutput private constructor(
     }
 
     fun stats(): Stats {
-        if (closed) return Stats(0, 0, 0, 0, 0, 0, disconnected = true)
+        if (closed) return Stats(0, 0, 0, 0, true)
         val values = UsbIsoNative.stats(handle)
         return Stats(
             framesSent = values[0],
             framesPlayed = values[1],
             underruns = values[2],
-            missedFrames = values[3],
-            urbErrors = values[4],
-            transferErrors = values[5],
-            disconnected = values[6] != 0L,
+            transferErrors = values[3],
+            disconnected = values[4] != 0L,
         )
     }
 
@@ -145,10 +143,6 @@ internal class UsbIsoOutput private constructor(
         /** 已由主机侧送出的帧数；与 [framesSent] 差着在飞 URB 那一整段 */
         val framesPlayed: Long,
         val underruns: Long,
-        /** 因环内无数据而少送的帧数：与欠载次数合看才知道断口有多长 */
-        val missedFrames: Long,
-        /** 以错误状态完成的 URB 个数：等时传输没有重传，这些 URB 承载的音频真的没送出去 */
-        val urbErrors: Long,
         val transferErrors: Long,
         val disconnected: Boolean,
     )
