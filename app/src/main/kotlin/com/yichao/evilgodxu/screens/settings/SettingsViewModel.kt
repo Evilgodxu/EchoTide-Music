@@ -20,6 +20,10 @@ import com.yichao.evilgodxu.data.settings.saveBackgroundFlowEnabled
 import com.yichao.evilgodxu.data.settings.saveMiniPlayerEnabled
 import com.yichao.evilgodxu.data.settings.saveSwipeToChangeTrack
 import com.yichao.evilgodxu.data.settings.saveUsbDirectOutputMode
+import com.yichao.evilgodxu.data.settings.saveUsbExclusiveOutputMode
+import com.yichao.evilgodxu.data.settings.UsbOutputKind
+import com.yichao.evilgodxu.data.settings.usbExclusiveOutputModeFlow
+import com.yichao.evilgodxu.data.settings.usbOutputSwitchesAfter
 import com.yichao.evilgodxu.data.settings.saveWordByWordRendering
 import com.yichao.evilgodxu.data.settings.swipeToChangeTrackFlow
 import com.yichao.evilgodxu.data.settings.ThemeMode
@@ -93,6 +97,11 @@ class SettingsViewModel(
                 _uiState.update { it.copy(usbDirectOutput = enabled) }
             }
         }
+        viewModelScope.launch {
+            context.usbExclusiveOutputModeFlow().collect { enabled ->
+                _uiState.update { it.copy(usbExclusiveOutput = enabled) }
+            }
+        }
         refreshProxySources()
         refreshCacheUsage()
         // 注册外部导入（如系统分享）引发的数据变更监听，确保列表即时同步
@@ -160,9 +169,32 @@ class SettingsViewModel(
     }
 
     fun setUsbDirectOutput(enabled: Boolean) {
-        _uiState.update { it.copy(usbDirectOutput = enabled) }
+        applyUsbOutputSwitch(UsbOutputKind.FORMAT_LOCKED, enabled)
         viewModelScope.launch {
             context.saveUsbDirectOutputMode(enabled)
+        }
+    }
+
+    fun setUsbExclusiveOutput(enabled: Boolean) {
+        applyUsbOutputSwitch(UsbOutputKind.EXCLUSIVE, enabled)
+        viewModelScope.launch {
+            context.saveUsbExclusiveOutputMode(enabled)
+        }
+    }
+
+    /**
+     * 界面状态先行更新，落盘随后异步进行。
+     *
+     * 开关的取值与互斥关系都由 [usbOutputSwitchesAfter] 给出，与落盘走的是同一份判定：两处各写一遍
+     * 会让界面显示的与文件里存的不是同一件事，而这类分歧只在下次启动才显形。
+     */
+    private fun applyUsbOutputSwitch(kind: UsbOutputKind, enabled: Boolean) {
+        val switches = usbOutputSwitchesAfter(kind, enabled)
+        _uiState.update { state ->
+            state.copy(
+                usbDirectOutput = switches[UsbOutputKind.FORMAT_LOCKED] ?: state.usbDirectOutput,
+                usbExclusiveOutput = switches[UsbOutputKind.EXCLUSIVE] ?: state.usbExclusiveOutput,
+            )
         }
     }
 

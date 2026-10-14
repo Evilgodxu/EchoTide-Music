@@ -43,6 +43,7 @@ internal fun SettingsPane(
     onSwipeToChangeTrackChange: (Boolean) -> Unit,
     onBackgroundFlowChange: (Boolean) -> Unit,
     onUsbDirectOutputChange: (Boolean) -> Unit,
+    onUsbExclusiveOutputChange: (Boolean) -> Unit,
     onVersionClick: () -> Unit,
     onOpenTypography: () -> Unit,
     onProxySourceImport: (String) -> Unit,
@@ -94,6 +95,8 @@ internal fun SettingsPane(
             onBackgroundFlowChange = onBackgroundFlowChange,
             usbDirectOutput = uiState.usbDirectOutput,
             onUsbDirectOutputChange = onUsbDirectOutputChange,
+            usbExclusiveOutput = uiState.usbExclusiveOutput,
+            onUsbExclusiveOutputChange = onUsbExclusiveOutputChange,
             onTypographyClick = onOpenTypography,
         )
         ProxySource(

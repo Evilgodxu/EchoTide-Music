@@ -293,6 +293,8 @@
     <string name="settings_background_flow_desc">开启后首页背景缓慢流动</string>
     <string name="settings_usb_direct_output_title">USB 音频直出</string>
     <string name="settings_usb_direct_output_desc">系统原生接口，动态适应设备</string>
+    <string name="settings_usb_exclusive_title">USB 音频独占</string>
+    <string name="settings_usb_exclusive_desc">接管解码器直接写出，期间该设备对系统不可用</string>
     <string name="settings_typography_title">排版设置</string>
     <string name="settings_typography_desc">调整歌词区域排版设置</string>
 

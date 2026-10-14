@@ -291,6 +291,8 @@
     <string name="settings_background_flow_desc">Home background slowly flows with the cover; off keeps it static</string>
     <string name="settings_usb_direct_output_title">USB audio direct output</string>
     <string name="settings_usb_direct_output_desc">System-native interface, dynamically adapts to the device</string>
+    <string name="settings_usb_exclusive_title">USB audio exclusive</string>
+    <string name="settings_usb_exclusive_desc">Takes over the DAC and writes directly; the device is unavailable to the system meanwhile</string>
     <string name="settings_typography_title">Typography</string>
     <string name="settings_typography_desc">Lyric font size, line spacing and visible lines</string>
 

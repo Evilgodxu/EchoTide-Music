@@ -16,6 +16,8 @@ data class SettingsUiState(
     val backgroundFlow: Boolean = false,
     // USB 直出：开启后按设备声明的条目为播放申请止步于源格式的专用输出流
     val usbDirectOutput: Boolean = false,
+    // USB 独占：开启后接管 USB 音频接口自行写出，期间该解码器从系统音频中消失；与直出互斥
+    val usbExclusiveOutput: Boolean = false,
     val version: String = "",
     // 已导入的代理音源列表
     val proxySources: List<ProxySourceSpec> = emptyList(),
