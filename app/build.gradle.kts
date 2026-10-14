@@ -17,6 +17,8 @@ if (localPropertiesFile.exists()) {
 android {
     namespace = "com.yichao.evilgodxu"
     compileSdk = 37
+    // 自写的 usbfs 等时层要经 NDK 构建；版本与 ABI 一并锁定，避免工具链漂移改变产物
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "com.yichao.evilgodxu"
@@ -31,6 +33,20 @@ android {
             // 仅打包 arm64：ChromeOS 上的 Android 运行时为 x86_64，加入该 ABI 会显著增大
             // 安装包体积，而本应用的音频直通与 USB 直出面向的是 arm64 移动设备
             abiFilters += listOf("arm64-v8a")
+        }
+
+        externalNativeBuild {
+            cmake {
+                // 静态链接 C++ 运行时：产物只依赖平台自身的 libc/liblog，不额外分发运行时库
+                arguments += "-DANDROID_STL=c++_static"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
         }
     }
 
