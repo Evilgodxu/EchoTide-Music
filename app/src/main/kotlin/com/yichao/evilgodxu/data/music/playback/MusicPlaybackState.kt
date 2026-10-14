@@ -770,6 +770,22 @@ class MusicPlaybackState(
     // 直出的当前成色：未启用、无设备接入或设备未提供动态混音端口时保持系统混音
     var directOutputMode by mutableStateOf(AudioOutputMode.MIXER)
 
+    /**
+     * 独占路径当前是否在承接写出。
+     *
+     * 不复用 [directOutputMode] 是因为两者的判定方不同：直出的成色由 UsbDirectOutput 按平台是否受理那条
+     * 专用输出流判定，独占的有无则是输出路由本次实际选中了哪条路。两个写入方共用一个字段会互相覆盖，
+     * 而这两件事都可能各自变化（开关打开但设备声明不了本次格式时，独占并不成立）。
+     */
+    var usbExclusiveRoute by mutableStateOf(false)
+
+    /**
+     * 独占路径接管到的解码器；未接管时为 null。
+     *
+     * 独占期间它已从系统音频里消失（内核驱动被解绑），平台侧一次也查不到，故设备信息只能由接管方给出。
+     */
+    var usbExclusiveDevice by mutableStateOf<UsbExclusiveDeviceInfo?>(null)
+
     // 收藏的歌曲 ID 集合（面板级内存状态）
     var likedIds by mutableStateOf<Set<Long>>(emptySet())
 

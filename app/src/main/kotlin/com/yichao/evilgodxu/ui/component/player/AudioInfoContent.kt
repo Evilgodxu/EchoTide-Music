@@ -260,6 +260,7 @@ private fun audioInfoGroups(
                     stringResource(
                         when (it) {
                             AudioOutputMode.FORMAT_LOCKED -> R.string.audio_info_output_mode_format_locked
+                            AudioOutputMode.EXCLUSIVE -> R.string.audio_info_output_mode_exclusive
                             AudioOutputMode.MIXER -> R.string.audio_info_output_mode_mixer
                         }
                     ),
@@ -598,6 +599,9 @@ private fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<
         playbackState.audioSinkOutputEncoding,
         playbackState.audioSinkDecodedFormat,
         playbackState.directOutputMode,
+        // 独占那条路上设备与写出编码都不由平台给出，这两项各自变化时面板都得重算
+        playbackState.usbExclusiveRoute,
+        playbackState.usbExclusiveDevice,
         playerEventVersion,
         deviceEventVersion,
     ) {

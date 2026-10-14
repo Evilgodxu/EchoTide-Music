@@ -41,6 +41,17 @@ internal class UsbOutputSink(
     private val exclusiveReady: () -> Boolean,
     /** 独占链路失效的报告出口：由接入侧归还设备，避免带着一个已废的会话反复重试 */
     private val onExclusiveFailed: () -> Unit = {},
+    /** 路由变更：报告本次配置后是否由独占路径承接写出 */
+    private val onRouteChanged: (Boolean) -> Unit = {},
+    /**
+     * 解码输出格式。
+     *
+     * 平台路径由 [PerDeviceAudioSink] 在重配时自行上报，独占路径则没有那个环节，故这里代它报一份——
+     * 面板的"解码输出"一行全靠它，漏了会让独占播放时该行停在上一曲的取值上。
+     */
+    private val onDecodedFormatChanged: (Int, Int, Int) -> Unit = { _, _, _ -> },
+    /** 写出取向：独占路径一律以整型子槽写出，故固定报"未以浮点写出" */
+    private val onVariantChanged: (Boolean) -> Unit = {},
 ) : AudioSink {
 
     private enum class Route { PLATFORM, EXCLUSIVE }
@@ -88,6 +99,12 @@ internal class UsbOutputSink(
             else -> Route.PLATFORM
         }
         switchTo(next, audioSinkConfig)
+        // 独占那两项由本层代报（见 [onDecodedFormatChanged]）。读的是切换之后的实际路由：
+        // 独占建不起来时 [switchTo] 已自行退回，此处不能再按当初选的那条路报
+        if (route == Route.EXCLUSIVE) {
+            onDecodedFormatChanged(format.sampleRate, format.channelCount, format.pcmEncoding)
+            onVariantChanged(false)
+        }
     }
 
     /**
@@ -107,6 +124,7 @@ internal class UsbOutputSink(
                 "路由切换：${if (from == Route.EXCLUSIVE) "独占" else "平台"} → " +
                     "${if (next == Route.EXCLUSIVE) "独占" else "平台"}",
             )
+            onRouteChanged(next == Route.EXCLUSIVE)
         }
         if (next == Route.PLATFORM) {
             platform.configure(audioSinkConfig)

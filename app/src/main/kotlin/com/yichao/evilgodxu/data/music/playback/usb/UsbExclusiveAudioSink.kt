@@ -59,6 +59,13 @@ internal class UsbExclusiveAudioSink(
      * 不取过来这条流就永远停在满幅——听感上是"太响且调不动"。见 [SystemMediaVolume]。
      */
     private val systemVolume: () -> Float = { 1f },
+    /**
+     * 写出编码的上报出口：等时输出建立时报出设备实际收到的位深，释放时报空。
+     *
+     * 音频信息面板的"输出编码"一行取的正是它，而这条链路上没有 `AudioTrack` 可供平台回填，
+     * 漏报会让面板显示"输出未建立"——与实际正在出声完全对不上。
+     */
+    private val onOutputEncodingChanged: (Int?) -> Unit = {},
 ) : AudioSink {
 
     private var listener: AudioSink.Listener = SILENT_LISTENER
@@ -419,6 +426,8 @@ internal class UsbExclusiveAudioSink(
             )
         output = created
         listener.onAudioTrackInitialized(trackConfigOf(created))
+        // 面板的"输出编码"取自这里：设备实际收到的是子槽排布，故报的是子槽宽度对应的编码
+        onOutputEncodingChanged(encodingForSubslot(created.subslotBytes))
         CrashLogManager.logInfo(
             LOG_TAG,
             "等时输出已建立：${created.sampleRate}Hz/${created.channels}ch/" +
@@ -452,6 +461,7 @@ internal class UsbExclusiveAudioSink(
         output.close()
         this.output = null
         listener.onAudioTrackReleased(trackConfigOf(output))
+        onOutputEncodingChanged(null)
     }
 
     /** 把整块输入按设备子槽打包；输入被消费到末位，余量无法构成样本时留痕 */

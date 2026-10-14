@@ -95,7 +95,7 @@ internal object AudioInfoCollector {
                     ?.format
                     ?.takeIf { it.isNotBlank() }
                     ?.let(::isLosslessFormatName),
-                outputMode = outputMode(state),
+                outputMode = state.outputMode(),
                 decodedOutput = decodedOutput(state),
                 audioSessionId = playback.audioSessionId,
                 floatOutput = floatOutputState(state),
@@ -162,11 +162,18 @@ internal object AudioInfoCollector {
             ?.let { TrackAudioInfoReader.mimeToFormatName(it) ?: it }
     }
 
-    // 音频输出模式：取直出自行判定的成色；未装载曲目时输出链路的取向无意义，不展示
-    private fun outputMode(state: MusicPlaybackState): AudioOutputMode? {
-        if (state.currentTrack == null) return null
-        return state.directOutputMode
-    }
+    /**
+     * 生效的输出模式。
+     *
+     * 独占与直出是两条互斥的路，判定方也各在一处：直出的成色由 [UsbDirectOutput] 按平台是否受理那条专用
+     * 输出流判定，独占的有无则由输出路由本次实际选中了哪条路。合在一处取用，免得各栏各判一套而彼此矛盾。
+     */
+    private fun MusicPlaybackState.effectiveOutputMode(): AudioOutputMode =
+        if (usbExclusiveRoute) AudioOutputMode.EXCLUSIVE else directOutputMode
+
+    // 音频输出模式：有独占用独占，否则取直出自行判定的成色；未装载曲目时输出链路的取向无意义，不展示
+    private fun MusicPlaybackState.outputMode(): AudioOutputMode? =
+        if (currentTrack == null) null else effectiveOutputMode()
 
     /**
      * 解码输出格式。
@@ -221,7 +228,7 @@ internal object AudioInfoCollector {
      * 故不能用源采样率冒充输出值。系统未上报时返回 null，交由展示层跳过该行。
      */
     private fun outputSampleRate(audioManager: AudioManager?, state: MusicPlaybackState): Int? {
-        if (state.directOutputMode != AudioOutputMode.MIXER) return state.sourceSampleRate()
+        if (state.effectiveOutputMode() != AudioOutputMode.MIXER) return state.sourceSampleRate()
         return audioManager
             ?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
             ?.toIntOrNull()
@@ -252,6 +259,21 @@ internal object AudioInfoCollector {
         state: MusicPlaybackState,
         outputs: List<AudioDeviceInfo>,
     ): OutputDeviceInfo? {
+        // 独占期间设备已从系统音频里消失（接口被本应用接管、内核驱动解绑），平台一次也查不到它，
+        // 照旧走策略查询只会落到扬声器上——那正是"信息与听感对不上"的来源。故改由接管方给出。
+        // 判据取实际路由而非"是否已接管"：开关开着但本曲格式设备声明不了时会退回平台路径，
+        // 那时真正发声的是系统那条链路，此时报解码器同样是与听感对不上
+        state.usbExclusiveDevice?.takeIf { state.usbExclusiveRoute }?.let { device ->
+            return OutputDeviceInfo(
+                kind = OutputDeviceKind.USB,
+                name = device.name,
+                address = null,
+                supportedSampleRates = device.supportedSampleRates,
+                channelCount = device.channelCount,
+                supportedEncodings = device.supportedEncodings,
+                bluetooth = null,
+            )
+        }
         val device = routedOutputDevice(audioManager, state, outputs) ?: return null
         val kind = outputDeviceKind(device.type)
         val address = usableAddress(device.address)
@@ -319,7 +341,7 @@ internal object AudioInfoCollector {
         state: MusicPlaybackState,
         outputs: List<AudioDeviceInfo>,
     ): AudioDeviceInfo? {
-        if (state.directOutputMode != AudioOutputMode.MIXER) {
+        if (state.effectiveOutputMode() != AudioOutputMode.MIXER) {
             outputs.firstOrNull { it.type in USB_OUTPUT_TYPES }?.let { return it }
         }
         return runCatching {

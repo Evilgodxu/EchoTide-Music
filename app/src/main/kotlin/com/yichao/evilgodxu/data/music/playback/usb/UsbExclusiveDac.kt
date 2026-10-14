@@ -52,8 +52,32 @@ internal class UsbExclusiveDac private constructor(
     /** 已就绪的流接口号：停止输出时据此把接口退回零带宽；0 表示当前未就绪 */
     private var activeStreamInterface = 0
 
-    /** 已读过的时钟档位：同一时钟源会被多个格式共用，逐格式重问纯属多余 */
-    private val clockRates = mutableMapOf<Int, List<Int>>()
+    /**
+     * 已读过的时钟档位：同一时钟源会被多个格式共用，逐格式重问纯属多余。
+     *
+     * 并发的取用方有两个：就绪流程在播放线程上补齐档位，而界面查设备信息时会在主线程上问一次，
+     * 故用并发映射而不是普通可变映射。
+     */
+    private val clockRates = java.util.concurrent.ConcurrentHashMap<Int, List<Int>>()
+
+    /**
+     * 设备声明的采样率并集，升序。
+     *
+     * UAC2 的档位不在描述符里（见 [prepareStream]），故除描述符里声明的那些之外还要问一次时钟源，
+     * 否则这类设备的"支持采样率"会空着。问过即记下，后续不再重复问；查询失败按"读不到"处理，不影响
+     * 其余信息——界面少一行总好过整块面板打不开。
+     */
+    fun supportedRates(): List<Int> {
+        val declared = formats.flatMap { it.rates }.filter { it > 0 }
+        if (descriptors.uacVersion != 2) return declared.distinct().sorted()
+        val fromClocks = runCatching {
+            formats.mapNotNull { format ->
+                val source = descriptors.resolveClockSource(format.clockId) { control.selectedClockPin(it) }
+                if (source == 0) null else clockRates.getOrPut(source) { control.readClockRates(source) }
+            }.flatten()
+        }.getOrNull().orEmpty()
+        return (declared + fromClocks).filter { it > 0 }.distinct().sorted()
+    }
 
     /**
      * 让设备按 [format] 与 [sampleRate] 就绪，成功即可以该格式建流。

@@ -54,13 +54,49 @@ data class OutputDeviceInfo(
  * 音频输出模式。
  *
  * 位完美那一档本应用不再使用（见 [UsbDirectOutput] 的类注释：厂商没声明就请求不到，能请求到时又会被别的应用
- * 的播放吸进来并静默失效），故只有两档：
+ * 的播放吸进来并静默失效），故只有三档：
  * - 源格式直出：按设备声明的动态混音端口条目申请专用输出流，输出格式与源逐字段一致，因而不发生重采样，
  *   但音轨音量与音效按常规链路处理；
+ * - USB 独占：把 USB 音频接口收归本应用（内核驱动随之解绑），绕开平台混音器直接写等时端点。同样不发生
+ *   重采样，但平台音量与音效都不再作用于这条流——音量由本应用按系统音量自行施加；
  * - 系统混音：没有可承载当前格式的设备声明条目（或设备不可用）时交回系统混音器，输出采样率由系统决定，
  *   与源不一致即发生重采样。
  */
-enum class AudioOutputMode { FORMAT_LOCKED, MIXER }
+enum class AudioOutputMode {
+    FORMAT_LOCKED,
+    EXCLUSIVE,
+    MIXER,
+}
+
+/**
+ * 独占路径上由本应用接管的解码器。
+ *
+ * 独占成立期间该设备已从系统音频里消失（内核驱动被解绑），平台侧一次也查不到它，故这些项只能由接管方
+ * 给出，而不是像其它设备那样从 `AudioDeviceInfo` 读。
+ */
+data class UsbExclusiveDeviceInfo(
+    val name: String,
+    /** 设备声明的全部采样率，升序。UAC2 的档位不在描述符里，由接管方问过时钟后补入 */
+    val supportedSampleRates: List<Int>,
+    /** 设备声明的全部有效位深对应的写出编码，升序去重 */
+    val supportedEncodings: List<OutputEncoding>,
+    /** 设备声明的通道数 */
+    val channelCount: Int?,
+)
+
+/**
+ * 有效位深 → 展示用编码。
+ *
+ * 设备声明的位深落在哪一档就报哪一档：USB 音频的 Type I 只有 8/16/24/32 四种子槽宽度，
+ * 归不了的取值返回 null 由调用方跳过。
+ */
+internal fun outputEncodingOfBitDepth(bitDepth: Int): OutputEncoding? = when (bitDepth) {
+    8 -> OutputEncoding.PCM_8BIT
+    16 -> OutputEncoding.PCM_16BIT
+    24 -> OutputEncoding.PCM_24BIT
+    32 -> OutputEncoding.PCM_32BIT
+    else -> null
+}
 
 // 音频传输状态：由播放器的播放状态与起播意愿共同判定
 enum class AudioTransportState { PLAYING, BUFFERING, PAUSED, ENDED, IDLE }

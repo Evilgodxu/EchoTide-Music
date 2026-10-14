@@ -104,6 +104,35 @@ class MusicPlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         audioManager = getSystemService(AudioManager::class.java)
+        // 两条路各自的上报出口收在同一处：同一批状态不该有两个写法，路由切换时也不会互相覆盖
+        // 变体切换发生在渲染器重配点，即 ExoPlayer 的播放线程，回写共享状态无需切线程
+        val reportOutputVariant: (Boolean) -> Unit = { floatOutput ->
+            stateHolder.state.audioSinkFloatOutput = floatOutput
+        }
+        // 音频轨的创建与释放同样在播放线程回调，口径同上
+        val reportOutputEncoding: (Int?) -> Unit = { encoding ->
+            stateHolder.state.audioSinkOutputEncoding = encoding
+            // 输出建成即重算一次直出路由：平台的动态混音端口查询按输出端口应答，应用没有输出时
+            // 只给空表，据此判定会把直出锁在门外；输出建成后再问一次才对得上
+            if (encoding != null && ::usbDirectOutput.isInitialized) {
+                usbDirectOutput.onOutputEstablished()
+            }
+        }
+        val reportAudioTrack: (android.media.AudioTrack?) -> Unit = { track ->
+            stateHolder.state.audioTrack = track
+        }
+        // 直出的混音器属性按解码头输出的真实 PCM 编码挑选。只有这里拿得到它：
+        // 容器格式（轨道回调）对压缩源只给采样率与声道，pcmEncoding 仍是 NO_VALUE，
+        // 用它挑出的条目与实际写出的编码未必一致，故改由音频输出在重配时上报
+        val reportDecodedFormat: (Int, Int, Int) -> Unit = { sampleRate, channelCount, pcmEncoding ->
+            // 同一处落地两份用途：直出据此挑条目，音频信息面板据此展示解码输出
+            stateHolder.state.audioSinkDecodedFormat =
+                DecodedOutputFormat(sampleRate, channelCount, pcmEncoding)
+            // 直出在播放器之后装配，尚未装配时无从下发；格式未变时内部会跳过重复下发
+            if (::usbDirectOutput.isInitialized) {
+                usbDirectOutput.onTrackFormatChanged(sampleRate, channelCount, pcmEncoding)
+            }
+        }
         // 音频输出由 PerDeviceAudioSink 按直出已受理的编码挑选浮点/整型变体并自行重建，
         // 故此处忽略工厂给出的浮点参数，固定返回同一实例供渲染器使用
         val perDeviceSink = PerDeviceAudioSink(
@@ -127,34 +156,10 @@ class MusicPlaybackService : MediaSessionService() {
             onDirectOutputUnrealizable = {
                 if (::usbDirectOutput.isInitialized) usbDirectOutput.reportUnrealizableFormat()
             },
-            // 变体切换发生在渲染器重配点，即 ExoPlayer 的播放线程，回写共享状态无需切线程
-            onOutputVariantChanged = { floatOutput ->
-                stateHolder.state.audioSinkFloatOutput = floatOutput
-            },
-            // 音频轨的创建与释放同样在播放线程回调，口径同上
-            onOutputEncodingChanged = { encoding ->
-                stateHolder.state.audioSinkOutputEncoding = encoding
-                // 输出建成即重算一次直出路由：平台的动态混音端口查询按输出端口应答，应用没有输出时
-                // 只给空表，据此判定会把直出锁在门外；输出建成后再问一次才对得上
-                if (encoding != null && ::usbDirectOutput.isInitialized) {
-                    usbDirectOutput.onOutputEstablished()
-                }
-            },
-            onAudioTrackChanged = { track ->
-                stateHolder.state.audioTrack = track
-            },
-            // 直出的混音器属性按解码头输出的真实 PCM 编码挑选。只有这里拿得到它：
-            // 容器格式（轨道回调）对压缩源只给采样率与声道，pcmEncoding 仍是 NO_VALUE，
-            // 用它挑出的条目与实际写出的编码未必一致，故改由音频输出在重配时上报
-            onDecodedFormatChanged = { sampleRate, channelCount, pcmEncoding ->
-                // 同一处落地两份用途：直出据此挑条目，音频信息面板据此展示解码输出
-                stateHolder.state.audioSinkDecodedFormat =
-                    DecodedOutputFormat(sampleRate, channelCount, pcmEncoding)
-                // 直出在播放器之后装配，尚未装配时无从下发；格式未变时内部会跳过重复下发
-                if (::usbDirectOutput.isInitialized) {
-                    usbDirectOutput.onTrackFormatChanged(sampleRate, channelCount, pcmEncoding)
-                }
-            },
+            onOutputVariantChanged = reportOutputVariant,
+            onOutputEncodingChanged = reportOutputEncoding,
+            onAudioTrackChanged = reportAudioTrack,
+            onDecodedFormatChanged = reportDecodedFormat,
         )
         // 独占与平台直出在设备层面互斥（接口同一时刻只能有一个持有者），故在其上再套一层路由：
         // 每次配置时按"独占是否已就绪 + 本次格式能否原样送出"二选一，两条路各自完整，不叠加
@@ -168,6 +173,11 @@ class MusicPlaybackService : MediaSessionService() {
                 systemVolume = {
                     if (::systemMediaVolume.isInitialized) systemMediaVolume.gain() else 1f
                 },
+                // 独占这条路上没有音频轨可供平台回填写出编码，故由写出侧直接上报；
+                // 不走 reportOutputEncoding：那条出口还兼着"让直出重算路由"的职责，而独占期间直出并不参与
+                onOutputEncodingChanged = { encoding ->
+                    stateHolder.state.audioSinkOutputEncoding = encoding
+                },
             ),
             exclusiveReady = {
                 ::usbExclusiveOutput.isInitialized && usbExclusiveOutput.currentSession() != null
@@ -176,6 +186,15 @@ class MusicPlaybackService : MediaSessionService() {
             onExclusiveFailed = {
                 if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.onStreamFailed()
             },
+            // 路由成色与解码格式：独占路径没有 PerDeviceAudioSink 那一环，故由路由代它上报
+            onRouteChanged = { exclusive ->
+                stateHolder.state.usbExclusiveRoute = exclusive
+                if (exclusive && ::usbExclusiveOutput.isInitialized) {
+                    stateHolder.state.usbExclusiveDevice = usbExclusiveOutput.deviceInfo()
+                }
+            },
+            onDecodedFormatChanged = reportDecodedFormat,
+            onVariantChanged = reportOutputVariant,
         )
         // 已写入音频轨的帧数随播放持续变化，故发布取值入口而非取值本身：
         // 该入口只在能给出这一读数的变体（打包整型输出）生效时返回非空
@@ -420,6 +439,9 @@ class MusicPlaybackService : MediaSessionService() {
         // 成色不由开关代替——开关开着而设备没接入、没授权、接管失败时，播放仍走平台路径
         usbExclusiveOutput = UsbExclusiveOutput(context = this) { state ->
             CrashLogManager.logInfo("MusicPlaybackService", "USB 独占成色：$state")
+            // 设备信息随接管与归还同步：接管期间该设备已从系统音频里消失，面板只能由此取，
+            // 交还后随之清空，以免面板继续展示一台已不在手里的设备
+            stateHolder.state.usbExclusiveDevice = usbExclusiveOutput.deviceInfo()
         }
         // 系统音量只在独占成立期间才有必要订阅：其余路径由平台的混音器施加音量，本层不参与
         systemMediaVolume = SystemMediaVolume(this, audioManager)
