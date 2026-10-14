@@ -323,7 +323,7 @@ class PerDeviceAudioSink(
      */
     private fun applyStartThreshold(track: AudioTrack) {
         runCatching {
-            track.setStartThresholdInFrames(PlaybackBufferPolicy.startThresholdFrames(track.sampleRate))
+            track.setStartThresholdInFrames(PlaybackBufferPolicy.startThresholdFrames(track.bufferSizeInFrames))
         }.onFailure {
             CrashLogManager.logException(LOG_TAG, "设置起播阈值失败，沿用平台初值", it)
         }

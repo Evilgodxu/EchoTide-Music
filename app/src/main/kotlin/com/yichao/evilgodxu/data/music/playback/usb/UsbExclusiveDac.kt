@@ -7,6 +7,7 @@ import android.hardware.usb.UsbManager
 import com.yichao.evilgodxu.data.music.playback.UsbExclusiveDeviceInfo
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.Closeable
+import java.util.concurrent.locks.ReentrantLock
 
 // 异常日志的类名前缀：接管与归还只有出错时才记（正常路径不写日志）
 private const val LOG_TAG = "UsbExclusiveDac"
@@ -39,16 +40,45 @@ internal class UsbExclusiveDac private constructor(
     /** 设备声明的可播放格式；写出侧只从中挑选，不做事前建轨试探 */
     val formats: List<UsbAudioOutputFormat> get() = descriptors.outputs
 
-    /** 类特定控制：采样率与音量。全部走公开的控制传输，不依赖原生层。 */
-    val control = UsbAudioControl(connection, descriptors)
+    /**
+     * 设备侧操作的互斥锁。
+     *
+     * 控制传输有两个发起方——播放线程（就绪流程）与主线程（面板查设备能力）——而 [close] 可能在任一时刻
+     * 到来。`UsbDeviceConnection` 关闭后其内部对象即被释放，此时再用它发控制请求就是 use-after-free
+     * （症状是进程无声消失、不留任何异常）。故所有设备侧调用与关闭本身都串行在这把锁上：关闭会等到
+     * 在飞的那次控制请求结束再动手。
+     */
+    private val deviceLock = ReentrantLock()
+
+    /** 已归还：置位后任何设备侧调用都不再触碰连接，一律按失败返回 */
+    private var closed = false
+
+    /** 类特定控制：采样率与音量。全部走公开的控制传输，不依赖原生层。只在本类的锁内取用 */
+    private val control = UsbAudioControl(connection, descriptors)
 
     /**
-     * 设备节点的文件描述符。
+     * 在锁内执行一次设备侧操作；已归还时直接返回 [fallback]，不再触碰连接。
+     *
+     * 归还之后仍被调用不是异常情形，而是必须处理的情形：写出侧从收到归还通知到自身复位之间有一段窗口，
+     * 期间它会照常调用这里（例如 [idle] 要退回零带宽），而连接此刻已经关了。
+     */
+    private inline fun <T> withDevice(fallback: T, block: () -> T): T {
+        deviceLock.lock()
+        try {
+            if (closed) return fallback
+            return block()
+        } finally {
+            deviceLock.unlock()
+        }
+    }
+
+    /**
+     * 设备节点的文件描述符；已归还时为 -1。
      *
      * 原生等时层正是拿它经 usbfs 提交 URB 的：`UsbManager.openDevice` 给的就是这一个 fd，
      * 而公开的 Java USB 主机 API 没有等时传输的入口，所以它必须交给原生层。
      */
-    val fileDescriptor: Int get() = connection.fileDescriptor
+    val fileDescriptor: Int get() = withDevice(-1) { connection.fileDescriptor }
 
     /** 已就绪的流接口号：停止输出时据此把接口退回零带宽；0 表示当前未就绪 */
     private var activeStreamInterface = 0
@@ -69,9 +99,12 @@ internal class UsbExclusiveDac private constructor(
      * 描述符里声明的 16/24/32 三档在那里看不到。
      *
      * 会问一次设备时钟以补齐采样率（UAC2 的档位不在描述符里），问过即缓存。
+     *
+     * 已归还时返回 null：这时问不了时钟，而只报描述符里声明的那几档会与在用时给出的答案不一致——
+     * 同一个设备在两处显示成不同能力，比读不到更糟。
      */
-    fun declaredCapabilities(): UsbExclusiveDeviceInfo =
-        usbAudioDeviceInfo(deviceName, descriptors, control, clockRates)
+    fun declaredCapabilities(): UsbExclusiveDeviceInfo? =
+        withDevice(null) { usbAudioDeviceInfo(deviceName, descriptors, control, clockRates) }
 
     /**
      * 让设备按 [format] 与 [sampleRate] 就绪，成功即可以该格式建流。
@@ -84,7 +117,10 @@ internal class UsbExclusiveDac private constructor(
      * 设完一律回读核对。设备完全可能静默把请求改成它支持的档位，此时如实判为失败：直出讲究数据原样，
      * "以设备实际速率工作却当作按源速率送出"会表现为没报错但时间轴不对，比直接失败更难查。
      */
-    fun prepareStream(format: UsbAudioOutputFormat, sampleRate: Int): Boolean {
+    fun prepareStream(format: UsbAudioOutputFormat, sampleRate: Int): Boolean =
+        withDevice(false) { prepareStreamLocked(format, sampleRate) }
+
+    private fun prepareStreamLocked(format: UsbAudioOutputFormat, sampleRate: Int): Boolean {
         val uacVersion = descriptors.uacVersion
         var deviceRate = 0
         var clockSource = 0
@@ -127,7 +163,9 @@ internal class UsbExclusiveDac private constructor(
      * 停止输出时调用：留在非零备用设置上会让设备白白占着带宽与时钟（部分解码器随之显示"有信号"），
      * 而接管本身要继续持有——换曲时若重新 claim 一次，内核驱动的解绑与重挂会白走一遍。
      */
-    fun idle() {
+    fun idle() = withDevice(Unit) { idleLocked() }
+
+    private fun idleLocked() {
         val streamInterface = activeStreamInterface
         if (streamInterface == 0) return
         activeStreamInterface = 0
@@ -143,19 +181,28 @@ internal class UsbExclusiveDac private constructor(
         return connection.setInterface(target)
     }
 
-    private var closed = false
-
-    @Synchronized
+    /**
+     * 归还设备：逐个归还接口并关闭连接，内核驱动随后重新绑定。
+     *
+     * 整体在 [deviceLock] 内完成——锁外可能正有一次控制请求在发（面板在主线程查设备能力），
+     * 此刻释放连接即 use-after-free。锁会把归还推迟到那次请求结束，随后置位 [closed]，
+     * 此后的设备侧调用一律按失败返回，不再触碰已释放的连接。
+     */
     override fun close() {
-        if (closed) return
-        closed = true
-        // 反序归还，与接管的嵌套顺序相反
-        for (intf in claimed.asReversed()) {
-            runCatching { connection.releaseInterface(intf) }
-                .onFailure { CrashLogManager.logException(LOG_TAG, "归还接口 ${intf.id} 失败", it) }
+        deviceLock.lock()
+        try {
+            if (closed) return
+            closed = true
+            // 反序归还，与接管的嵌套顺序相反
+            for (intf in claimed.asReversed()) {
+                runCatching { connection.releaseInterface(intf) }
+                    .onFailure { CrashLogManager.logException(LOG_TAG, "归还接口 ${intf.id} 失败", it) }
+            }
+            runCatching { connection.close() }
+                .onFailure { CrashLogManager.logException(LOG_TAG, "关闭设备连接失败", it) }
+        } finally {
+            deviceLock.unlock()
         }
-        runCatching { connection.close() }
-            .onFailure { CrashLogManager.logException(LOG_TAG, "关闭设备连接失败", it) }
     }
 
     companion object {

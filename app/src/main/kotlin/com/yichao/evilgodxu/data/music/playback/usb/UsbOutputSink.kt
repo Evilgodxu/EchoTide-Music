@@ -158,6 +158,10 @@ internal class UsbOutputSink(
      *
      * 本次缓冲已被等时路径消费，重放不了，故调用方如实判为已消费——只用一段极短的缺口换整曲继续。
      * 本项目对直出的底线是"尽力而为、绝不带走整曲播放"，独占是这条路的一种成色，不该比它更硬。
+     *
+     * 顺序注意：先归还设备、后重配平台路径。等时输出在抛异常前已自行停掉并释放句柄（见
+     * [UsbExclusiveAudioSink.handleBuffer]），故归还设备时没有在飞的 URB 落在已释放的接口上；
+     * 而先归还再配平台路径，才能让平台那一路在配置时就看到已恢复可用的解码器，把声音正确地接过去。
      */
     private fun recoverToPlatform(cause: Exception) {
         CrashLogManager.logException(LOG_TAG, "独占链路写出失败，退回平台路径", cause)

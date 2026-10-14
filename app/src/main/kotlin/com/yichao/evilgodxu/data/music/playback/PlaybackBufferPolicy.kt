@@ -49,12 +49,15 @@ internal object PlaybackBufferPolicy {
     fun targetBufferFrames(sampleRate: Int): Int = sampleRate * TARGET_BUFFER_MS / 1000
 
     /**
-     * 起播阈值帧数：
+     * 起播阈值帧数：取实际申请到的容量的一半。
      *
      * 这是轨道建起后要经 `AudioTrack.setStartThresholdInFrames` 写入的值——平台没有在
-     * `AudioTrack.Builder` 上给出对应入口，只能建轨后设置。至少取 1 帧，否则平台按非法值拒绝。
+     * `AudioTrack.Builder` 上给出对应入口，只能建轨后设置。阈值只作用于起播与欠载后的恢复：
+     * 音频轨一旦低于它就停、灌到它才重新出声，因此取**容量的一半**而不是整份——欠载后的静默段才不至于
+     * 拖到整个缓冲那么长，那段静默就是听感上的断口。以实得帧数入参而不是另按采样率重算：平台下限
+     * 更高时实得量大于目标值，阈值应跟着实得量走。至少取 1 帧，否则平台按非法值拒绝。
      */
-    fun startThresholdFrames(sampleRate: Int): Int = max(1, targetBufferFrames(sampleRate))
+    fun startThresholdFrames(grantedFrames: Int): Int = max(1, grantedFrames / 2)
 
     /**
      * 按目标时长申请缓冲的字节数，且不低于平台下限。
