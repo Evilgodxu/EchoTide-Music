@@ -6,11 +6,17 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import kotlin.math.max
 
 /**
- * 音频轨的缓冲尺寸策略。
+ * 输出缓冲的时长口径：直出与独占两条路取同一个值。
  *
- * 媒体3 对线性 PCM 的默认口径是「固定按 500ms 申请」（`DefaultAudioTrackBufferSizeProvider` 的
- * `DEFAULT_PCM_BUFFER_DURATION_US`）。本策略把 PCM 的申请量收到 [TARGET_BUFFER_MS]；压缩与卸载仍按
- * 媒体3 的默认口径交给它自己算——那是编码格式的固有缓冲，与输出链路的延迟无关。
+ * 两条路各有一处缓冲，尺寸都由 [TARGET_BUFFER_MS] 定：平台侧是音频轨申请多大（媒体3 的默认变体经
+ * [provider]，自建音频轨的 [IntPcmAudioSink] 经 [trackBufferBytes]），独占侧是等时环留多长
+ * （`UsbIsoOutput` 的环形缓冲）。两处取不同的值会让同一台设备「换个开关就换一种表现」，故统一口径。
+ *
+ * **显式钉定而不是沿用媒体3 的默认值**：媒体3 对线性 PCM 的默认目标同为 500ms
+ * （`DefaultAudioTrackBufferSizeProvider` 的 `DEFAULT_PCM_BUFFER_DURATION_US`），但它只覆盖由媒体3
+ * 自己建轨的那几个变体——[IntPcmAudioSink] 自建音频轨，独占路径根本不经过媒体3，靠默认值就只剩一处
+ * 受管。钉在本处，三个落点才会同时变。压缩与卸载仍交回媒体3 的默认口径：那是编码格式的固有缓冲，
+ * 与输出链路的延迟无关。
  *
  * 这个量的两侧各自约束：
  * - 下限一侧是抗欠载余量。上游（解码 → 写出）的偶发停顿全靠这一段吸收，**没有别的兜底**：欠载不会被
@@ -22,13 +28,13 @@ import kotlin.math.max
  *   与之相对，「已离开音频轨 → 发声」那一段（[OutputLatencyReading.afterTrackMs]）由混音缓冲、HAL
  *   与设备传输决定，与本策略无关——判断本策略是否生效要看音频轨的实得容量与全链路读数，不能看那一段。
  *
- * 取 [TARGET_BUFFER_MS] 是两者的折中：足以吸收上游停顿，又远短于媒体3 的 500ms 默认口径。目标按**时长**
- * 给定、用采样率换算成帧，而不是固定帧数——帧与时长的对应随采样率变化，固定帧数在高采样率上会短到不足以
- * 抗欠载。
+ * [TARGET_BUFFER_MS] 是这两侧的取向选择：宁可多留余量，接受随之而来的滞后（独占侧的等时环同理，
+ * 见 `UsbIsoOutput`）。目标按**时长**给定、用采样率换算成帧，而不是固定帧数——帧与时长的对应随采样率
+ * 变化，固定帧数在高采样率上会短到不足以抗欠载。
  *
  * 抬回下限这一步由本策略自己完成（见 [trackBufferBytes] 的 `max`），不是平台「判断设备是否支持」后的
- * 回退：平台只在音频轨一侧再兜一次下限。抬回的目标是**平台下限**，既不是媒体3 的 500ms 默认口径，
- * 也不是某个「合理值」。故本策略在平台下限更高时（实测某平台约 80ms）不生效，此时实得量即平台下限。
+ * 回退：平台只在音频轨一侧再兜一次下限。抬回的目标是**平台下限**，不是某个「合理值」。故本策略在平台
+ * 下限更高时不生效，此时实得量即平台下限；独占侧的下限则是等时环自身的建流下限（见 `UsbIsoOutput`）。
  *
  * 起播阈值（轨道灌到多少才出声）另按 [startThresholdFrames] 取容量的一半，不再沿用「等于容量」的初值：
  * 初值让起播与暂停恢复都要多等整个缓冲，而阈值只作用于**起播那一刻**——一旦起唱，播放只要求「有数据
@@ -39,13 +45,17 @@ import kotlin.math.max
 internal object PlaybackBufferPolicy {
 
     /**
-     * 目标缓冲时长（毫秒）。
+     * 目标缓冲时长（毫秒）：直出与独占两条路共用。
      *
      * 以时长而非帧数给定：同一帧数在不同采样率下对应的时长不同，而这条策略要保的是时间意义上的余量。
      */
-    const val TARGET_BUFFER_MS = 80
+    const val TARGET_BUFFER_MS = 500
 
-    /** 目标缓冲帧数：按 [TARGET_BUFFER_MS] 与采样率换算 */
+    /**
+     * 目标缓冲帧数：按 [TARGET_BUFFER_MS] 与采样率换算。
+     *
+     * 独占侧同样经它换算等时环长度，两条路的缓冲深度因此由同一个式子给出。
+     */
     fun targetBufferFrames(sampleRate: Int): Int = sampleRate * TARGET_BUFFER_MS / 1000
 
     /**

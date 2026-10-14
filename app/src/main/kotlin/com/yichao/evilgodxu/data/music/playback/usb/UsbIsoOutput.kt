@@ -1,5 +1,6 @@
 package com.yichao.evilgodxu.data.music.playback.usb
 
+import com.yichao.evilgodxu.data.music.playback.PlaybackBufferPolicy
 import java.io.Closeable
 import java.nio.ByteBuffer
 
@@ -154,9 +155,6 @@ internal class UsbIsoOutput private constructor(
         /** 在飞的 URB 个数：留够余量，调度抖动时才不至于断流 */
         private const val URB_COUNT = 8
 
-        /** 环形缓冲时长占比：够吸收一次调度停顿，又不至于把延迟做大 */
-        private const val RING_SECONDS = 0.1
-
         /**
          * 按 [format] 与 [sampleRate] 建立等时输出。
          *
@@ -165,8 +163,12 @@ internal class UsbIsoOutput private constructor(
         fun create(deviceFd: Int, format: UsbAudioOutputFormat, sampleRate: Int): UsbIsoOutput? {
             if (format.formatTag != PCM_FORMAT_TAG) return null
             val frameBytes = format.frameBytes
-            val ringBytes = (frameBytes * sampleRate * RING_SECONDS).toInt()
-                .coerceAtLeast(frameBytes * PACKETS_PER_URB * URB_COUNT)
+            // 环长取与直出路径同一个目标帧数（见 PlaybackBufferPolicy）：两条路的缓冲深度一致，
+            // 同一台设备上换开关才不会换一种断流/滞后表现。建流自身另有下限，空间不足以容下整段
+            // 在飞 URB 时按它抬回
+            val ringFrames = PlaybackBufferPolicy.targetBufferFrames(sampleRate)
+                .coerceAtLeast(PACKETS_PER_URB * URB_COUNT)
+            val ringBytes = frameBytes * ringFrames
             val handle = UsbIsoNative.open(
                 fd = deviceFd,
                 outEndpoint = format.endpointAddress,
