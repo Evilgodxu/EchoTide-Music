@@ -767,6 +767,14 @@ class MusicPlaybackState(
      * 入口内部读到的是播放线程写的量，那几项各自按 volatile 发布。
      */
     var audioSinkWrittenFrames: (() -> Long?)? = null
+
+    /**
+     * 独占路径的延迟读数入口；未建立等时输出时返回 null。
+     *
+     * 与 [audioTrack] 并列而非二选一：那条路上没有音频轨可读（数据直接交给等时端点），故读数只能由
+     * 写出侧按自己的缓冲算出，取值为 null 即表示当前不在独占路径上。
+     */
+    var usbExclusiveLatency: (() -> OutputLatencyReading?)? = null
     // 直出的当前成色：未启用、无设备接入或设备未提供动态混音端口时保持系统混音
     var directOutputMode by mutableStateOf(AudioOutputMode.MIXER)
 

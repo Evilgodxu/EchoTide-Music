@@ -27,8 +27,10 @@ private const val API_WRITTEN_FRAMES = 37
  * - [fullChainMs]：从**写进音频轨**起算的全链路，恒等于上面两段之和。
  *
  * 容量与驻留并列，才能看出缓冲策略的效果与余量：容量是申请到的上限，驻留是此刻实际占用。
+ *
+ * 公开而非模块内：它与 [AudioInfoSnapshot] 同类，是面板的读模型，经播放状态发布给界面取用。
  */
-internal data class OutputLatencyReading(
+data class OutputLatencyReading(
     /** 音频轨缓冲容量（帧） */
     val trackBufferFrames: Int,
     /** 音频轨缓冲容量对应的时长（毫秒） */
@@ -183,18 +185,33 @@ internal class OutputLatencySampler(private val window: Int = AVERAGE_WINDOW) {
      * [writtenFrames] 由调用方逐次传入而不在采样器内持有：它读的是当前生效链路的写入量，属外部状态，
      * 缓存下来会让窗口跨链路混入。
      */
-    fun sample(track: AudioTrack?, writtenFrames: (() -> Long?)?): OutputLatencyReading? {
-        val reading = OutputLatency.read(track, writtenFrames) ?: return null
-        val afterTrackMs = reading.afterTrackMs ?: return reading
-        push(afterTrackSamples, afterTrackMs)
+    fun sample(track: AudioTrack?, writtenFrames: (() -> Long?)?): OutputLatencyReading? =
+        OutputLatency.read(track, writtenFrames)?.let(::averaged)
+
+    /**
+     * 采一次由调用方直接给出的读数。
+     *
+     * 独占路径用它：那条路上没有音频轨可读，读数由写出侧按自己的缓冲算出。与 [sample] 同一套入窗规则，
+     * 故面板在两条路上看到的均值含义一致。
+     */
+    fun sampleProvided(reading: OutputLatencyReading): OutputLatencyReading = averaged(reading)
+
+    /** 把一次读数入窗并给出窗口内的均值；不含任何可平均分量的读数原样返回 */
+    private fun averaged(reading: OutputLatencyReading): OutputLatencyReading {
+        reading.afterTrackMs?.let { push(afterTrackSamples, it) }
         reading.trackResidentMs?.let { push(residentSamples, it) }
-        val averagedAfterTrackMs = afterTrackSamples.average().toFloat()
+        val averagedAfterTrackMs = afterTrackSamples.takeIf { it.isNotEmpty() }?.average()?.toFloat()
         val averagedResidentMs = residentSamples.takeIf { it.isNotEmpty() }?.average()?.toFloat()
         return reading.copy(
             afterTrackMs = averagedAfterTrackMs,
             trackResidentMs = averagedResidentMs,
-            // 全链路取两段均值之和，而不是把每次读数各自求和后再平均：面板上三行因此恒能对上
-            fullChainMs = averagedResidentMs?.let { averagedAfterTrackMs + it },
+            // 全链路取两段均值之和，而不是把每次读数各自求和后再平均：面板上三行因此恒能对上。
+            // 两段缺一即不产出——把它当成 0 会把「测不到」显示成「很短」
+            fullChainMs = if (averagedAfterTrackMs != null && averagedResidentMs != null) {
+                averagedAfterTrackMs + averagedResidentMs
+            } else {
+                null
+            },
         )
     }
 

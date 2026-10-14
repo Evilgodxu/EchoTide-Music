@@ -163,22 +163,23 @@ class MusicPlaybackService : MediaSessionService() {
         )
         // 独占与平台直出在设备层面互斥（接口同一时刻只能有一个持有者），故在其上再套一层路由：
         // 每次配置时按"独占是否已就绪 + 本次格式能否原样送出"二选一，两条路各自完整，不叠加
+        val exclusiveSink = UsbExclusiveAudioSink(
+            session = {
+                if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.currentSession() else null
+            },
+            // 独占绕开混音器，系统音量得由本层施加；未装配时按满幅，不影响其它路径
+            systemVolume = {
+                if (::systemMediaVolume.isInitialized) systemMediaVolume.gain() else 1f
+            },
+            // 独占这条路上没有音频轨可供平台回填写出编码，故由写出侧直接上报；
+            // 不走 reportOutputEncoding：那条出口还兼着"让直出重算路由"的职责，而独占期间直出并不参与
+            onOutputEncodingChanged = { encoding ->
+                stateHolder.state.audioSinkOutputEncoding = encoding
+            },
+        )
         val audioSink = UsbOutputSink(
             platform = perDeviceSink,
-            exclusive = UsbExclusiveAudioSink(
-                session = {
-                    if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.currentSession() else null
-                },
-                // 独占绕开混音器，系统音量得由本层施加；未装配时按满幅，不影响其它路径
-                systemVolume = {
-                    if (::systemMediaVolume.isInitialized) systemMediaVolume.gain() else 1f
-                },
-                // 独占这条路上没有音频轨可供平台回填写出编码，故由写出侧直接上报；
-                // 不走 reportOutputEncoding：那条出口还兼着"让直出重算路由"的职责，而独占期间直出并不参与
-                onOutputEncodingChanged = { encoding ->
-                    stateHolder.state.audioSinkOutputEncoding = encoding
-                },
-            ),
+            exclusive = exclusiveSink,
             exclusiveReady = {
                 ::usbExclusiveOutput.isInitialized && usbExclusiveOutput.currentSession() != null
             },
@@ -199,6 +200,8 @@ class MusicPlaybackService : MediaSessionService() {
         // 已写入音频轨的帧数随播放持续变化，故发布取值入口而非取值本身：
         // 该入口只在能给出这一读数的变体（打包整型输出）生效时返回非空
         stateHolder.state.audioSinkWrittenFrames = perDeviceSink::writtenOutputFrames
+        // 独占路径没有音频轨可读，延迟读数只能由写出侧按自己的缓冲算出；不在那条路上时它自行返回 null
+        stateHolder.state.usbExclusiveLatency = exclusiveSink::latencyReading
         val renderersFactory = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
                 context: android.content.Context,

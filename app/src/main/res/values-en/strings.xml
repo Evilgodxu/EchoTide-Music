@@ -175,12 +175,13 @@
     <string name="audio_info_decoded_output">Decoded output</string>
     <string name="audio_info_float_output">Float output</string>
     <string name="audio_info_output_encoding">Output encoding</string>
-    <!-- The parentheses state where this reading starts; the audio track's own part is reported by the "incl. track" row -->
-    <string name="audio_info_latency">Output latency (after track)</string>
-    <string name="audio_info_latency_full">Output latency (incl. track)</string>
-    <string name="audio_info_track_buffer">Audio track buffer</string>
-    <!-- "Audio track buffer" reports the capacity (the granted ceiling); this row reports the current occupancy -->
-    <string name="audio_info_track_resident">Audio track residency</string>
+    <!-- The parentheses state where this reading starts; the output buffer's own part is reported by the "incl. buffer" row.
+         "Buffer" rather than "audio track": the exclusive path has no AudioTrack, its part sits in the ring buffer -->
+    <string name="audio_info_latency">Output latency (after buffer)</string>
+    <string name="audio_info_latency_full">Output latency (incl. buffer)</string>
+    <string name="audio_info_track_buffer">Output buffer</string>
+    <!-- "Output buffer" reports the capacity (the granted ceiling); this row reports the current occupancy -->
+    <string name="audio_info_track_resident">Buffer residency</string>
     <string name="audio_info_transport_state">Transfer state</string>
     <string name="audio_info_device_usb">USB device</string>
     <string name="audio_info_device_bluetooth">Bluetooth device</string>

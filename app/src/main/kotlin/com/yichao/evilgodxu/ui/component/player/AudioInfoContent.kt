@@ -615,6 +615,9 @@ private fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<
  * 延迟随链路持续波动，与本文件其余「随关键项变化才重算」的字段节奏不同，故独立按固定间隔采样，
  * 由 [OutputLatencySampler] 取滑动平均。音频轨是跨线程的易变引用、不是 Compose 状态，读取不会引发
  * 重组，故每次采样都重新取一次，换轨由采样器按实例身份发现并重建窗口；面板关闭即离开组合，采样随之停止。
+ *
+ * 独占路径没有音频轨可读（数据直接交给等时端点），故那条路上的读数由写出侧直接给出；换了来源即换窗，
+ * 两条路的样本不会混在一起。
  */
 @Composable
 private fun rememberOutputLatencyReading(
@@ -622,17 +625,22 @@ private fun rememberOutputLatencyReading(
 ): State<OutputLatencyReading?> =
     produceState<OutputLatencyReading?>(initialValue = null, playbackState) {
         var sampler = OutputLatencySampler()
-        var sampledTrack: AudioTrack? = null
+        var sampledSource: Any? = null
         while (true) {
-            val track = playbackState.audioTrack
-            if (track !== sampledTrack) {
-                sampledTrack = track
+            val provided = playbackState.usbExclusiveLatency?.invoke()
+            val source: Any? = if (provided != null) ExclusiveLatencySource else playbackState.audioTrack
+            if (source !== sampledSource) {
+                sampledSource = source
                 sampler = OutputLatencySampler()
             }
-            value = sampler.sample(track, playbackState.audioSinkWrittenFrames)
+            value = provided?.let { sampler.sampleProvided(it) }
+                ?: sampler.sample(playbackState.audioTrack, playbackState.audioSinkWrittenFrames)
             delay(OutputLatencySampler.SAMPLE_INTERVAL_MS)
         }
     }
+
+/** 采样来源的标记：独占路径没有音频轨可指，用它把「来源是独占」与「来源是某条音频轨」区分开 */
+private object ExclusiveLatencySource
 
 /**
  * 蓝牙授权补申请。

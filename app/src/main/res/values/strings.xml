@@ -179,12 +179,13 @@
     <string name="audio_info_decoded_output">解码输出</string>
     <string name="audio_info_float_output">浮点输出</string>
     <string name="audio_info_output_encoding">输出编码</string>
-    <!-- 括号内是这段读数的起算点：音频轨自身那一段另由「含音频轨」一行给出 -->
-    <string name="audio_info_latency">输出延迟（音频轨之后）</string>
-    <string name="audio_info_latency_full">输出延迟（含音频轨）</string>
-    <string name="audio_info_track_buffer">音频轨缓冲</string>
-    <!-- 「音频轨缓冲」一行报容量（申请到的上限），本行报此刻的实际占用 -->
-    <string name="audio_info_track_resident">音频轨驻留</string>
+    <!-- 括号内是这段读数的起算点：本层缓冲自身那一段另由「含缓冲」一行给出。
+         用「缓冲」而非「音频轨」：独占路径上没有音频轨，那一段落在环形缓冲上 -->
+    <string name="audio_info_latency">输出延迟（缓冲之后）</string>
+    <string name="audio_info_latency_full">输出延迟（含缓冲）</string>
+    <string name="audio_info_track_buffer">输出缓冲</string>
+    <!-- 「输出缓冲」一行报容量（申请到的上限），本行报此刻的实际占用 -->
+    <string name="audio_info_track_resident">缓冲驻留</string>
     <string name="audio_info_transport_state">传输状态</string>
     <string name="audio_info_device_usb">USB 设备</string>
     <string name="audio_info_device_bluetooth">蓝牙设备</string>

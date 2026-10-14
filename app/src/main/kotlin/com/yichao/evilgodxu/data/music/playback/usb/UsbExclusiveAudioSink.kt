@@ -13,12 +13,16 @@ import androidx.media3.common.util.Clock
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.audio.AudioSink
+import com.yichao.evilgodxu.data.music.playback.OutputLatencyReading
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 // 类名前缀：配置、建流、欠载与排空都记在此名下
 private const val LOG_TAG = "UsbExclusiveSink"
+
+// 帧数换算毫秒用的系数：与 OutputLatency 同口径
+private const val MILLIS_PER_SECOND = 1_000f
 
 // 欠载与传输错误的轮询间隔：原生层在另一条线程上计数，本层按秒取一次即可，不必每块缓冲都问
 private const val STATS_INTERVAL_MS = 1000L
@@ -431,6 +435,32 @@ internal class UsbExclusiveAudioSink(
 
     // 本类自带输出实现，不经媒体3 的输出提供者；空操作以免调用方误以为可替换
     override fun setAudioOutputProvider(audioProvider: androidx.media3.exoplayer.audio.AudioOutputProvider) = Unit
+
+    /**
+     * 本层输出链路的延迟读数；未建立输出时为 null。
+     *
+     * 这条路上没有音频轨可读，故读数只能自己算。与平台路径同口径地切成两段，但只有一段能测：
+     * - **本层缓冲驻留**——已写出而尚未送出的部分，即环形缓冲里的存量加在飞的 URB 那一小段。
+     *   它是这条路上唯一可测的一段，也正是缓冲策略能调的那一段；
+     * - **缓冲之后那一段**（设备传输与解码器自身的排队）在 usbfs 上没有可查询的口子，一律不产出。
+     *   不接受用别的量顶替：把「测不到」显示成「很短」比空着更糟。
+     *
+     * 因此全链路同样不产出——它由两段相加得出，缺一段就不是全链路。
+     */
+    fun latencyReading(): OutputLatencyReading? {
+        val output = output ?: return null
+        val sampleRate = output.sampleRate.takeIf { it > 0 } ?: return null
+        val bufferFrames = output.bufferFrames.takeIf { it > 0 } ?: return null
+        return OutputLatencyReading(
+            trackBufferFrames = bufferFrames,
+            trackBufferMs = bufferFrames * MILLIS_PER_SECOND / sampleRate,
+            afterTrackMs = null,
+            // 驻留不可能为负：已写出的量取自本层记账，已送出的量取自原生层累计，后者恒不超前
+            trackResidentMs = (writtenFrames - output.playedFrames()).coerceAtLeast(0) *
+                MILLIS_PER_SECOND / sampleRate,
+            fullChainMs = null,
+        )
+    }
 
     /** 建起等时输出；未建起时向上抛出初始化异常，由渲染器按可恢复与否处置 */
     private fun ensureOutput(): UsbIsoOutput {
