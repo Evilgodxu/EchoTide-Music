@@ -9,7 +9,6 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import androidx.core.content.ContextCompat
 import com.yichao.evilgodxu.data.music.playback.UsbExclusiveDeviceInfo
-import com.yichao.evilgodxu.data.music.playback.outputEncodingOfBitDepth
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.Closeable
 
@@ -92,22 +91,9 @@ internal class UsbExclusiveOutput(
      *
      * 独占期间它已从系统音频里消失（内核驱动被解绑），平台侧一次也查不到，故音频信息面板的设备那几行
      * 只能由此取——否则面板会落到"扬声器"上，与实际发声的设备完全对不上。
-     *
-     * 会问一次设备时钟以补齐采样率（UAC2 的档位不在描述符里），问过即缓存。
      */
-    fun deviceInfo(): UsbExclusiveDeviceInfo? {
-        val active = claim ?: return null
-        val formats = active.formats
-        return UsbExclusiveDeviceInfo(
-            name = active.deviceName,
-            supportedSampleRates = runCatching { active.supportedRates() }.getOrDefault(emptyList()),
-            supportedEncodings = formats
-                .mapNotNull { outputEncodingOfBitDepth(it.bitResolution) }
-                .distinct()
-                .sortedBy { it.ordinal },
-            channelCount = formats.map { it.channels }.firstOrNull { it > 0 },
-        )
-    }
+    fun deviceInfo(): UsbExclusiveDeviceInfo? =
+        claim?.let { active -> runCatching { active.declaredCapabilities() }.getOrNull() }
 
     /**
      * 开关。开启即尝试接管，关闭即归还。

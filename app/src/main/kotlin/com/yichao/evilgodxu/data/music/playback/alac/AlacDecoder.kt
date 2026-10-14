@@ -103,7 +103,7 @@ internal class AlacDecoder(
     }
 
     private companion object {
-        const val NAME = "yichao.alac.decoder"
+        const val NAME = "echotide.alac.decoder"
     }
 }
 

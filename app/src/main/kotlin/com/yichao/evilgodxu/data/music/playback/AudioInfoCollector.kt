@@ -10,6 +10,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.analysis.isLosslessFormatName
+import com.yichao.evilgodxu.data.music.playback.usb.UsbAudioCapabilities
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -283,6 +284,8 @@ internal object AudioInfoCollector {
             null
         }
         val mixerAttributes = supportedMixerAttributes(audioManager, device)
+        // USB 解码器按描述符声明的口径给出能力，其余通路只能按平台上报值
+        val declared = declaredCapabilities(context, kind, device)
         return OutputDeviceInfo(
             kind = kind,
             name = if (kind == OutputDeviceKind.BLUETOOTH) {
@@ -291,15 +294,36 @@ internal object AudioInfoCollector {
                 device.productName?.toString()?.takeIf { it.isNotBlank() }
             },
             address = address,
-            supportedSampleRates = supportedSampleRates(device, mixerAttributes),
-            channelCount = device.channelCounts.firstOrNull()?.takeIf { it > 0 },
-            supportedEncodings = mixerAttributes
-                .mapNotNull { outputEncodingOf(it.format.encoding) }
-                .distinct(),
+            supportedSampleRates = declared?.supportedSampleRates?.takeIf { it.isNotEmpty() }
+                ?: supportedSampleRates(device, mixerAttributes),
+            channelCount = declared?.channelCount
+                ?: device.channelCounts.firstOrNull()?.takeIf { it > 0 },
+            supportedEncodings = declared?.supportedEncodings?.takeIf { it.isNotEmpty() }
+                ?: mixerAttributes.mapNotNull { outputEncodingOf(it.format.encoding) }.distinct(),
             bluetooth = bluetooth?.let {
                 BluetoothLinkInfo(linkType = it.linkType, deviceClass = it.deviceClass, codec = it.codec)
             },
         )
+    }
+
+    /**
+     * USB 解码器真实声明的播放能力；非 USB 通路、无授权或读不到时为 null。
+     *
+     * 平台 API 报不全设备的能力：`getSupportedMixerAttributes` 只给得出动态混音端口声明的条目，
+     * 实测某解码器在描述符里声明 16/24/32 三档，那里只报最高一档的 32 位。故 USB 通路一律以描述符为准，
+     * 读不到才退回平台上报值——口径统一在"设备自己声明了什么"上，独占与平台两条路因此不会互相矛盾。
+     *
+     * 读取只打开设备拿原始描述符、**不 claim 接口**，正在走的平台链路不受影响；断开设备与 USB 交互
+     * 不该落在组合线程上，故切到 IO。
+     */
+    private suspend fun declaredCapabilities(
+        context: Context,
+        kind: OutputDeviceKind,
+        device: AudioDeviceInfo,
+    ): UsbExclusiveDeviceInfo? {
+        if (kind != OutputDeviceKind.USB) return null
+        val name = device.productName?.toString()?.takeIf { it.isNotBlank() }
+        return withContext(Dispatchers.IO) { UsbAudioCapabilities.read(context, name) }
     }
 
     /**

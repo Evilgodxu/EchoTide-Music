@@ -4,6 +4,7 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
+import com.yichao.evilgodxu.data.music.playback.UsbExclusiveDeviceInfo
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.Closeable
 
@@ -61,23 +62,16 @@ internal class UsbExclusiveDac private constructor(
     private val clockRates = java.util.concurrent.ConcurrentHashMap<Int, List<Int>>()
 
     /**
-     * 设备声明的采样率并集，升序。
+     * 设备真实声明的播放能力。
      *
-     * UAC2 的档位不在描述符里（见 [prepareStream]），故除描述符里声明的那些之外还要问一次时钟源，
-     * 否则这类设备的"支持采样率"会空着。问过即记下，后续不再重复问；查询失败按"读不到"处理，不影响
-     * 其余信息——界面少一行总好过整块面板打不开。
+     * 独占期间设备已从系统音频里消失（内核驱动被解绑），平台侧一次也查不到它，故这些项只能由接管方给出。
+     * 而它也确实是唯一准的口径：平台 API 只报得出动态混音端口声明的条目（实测只给最高一档），
+     * 描述符里声明的 16/24/32 三档在那里看不到。
+     *
+     * 会问一次设备时钟以补齐采样率（UAC2 的档位不在描述符里），问过即缓存。
      */
-    fun supportedRates(): List<Int> {
-        val declared = formats.flatMap { it.rates }.filter { it > 0 }
-        if (descriptors.uacVersion != 2) return declared.distinct().sorted()
-        val fromClocks = runCatching {
-            formats.mapNotNull { format ->
-                val source = descriptors.resolveClockSource(format.clockId) { control.selectedClockPin(it) }
-                if (source == 0) null else clockRates.getOrPut(source) { control.readClockRates(source) }
-            }.flatten()
-        }.getOrNull().orEmpty()
-        return (declared + fromClocks).filter { it > 0 }.distinct().sorted()
-    }
+    fun declaredCapabilities(): UsbExclusiveDeviceInfo =
+        usbAudioDeviceInfo(deviceName, descriptors, control, clockRates)
 
     /**
      * 让设备按 [format] 与 [sampleRate] 就绪，成功即可以该格式建流。
