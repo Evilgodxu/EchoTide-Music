@@ -171,9 +171,21 @@ internal class UsbOutputSink(
         lastConfig?.let { config -> switchTo(Route.PLATFORM, config) }
     }
 
-    override fun play() = activeRoute.play()
+    /**
+     * 启停同时下发两条路。
+     *
+     * 不只是为了"两边都停住"：未生效的一方此处记下的启停意图，正是它下次被切进来时的初始状态——
+     * 只给生效方会让另一条路的启停状态停在旧值上，切过去之后立刻表现为"该播的不播"或"该停的还在跑"。
+     */
+    override fun play() {
+        platform.play()
+        exclusive.play()
+    }
 
-    override fun pause() = activeRoute.pause()
+    override fun pause() {
+        platform.pause()
+        exclusive.pause()
+    }
 
     override fun handleDiscontinuity() = activeRoute.handleDiscontinuity()
 

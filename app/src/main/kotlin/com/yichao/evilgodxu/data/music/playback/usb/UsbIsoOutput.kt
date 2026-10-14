@@ -13,10 +13,13 @@ private const val LOG_TAG = "UsbIsoOutput"
  * 之所以存在这一层：Java 的 USB 主机 API 不支持等时传输（`UsbRequest` 的类注释只提批量与中断端点），
  * 而 USB 音频的数据流走的正是等时端点。故最后一公里由自写的 usbfs 层完成——只依赖 NDK 自带的平台头
  * `linux/usbdevice_fs.h`，不含任何第三方库。
+ *
+ * 库名带应用名而非直接叫 usb 系：`libusb*` 这个前缀会让人读成 libusb——而本工程恰恰是**刻意不用它**
+ * （见 docs/注意事项.md），名字上跟着混只会让后来者认错实现来源。
  */
 internal object UsbIsoNative {
     init {
-        System.loadLibrary("usbiso")
+        System.loadLibrary("echotide_usb_iso")
     }
 
     /** 建流；返回句柄，失败返回 0（原因已由原生层写日志） */
@@ -38,6 +41,9 @@ internal object UsbIsoNative {
     external fun write(handle: Long, pcm: ByteBuffer, offset: Int, bytes: Int): Int
 
     external fun drain(handle: Long)
+
+    /** 暂停/恢复送流；暂停期间环内数据保留，见 [UsbIsoStream::setPaused] 的说明 */
+    external fun setPaused(handle: Long, paused: Boolean)
 
     external fun stop(handle: Long)
 
@@ -73,16 +79,18 @@ internal class UsbIsoOutput private constructor(
     private var closed = false
 
     /**
-     * 阻塞写入若干帧，缓冲位置随之推进。返回接纳的帧数；为负表示本次输出已终止（停止或设备拔出）。
+     * 阻塞写入若干帧，缓冲位置随之推进。返回接纳的帧数（可能少于 [frames]，甚至为 0）；为负表示本次输出
+     * 已终止（停止或设备拔出）。
      *
      * 只接受直接缓冲：数据要交给原生层零拷贝写入，堆上缓冲得先复制一份，而直出链路上每一点额外
      * 拷贝都落在音频路径上。
      */
     fun write(pcm: ByteBuffer, frames: Int): Int {
-        if (closed || frames <= 0) return -1
+        if (closed) return -1
+        if (frames <= 0) return 0
         val bytes = frames * frameBytes
         val accepted = UsbIsoNative.write(handle, pcm, pcm.position(), bytes)
-        if (accepted <= 0) return -1
+        if (accepted < 0) return -1
         pcm.position(pcm.position() + accepted)
         return accepted / frameBytes
     }
@@ -90,6 +98,16 @@ internal class UsbIsoOutput private constructor(
     /** 等到已写入的数据全部送出设备 */
     fun drain() {
         if (!closed) UsbIsoNative.drain(handle)
+    }
+
+    /**
+     * 暂停或恢复送流。
+     *
+     * 暂停期间本层停止把环里的数据交给设备，改用静音填充：环里攒着的正是"已写出而未播出"的部分，
+     * 取走它会把待播量抹平，媒体3 据此判输出已空并把播放状态打回缓冲中。
+     */
+    fun setPaused(paused: Boolean) {
+        if (!closed) UsbIsoNative.setPaused(handle, paused)
     }
 
     fun stop() {

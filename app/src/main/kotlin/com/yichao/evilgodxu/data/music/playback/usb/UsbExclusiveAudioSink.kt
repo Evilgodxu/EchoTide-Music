@@ -71,7 +71,12 @@ internal class UsbExclusiveAudioSink(
     private var listener: AudioSink.Listener = SILENT_LISTENER
     private var clock: Clock = Clock.DEFAULT
     private var audioAttributes = AudioAttributes.DEFAULT
+    /** 播放器音量：平时恒为 1（本应用的音量由系统掌管），心动模式的片段淡入淡出靠它 */
     private var volume = 1f
+
+    /** 是否处于暂停：暂停期间待播量必须保留，见 [hasPendingData] */
+    private var paused = false
+
     private var skipSilenceEnabled = false
 
     /** 解码输出格式：本类接受任意线性 PCM 编码，写出统一为设备子槽排布 */
@@ -254,15 +259,24 @@ internal class UsbExclusiveAudioSink(
     }
 
     /**
-     * 播放与暂停在等时链路上是空操作：送流不随二者启停。
+     * 播放与暂停。
      *
-     * 等时端点的时钟由设备自己维持，停流再起会重新锁一次时钟、听感上是一次可闻的断续；保持送流则设备
-     * 始终收到连续的包，只是内容为静音——这也正是平台路径上音频轨暂停时的行为（`AudioTrack` 暂停后
-     * 仍占着设备的时间轴，只是不再有数据写出）。
+     * 暂停不是空操作：它要让本层**停止把环里的数据交给设备**（见 [UsbIsoOutput.setPaused]）。若只是
+     * "不再写入"了事，环里攒下的数据仍会被逐步投出去，待播量随之归零——媒体3 的 `hasPendingData` 一旦
+     * 为假便判输出已空，把播放状态从 READY 打回 BUFFERING 并停掉渲染器，表现就是"一暂停就卡在缓冲中、
+     * 再按播放起不来"。
+     *
+     * 设备侧仍持续收到静音包，时钟因此不会被放开，恢复时无需重新锁钟。
      */
-    override fun play() = Unit
+    override fun play() {
+        paused = false
+        output?.setPaused(false)
+    }
 
-    override fun pause() = Unit
+    override fun pause() {
+        paused = true
+        output?.setPaused(true)
+    }
 
     // 跳转后媒体时间与已写出时长不再连续，须在新缓冲处重新落锚点，位置换算才不会沿用旧锚点
     override fun handleDiscontinuity() {
@@ -312,7 +326,10 @@ internal class UsbExclusiveAudioSink(
             if (remaining.hasRemaining()) return
             pendingOutput = null
         }
-        // 排空是必需的：数据还在环与在飞 URB 里，不等它们送出去就切歌会把尾巴整段吃掉
+        // 排空是必需的：数据还在环与在飞 URB 里，不等它们送出去就切歌会把尾巴整段吃掉。
+        // 排空前先恢复送流——暂停期间环只进不出，不恢复就会一直等在那里
+        paused = false
+        output.setPaused(false)
         output.drain()
         output.stop()
         handledEndOfStream = true
@@ -330,15 +347,19 @@ internal class UsbExclusiveAudioSink(
     /**
      * 是否仍有已写出而未送出的数据。
      *
-     * 判据取自原生层回收 URB 时累计的实际帧数，而不是本层已交给它的帧数：两者差着在飞 URB 那一整段
+     * 判据取自原生层回收 URB 时累计的**真实音频**帧数，而不是本层已交给它的帧数：两者差着在飞 URB 那一整段
      * （默认 8×8 个服务间隔，高速下约 8ms），拿提交量当播出量会让曲末判定提前一个在飞时长。
-     * 排空之后环与在飞 URB 都已送出，直接判为无——此时再比对只会卡在设备内部那一丁点余量上。
+     * 静音补出的帧一概不计入——环空时补的零不是"已播出的内容"，计入会让位置越过已写出的量。
+     *
+     * 暂停期间一律判为有待播数据：本层不像平台音频轨那样持有一大块缓冲，暂停时留在环里的那一段就是全部
+     * 待播量，而媒体3 的位置估计在暂停期间本就应当停住（平台路径上音频轨暂停后播放头同样不再推进）。
+     * 排空之后环与在飞 URB 都已送出，直接判为无。
      */
     override fun hasPendingData(): Boolean {
         val output = output ?: return false
         if (pendingOutput != null) return true
         if (drained) return false
-        return writtenFrames > output.playedFrames()
+        return paused || writtenFrames > output.playedFrames()
     }
 
     override fun getCurrentPositionUs(sourceEnded: Boolean): Long {
@@ -425,6 +446,8 @@ internal class UsbExclusiveAudioSink(
                 /* cause= */ null,
             )
         output = created
+        // 建流时同步当前的启停状态：首次写入可能发生在渲染器还未下发 play 的时刻
+        created.setPaused(paused)
         listener.onAudioTrackInitialized(trackConfigOf(created))
         // 面板的"输出编码"取自这里：设备实际收到的是子槽排布，故报的是子槽宽度对应的编码
         onOutputEncodingChanged(encodingForSubslot(created.subslotBytes))

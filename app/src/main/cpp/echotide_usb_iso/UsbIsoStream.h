@@ -76,6 +76,18 @@ public:
     /** 等到已写入的数据全部送出设备；曲末排空用 */
     void drain();
 
+    /**
+     * 暂停送流：停止从环形缓冲取数据，改用静音填充。
+     *
+     * 这一段必须由本层做，不能在调用方"不再写入"了事：**环里已写入而尚未送出的数据就是"待播量"**，
+     * 媒体3 的待播判据（`AudioSink.hasPendingData`）正据此决定输出是否就绪。平台路径上暂停会让音频轨
+     * 停止消费，待播量因此保留；本层若继续把环里的数据投出去，待播量会一路归零，媒体3 据此判输出已空、
+     * 把播放状态打回缓冲中并停掉渲染器——表现就是"一暂停就卡住、再播起不来"。
+     *
+     * 设备侧仍持续收到静音包，故时钟不会被放开，恢复时无需重新锁钟。
+     */
+    void setPaused(bool paused);
+
     /** 停止送流；可重复调用 */
     void stop();
 
@@ -84,8 +96,12 @@ public:
 private:
     UsbIsoStream() = default;
 
+    struct Urb;
+    struct FeedbackUrb;
+
     bool start(const Config& config, std::string& error);
     void reapLoop();
+    Urb* findSlot(usbdevfs_urb* urb);
     void fillAndSubmit(usbdevfs_urb* urb);
     void submitFeedback();
     void discardAll();
@@ -100,6 +116,8 @@ private:
         std::vector<uint8_t> buffer;
         usbdevfs_urb* urb = nullptr;
         bool inFlight = false;
+        /** 本批中包含的真实音频字节数：回收时据此计入"已送出"，静音填充的部分不算 */
+        size_t realBytes = 0;
     };
 
     struct FeedbackUrb {
@@ -137,6 +155,7 @@ private:
 
     std::thread reapThread_;
     std::atomic<bool> running_{false};
+    std::atomic<bool> paused_{false};
     std::atomic<bool> primed_{false};
     std::atomic<bool> disconnected_{false};
     std::atomic<uint64_t> framesSent_{0};

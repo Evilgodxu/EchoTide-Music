@@ -160,6 +160,9 @@ long UsbIsoStream::write(const uint8_t* data, size_t bytes) {
         }
         const size_t free = ring_.size() - ringSize_;
         if (free == 0) {
+            // 暂停期间环只进不出，继续等就是永久阻塞——而暂停与恢复都走调用方那一条线程。
+            // 故就地把已接纳的部分交回去，余量由调用方按"下游已满"自行重试
+            if (paused_.load()) break;
             // 等回收线程腾出空间；超时只是为了避免在无通知时永久阻塞
             ringCv_.wait_for(lock, std::chrono::milliseconds(20));
             continue;
@@ -187,6 +190,13 @@ void UsbIsoStream::drain() {
     // 环已空，但在飞的 URB 仍按服务间隔逐个送出；等这段时间过完才算真的送尽
     const long us = 1000000L * config_.packetsPerUrb * config_.urbCount / std::max(1, packetsPerSecond_);
     std::this_thread::sleep_for(std::chrono::microseconds(us));
+}
+
+void UsbIsoStream::setPaused(bool paused) {
+    if (paused_.exchange(paused) == paused) return;
+    logInfo(paused ? "已暂停送流（环内数据保留待播）" : "已恢复送流");
+    // 恢复时唤醒可能正在等环空间的播放线程：暂停期间环只进不出，写满即阻塞
+    if (!paused) ringCv_.notify_all();
 }
 
 void UsbIsoStream::stop() {
@@ -250,49 +260,60 @@ void UsbIsoStream::reapLoop() {
         if (!running_.load()) break;
         // 回收即表示这一批已由主机侧送出，按各包实际长度累计供播放位置取用。撤下的 URB 以错误完成，
         // 其 actual_length 不反映真实送出量，故只在成功与部分成功时计入
-        if (completed->status == 0 || completed->status == kStatusPartial) {
+        Urb* slot = findSlot(completed);
+        if (slot != nullptr && (completed->status == 0 || completed->status == kStatusPartial)) {
             uint64_t played = 0;
             const unsigned packets = completed->number_of_packets;
             for (unsigned i = 0; i < packets; ++i) {
                 played += completed->iso_frame_desc[i].actual_length;
             }
-            framesPlayed_ += played / size_t(config_.frameBytes);
+            // 只计入真实音频：环空时补出的静音不是"已播出的内容"，把它一并计入会让播放位置越过已写出的
+            // 量，媒体3 据此判输出已空并把播放状态打回缓冲中
+            const uint64_t actualFrames = played / size_t(config_.frameBytes);
+            framesPlayed_ += std::min<uint64_t>(slot->realBytes / size_t(config_.frameBytes), actualFrames);
         }
         fillAndSubmit(completed);
     }
 }
 
-void UsbIsoStream::fillAndSubmit(usbdevfs_urb* urb) {
-    // 找出该 URB 对应的槽位：回收返回的就是提交时那个指针
-    Urb* slot = nullptr;
+UsbIsoStream::Urb* UsbIsoStream::findSlot(usbdevfs_urb* urb) {
+    // 回收返回的就是提交时那个指针
     for (auto& candidate : urbs_) {
-        if (candidate->urb == urb) {
-            slot = candidate.get();
-            break;
-        }
+        if (candidate->urb == urb) return candidate.get();
     }
+    return nullptr;
+}
+
+void UsbIsoStream::fillAndSubmit(usbdevfs_urb* urb) {
+    Urb* slot = findSlot(urb);
     if (slot == nullptr) return;
 
+    const bool paused = paused_.load();
     uint8_t* buffer = slot->buffer.data();
     size_t offset = 0;
+    size_t realBytes = 0;
     for (int i = 0; i < config_.packetsPerUrb; ++i) {
         const size_t want = size_t(nextPacketFrames()) * size_t(config_.frameBytes);
         size_t got = 0;
-        {
+        // 暂停期间不从环里取数据：环里攒着的正是"已写出而未播出"的部分，取走它等于把待播量抹平
+        if (!paused) {
             std::lock_guard<std::mutex> lock(ringMutex_);
             got = readRing(buffer + offset, want);
         }
         if (got < want) {
             // 补零而非缩短包长：等时端点上短包会让设备的时间轴出现缺口并产生可闻的断续
             std::fill(buffer + offset + got, buffer + offset + want, uint8_t(0));
-            if (primed_.load()) ++underruns_;
+            // 暂停不是欠载：此刻本就不该有数据送出
+            if (!paused && primed_.load()) ++underruns_;
         }
+        realBytes += got;
         framesSent_ += got / size_t(config_.frameBytes);
         urb->iso_frame_desc[i].length = static_cast<unsigned int>(want);
         urb->iso_frame_desc[i].actual_length = 0;
         urb->iso_frame_desc[i].status = 0;
         offset += want;
     }
+    slot->realBytes = realBytes;
 
     urb->type = USBDEVFS_URB_TYPE_ISO;
     urb->endpoint = config_.outEndpoint;
