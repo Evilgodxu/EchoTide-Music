@@ -49,7 +49,7 @@ internal object PlaybackBufferPolicy {
      *
      * 以时长而非帧数给定：同一帧数在不同采样率下对应的时长不同，而这条策略要保的是时间意义上的余量。
      */
-    const val TARGET_BUFFER_MS = 500
+    const val TARGET_BUFFER_MS = 80
 
     /**
      * 目标缓冲帧数：按 [TARGET_BUFFER_MS] 与采样率换算。
