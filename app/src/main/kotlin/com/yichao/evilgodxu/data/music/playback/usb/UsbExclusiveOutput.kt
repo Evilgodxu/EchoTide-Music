@@ -58,7 +58,13 @@ internal class UsbExclusiveOutput(
     private var enabled = false
     private var registered = false
 
-    /** 当前持有的独占会话，null 表示未接管 */
+    /**
+     * 当前持有的独占会话，null 表示未接管。
+     *
+     * 写出侧在播放线程上读取它，而接管与归还在主线程（广播接收）与播放线程（链路失效）两处发生，
+     * 故按易变发布，避免写出侧读到尚未发布的新会话。
+     */
+    @Volatile
     private var claim: UsbExclusiveDac? = null
 
     /** 已请求授权而尚未作答的设备，仅用于日志与去重 */
@@ -85,6 +91,7 @@ internal class UsbExclusiveOutput(
      * 关闭时归还这一步是硬要求而非清理：接口不还，内核驱动就一直处于解绑状态，该解码器在系统音频里
      * 始终不出现，通话与别的应用都用不到它。
      */
+    @Synchronized
     fun setEnabled(enabled: Boolean) {
         if (this.enabled == enabled) return
         this.enabled = enabled
@@ -176,6 +183,7 @@ internal class UsbExclusiveOutput(
         CrashLogManager.logInfo(LOG_TAG, "已请求 ${device.deviceName} 的 USB 访问授权")
     }
 
+    @Synchronized
     private fun onPermissionResult(intent: Intent) {
         val device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
         val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
@@ -194,11 +202,13 @@ internal class UsbExclusiveOutput(
         openClaim(manager, device)
     }
 
+    @Synchronized
     private fun onDeviceAttached() {
         if (!enabled || claim != null) return
         acquire()
     }
 
+    @Synchronized
     private fun onDeviceDetached(intent: Intent) {
         val device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java) ?: return
         val current = claim ?: return
@@ -207,6 +217,20 @@ internal class UsbExclusiveOutput(
         CrashLogManager.logInfo(LOG_TAG, "${current.deviceName} 已拔出，独占会话作废")
         releaseClaim()
         if (enabled) acquire() else publish(UsbExclusiveState.Disabled)
+    }
+
+    /**
+     * 写出侧报告链路已失效（等时流终止或设备失联）。
+     *
+     * 归还设备并回到"等待设备"，**不立即重接管**：同一台设备在故障之后立刻再接管一次多半还是同样的
+     * 结果，而每一次接管都要把内核驱动解开再挂回，比干脆不接管更糟。等重新插拔或用户重开开关再试。
+     */
+    @Synchronized
+    fun onStreamFailed() {
+        if (claim == null) return
+        CrashLogManager.logInfo(LOG_TAG, "独占链路失效，已归还设备")
+        releaseClaim()
+        publish(UsbExclusiveState.AwaitingDevice)
     }
 
     private fun releaseClaim() {

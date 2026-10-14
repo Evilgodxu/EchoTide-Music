@@ -36,7 +36,11 @@ import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.UsbDirectOutput
 import com.yichao.evilgodxu.data.music.playback.alac.AlacAudioRenderer
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
+import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveAudioSink
+import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveOutput
+import com.yichao.evilgodxu.data.music.playback.usb.UsbOutputSink
 import com.yichao.evilgodxu.data.settings.usbDirectOutputModeFlow
+import com.yichao.evilgodxu.data.settings.usbExclusiveOutputModeFlow
 import com.yichao.evilgodxu.log.CrashLogManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +60,8 @@ class MusicPlaybackService : MediaSessionService() {
     private var audioFocusRequest: AudioFocusRequest? = null
     /** USB 直出：把播放钉到 USB 解码器，并为播放申请按源格式打开的专用输出流 */
     private lateinit var usbDirectOutput: UsbDirectOutput
+    /** USB 独占：把 USB 音频接口收归本应用（内核驱动随之解绑），与直出互斥的第二条路 */
+    private lateinit var usbExclusiveOutput: UsbExclusiveOutput
     /** 直出期间的系统免打扰：随输出成色进出 */
     private lateinit var directOutputDoNotDisturb: DirectOutputDoNotDisturb
     // 播放设置的读取与直出都要求主线程：ExoPlayer 与其 AudioTrack 均只在主线程访问
@@ -94,7 +100,7 @@ class MusicPlaybackService : MediaSessionService() {
         audioManager = getSystemService(AudioManager::class.java)
         // 音频输出由 PerDeviceAudioSink 按直出已受理的编码挑选浮点/整型变体并自行重建，
         // 故此处忽略工厂给出的浮点参数，固定返回同一实例供渲染器使用
-        val audioSink = PerDeviceAudioSink(
+        val perDeviceSink = PerDeviceAudioSink(
             context = this,
             directTarget = {
                 // 直出在播放器之后装配，此处延迟求值；尚未装配时视为未直出
@@ -144,9 +150,26 @@ class MusicPlaybackService : MediaSessionService() {
                 }
             },
         )
+        // 独占与平台直出在设备层面互斥（接口同一时刻只能有一个持有者），故在其上再套一层路由：
+        // 每次配置时按"独占是否已就绪 + 本次格式能否原样送出"二选一，两条路各自完整，不叠加
+        val audioSink = UsbOutputSink(
+            platform = perDeviceSink,
+            exclusive = UsbExclusiveAudioSink(
+                session = {
+                    if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.currentSession() else null
+                },
+            ),
+            exclusiveReady = {
+                ::usbExclusiveOutput.isInitialized && usbExclusiveOutput.currentSession() != null
+            },
+            // 独占链路失效即归还设备：留着一个已废的会话只会让每次配置都重走一遍同样的失败
+            onExclusiveFailed = {
+                if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.onStreamFailed()
+            },
+        )
         // 已写入音频轨的帧数随播放持续变化，故发布取值入口而非取值本身：
         // 该入口只在能给出这一读数的变体（打包整型输出）生效时返回非空
-        stateHolder.state.audioSinkWrittenFrames = audioSink::writtenOutputFrames
+        stateHolder.state.audioSinkWrittenFrames = perDeviceSink::writtenOutputFrames
         val renderersFactory = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
                 context: android.content.Context,
@@ -374,13 +397,23 @@ class MusicPlaybackService : MediaSessionService() {
             stateHolder.state.onDirectOutputModeChanged(mode)
             // 成色在曲中才变化时（开关打开、设备接入、重算后恢复）写出变体还没跟上，补一次重配；
             // 变体未变时该方法自行跳过，故这里无须判断成色
-            audioSink.syncRouting()
+            perDeviceSink.syncRouting()
             // 成色回调来自播放线程与主线程两处，投递主线程使 holding 与还原档位这对状态同处一条线
             serviceScope.launch { directOutputDoNotDisturb.onModeChanged(mode) }
         }
         serviceScope.launch {
             usbDirectOutputModeFlow().collect { enabled ->
                 usbDirectOutput.setEnabled(enabled)
+            }
+        }
+        // 独占同样在会话建立后装配。它自己订阅 USB 的接入/拔出与授权结果，故只需喂开关与成色出口；
+        // 成色不由开关代替——开关开着而设备没接入、没授权、接管失败时，播放仍走平台路径
+        usbExclusiveOutput = UsbExclusiveOutput(context = this) { state ->
+            CrashLogManager.logInfo("MusicPlaybackService", "USB 独占成色：$state")
+        }
+        serviceScope.launch {
+            usbExclusiveOutputModeFlow().collect { enabled ->
+                usbExclusiveOutput.setEnabled(enabled)
             }
         }
     }
@@ -530,6 +563,8 @@ class MusicPlaybackService : MediaSessionService() {
         abandonAudioFocus()
         serviceScope.cancel()
         usbDirectOutput.release()
+        // 独占必须显式归还：接口不还，内核的音频驱动就一直是解绑状态，该解码器在系统音频里始终不出现
+        if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.close()
         // 服务销毁时成色回调已无从投递（作用域已取消），免打扰在此直接兜底还原
         directOutputDoNotDisturb.release()
         mediaSession?.release()

@@ -123,6 +123,17 @@ internal class UsbExclusiveAudioSink(
     }
 
     /**
+     * 本次格式能否由独占路径承接：会话在、且设备声明了可原样送出的格式。
+     *
+     * 只做判定、不产生副作用：上层路由要在 [configure] 之前据此决定走哪条路，而在错误的一侧做设备
+     * 控制（改采样率、切备用设置）会把设备挪到另一条路上够不着的状态。
+     */
+    fun canHandle(format: Format): Boolean {
+        val active = session() ?: return false
+        return selectFormat(active, format) != null
+    }
+
+    /**
      * 选定设备格式并让设备就绪。
      *
      * 选择与就绪都在此处落地而非推迟到首次写入：两者都可能因设备能力而失败（未声明该采样率、
@@ -151,12 +162,7 @@ internal class UsbExclusiveAudioSink(
             throw AudioSink.ConfigurationException("独占会话不在（设备未接入或未授权）", format)
         }
         val bitDepth = sourceBitDepthOf(format.pcmEncoding)
-        val selected = planUsbOutput(
-            sampleRate = format.sampleRate,
-            channelCount = format.channelCount,
-            sourceBitDepth = bitDepth,
-            candidates = active.formats,
-        )
+        val selected = selectFormat(active, format)
         if (selected == null) {
             CrashLogManager.logInfo(
                 LOG_TAG,
@@ -182,6 +188,15 @@ internal class UsbExclusiveAudioSink(
                 "（有效位深 ${selected.bitResolution} 位），输入编码 ${format.pcmEncoding}",
         )
     }
+
+    /** 从设备声明的格式里挑出能原样送出本次解码输出的那一个；挑不出即本次不成立 */
+    private fun selectFormat(active: UsbExclusiveDac, format: Format): UsbAudioOutputFormat? =
+        planUsbOutput(
+            sampleRate = format.sampleRate,
+            channelCount = format.channelCount,
+            sourceBitDepth = sourceBitDepthOf(format.pcmEncoding),
+            candidates = active.formats,
+        )
 
     override fun handleBuffer(
         buffer: ByteBuffer,
