@@ -6,7 +6,6 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
-import android.util.Log
 import com.yichao.evilgodxu.data.music.api.parseWordTimedLrcText
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.LyricWord
@@ -40,7 +39,6 @@ internal object MusicMetadataCache {
     // 落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
     internal val PERSISTED = PersistedData("orphan_reclaim.json", PersistedFileKind.APP_FILE)
     private const val RECLAIM_RECORD_KEY = "firstSeenUnreferencedAt"
-    private const val TAG = "MusicMetadataCache"
 
     // 缓存根目录：系统公共下载目录 Download/YiChao。
     // 具备全部文件访问权限时直写文件系统；权限缺失时经 MediaStore Downloads 集合写入自身条目
@@ -304,7 +302,6 @@ internal object MusicMetadataCache {
     private data class OrphanCandidate(
         val path: String,
         val lastModifiedMs: Long,
-        val sizeBytes: Long,
         // MediaStore 条目 ID：直删文件失败时经条目删除兜底
         val mediaStoreId: Long?,
     )
@@ -315,7 +312,7 @@ internal object MusicMetadataCache {
         val now = System.currentTimeMillis()
         val reclaimable = collectOrphans(context, referenced)
             .filter { now - it.lastModifiedMs > ORPHAN_GRACE_MS }
-        deleteOrphans(context, reclaimable, "立即回收")
+        deleteOrphans(context, reclaimable)
     }
 
     /**
@@ -346,7 +343,7 @@ internal object MusicMetadataCache {
             }
         }
         saveReclaimRecords(context, firstSeenAt)
-        deleteOrphans(context, reclaimable, "连续${ORPHAN_RECLAIM_WINDOW_DAYS}天无引用")
+        deleteOrphans(context, reclaimable)
     }
 
     // 引用集归一：空引用集说明歌曲库尚未加载，此时任何缓存都"看似无引用"，必须整体跳过
@@ -389,7 +386,6 @@ internal object MusicMetadataCache {
             into[file.absolutePath] = OrphanCandidate(
                 path = file.absolutePath,
                 lastModifiedMs = file.lastModified(),
-                sizeBytes = file.length(),
                 mediaStoreId = null,
             )
         }
@@ -426,7 +422,6 @@ internal object MusicMetadataCache {
                             path = path,
                             // MediaStore 的修改时间为秒精度
                             lastModifiedMs = cursor.getLong(3) * 1000L,
-                            sizeBytes = cursor.getLong(2),
                             mediaStoreId = id,
                         )
                     }
@@ -436,20 +431,12 @@ internal object MusicMetadataCache {
         }
     }
 
-    // 删除候选并落日志（目录、文件数、释放字节）：误删排查依赖此记录，不要静默删除
-    private fun deleteOrphans(context: Context, orphans: List<OrphanCandidate>, reason: String) {
-        if (orphans.isEmpty()) return
-        var deleted = 0
-        var freedBytes = 0L
+    // 删除候选：先直删文件，失败时经 MediaStore 条目兜底
+    private fun deleteOrphans(context: Context, orphans: List<OrphanCandidate>) {
         orphans.forEach { orphan ->
             val byFile = runCatching { File(orphan.path).delete() }.getOrDefault(false)
-            val removed = byFile || (orphan.mediaStoreId?.let { deleteMediaStoreEntry(context, it) } == true)
-            if (removed) {
-                deleted++
-                freedBytes += orphan.sizeBytes
-            }
+            if (!byFile) orphan.mediaStoreId?.let { deleteMediaStoreEntry(context, it) }
         }
-        if (deleted > 0) Log.i(TAG, "回收孤儿缓存[$reason] 文件数=$deleted 释放=$freedBytes B")
     }
 
     private fun deleteMediaStoreEntry(context: Context, id: Long): Boolean = runCatching {

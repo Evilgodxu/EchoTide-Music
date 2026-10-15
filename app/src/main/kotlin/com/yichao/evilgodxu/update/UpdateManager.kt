@@ -275,7 +275,6 @@ object UpdateManager {
                         return@withContext true
                     }
                     DownloadManager.STATUS_FAILED -> {
-                        android.util.Log.w(TAG, "Download failed")
                         onProgress(-1f)
                         return@withContext false
                     }
@@ -289,7 +288,6 @@ object UpdateManager {
                         if (done == lastProgressBytes) {
                             stallCount++
                             if (stallCount >= STALL_TIMEOUT) {
-                                android.util.Log.w(TAG, "Download stalled for 30s, aborting")
                                 dm.remove(downloadId)
                                 onProgress(-1f)
                                 return@withContext false

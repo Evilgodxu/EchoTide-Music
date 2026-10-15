@@ -149,10 +149,7 @@ internal object MusicMetadataWriter {
 
     // 写本地文件：同目录中转文件 + 原子替换，音频躯干在写出过程中按区间搬运
     private fun write(context: Context, path: String, plan: (TagSource) -> RewritePlan?): Boolean {
-        if (path.isBlank()) {
-            CrashLogManager.logException("MusicMetadataWriter", "写入音频文件元数据跳过: 路径为空")
-            return false
-        }
+        if (path.isBlank()) return false
         return try {
             val file = File(path)
             val source = FileTagSource(file)
@@ -183,20 +180,10 @@ internal object MusicMetadataWriter {
 
     // 就地重写 content URI 音频文件：content URI 无寻址写能力，先按方案把结果流式落到缓存中转文件，
     // 再整体回写目标，全程不把文件读进堆；非 content 协议不可写时返回 false。
-    // 各失败分支均记录错误日志，便于定位“读取到不完整数据”导致的静默写入失败
     private fun rewriteByUri(context: Context, uriString: String, plan: (TagSource) -> RewritePlan?): Boolean {
-        if (uriString.isBlank()) {
-            CrashLogManager.logException("MusicMetadataWriter", "经 content URI 写入元数据跳过: URI 为空")
-            return false
-        }
+        if (uriString.isBlank()) return false
         val uri = uriString.toUri()
-        if (uri.scheme != "content") {
-            CrashLogManager.logException(
-                "MusicMetadataWriter",
-                "经 content URI 写入元数据跳过: 非 content 协议, scheme=${uri.scheme}",
-            )
-            return false
-        }
+        if (uri.scheme != "content") return false
         return try {
             val source = ContentUriTagSource(context, uri)
             val rewrite = plan(source) ?: run {
@@ -344,7 +331,7 @@ internal object MusicMetadataWriter {
             return writeMp3(head, fields, cover, removeCover)?.toPlan(source)
         }
         val tagEnd = ID3_HEADER_BYTES + Id3v2Tag.syncsafe(head, 6)
-        val window = readParseWindow(source, 0L, tagEnd.toLong(), "MP3 标签区") ?: return null
+        val window = readParseWindow(source, 0L, tagEnd.toLong()) ?: return null
         return writeMp3(window, fields, cover, removeCover)?.toPlan(source)
     }
 
@@ -362,14 +349,8 @@ internal object MusicMetadataWriter {
                 return writeFlac(window.copyOf(metadataEnd), fields, cover, removeCover)?.toPlan(source)
             }
             val grown = minOf(window.size.toLong() * 2, MAX_IN_MEMORY_BYTES.toLong()).toInt()
-            if (grown <= window.size) {
-                // 元数据块区超过上限：多为异常文件或超大内嵌封面，放弃本次重写而不无限扩窗
-                CrashLogManager.logException(
-                    "MusicMetadataWriter",
-                    "FLAC 元数据块区超出内存驻留上限，跳过元数据重写: 已读=${window.size}B",
-                )
-                return null
-            }
+            // 元数据块区超过上限：多为异常文件或超大内嵌封面，放弃本次重写而不无限扩窗
+            if (grown <= window.size) return null
             window = source.readAt(0, grown) ?: return null
             // 短读说明文件短于窗口：末块标记缺失即结构不完整，不做截断猜测
             if (window.size < grown) return null
@@ -420,7 +401,7 @@ internal object MusicMetadataWriter {
     ): RewritePlan? {
         val boxes = readMp4TopBoxes(source) ?: return null
         val moov = boxes.firstOrNull { it.type == "moov" } ?: return null
-        val moovBytes = readParseWindow(source, moov.offset, moov.size, "MP4 moov 盒") ?: return null
+        val moovBytes = readParseWindow(source, moov.offset, moov.size) ?: return null
         val parsed = Mp4Atom.parseAll(moovBytes)?.singleOrNull()?.takeIf { it.type == "moov" } ?: return null
         val originalSize = parsed.build().size
         parsed.replaceMetadata(fields, cover, removeCover)
@@ -438,9 +419,8 @@ internal object MusicMetadataWriter {
         val head = ByteArrayOutputStream()
         if (streamAfter) {
             // 前导小盒子 + 重建的 moov，其后全部原样搬运
-            if (beforeBytes > MAX_IN_MEMORY_BYTES) {
-                return refuseOversizedBoxes(source, "moov 之前 ${beforeBytes}B 须按字面重建")
-            }
+            // moov 之前的盒子须按字面重建，超过上限即放弃：多为多段 mdat 或结构异常的容器
+            if (beforeBytes > MAX_IN_MEMORY_BYTES) return null
             before.forEach { source.copyRange(it.offset, it.offset + it.size, head) }
             head.write(rebuiltMoov)
             return RewritePlan(head.toByteArray(), moov.offset + moov.size, source.size, ByteArray(0))
@@ -449,23 +429,13 @@ internal object MusicMetadataWriter {
         val streamStart = before.firstOrNull { it.size > MAX_IN_MEMORY_BYTES }?.offset ?: moov.offset
         val lead = before.filter { it.offset < streamStart }
         val tailBytes = afterBytes + moov.size
-        if (tailBytes > MAX_IN_MEMORY_BYTES || lead.sumOf { it.size } > MAX_IN_MEMORY_BYTES) {
-            return refuseOversizedBoxes(source, "moov 周围 ${maxOf(tailBytes, lead.sumOf { it.size })}B 须按字面重建")
-        }
+        // moov 周围须按字面重建的部分超过上限即放弃：多为多段 mdat 或结构异常的容器
+        if (tailBytes > MAX_IN_MEMORY_BYTES || lead.sumOf { it.size } > MAX_IN_MEMORY_BYTES) return null
         lead.forEach { source.copyRange(it.offset, it.offset + it.size, head) }
         val tail = ByteArrayOutputStream()
         tail.write(rebuiltMoov)
         after.forEach { source.copyRange(it.offset, it.offset + it.size, tail) }
         return RewritePlan(head.toByteArray(), streamStart, moov.offset, tail.toByteArray())
-    }
-
-    // 顶层盒子超出搬运上限：多为多段 mdat 或结构异常的容器，放弃本次重写
-    private fun refuseOversizedBoxes(source: TagSource, detail: String): RewritePlan? {
-        CrashLogManager.logException(
-            "MusicMetadataWriter",
-            "MP4 顶层盒子超出搬运上限，跳过元数据重写: 大小=${source.size}B（$detail）",
-        )
-        return null
     }
 
     // 顶层盒子表：逐个读盒子头并按声明的长度定位下一个，数据区不进入内存。
@@ -487,14 +457,8 @@ internal object MusicMetadataWriter {
     }
 
     // 读取 [offset, offset + size) 的解析窗口；超过窗口上限或短读时返回 null
-    private fun readParseWindow(source: TagSource, offset: Long, size: Long, what: String): ByteArray? {
-        if (size > MAX_IN_MEMORY_BYTES) {
-            CrashLogManager.logException(
-                "MusicMetadataWriter",
-                "$what 超出内存驻留上限，跳过元数据重写: 长度=${size}B",
-            )
-            return null
-        }
+    private fun readParseWindow(source: TagSource, offset: Long, size: Long): ByteArray? {
+        if (size > MAX_IN_MEMORY_BYTES) return null
         val window = source.readAt(offset, size.toInt()) ?: return null
         return window.takeIf { it.size.toLong() == size }
     }
@@ -517,7 +481,7 @@ internal object MusicMetadataWriter {
     /**
      * Ogg（Opus 与 Vorbis）：标签包与音频包同处一条页序列，标签长度变化会改变标签页数，
      * 其后每页的序号与 CRC 都要随之重排，故需要整条包流才能定位。
-     * 超过 [OGG_PARSE_LIMIT_BYTES] 即跳过本次重写并记日志，不把大文件读进堆。
+     * 超过 [OGG_PARSE_LIMIT_BYTES] 即跳过本次重写，不把大文件读进堆。
      */
     private fun oggPlan(
         source: TagSource,
@@ -525,13 +489,7 @@ internal object MusicMetadataWriter {
         cover: ByteArray?,
         removeCover: Boolean,
     ): RewritePlan? {
-        if (source.size > OGG_PARSE_LIMIT_BYTES) {
-            CrashLogManager.logException(
-                "MusicMetadataWriter",
-                "Ogg 文件超出页序列重排上限，跳过元数据重写: 大小=${source.size}B",
-            )
-            return null
-        }
+        if (source.size > OGG_PARSE_LIMIT_BYTES) return null
         val bytes = source.readAt(0, source.size.toInt()) ?: return null
         if (bytes.size.toLong() < source.size) return null
         return writeOggComments(bytes, fields, cover, removeCover)?.toPlan(ByteArrayTagSource(bytes))

@@ -457,11 +457,6 @@ internal class IntPcmAudioSink(
             trackState = track.state
             track
         } catch (e: RuntimeException) {
-            CrashLogManager.logException(
-                LOG_TAG,
-                "建立 ${bitDepthLabel(outputEncoding)}轨道失败：${sampleRate}Hz",
-                e,
-            )
             throw AudioSink.InitializationException(
                 "${bitDepthLabel(outputEncoding)}轨道建立失败",
                 trackState,

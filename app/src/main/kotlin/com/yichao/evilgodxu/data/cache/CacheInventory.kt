@@ -1,7 +1,6 @@
 package com.yichao.evilgodxu.data.cache
 
 import android.content.Context
-import android.util.Log
 import coil3.SingletonImageLoader
 import com.yichao.evilgodxu.data.persistence.StoragePaths
 import com.yichao.evilgodxu.log.CrashLogManager
@@ -11,8 +10,7 @@ import java.io.File
  * 缓存产出台账：按 [StorageRegistry] 遍历各类产出的当前占用，并提供回收。
  *
  * 完备性不依赖登记的完整性：登记条目之外还会逐个落点根走一遍未被任何条目主张的产出，
- * 整份计入该根的兜底分类。于是新模块漏登记只表现为兜底行非空（并落一条带具体路径的日志），
- * 不会出现占用去向不明却查不到的产出。
+ * 整份计入该根的兜底分类。于是新模块漏登记只表现为兜底行非空，不会出现占用去向不明却查不到的产出。
  */
 internal object CacheInventory {
 
@@ -22,15 +20,11 @@ internal object CacheInventory {
     // 故只回收隔日残留，避免删掉正在下载或待安装的包
     private const val STALE_UPDATE_PACKAGE_MS = 24 * 60 * 60 * 1000L
 
-    // 未归类落点的日志条数上限：够定位即可，不把整棵树刷进日志
-    private const val UNCLAIMED_LOG_LIMIT = 10
-
     /** 扫描全部登记条目与落点根，产出各类缓存的当前占用。目录遍历为阻塞 IO，必须在 IO 线程调用 */
     fun sample(context: Context): List<CacheUsage> {
         val declared = StorageRegistry.entries.map { entry -> entry to entry.resolve(context) }
         val claimedPaths = declared.flatMap { (_, files) -> files.map { it.absolutePath } }.toSet()
         val unclaimed = unclaimedByCategory(context, claimedPaths)
-        reportUnclaimed(unclaimed)
         return buildList {
             declared.forEach { (entry, files) ->
                 val (fileCount, sizeBytes) = measureAll(files)
@@ -59,7 +53,6 @@ internal object CacheInventory {
         StorageRegistry.updatePackages(context)
             .filter { now - it.lastModified() > STALE_UPDATE_PACKAGE_MS }
             .forEach { file -> freedBytes += deleteQuietly(file) }
-        if (freedBytes > 0) Log.i(TAG, "冷启动回收临时产出 释放=$freedBytes B")
         return freedBytes
     }
 
@@ -99,7 +92,6 @@ internal object CacheInventory {
     // 未主张产出：自每个落点根向下走，命中已主张落点即剪枝，其余整份计入该根的兜底分类。
     // 判定只用「路径包含」而不做名字比对 —— 按名豁免会在跨目录时把同名文件误判为已登记
     private fun unclaimedByCategory(context: Context, claimedPaths: Set<String>): Map<CacheCategory, Unclaimed> {
-        reportNestedClaimed(claimedPaths)
         val byCategory = LinkedHashMap<CacheCategory, Unclaimed>()
         effectiveRoots(context).forEach { (root, dir) ->
             val bucket = byCategory.getOrPut(root.category) { Unclaimed(root.scope) }
@@ -122,26 +114,6 @@ internal object CacheInventory {
                 else -> onUnclaimed(child)
             }
         }
-    }
-
-    // 兜底行非空即说明有产出没被归类：落一条带具体路径的日志，供开发期发现登记遗漏。
-    // 不弹窗、不改展示 —— 用户看到的是一个正常的占用行，而不是需要他去理解的问题
-    private fun reportUnclaimed(unclaimed: Map<CacheCategory, Unclaimed>) {
-        unclaimed.forEach { (category, bucket) ->
-            if (bucket.files.isEmpty()) return@forEach
-            val paths = bucket.files.take(UNCLAIMED_LOG_LIMIT).joinToString(", ") { it.absolutePath }
-            val rest = if (bucket.files.size > UNCLAIMED_LOG_LIMIT) " …共 ${bucket.files.size} 项" else ""
-            Log.i(TAG, "未归类产出[$category] $paths$rest")
-        }
-    }
-
-    // 条目之间的落点不得嵌套：嵌套会让同一份产出被两条各算一次，合计随之偏大（见 StorageRegistry 不变量）。
-    // 手工登记难免出错，此处只留一条提示，不中断统计 —— 提示出现即说明登记表需要修
-    private fun reportNestedClaimed(claimedPaths: Set<String>) {
-        val nested = claimedPaths.filter { path ->
-            claimedPaths.any { other -> other != path && path.startsWith(other + File.separator) }
-        }
-        if (nested.isNotEmpty()) Log.w(TAG, "条目落点存在嵌套，占用会被重复计: ${nested.joinToString(", ")}")
     }
 
     // 统计一组落点：逐个累加文件数与字节数

@@ -99,15 +99,12 @@ class MusicPlaybackService : MediaSessionService() {
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
                 resumeAfterFocusLoss = false
-                // 焦点丢失会暂停播放，界面上的表现与「自己停了」无从区分，故留痕区分二者
-                CrashLogManager.logInfo("MusicPlaybackService", "音频焦点丢失（永久），已暂停播放")
                 player.pause()
                 abandonAudioFocus()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 resumeAfterFocusLoss = player.isPlaying
-                CrashLogManager.logInfo("MusicPlaybackService", "音频焦点被临时抢占，已暂停播放")
                 player.pause()
             }
         }
@@ -341,13 +338,9 @@ class MusicPlaybackService : MediaSessionService() {
                     state.audioTrackMimeType = audioMime
                     state.audioTrackDecodable = audioFormat?.let { selectedIndex != null }
                     if (selectedIndex == null && audioMime != null) {
-                        // 无解码器时播放器不报错：整条音频轨不被选中，表现为静音走完。留痕并明确告知，
-                        // 否则面板上既没有解码器也没有原因，只能看到一首「不出声的歌」
+                        // 无解码器时播放器不报错：整条音频轨不被选中，表现为静音走完。必须在面板上明确告知，
+                        // 否则既没有解码器也没有原因，只能看到一首「不出声的歌」
                         val formatName = TrackAudioInfoReader.mimeToFormatName(audioMime) ?: audioMime
-                        CrashLogManager.logInfo(
-                            "MusicPlaybackService",
-                            "当前音频轨无可用解码器，播放将无声: mime=$audioMime, 曲目=${currentTrack?.title}",
-                        )
                         state.errorMsg = applicationContext.getString(
                             R.string.music_panel_decode_unsupported,
                             formatName,

@@ -323,11 +323,6 @@ private suspend fun embedCachedMetadata(
     lyrics: String?,
 ) {
     val track = playbackState.playlist.firstOrNull { it.id == trackId } ?: return
-    if (coverOriginal == null) {
-        CrashLogManager.logException(
-            "MusicDownloader",
-            "缓存完成时在线封面尚未就绪，仅写入标题/艺术家: 歌曲=${track.title} - ${track.artist}",)
-    }
     val ok = MusicMetadataWriter.writeMetadataToSource(context, track, track.title, track.artist, coverOriginal, lyrics)
     if (!ok) {
         CrashLogManager.logException(

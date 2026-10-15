@@ -609,12 +609,10 @@ class PerDeviceAudioSink(
                 return active().handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
             } catch (e: AudioSink.InitializationException) {
                 cause = e
-                CrashLogManager.logException(LOG_TAG, "变体 $activeVariant 建不起音频轨，降级续写", e)
             } catch (e: AudioSink.WriteException) {
                 // 可恢复的写出错误交回渲染器冲刷后重试，不在本层吞掉
                 if (e.isRecoverable) throw e
                 cause = e
-                CrashLogManager.logException(LOG_TAG, "变体 $activeVariant 写出失败，降级续写", e)
             }
             buffer.position(startPosition)
             onDirectOutputUnrealizable()
