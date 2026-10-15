@@ -79,7 +79,6 @@ import com.yichao.evilgodxu.data.music.panel.autoTranslateLyrics
 import com.yichao.evilgodxu.data.music.panel.searchCoverCandidates
 import com.yichao.evilgodxu.data.music.panel.searchLyricsCandidates
 import com.yichao.evilgodxu.data.music.panel.TranslateOutcome
-import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.screens.home.component.dialog.ArtistPickerDialog

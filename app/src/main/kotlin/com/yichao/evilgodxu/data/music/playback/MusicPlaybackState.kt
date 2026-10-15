@@ -665,24 +665,31 @@ class MusicPlaybackState(
         persistPlaylist()
     }
 
+    /**
+     * 歌词缓存的引用集：全量库 ∪ 当前播放列表。全量库覆盖本地曲目，当前列表兜底在线曲目
+     * （在线曲目只存在于当前列表，不在全量库备份）。
+     *
+     * 返回 null 表示此刻判不出全量引用 —— 停留在自定义歌单且全量库备份缺失时，当前列表只是歌单子集，
+     * 此时任何缓存都「看似无引用」，调用方必须整体跳过回收，否则会删掉其他曲目仍在用的共享缓存。
+     *
+     * @param excludeTrackId 从引用集剔出的曲目：删曲时传入待删曲目，其歌词缓存随之成为可回收的孤儿
+     */
+    fun lyricCacheReferences(excludeTrackId: Long? = null): Set<String>? {
+        if (playlistSource != null && defaultPlaylistBackup == null) return null
+        return (defaultPlaylistBackup.orEmpty() + playlist)
+            .filterNot { it.id == excludeTrackId }
+            .distinctBy { it.id }
+            .map { it.lyricCachePath }
+            .toSet()
+    }
+
     // 彻底删除歌曲：移除音频源文件与仅该曲引用的歌词缓存，并同步库、播放队列与歌单引用
     suspend fun deleteSongPermanently(context: Context, track: MusicTrack) {
-        // 删除前基于全量库+当前列表计算剩余曲目的歌词缓存引用，作为清除依据：
-        // 全量库覆盖本地曲目，当前列表兜底在线曲目（在线曲目只存在于当前列表，不在全量库备份）
-        val remaining = (defaultPlaylistBackup.orEmpty() + playlist)
-            .filterNot { it.id == track.id }
-            .distinctBy { it.id }
+        // 删除前先按剩余曲目算好引用集；引用集不全时拿到 null，本次跳过清理而非按「无引用」误删
+        val references = lyricCacheReferences(excludeTrackId = track.id)
         withContext(Dispatchers.IO) {
             deleteAudioSource(context, track)
-            // 停留在自定义歌单且全量库备份缺失时，当前列表仅含歌单子集，引用集不全，
-            // 跳过清理，交由后续 enrichAndCleanup 以全量库+歌单的并集统一回收，避免误删其他歌曲共享缓存
-            val libraryKnown = playlistSource == null || defaultPlaylistBackup != null
-            if (libraryKnown) {
-                MusicMetadataCache.cleanupOrphanedMetadata(
-                    context,
-                    remaining.map { it.lyricCachePath }.toSet(),
-                )
-            }
+            references?.let { MusicMetadataCache.cleanupOrphanedMetadata(context, it) }
         }
         defaultPlaylistBackup = defaultPlaylistBackup?.filterNot { it.id == track.id }
         removeTrack(track.id, advanceToNext = true)

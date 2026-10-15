@@ -26,11 +26,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.data.music.panel.performSearch
-import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.screens.home.compact.player.PortraitPlayer
 import com.yichao.evilgodxu.screens.home.component.bar.HomeTopBar
 import com.yichao.evilgodxu.screens.home.component.dialog.HomeDialogs

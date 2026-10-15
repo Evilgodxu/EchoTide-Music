@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Process
 import android.provider.Settings
 import androidx.compose.runtime.staticCompositionLocalOf
+import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
@@ -32,6 +33,9 @@ class MiniPlayerController(
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    // 退出流程专用作用域：不随控制器自身作用域释放而取消 —— 退出清理与结束进程一旦开始就必须走完，
+    // 被半途取消会让进程既不退出也不再清理
+    private val exitScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     // 外部音频的后台播放：会话装载与曲库监听都在其中，不在控制器里重复一份
     private val externalPlaybackLoader = ExternalPlaybackLoader(
         context = context,
@@ -119,12 +123,23 @@ class MiniPlayerController(
         externalPlaybackLoader.release()
     }
 
-    // 结束整个应用：移除悬浮窗、停止播放前台服务并终止进程
+    /**
+     * 结束整个应用：移除悬浮窗、停止播放前台服务，回收孤儿文件后终止进程。
+     *
+     * 退出前的回收见 [CacheInventory.reclaimOnExit]。调用方须先把任务退到后台（见 AppContent），
+     * 让这次清理与随后的进程结束都发生在后台，而不是停在前台界面上把流程走完。
+     */
     fun exitApplication() {
         dismissMiniPlayer()
         externalPlaybackLoader.release()
         context.stopService(Intent(context, MusicPlaybackService::class.java))
-        Process.killProcess(Process.myPid())
+        // 引用集在这里取好再交给清理：它是「哪些缓存还有主人」的唯一判据，须与此刻的播放状态一致
+        val lyricReferences = stateHolder.state.lyricCacheReferences()
+        exitScope.launch {
+            // 回收失败也要结束进程：退出路径不能因一次清理异常就卡住不退出
+            runCatching { CacheInventory.reclaimOnExit(context, lyricReferences) }
+            Process.killProcess(Process.myPid())
+        }
     }
 
     // 迷你播放器移除后，后台播放时恢复显示

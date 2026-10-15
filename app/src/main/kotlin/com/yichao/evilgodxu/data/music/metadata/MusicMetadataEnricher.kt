@@ -38,9 +38,9 @@ class MetadataEnricher {
     /**
      * 补全歌词。
      *
-     * 不回收孤儿缓存：无引用的歌词缓存只在用户显式删除曲目时回收（见
-     * [MusicMetadataCache.cleanupOrphanedMetadata]），其余入口（扫描、切歌单、下载完成、
-     * 媒体变更、权限回调）的引用集可能缺失，不参与回收。
+     * 不回收孤儿缓存：无引用的歌词缓存只在引用集可判定的入口回收（用户显式删除曲目、
+     * 应用退出前的一次清理，均见 [MusicMetadataCache.cleanupOrphanedMetadata]），
+     * 其余入口（扫描、切歌单、下载完成、媒体变更、权限回调）的引用集可能缺失，不参与回收。
      */
     suspend fun enrichAndCleanup(
         context: Context,

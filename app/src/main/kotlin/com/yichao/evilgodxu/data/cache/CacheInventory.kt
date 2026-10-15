@@ -1,6 +1,9 @@
 package com.yichao.evilgodxu.data.cache
 
 import android.content.Context
+import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
+import com.yichao.evilgodxu.data.music.metadata.LargeCoverStore
+import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import java.io.File
 
 /**
@@ -14,6 +17,9 @@ internal object CacheInventory {
     // 更新安装包的过期判定：经系统下载管理器写入，本进程结束后其下载仍可能继续，
     // 故只回收隔日残留，避免删掉正在下载或待安装的包
     private const val STALE_UPDATE_PACKAGE_MS = 24 * 60 * 60 * 1000L
+
+    // 中转残留的回收宽限期：只回收静置期外的 .tmp，避开此刻正在进行的写入（写一张封面只需毫秒级）
+    private const val TEMP_RESIDUE_GRACE_MS = 60_000L
 
     /** 扫描全部登记条目与落点根，产出各类缓存的当前占用。目录遍历为阻塞 IO，必须在 IO 线程调用 */
     fun sample(context: Context): List<CacheUsage> {
@@ -49,6 +55,23 @@ internal object CacheInventory {
             .filter { now - it.lastModified() > STALE_UPDATE_PACKAGE_MS }
             .forEach { file -> freedBytes += deleteQuietly(file) }
         return freedBytes
+    }
+
+    /**
+     * 退出前回收孤儿产出：只处理「引用可判定、内容可重建」的产出，用户数据一律不碰。
+     * 遍历与删除均为阻塞 IO，必须在 IO 线程调用。
+     *
+     * - **歌词缓存**：无任何曲目引用的文件。引用集由调用方给出（见 MusicPlaybackState.lyricCacheReferences）；
+     *   传入 null 表示此刻判不出全量引用，整体跳过 —— 引用集不全时判「无引用」等于判「全删」。
+     * - **封面落盘目录的中转残留**：写入被打断留下的 `.tmp`，不属于任何曲目，也没有入口会读。
+     *
+     * 不在此列的三类各有归属：在线音频缓存与歌单等用户数据只由用户显式删除；运行日志要留给用户分享；
+     * 待安装的更新包可能正等安装 —— 它们的残留由 [reclaimOnColdStart] 按各自判据处理。
+     */
+    fun reclaimOnExit(context: Context, lyricReferences: Set<String>?) {
+        lyricReferences?.let { MusicMetadataCache.cleanupOrphanedMetadata(context, it) }
+        CurrentCoverCache.reclaimTempResidue(context, TEMP_RESIDUE_GRACE_MS)
+        LargeCoverStore.reclaimTempResidue(context, TEMP_RESIDUE_GRACE_MS)
     }
 
     /**

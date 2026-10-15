@@ -5,7 +5,6 @@ import android.bluetooth.BluetoothClass
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
-import android.media.AudioTrack
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.LocalActivityResultRegistryOwner

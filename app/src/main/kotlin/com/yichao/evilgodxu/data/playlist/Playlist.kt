@@ -1,6 +1,5 @@
 package com.yichao.evilgodxu.data.playlist
 
-import com.yichao.evilgodxu.data.music.model.MusicTrack
 
 // 自定义歌单实体，trackIds 引用 MusicTrack.id
 data class Playlist(

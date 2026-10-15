@@ -180,6 +180,14 @@ internal object LargeCoverStore {
         }
     }
 
+    /**
+     * 回收 [persist] 未改名的中转残留：`.tmp` 只在改名窗口内存在，退出时仍在盘上说明那次写入
+     * 被进程结束打断 —— 它不属于任何曲目，也没有入口会读（见 [reclaimTempResidueIn]）。
+     */
+    fun reclaimTempResidue(context: Context, olderThanMs: Long) {
+        reclaimTempResidueIn(location(context), TEMP_SUFFIX, olderThanMs)
+    }
+
     // 文件名由音频 URI 推出：换歌即写到新名字，下次按同一推导取回，不会读到别首曲目的封面
     private fun fileFor(context: Context, audioUri: String): File =
         File(location(context), "large_cover_${audioUri.hashCode().toUInt().toString(16)}.webp")

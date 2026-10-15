@@ -87,6 +87,14 @@ internal object CurrentCoverCache {
         withContext(Dispatchers.IO) { runCatching { location(context).deleteRecursively() } }
     }
 
+    /**
+     * 回收 [persist] 未改名的中转残留：`.tmp` 只在改名窗口内存在，退出时仍在盘上说明那次写入
+     * 被进程结束打断 —— 它不属于任何曲目，也没有入口会读（见 [reclaimTempResidueIn]）。
+     */
+    fun reclaimTempResidue(context: Context, olderThanMs: Long) {
+        reclaimTempResidueIn(location(context), TEMP_SUFFIX, olderThanMs)
+    }
+
     // 写入：先落中转文件再改名，进程在写入中被杀不会留下半截封面
     private suspend fun persist(context: Context, audioUri: String, bitmap: Bitmap) = withContext(Dispatchers.IO) {
         // 硬件位图不可直接压缩，转为软件位图；改造结果与显示端同一张图，不影响取色
