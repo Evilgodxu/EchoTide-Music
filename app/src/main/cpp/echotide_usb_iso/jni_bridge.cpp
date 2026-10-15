@@ -3,7 +3,6 @@
 // 句柄即 UsbIsoStream 对象的指针，由 Kotlin 侧持有；close 之后句柄立即失效，
 // 调用方必须在同一处保证不会再使用它。
 #include <jni.h>
-#include <android/log.h>
 
 #include <cstddef>
 #include <string>
@@ -11,8 +10,6 @@
 #include "UsbIsoStream.h"
 
 namespace {
-
-constexpr const char* kTag = "UsbIsoNative";
 
 UsbIsoStream* fromHandle(jlong handle) {
     return reinterpret_cast<UsbIsoStream*>(handle);
@@ -41,12 +38,10 @@ Java_com_yichao_evilgodxu_data_music_playback_usb_UsbIsoNative_open(
     config.inFlightTargetMs = inFlightTargetMs;
     config.ringBytes = ringBytes;
 
+    // 失败原因由 create 写出：本层没有回传它的通道，调用方按返回值 0 判失败即可
     std::string error;
     std::unique_ptr<UsbIsoStream> stream = UsbIsoStream::create(config, error);
-    if (stream == nullptr) {
-        __android_log_print(ANDROID_LOG_ERROR, kTag, "建流失败：%s", error.c_str());
-        return 0;
-    }
+    if (stream == nullptr) return 0;
     return reinterpret_cast<jlong>(stream.release());
 }
 

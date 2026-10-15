@@ -1,6 +1,5 @@
 #include "UsbIsoStream.h"
 
-#include <android/log.h>
 #include <errno.h>
 #include <linux/usb/ch9.h>
 #include <linux/usbdevice_fs.h>
@@ -15,8 +14,6 @@
 #include <cstring>
 
 namespace {
-
-constexpr const char* kTag = "UsbIsoStream";
 
 /** 等时包完成状态：-EXDEV 表示部分包出错，属正常范畴，不当成整条传输失败 */
 constexpr int kStatusPartial = -EXDEV;
@@ -40,14 +37,6 @@ constexpr int kDrainTimeoutMs = 200;
  * 而它误期的表现恰好绕开所有既有计数——环里有数据，欠载计数不响；URB 正常完成，传输错误计数不响。
  */
 constexpr int kReapThreadPriority = -19;
-
-void logInfo(const std::string& message) {
-    __android_log_print(ANDROID_LOG_INFO, kTag, "%s", message.c_str());
-}
-
-void logError(const std::string& message) {
-    __android_log_print(ANDROID_LOG_ERROR, kTag, "%s", message.c_str());
-}
 
 std::string errnoText(int code) {
     return std::string(strerror(code)) + " (" + std::to_string(code) + ")";
@@ -129,7 +118,6 @@ bool UsbIsoStream::start(const Config& config, std::string& error) {
         highSpeed_ = speed >= USB_SPEED_HIGH;
     } else {
         highSpeed_ = config_.maxPacketBytes > 1023;
-        logInfo("速度查询不可用，按最大包长推断为" + std::string(highSpeed_ ? "高速" : "全速"));
     }
     // bInterval 大于 1 表示每 2^(n-1) 个服务间隔才发一包，包随之变大；封顶到 8 个间隔
     const int shift = std::clamp(config_.interval, 1, 16) - 1;
@@ -153,7 +141,7 @@ bool UsbIsoStream::start(const Config& config, std::string& error) {
     // 在飞 URB 数按**时长**求出，而不是按固定个数：余量只有落在时间上才有意义。每个 URB 的时长是
     // packetsPerUrb 个服务间隔——高速下 8 包仅 1ms，配置的 8 个 URB 合起来才 8ms，一次外部应用抢 CPU
     // 就足以把整段在飞耗光；全速下一个 URB 本就长达 8 个服务间隔，既有配置已经够用，不跟着目标再翻倍。
-    // 停机判据与位置记账都取本值，故它是唯一的在飞口径
+    // 停机排空按本值等待，故它是唯一的在飞口径
     const int usPerUrb = std::max(1, config_.packetsPerUrb * 1000000 / packetsPerSecond_);
     const int targetUrbs = (config_.inFlightTargetMs * 1000 + usPerUrb - 1) / usPerUrb;
     urbCount_ = std::max(config_.urbCount, targetUrbs);
@@ -162,16 +150,8 @@ bool UsbIsoStream::start(const Config& config, std::string& error) {
     ring_.assign(size_t(config_.ringBytes), 0);
     ringHead_ = 0;
     ringSize_ = 0;
-    // 环至少要容得下整段在飞：环比它短时播放线程写不进、回收线程也腾不出，表现为周期性停顿。
-    // 环长由调用方按延迟预算给定（见 PlaybackBufferPolicy），本层只把「容不下」这一事实留在日志里
-    const size_t pipelineFrames = size_t(
-            uint64_t(config_.sampleRate) * uint64_t(config_.packetsPerUrb) * uint64_t(urbCount_) /
-            uint64_t(packetsPerSecond_));
-    const size_t pipelineBytes = pipelineFrames * size_t(config_.frameBytes);
-    if (ring_.size() < pipelineBytes) {
-        logError("环形缓冲容不下整段在飞：环 " + std::to_string(ring_.size()) + " 字节 < 在飞 " +
-                 std::to_string(pipelineBytes) + " 字节");
-    }
+    // 环长由调用方按延迟预算给定，且不得短于整段在飞——环比它短时播放线程写不进、回收线程也腾不出，
+    // 表现为周期性停顿，该下限由 UsbIsoOutput 在调用前保证
 
     urbs_.reserve(size_t(urbCount_));
     for (int i = 0; i < urbCount_; ++i) {
@@ -193,13 +173,6 @@ bool UsbIsoStream::start(const Config& config, std::string& error) {
     for (auto& urb : urbs_) fillAndSubmit(urb->urb);
     if (feedback_) submitFeedback();
     reapThread_ = std::thread([this] { reapLoop(); });
-
-    logInfo("等时输出已建立：" + std::string(highSpeed_ ? "高速" : "全速") + "，服务间隔 " +
-            std::to_string(packetsPerSecond_) + "/秒，每包 " +
-            std::to_string(nominalQ16_.load() / 65536.0) + " 帧（上限 " +
-            std::to_string(maxFramesPerPacket_) + "），" + std::to_string(urbCount_) + " 个 URB × " +
-            std::to_string(config_.packetsPerUrb) + " 包（在飞约 " +
-            std::to_string(pipelineFrames * 1000 / size_t(std::max(1, config_.sampleRate))) + "ms）");
     return true;
 }
 
@@ -245,7 +218,6 @@ void UsbIsoStream::drain() {
 
 void UsbIsoStream::setPaused(bool paused) {
     if (paused_.exchange(paused) == paused) return;
-    logInfo(paused ? "已暂停送流（环内数据保留待播）" : "已恢复送流");
     // 恢复时唤醒可能正在等环空间的播放线程：暂停期间环只进不出，写满即阻塞
     if (!paused) ringCv_.notify_all();
 }
@@ -264,19 +236,6 @@ void UsbIsoStream::stop() {
         ringSize_ = 0;
     }
     ringCv_.notify_all();
-    // 停机时结算一次送流误期：它记的正是「设备侧听到了缺口」这件事，正常送流下不会出现。
-    // 放在 join 之后读，回收线程已退出，故这几个计数器无需同步；读出即清空，重复停机只报一次
-    if (hostGapCount_ > 0) {
-        const uint64_t gaps = hostGapCount_;
-        const uint64_t gapMs = hostGapMs_;
-        const uint64_t longestMs = longestStallMs_;
-        hostGapCount_ = 0;
-        hostGapMs_ = 0;
-        longestStallMs_ = 0;
-        logError("送流误期造成设备侧缺口累计 " + std::to_string(gapMs) + "ms（" + std::to_string(gaps) +
-                 " 次，单次最长 " + std::to_string(longestMs) + "ms，在飞段 " +
-                 std::to_string(inFlightUs_ / 1000) + "ms）");
-    }
 }
 
 UsbIsoStream::Stats UsbIsoStream::stats() const {
@@ -293,28 +252,9 @@ void UsbIsoStream::reapLoop() {
     using SteadyClock = std::chrono::steady_clock;
     // 本线程按音频线程的优先级运行（见 kReapThreadPriority）：提交与回收都在这条线上，误期即断流。
     // 提升失败（进程的 nice 下限不允许）不是致命错误——照常送流，只是回到了默认优先级下的脆弱状态
-    if (setpriority(PRIO_PROCESS, 0, kReapThreadPriority) != 0) {
-        logError("提升回收线程优先级失败，仍按默认优先级送流：" + errnoText(errno));
-    }
+    setpriority(PRIO_PROCESS, 0, kReapThreadPriority);
     SteadyClock::time_point drainDeadline{};
-    SteadyClock::time_point lastRefillAt{};
     while (true) {
-        const SteadyClock::time_point now = SteadyClock::now();
-        // 记一次「送流误期到设备侧出现缺口」：在飞段就是主机侧能撑住的时长，超过它 HCD 便无包可发，
-        // 等本线程回来时的这段空档即是设备听到的缺口。只在正常送流时计入——暂停与停机时本就不该有
-        // 数据送出，那段空档不是缺口；也不再计入欠载：欠载说的是环里没数据，这一项说的是没人送
-        if (lastRefillAt != SteadyClock::time_point{} && running_.load() && !paused_.load() &&
-            inFlightCount_.load() > 0) {
-            const int64_t elapsedUs =
-                    std::chrono::duration_cast<std::chrono::microseconds>(now - lastRefillAt).count();
-            if (elapsedUs > inFlightUs_) {
-                ++hostGapCount_;
-                hostGapMs_ += uint64_t((elapsedUs - inFlightUs_) / 1000);
-                longestStallMs_ = std::max(longestStallMs_, uint64_t(elapsedUs / 1000));
-            }
-        }
-        lastRefillAt = now;
-
         const bool running = running_.load();
         const int pending = inFlightCount_.load();
         if (!running) {
@@ -324,7 +264,6 @@ void UsbIsoStream::reapLoop() {
                 drainDeadline = SteadyClock::now() + std::chrono::milliseconds(kDrainTimeoutMs);
             } else if (SteadyClock::now() > drainDeadline) {
                 abandoned_ = true;
-                logError("停机时仍有 " + std::to_string(pending) + " 个 URB 未回收，放弃释放其内存");
                 break;
             }
         }
@@ -349,7 +288,6 @@ void UsbIsoStream::reapLoop() {
                 continue;
             }
             // 回收通道已断（设备消失或连接关闭）：此后任何 URB 都收不回来，故记下放弃
-            logError("回收 URB 失败：" + errnoText(code));
             disconnected_ = true;
             running_ = false;
             if (inFlightCount_.load() > 0) abandoned_ = true;
@@ -469,7 +407,6 @@ void UsbIsoStream::fillAndSubmit(usbdevfs_urb* urb) {
         // 提交失败若是设备已不在或接口已被归还，则这条流再无可能恢复：不判定终止的话环再也腾不出空间，
         // 播放线程会一直等在那里——表现为整曲卡死而不是安静地失败
         if (isFatalSubmitError(code)) {
-            logError("提交 URB 失败且无法恢复：" + errnoText(code));
             disconnected_ = true;
             running_ = false;
             ringCv_.notify_all();
@@ -507,7 +444,6 @@ void UsbIsoStream::submitFeedback() {
         // 反馈端点提交不上不必终止整条流：它只是自适应时钟的跟随手段，缺了包长退回标称值而已。
         // 但**不能就此释放它**——停机路径可能正拿它的指针去撤 URB，故只作废、留着内存
         if (isFatalSubmitError(code)) {
-            logError("提交反馈 URB 失败：" + errnoText(code));
             feedbackDisabled_ = true;
         }
         return;
@@ -565,7 +501,6 @@ void UsbIsoStream::onFeedback(const uint8_t* data, int length) {
             --shift;
         }
         feedbackShift_ = shift;
-        logInfo("反馈格式位移定为 " + std::to_string(shift));
     } else if (feedbackShift_ >= 0) {
         value <<= feedbackShift_;
     } else {

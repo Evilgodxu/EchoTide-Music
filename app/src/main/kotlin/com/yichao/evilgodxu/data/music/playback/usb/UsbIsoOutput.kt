@@ -19,7 +19,7 @@ internal object UsbIsoNative {
         System.loadLibrary("echotide_usb_iso")
     }
 
-    /** 建流；返回句柄，失败返回 0（原因由原生层写入 logcat） */
+    /** 建流；返回句柄，失败返回 0 */
     external fun open(
         fd: Int,
         outEndpoint: Int,
@@ -178,8 +178,7 @@ internal class UsbIsoOutput private constructor(
             // 环长取与直出路径同一个目标帧数（见 PlaybackBufferPolicy）：两条路的缓冲深度一致，
             // 同一台设备上换开关才不会换一种断流/滞后表现。另不小于在飞段的**目标**时长——环比在飞段
             // 还短时播放线程写不进、回收线程也腾不出，表现为周期性停顿。全速下的实际在飞段（64ms）比这个
-            // 目标更长，而目标帧数（80ms 基准）两者都盖得住；这一类偏差由原生层按实际结果核一次并留痕，
-            // 不在这里推算
+            // 目标更长，而目标帧数（80ms 基准）两者都盖得住
             val ringFrames = maxOf(
                 PlaybackBufferPolicy.targetBufferFrames(sampleRate),
                 sampleRate * IN_FLIGHT_TARGET_MS / 1000,
