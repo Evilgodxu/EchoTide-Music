@@ -146,7 +146,7 @@ private fun Modifier.edgeFeatherMask(): Modifier = drawWithCache {
     }
 }
 
-// 下边缘渐隐蒙层：与跑马灯同款 DstIn 处理，封面下缘按与背景衔接层共享的平滑曲线渐隐为透明
+// 下边缘渐隐蒙层：与四边羽化同款 DstIn 处理，封面下缘按与背景衔接层共享的平滑曲线渐隐为透明
 // （见 ui/component 的 coverFadeBrush），渐隐带长度同取 COVER_FADE_RATIO。
 // 两侧同曲线、等长度，封面底边上下才是对称的同一段过渡，接缝处颜色与亮度连续
 private fun Modifier.bottomFadeMask(): Modifier = drawWithCache {
