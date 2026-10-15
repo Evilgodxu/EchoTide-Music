@@ -279,11 +279,10 @@ internal fun PlaylistSheet(
                                         playlistRefresher.refresh(
                                             context, playbackState, restoreCurrent = true
                                         ) {
-                                            // 刷新后后台加载封面与歌词；刚完成全量扫描，引用集可信，
-                                            // 允许参与孤儿缓存的窗口回收
+                                            // 刷新后后台加载封面与歌词
                                             scope.launch {
                                                 metadataEnricher.enrichAndCleanup(
-                                                    context, playbackState, reclaimOrphans = true
+                                                    context, playbackState
                                                 )
                                             }
                                         }

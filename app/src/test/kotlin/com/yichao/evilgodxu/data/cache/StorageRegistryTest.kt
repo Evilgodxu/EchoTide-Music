@@ -53,8 +53,8 @@ class StorageRegistryTest {
             PersistedData("settings", PersistedFileKind.DATA_STORE).fileName,
         )
         assertEquals(
-            "orphan_reclaim.json",
-            PersistedData("orphan_reclaim.json", PersistedFileKind.APP_FILE).fileName,
+            "highlight_segments.json",
+            PersistedData("highlight_segments.json", PersistedFileKind.APP_FILE).fileName,
         )
     }
 

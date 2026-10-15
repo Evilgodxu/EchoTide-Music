@@ -10,12 +10,9 @@ import com.yichao.evilgodxu.data.music.api.parseWordTimedLrcText
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.LyricWord
 import com.yichao.evilgodxu.data.music.download.sanitizeFileName
-import com.yichao.evilgodxu.data.persistence.PersistedData
-import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
 import org.json.JSONArray
-import org.json.JSONObject
 
 // 歌词缓存读写工具：全部为无状态静态函数，按需传入 Context，以 object 单例形态提供。
 // 封面不在此列：封面由显示端按需取系统略缩图或音频内嵌封面，仅当前曲目的一张缩略图另行落盘（见 CurrentCoverCache）
@@ -27,18 +24,10 @@ internal object MusicMetadataCache {
 
     // 歌词缓存允许的扩展名
     private val LYRIC_CACHE_EXTENSIONS = listOf("lrc")
-    // 孤儿回收的作用域上限：只认这个子目录，新增缓存类型须独立建目录 + 独立扩展名白名单
+    // 回收的作用域上限：只认这个子目录，新增缓存类型须独立建目录 + 独立扩展名白名单
     private val CACHE_DIR_NAMES = listOf(LYRIC_DIR)
     // 立即回收的写入竞态宽限期：外部写封面先落盘后写曲目引用，晚于该窗口的缓存可能尚未被引用，跳过避免误删
     private const val ORPHAN_GRACE_MS = 10_000L
-    // 自动回收窗口：缓存文件须在每次可信扫描中都无引用、持续该时长才回收。
-    // 单次判定不足以采信 —— 引用集取自本次扫描结果，存储未挂载 / 媒体条目暂缺会让它系统性偏小
-    private const val ORPHAN_RECLAIM_WINDOW_DAYS = 3
-    private const val ORPHAN_RECLAIM_WINDOW_MS = ORPHAN_RECLAIM_WINDOW_DAYS * 24 * 60 * 60 * 1000L
-    // 无引用首见时刻的记录文件（应用私有目录，与缓存目录隔离）：丢失即时钟重置，只推迟回收。
-    // 落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
-    internal val PERSISTED = PersistedData("orphan_reclaim.json", PersistedFileKind.APP_FILE)
-    private const val RECLAIM_RECORD_KEY = "firstSeenUnreferencedAt"
 
     // 缓存根目录：系统公共下载目录 Download/YiChao。
     // 具备全部文件访问权限时直写文件系统；权限缺失时经 MediaStore Downloads 集合写入自身条目
@@ -294,9 +283,9 @@ internal object MusicMetadataCache {
     // 且只删扩展名命中白名单的文件。在线音频缓存 Download/YiChao/Audio、用户媒体目录与任何音频文件
     // 都不在作用域内 —— 音频只由用户显式删除曲目（deleteSongPermanently）移除。
     //
-    // 引用集由调用方按「全量库备份 ∪ 当前歌单」构建，跨歌单共享的文件因存在引用而不会被误删；
-    // 引用集为空（如歌曲库尚未加载）直接整体跳过，避免误删全部缓存。
-    // 两条处置策略：立即回收（引用集已确认，用于用户显式删除曲目）与窗口回收（自动路径专用）。
+    // 只在用户显式删除曲目时回收：引用集由调用方按「全量库备份 ∪ 当前歌单」构建，跨歌单共享的文件
+    // 因存在引用而不会被误删；引用集为空（如歌曲库尚未加载）直接整体跳过，避免误删全部缓存。
+    // 不做定时回收：无引用的缓存留在盘上由用户自行取舍，应用不代为清理。
 
     // 未被引用的缓存候选：直扫文件系统与 MediaStore 枚举两路合并后按绝对路径去重
     private data class OrphanCandidate(
@@ -312,37 +301,6 @@ internal object MusicMetadataCache {
         val now = System.currentTimeMillis()
         val reclaimable = collectOrphans(context, referenced)
             .filter { now - it.lastModifiedMs > ORPHAN_GRACE_MS }
-        deleteOrphans(context, reclaimable)
-    }
-
-    /**
-     * 窗口回收（自动路径专用）：仅回收「每次可信扫描都无引用、且已持续 [ORPHAN_RECLAIM_WINDOW_DAYS] 天」的文件。
-     *
-     * 首次观察到的无引用文件只登记首见时刻、不删除：引用集取自本次扫描结果，存储未挂载或媒体条目暂缺
-     * 会让它系统性偏小，单次判定不足以采信。期间一旦被重新引用或文件消失，记录即清除、时钟不推进。
-     * 记录存于应用私有目录；损坏或丢失时按「无记录」处理，只推迟回收，不会误删。
-     */
-    fun reclaimStaleOrphans(context: Context, referencedPaths: Set<String>) {
-        val referenced = normalizedReferences(referencedPaths) ?: return
-        val now = System.currentTimeMillis()
-        val orphans = collectOrphans(context, referenced)
-        val orphanPaths = orphans.mapTo(mutableSetOf()) { it.path }
-        val firstSeenAt = loadReclaimRecords(context)
-        // 已被重新引用、或已不在盘上的记录一律清除
-        firstSeenAt.keys.retainAll(orphanPaths)
-        val reclaimable = mutableListOf<OrphanCandidate>()
-        orphans.forEach { orphan ->
-            val seenAt = firstSeenAt[orphan.path]
-            when {
-                // 首次观察到无引用：只登记首见时刻，本次不回收
-                seenAt == null -> firstSeenAt[orphan.path] = now
-                now - seenAt >= ORPHAN_RECLAIM_WINDOW_MS -> {
-                    firstSeenAt.remove(orphan.path)
-                    reclaimable += orphan
-                }
-            }
-        }
-        saveReclaimRecords(context, firstSeenAt)
         deleteOrphans(context, reclaimable)
     }
 
@@ -444,25 +402,4 @@ internal object MusicMetadataCache {
             ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id), null, null
         ) > 0
     }.getOrDefault(false)
-
-    private fun reclaimRecordFile(context: Context): File = PERSISTED.locate(context)
-
-    // 读取「无引用首见时刻」记录；解析失败按无记录处理，只推迟回收
-    private fun loadReclaimRecords(context: Context): MutableMap<String, Long> = runCatching {
-        val file = reclaimRecordFile(context)
-        if (!file.isFile) return@runCatching mutableMapOf()
-        val records = JSONObject(file.readText()).optJSONObject(RECLAIM_RECORD_KEY)
-            ?: return@runCatching mutableMapOf()
-        val result = mutableMapOf<String, Long>()
-        records.keys().forEach { path -> result[path] = records.optLong(path) }
-        result
-    }.getOrElse { mutableMapOf() }
-
-    private fun saveReclaimRecords(context: Context, records: Map<String, Long>) = runCatching {
-        val encoded = JSONObject()
-        records.forEach { (path, seenAt) -> encoded.put(path, seenAt) }
-        reclaimRecordFile(context).writeText(JSONObject().put(RECLAIM_RECORD_KEY, encoded).toString())
-    }.onFailure {
-        CrashLogManager.logException("MusicMetadataCache", "写入孤儿回收记录失败", it)
-    }
 }

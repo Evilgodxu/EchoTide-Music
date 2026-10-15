@@ -77,9 +77,6 @@ enum class CacheCategory {
     /** 心动高亮段：心动模式的分析结果 */
     HIGHLIGHT,
 
-    /** 缓存回收记录：孤儿缓存的回收窗口台账 */
-    RECLAIM_RECORD,
-
     /** 其它缓存：缓存目录内未被任何条目主张的产出，随「清理缓存」一并回收 */
     OTHER_CACHE,
 
@@ -180,8 +177,6 @@ internal object StorageRegistry {
         persisted(CacheCategory.SETTINGS, CacheScope.USER_DATA, SETTINGS_STORE),
         // 心动高亮段：心动模式的分析结果，重建要重扫全库，属用户数据
         persisted(CacheCategory.HIGHLIGHT, CacheScope.USER_DATA, HighlightStore.PERSISTED),
-        // 缓存回收记录：孤儿缓存的回收窗口台账，由台账自身按保留策略重建，不是用户数据
-        persisted(CacheCategory.RECLAIM_RECORD, CacheScope.APP_DATA, MusicMetadataCache.PERSISTED),
     )
 
     /**

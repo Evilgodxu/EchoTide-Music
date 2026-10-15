@@ -36,35 +36,21 @@ class MetadataEnricher {
     private val enrichMutex = Mutex()
 
     /**
-     * 补全歌词，并按需回收孤儿缓存。
+     * 补全歌词。
      *
-     * [reclaimOrphans] 仅在调用方刚完成一次可信的全量扫描时置 true：孤儿回收依赖完整引用集，
-     * 其余入口（切歌单、下载完成、媒体变更、权限回调）的引用集可能缺失，一律不参与回收。
-     * 回收本身也是窗口策略（见 [MusicMetadataCache.reclaimStaleOrphans]），不会即时删除。
+     * 不回收孤儿缓存：无引用的歌词缓存只在用户显式删除曲目时回收（见
+     * [MusicMetadataCache.cleanupOrphanedMetadata]），其余入口（扫描、切歌单、下载完成、
+     * 媒体变更、权限回调）的引用集可能缺失，不参与回收。
      */
     suspend fun enrichAndCleanup(
         context: Context,
         playbackState: MusicPlaybackState,
-        reclaimOrphans: Boolean = false,
     ) {
         enrichMutex.withLock {
             // 补全全程置位：曲库分析的自动触发读到该标记即延后，避免频谱解码与元数据读取并发争抢资源
             withContext(Dispatchers.Main) { playbackState.isEnrichingMetadata = true }
             try {
                 enrichPlaylistMetadata(context, playbackState)
-                if (reclaimOrphans) {
-                    // 歌词缓存跨歌单共享：引用集 = 全量库 ∪ 当前歌单，其他歌单仍要使用的文件
-                    // 因在全量库中存在引用而不会被误删。libraryTracks 是 getter
-                    // （默认库备份 ?: 当前歌单），自定义歌单下已包含默认库备份
-                    val referenced = withContext(Dispatchers.Main) {
-                        (playbackState.libraryTracks + playbackState.playlist)
-                            .map { it.lyricCachePath }
-                            .toSet()
-                    }
-                    withContext(Dispatchers.IO) {
-                        MusicMetadataCache.reclaimStaleOrphans(context, referenced)
-                    }
-                }
             } finally {
                 // 取消（切歌单 / 退出）路径同样要复位，否则自动分析会被永久挡住
                 withContext(Dispatchers.Main + NonCancellable) {

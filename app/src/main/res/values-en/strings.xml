@@ -449,7 +449,6 @@
     <string name="cache_category_update_info">Pending update info</string>
     <string name="cache_category_settings">Settings &amp; playback state</string>
     <string name="cache_category_highlight">Heartbeat highlights</string>
-    <string name="cache_category_reclaim_record">Cache reclaim log</string>
     <string name="cache_category_other">Other persisted data</string>
     <string name="cache_category_other_cache">Other cache</string>
     <string name="cache_category_other_app_data">Other app data</string>
