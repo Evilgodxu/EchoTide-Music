@@ -1,0 +1,528 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="app_name">忆潮音乐</string>
+
+    <!-- 主页 -->
+    <string name="home_landscape_mode">横屏模式</string>
+
+    <!-- 设置页 -->
+    <string name="settings_title">设置</string>
+    <string name="settings_theme_title">主题</string>
+    <string name="settings_language_title">语言</string>
+    <string name="settings_section_appearance">外观</string>
+    <string name="settings_section_language">语言</string>
+    <string name="settings_theme_dialog_title">选择主题</string>
+    <string name="settings_language_dialog_title">选择语言</string>
+
+    <!-- 主题选项 -->
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">始终浅色</string>
+    <string name="theme_dark">始终深色</string>
+
+    <!-- 语言选项 -->
+    <string name="language_system">跟随系统</string>
+    <string name="language_chinese">简体中文</string>
+    <string name="language_english">English</string>
+
+    <!-- 通用 -->
+    <string name="back">返回</string>
+    <string name="back_again_go_home">再按一次返回桌面</string>
+    <string name="back_again_exit">再按一次退出应用</string>
+    <string name="settings_version">版本 %1$s</string>
+
+    <!-- 权限状态 -->
+    <string name="home_permission_title">权限状态</string>
+    <string name="home_permission_hint">授予全部权限后此页面将自动关闭</string>
+    <string name="permission_request">去授权</string>
+    <string name="permission_all_files_title">全部文件</string>
+    <string name="permission_music_title">音乐访问</string>
+    <string name="permission_image_title">图片访问</string>
+    <string name="permission_bluetooth_title">蓝牙设备</string>
+    <string name="permission_notification_title">通知</string>
+    <string name="permission_battery_title">后台播放</string>
+    <string name="permission_dnd_title">免打扰</string>
+
+    <!-- 音乐面板 -->
+    <string name="music_panel_empty">暂无本地音乐</string>
+    <string name="music_panel_scanning">正在扫描音乐…</string>
+    <string name="music_panel_playlist_title">播放列表</string>
+    <string name="music_panel_timer_title">定时关闭</string>
+    <string name="music_panel_timer_minutes">分钟</string>
+    <string name="music_panel_timer_confirm">确定</string>
+    <string name="music_panel_timer_cancel">取消</string>
+    <string name="music_panel_search_placeholder">搜索歌曲</string>
+    <string name="music_panel_search_title">在线搜索</string>
+    <string name="music_panel_menu_search">搜索</string>
+    <string name="music_panel_delete_title">是否删除这首歌曲？</string>
+    <string name="music_panel_delete_message">将删除歌曲「%1$s · %2$s」</string>
+    <string name="music_panel_delete_cancel">取消</string>
+    <string name="music_panel_delete_confirm">删除</string>
+    <string name="music_panel_no_lyrics">暂无歌词</string>
+    <plurals name="music_panel_track_count">
+        <item quantity="other">%d 首</item>
+    </plurals>
+    <string name="music_panel_search_history">搜索历史</string>
+    <string name="music_panel_search_history_clear">清理全部历史</string>
+    <string name="music_panel_search_history_delete">删除历史</string>
+    <string name="music_panel_search_no_results">未找到相关歌曲</string>
+    <string name="music_panel_search_loading">正在搜索…</string>
+    <string name="music_panel_search_loading_more">加载中…</string>
+    <string name="music_panel_search_release_load">松开加载更多</string>
+    <string name="music_panel_search_load_all">已显示全部结果</string>
+    <string name="music_panel_search_source">网易云</string>
+    <string name="music_panel_search_source_qq">QQ音乐</string>
+    <string name="music_panel_search_source_kugou">酷狗</string>
+    <string name="music_panel_search_source_kuwo">酷我</string>
+    <string name="music_panel_search_source_migu">咪咕</string>
+    <string name="music_panel_daily_recommend_title">每日推荐</string>
+    <string name="music_panel_daily_recommend_loading">正在生成每日推荐…</string>
+    <string name="music_panel_daily_recommend_empty">暂无可推荐的新歌</string>
+    <string name="music_panel_daily_recommend_blacklist">不再推荐</string>
+    <string name="music_panel_quality_title">选择音质</string>
+    <string name="music_panel_quality_failed">该音质无法播放，请选择其它音质</string>
+    <string name="music_quality_lossless">无损</string>
+    <string name="music_quality_high">高品</string>
+    <string name="music_quality_standard">标准</string>
+    <string name="music_panel_playback_settings">播放设置</string>
+    <string name="music_panel_usb_direct_output">USB 音频直出</string>
+    <string name="music_panel_sound_effects_title">音效设置</string>
+    <string name="music_panel_sound_effects_enter">进入</string>
+    <string name="music_panel_sound_effects_not_implemented">暂未实现</string>
+    <string name="music_panel_play_error">版权保护无法播放</string>
+    <string name="music_panel_play_failed">播放失败</string>
+    <string name="music_panel_copy">复制</string>
+    <string name="music_panel_rename">重命名</string>
+    <string name="music_panel_refresh_cover">刷新封面</string>
+    <string name="music_panel_online_cover">在线封面</string>
+    <string name="music_panel_local_cover">本地封面</string>
+    <string name="music_panel_save_cover">保存封面</string>
+    <string name="music_panel_save_cover_success">封面已保存到相册</string>
+    <string name="music_panel_save_cover_no_embedded">该曲目无内嵌封面</string>
+    <string name="music_panel_refresh_lyrics">刷新歌词</string>
+    <string name="music_panel_lyrics_no_candidates">暂无匹配歌词</string>
+    <string name="music_panel_lyrics_refresh_failed">歌词刷新失败，请重试</string>
+    <string name="music_panel_local_lyrics">本地歌词</string>
+    <string name="music_panel_local_lyrics_failed">歌词导入失败，请重试</string>
+    <string name="music_panel_edit">编辑歌词</string>
+    <string name="music_panel_edit_lyrics_title">编辑歌词原文</string>
+    <string name="music_panel_edit_lyrics_invalid">格式无效，请保留 [时间戳] 前缀</string>
+    <string name="music_panel_edit_lyrics_failed">歌词保存失败，请重试</string>
+    <string name="music_panel_edit_line">编辑本行</string>
+    <string name="music_panel_auto_translate">自动补译</string>
+    <string name="music_panel_auto_translate_title">自动补译</string>
+    <string name="music_panel_auto_translate_pending">正在准备歌词…</string>
+    <string name="music_panel_auto_translate_progress">正在翻译第 %1$d / %2$d 行</string>
+    <string name="music_panel_auto_translate_background">后台继续</string>
+    <plurals name="music_panel_auto_translate_done">
+        <item quantity="other">已补译 %1$d 行</item>
+    </plurals>
+    <string name="music_panel_auto_translate_nothing">没有需要补译的歌词行</string>
+    <string name="music_panel_auto_translate_same_language">歌词已是中文，无需补译</string>
+    <string name="music_panel_auto_translate_failed">自动补译失败，请重试</string>
+    <string name="music_panel_word_align">逐字对齐</string>
+    <string name="music_panel_word_align_title">逐字歌词对齐</string>
+    <string name="music_panel_word_align_progress">正在对齐第 %1$d / %2$d 行</string>
+    <string name="music_panel_word_align_decoding">正在解码音频…</string>
+    <string name="music_panel_word_align_background">后台继续</string>
+    <string name="music_panel_word_align_failed">逐字对齐失败，请重试</string>
+    <string name="music_panel_word_align_no_target">全部歌词已是逐字歌词</string>
+    <string name="music_panel_cover_no_candidates">暂无可用封面</string>
+    <string name="music_panel_cover_replace_title">是否覆盖为新封面</string>
+    <string name="music_panel_cover_save_failed">封面保存失败，请重试</string>
+    <string name="music_panel_rename_title">重命名歌曲名</string>
+    <string name="music_panel_rename_artist">重命名艺术家</string>
+    <string name="music_panel_rename_confirm">确定</string>
+    <string name="music_panel_rename_cancel">取消</string>
+    <string name="music_panel_lyrics_short">词</string>
+    <string name="music_panel_play_mode">播放模式</string>
+    <string name="music_panel_previous_track">上一首</string>
+    <string name="music_panel_next_track">下一首</string>
+    <string name="music_panel_playlist">播放列表</string>
+    <string name="music_panel_play">播放</string>
+    <string name="music_panel_pause">暂停</string>
+    <string name="music_panel_favorite">收藏</string>
+    <string name="music_panel_play_next">下一首播放</string>
+    <string name="music_panel_cancel_play_next">取消下一首播放</string>
+    <string name="music_panel_sort">排序</string>
+    <string name="music_panel_sort_title">排序方式</string>
+    <string name="music_panel_sort_descending">逆序</string>
+    <string name="music_panel_sort_ascending">正序</string>
+    <string name="music_panel_sort_default">默认顺序</string>
+    <string name="music_panel_sort_by_favorite">收藏</string>
+    <string name="music_panel_sort_modified">新旧</string>
+    <string name="music_panel_sort_by_title">标题</string>
+    <string name="music_panel_sort_by_artist">歌手</string>
+    <string name="music_panel_sort_by_album">专辑</string>
+    <string name="music_panel_sort_by_duration">时长</string>
+
+    <!-- 音乐扫描 -->
+    <string name="music_scanner_external_music">外部音乐</string>
+    <string name="music_scanner_unknown_artist">未知艺术家</string>
+    <string name="music_scanner_unknown_song">未知歌曲</string>
+
+    <!-- 音频信息弹窗 -->
+    <string name="audio_info_title">音频信息</string>
+    <string name="audio_info_close">关闭音频信息</string>
+    <string name="audio_info_empty">当前播放链路暂无可展示的音频信息</string>
+    <string name="audio_info_group_source">音频源</string>
+    <string name="audio_info_group_parameters">音频参数</string>
+    <string name="audio_info_group_chain">播放链路</string>
+    <string name="audio_info_group_devices">当前输出设备</string>
+    <string name="audio_info_file_path">文件路径</string>
+    <string name="audio_info_file_size">文件大小</string>
+    <string name="audio_info_format">音频格式</string>
+    <string name="audio_info_decoder">解码器</string>
+    <string name="audio_info_source_sample_rate">原始采样率</string>
+    <string name="audio_info_output_sample_rate">输出采样率</string>
+    <string name="audio_info_bitrate">比特率</string>
+    <string name="audio_info_channel_layout">声道</string>
+    <string name="audio_info_channel_count">通道数</string>
+    <string name="audio_info_resampled">重采样</string>
+    <string name="audio_info_quality">品质</string>
+    <string name="audio_info_output_mode">音频输出模式</string>
+    <string name="audio_info_session_id">音频会话 ID</string>
+    <string name="audio_info_float_output">浮点输出</string>
+    <string name="audio_info_output_encoding">输出编码</string>
+    <!-- 括号内是这段读数的起算点：音频轨自身那一段另由「含音频轨」一行给出 -->
+    <string name="audio_info_latency">输出延迟（音频轨之后）</string>
+    <string name="audio_info_latency_full">输出延迟（含音频轨）</string>
+    <string name="audio_info_track_buffer">音频轨缓冲</string>
+    <!-- 「音频轨缓冲」一行报容量（申请到的上限），本行报此刻的实际占用 -->
+    <string name="audio_info_track_resident">音频轨驻留</string>
+    <string name="audio_info_transport_state">传输状态</string>
+    <string name="audio_info_device_usb">USB 设备</string>
+    <string name="audio_info_device_bluetooth">蓝牙设备</string>
+    <string name="audio_info_device_speaker">扬声器</string>
+    <string name="audio_info_device_wired">有线设备</string>
+    <string name="audio_info_device_other">其它设备</string>
+    <string name="audio_info_device_kind">设备类型</string>
+    <string name="audio_info_device_name">设备名称</string>
+    <string name="audio_info_device_address">设备地址</string>
+    <string name="audio_info_device_sample_rates">支持采样率</string>
+    <string name="audio_info_device_channels">支持通道数</string>
+    <string name="audio_info_bluetooth_type">蓝牙类型</string>
+    <string name="audio_info_bluetooth_type_classic">经典蓝牙</string>
+    <string name="audio_info_bluetooth_type_le">低功耗蓝牙</string>
+    <string name="audio_info_bluetooth_type_dual">双模蓝牙</string>
+    <string name="audio_info_bluetooth_codec">蓝牙解码器</string>
+    <string name="audio_info_bluetooth_codec_sample_rate">蓝牙采样率</string>
+    <string name="audio_info_bluetooth_codec_bits_per_sample">蓝牙每样本位数</string>
+    <string name="audio_info_bluetooth_codec_channel_mode">蓝牙声道模式</string>
+    <string name="audio_info_bluetooth_category">设备类别</string>
+    <string name="audio_info_bluetooth_class_wearable_headset">佩戴式耳机</string>
+    <string name="audio_info_bluetooth_class_handsfree">免提设备</string>
+    <string name="audio_info_bluetooth_class_loudspeaker">扬声器</string>
+    <string name="audio_info_bluetooth_class_headphones">头戴式耳机</string>
+    <string name="audio_info_bluetooth_class_portable_audio">便携音频</string>
+    <string name="audio_info_bluetooth_class_car_audio">车载音响</string>
+    <string name="audio_info_bluetooth_class_hifi_audio">高保真音响</string>
+    <string name="audio_info_bluetooth_class_audio_video">音频/视频设备</string>
+    <string name="audio_info_bluetooth_class_computer">计算机</string>
+    <string name="audio_info_bluetooth_class_phone">手机</string>
+    <string name="audio_info_bluetooth_class_wearable">可穿戴设备</string>
+    <string name="audio_info_value_hz">%d Hz</string>
+    <string name="audio_info_value_hz_list">%s Hz</string>
+    <!-- 位深是无量纲单位（「24 位」），不是可数名词，不适用复数形式 -->
+    <string name="audio_info_value_bit" tools:ignore="PluralsCandidate">%d 位</string>
+    <string name="audio_info_value_kbps">%d kbps</string>
+    <string name="audio_info_value_file_size">%1$s / %2$s</string>
+    <string name="audio_info_value_ms">%.1f ms</string>
+    <plurals name="audio_info_value_channels">
+        <item quantity="other">%d 声道</item>
+    </plurals>
+    <plurals name="audio_info_value_frames_ms">
+        <item quantity="other">%1$d 帧 / %2$.1f ms</item>
+    </plurals>
+    <string name="audio_info_value_channel_count">%d</string>
+    <string name="audio_info_value_mono">单声道</string>
+    <string name="audio_info_value_stereo">立体声</string>
+    <string name="audio_info_value_yes">是</string>
+    <string name="audio_info_value_no">否</string>
+    <string name="audio_info_value_enabled">已启用</string>
+    <string name="audio_info_value_disabled">未启用</string>
+    <string name="audio_info_value_not_established">未建立</string>
+    <string name="audio_info_value_pcm_8bit">8 位整型</string>
+    <string name="audio_info_value_pcm_16bit">16 位整型</string>
+    <string name="audio_info_value_pcm_24bit">24 位整型</string>
+    <string name="audio_info_value_pcm_32bit">32 位整型</string>
+    <string name="audio_info_value_pcm_float">32 位浮点</string>
+    <string name="audio_info_output_mode_bit_perfect">位完美直出</string>
+    <string name="audio_info_output_mode_format_locked">源格式直出</string>
+    <string name="audio_info_output_mode_mixer">系统混音</string>
+    <!-- 「24bit」是位深单位写法（数字与单位连排），不是可数名词 -->
+    <string name="audio_info_quality_lossless_bit_depth" tools:ignore="PluralsCandidate">%dbit 无损</string>
+    <string name="audio_info_quality_lossless">无损</string>
+    <string name="audio_info_quality_lossy">有损</string>
+    <string name="audio_info_transport_playing">播放中</string>
+    <string name="audio_info_transport_buffering">缓冲中</string>
+    <string name="audio_info_transport_paused">已暂停</string>
+    <string name="audio_info_transport_ended">已结束</string>
+    <string name="audio_info_transport_idle">空闲</string>
+
+    <!-- 迷你播放器 -->
+    <string name="mini_player_cover">专辑封面</string>
+    <string name="mini_player_previous">上一曲</string>
+    <string name="mini_player_next">下一曲</string>
+    <string name="mini_player_playlist">播放列表</string>
+    <string name="mini_player_playlist_title">播放列表</string>
+
+    <!-- 首页播放器 -->
+    <string name="home_player_play">播放</string>
+    <string name="home_player_pause">暂停</string>
+    <string name="home_player_previous">上一首</string>
+    <string name="home_player_next">下一首</string>
+    <string name="home_player_empty">暂无本地音乐，请先授权音乐访问权限</string>
+    <string name="home_player_lyric_delay">歌词延后</string>
+    <string name="home_player_lyric_advance">歌词提前</string>
+    <string name="home_player_close_playlist">关闭播放列表</string>
+    <string name="home_player_swipe_preview_next">即将播放下一曲</string>
+    <string name="home_player_swipe_preview_previous">即将播放上一曲</string>
+    <string name="home_player_swipe_preview_cancel">松手取消切歌</string>
+    <string name="home_upgrade_lossless_title">升级为无损音质</string>
+    <string name="home_upgrade_lossless_no_candidates">未匹配到可升级的在线歌曲</string>
+    <string name="home_upgrade_lossless_confirm">升级</string>
+    <string name="home_upgrade_cancel">取消</string>
+    <string name="home_upgrade_lossless_failed">无损音源不可用，已保持原音质</string>
+    <string name="home_artist_picker_title">选择歌手</string>
+    <string name="settings_section_player">播放</string>
+    <string name="settings_mini_player_title">悬浮播放</string>
+    <string name="settings_mini_player_desc">后台播放显示悬浮播放器</string>
+    <string name="settings_word_by_word_title">逐字渲染</string>
+    <string name="settings_word_by_word_desc">歌词逐字高亮并同步跳动</string>
+    <string name="settings_swipe_track_title">滑动切歌</string>
+    <string name="settings_swipe_track_desc">在首页上下滑动切换歌曲</string>
+    <string name="settings_background_flow_title">背景流动</string>
+    <string name="settings_background_flow_desc">开启后首页背景缓慢流动</string>
+    <string name="settings_usb_direct_output_title">USB 音频直出</string>
+    <string name="settings_usb_direct_output_desc">系统原生接口，动态适应设备</string>
+    <string name="settings_typography_title">排版</string>
+    <string name="settings_typography_desc">歌词字号与显示行数</string>
+
+    <!-- 黑名单 -->
+    <string name="settings_section_blacklist">黑名单</string>
+    <string name="settings_blacklist_reset_title">重置黑名单</string>
+    <plurals name="settings_blacklist_reset_desc">
+        <item quantity="other">已拉黑 %1$d 首，重置后重新参与推荐</item>
+    </plurals>
+    <string name="settings_blacklist_reset_confirm_title">重置黑名单</string>
+    <string name="settings_blacklist_reset_confirm_message">重置后已拉黑的歌曲与跳过反馈累积的特征将重新参与推荐排序</string>
+    <string name="settings_blacklist_reset_confirm">重置</string>
+    <string name="settings_blacklist_reset_cancel">取消</string>
+    <string name="settings_blacklist_reset_done">黑名单已重置</string>
+
+    <!-- 播放列表滑动操作 -->
+    <string name="playlist_advanced_menu_title">高级菜单</string>
+    <string name="playlist_advanced_menu_share">分享音乐</string>
+    <string name="playlist_advanced_menu_ringtone">设为来电铃声</string>
+    <string name="playlist_advanced_menu_alarm">设为闹钟铃声</string>
+    <string name="playlist_advanced_menu_spectrum">查看频谱</string>
+    <string name="playlist_advanced_menu_metadata">编辑元数据</string>
+    <string name="playlist_advanced_unavailable">在线曲目暂不支持该操作</string>
+
+    <!-- 元数据编辑 -->
+    <string name="metadata_screen_title">元数据编辑</string>
+    <string name="metadata_unavailable">该曲目没有本地音频文件，无法编辑元数据</string>
+    <string name="metadata_cover_title">内嵌封面</string>
+    <string name="metadata_cover_empty">无封面</string>
+    <string name="metadata_cover_pick">选择图片</string>
+    <string name="metadata_cover_remove">移除封面</string>
+    <string name="metadata_section_basic">基本信息</string>
+    <string name="metadata_field_title">标题</string>
+    <string name="metadata_field_artist">艺术家</string>
+    <string name="metadata_field_album">专辑</string>
+    <string name="metadata_field_empty">未填写</string>
+    <string name="metadata_edit_hint">点击任意条目编辑，修改后自动保存</string>
+    <string name="metadata_section_lyrics">歌词</string>
+    <plurals name="metadata_lyrics_line_count">
+        <item quantity="other">共 %1$d 行</item>
+    </plurals>
+    <string name="metadata_lyrics_empty">暂无歌词</string>
+    <string name="metadata_lyrics_invalid">歌词格式无法解析，请检查时间戳格式</string>
+    <string name="metadata_lyrics_translation_hint">翻译（留空则清除）</string>
+    <string name="metadata_lyrics_whole_edit">全文编辑</string>
+    <string name="metadata_lyrics_line_edit">逐行编辑</string>
+    <string name="metadata_save_done">元数据已写入音频文件</string>
+    <string name="metadata_save_failed">写入失败：文件格式不支持或无法写入</string>
+
+    <!-- 频谱分析 -->
+    <string name="spectrum_screen_title">频谱分析</string>
+    <string name="spectrum_generating">正在生成频谱图…</string>
+    <string name="spectrum_unavailable">无法分析该音频的频谱</string>
+    <string name="spectrum_info_mono">单声道</string>
+    <string name="spectrum_info_stereo">立体声</string>
+    <plurals name="spectrum_info_channel_count">
+        <item quantity="other">%1$d 声道</item>
+    </plurals>
+    <string name="spectrum_analysis_fake_lossless">音质异常</string>
+    <string name="spectrum_analysis_ai_music">AI 合成</string>
+    <string name="spectrum_analysis_checking">校验中…</string>
+    <string name="spectrum_analysis_clear">未检出</string>
+    <string name="spectrum_analysis_fake_detected">疑似异常</string>
+    <string name="spectrum_analysis_ai_detected">疑似 AI</string>
+    <string name="spectrum_analysis_not_applicable">不适用</string>
+    <string name="spectrum_menu_share_image">分享图片</string>
+    <string name="spectrum_menu_save_image">保存图片</string>
+    <string name="spectrum_image_saved">图片已保存到相册</string>
+    <string name="spectrum_image_save_failed">保存图片失败</string>
+    <string name="spectrum_image_share_failed">分享图片失败</string>
+    <string name="spectrum_export_disclaimer">检测结果未必准确</string>
+    <string name="spectrum_export_name_suffix">频谱图</string>
+    <string name="spectrum_share_chooser_title">分享频谱图</string>
+
+    <!-- 默认铃声 -->
+    <string name="default_sound_ringtone_done">已设为来电铃声</string>
+    <string name="default_sound_alarm_done">已设为闹钟铃声</string>
+    <string name="default_sound_failed">设置失败，请重试</string>
+    <string name="default_sound_need_write_settings">请允许「修改系统设置」后自动继续</string>
+
+    <!-- 代理音源 -->
+    <string name="settings_section_proxy_source">代理音源</string>
+    <string name="settings_proxy_source_import_title">导入音源</string>
+    <string name="settings_proxy_source_import_desc">从链接或文本导入代理音源</string>
+    <string name="settings_proxy_source_dialog_title">选择导入方式</string>
+    <string name="settings_proxy_source_import_local">本地导入</string>
+    <string name="settings_proxy_source_import_link">链接导入</string>
+    <string name="settings_proxy_source_import_text">文本导入</string>
+    <string name="settings_proxy_source_link_title">链接导入</string>
+    <string name="settings_proxy_source_text_title">文本导入</string>
+    <string name="settings_proxy_source_link_hint">请输入音源链接</string>
+    <string name="settings_proxy_source_text_hint">请输入音源内容</string>
+    <string name="settings_proxy_source_confirm">确定</string>
+    <string name="settings_proxy_source_cancel">取消</string>
+    <string name="settings_proxy_source_empty">尚未导入音源</string>
+    <string name="settings_proxy_source_platforms">覆盖平台：%1$s</string>
+    <string name="settings_proxy_source_remove_desc">移除音源</string>
+    <string name="settings_proxy_source_import_failed">导入失败：%1$s</string>
+    <string name="settings_proxy_source_link_error">链接无法访问，请检查网络</string>
+    <string name="settings_proxy_source_import_success">代理音源导入成功</string>
+    <string name="settings_proxy_source_import_read_error">导入失败：无法读取文件内容</string>
+
+    <!-- 缓存管理 -->
+    <string name="settings_section_cache">存储</string>
+    <string name="settings_cache_entry_title">存储管理</string>
+    <string name="cache_screen_title">存储管理</string>
+    <string name="cache_group_system">临时文件（可清理）</string>
+    <string name="cache_group_private">应用数据</string>
+    <string name="cache_group_user">用户数据</string>
+    <string name="cache_total">共计占用 %1$s</string>
+    <string name="cache_refreshing">加载中…</string>
+    <string name="cache_pull_refresh">下拉刷新列表</string>
+    <string name="cache_release_refresh">松开刷新列表</string>
+    <string name="cache_clear">清理缓存</string>
+    <string name="cache_clearing">正在清理…</string>
+    <plurals name="cache_usage">
+        <item quantity="other">%1$d 项 · %2$s</item>
+    </plurals>
+    <string name="cache_category_image">图片缓存</string>
+    <string name="cache_category_temp">中转文件</string>
+    <string name="cache_category_log">运行日志</string>
+    <string name="cache_category_lyric">歌词缓存</string>
+    <string name="cache_category_audio">歌曲缓存</string>
+    <string name="cache_category_update">更新安装包</string>
+    <string name="cache_category_analysis">曲库分析缓存</string>
+    <string name="cache_category_preference">用户偏好</string>
+
+    <!-- 卡片与排版设置 -->
+    <string name="typography_screen_title">排版设置</string>
+    <string name="typography_section_music_panel">音乐面板</string>
+    <string name="typography_section_home_portrait">首页竖屏</string>
+    <string name="typography_section_home_landscape">首页横屏</string>
+    <string name="typography_font_size">字号</string>
+    <string name="typography_visible_lines">显示行数</string>
+    <string name="typography_3d_intensity">3D 强度</string>
+
+    <!-- 首页歌单 -->
+    <string name="playlist_section_smart">系统歌单</string>
+    <string name="playlist_section_my">我的歌单</string>
+    <string name="playlist_smart_recent">常听</string>
+    <string name="playlist_smart_favorite">收藏</string>
+    <string name="playlist_smart_album">专辑</string>
+    <string name="playlist_smart_artist">歌手</string>
+    <string name="playlist_create">新建歌单</string>
+    <string name="playlist_create_title">新建歌单</string>
+    <string name="playlist_create_confirm">创建</string>
+    <string name="playlist_rename_title">重命名歌单</string>
+    <string name="playlist_rename">重命名</string>
+    <string name="playlist_delete">删除</string>
+    <string name="playlist_delete_title">删除歌单</string>
+    <string name="playlist_delete_message">确定删除「%1$s」？删除后不可恢复</string>
+    <string name="playlist_delete_confirm">删除</string>
+    <string name="playlist_play_all">播放全部</string>
+    <string name="playlist_add_songs">添加歌曲</string>
+    <string name="playlist_empty">暂无歌曲</string>
+    <string name="playlist_remove_track_title">从歌单移除这首歌曲？</string>
+    <string name="playlist_remove_track_message">将移除歌曲「%1$s · %2$s」</string>
+    <string name="playlist_remove_track_confirm">移除</string>
+    <string name="playlist_blacklist_title">是否拉黑这首歌曲？</string>
+    <string name="playlist_blacklist_message">将拉黑歌曲「%1$s · %2$s」，之后不再参与每日推荐</string>
+    <string name="playlist_blacklist_delete_option">拉黑并删除</string>
+    <string name="playlist_blacklist_delete_hint">音频文件与本地歌词将永久删除，无法恢复</string>
+    <string name="playlist_blacklist_confirm">拉黑</string>
+    <string name="playlist_blacklist_delete_confirm">拉黑并删除</string>
+    <string name="playlist_picker_title">添加歌曲到「%1$s」</string>
+    <string name="playlist_picker_select_all">全选</string>
+    <string name="playlist_picker_select_none">取消全选</string>
+    <plurals name="playlist_picker_selected">
+        <item quantity="other">已选 %1$d 首</item>
+    </plurals>
+    <string name="playlist_picker_add">添加 (%1$d)</string>
+    <string name="playlist_picker_empty">没有可添加的歌曲</string>
+    <plurals name="playlist_album_count">
+        <item quantity="other">%1$d 张</item>
+    </plurals>
+    <plurals name="playlist_artist_count">
+        <item quantity="other">%1$d 位</item>
+    </plurals>
+    <string name="playlist_unknown_album">未知专辑</string>
+    <string name="playlist_more">更多操作</string>
+    <string name="playlist_switch_title">切换歌单</string>
+    <string name="playlist_switch_default">默认歌单</string>
+    <string name="playlist_sort_handle">排序调整</string>
+    <string name="playlist_edit_album_title">编辑专辑元数据</string>
+    <string name="playlist_search_placeholder">搜索播放列表</string>
+    <string name="playlist_search_no_results">未找到匹配歌曲</string>
+    <string name="playlist_search_artist_placeholder">搜索歌手</string>
+    <string name="playlist_search_album_placeholder">搜索专辑</string>
+    <string name="playlist_search_no_artist_results">未找到匹配歌手</string>
+    <string name="playlist_search_no_album_results">未找到匹配专辑</string>
+    <string name="playlist_scroll_to_top">滚动至顶</string>
+    <string name="playlist_locate_playing">定位播放</string>
+
+    <!-- 曲库分析 -->
+    <string name="library_analysis_title">曲库分析</string>
+    <string name="library_analysis_select_format">按格式定位</string>
+    <plurals name="library_analysis_formats">
+        <item quantity="other">%d 种格式</item>
+    </plurals>
+    <string name="library_analysis_empty">曲库为空</string>
+    <string name="library_analysis_other">其他</string>
+    <string name="library_analysis_online">在线</string>
+    <string name="library_analysis_fake_lossless">音质异常</string>
+    <string name="library_analysis_ai_music">疑似AI</string>
+    <string name="library_analysis_checking">正在校验…</string>
+    <string name="library_analysis_check_progress">曲库分析中 %1$d/%2$d</string>
+    <string name="library_analysis_refresh">重新分析</string>
+
+    <!-- 应用信息 -->
+    <string name="app_info_brand">Evilgodxu</string>
+    <string name="app_info_log_label">[日志]</string>
+    <string name="app_info_qq_group">QQ群:923555630</string>
+    <string name="app_info_share_log_subject">今日日志</string>
+    <string name="app_info_share_log_title">分享今日日志</string>
+
+    <!-- 通用 -->
+    <string name="copy_success_toast">已复制: %1$s</string>
+
+    <!-- 更新 -->
+    <string name="update_dialog_title">发现新版本 %s</string>
+    <string name="update_dialog_description_alt">是否下载并安装新版本？</string>
+    <string name="update_dialog_downloading">正在下载…</string>
+    <string name="update_dialog_download_failed">下载失败，请尝试使用浏览器下载</string>
+    <string name="update_dialog_changelog_title">更新日志：</string>
+    <string name="update_dialog_download">下载</string>
+    <string name="update_dialog_later">稍后</string>
+    <string name="update_dialog_open_browser">在浏览器中打开</string>
+    <string name="update_toast_up_to_date">已是最新版本</string>
+    <string name="update_toast_error">检查更新失败，请稍后重试</string>
+    <string name="update_notification_title">忆潮音乐更新</string>
+    <string name="update_notification_downloading">正在下载 %1$s</string>
+</resources>
