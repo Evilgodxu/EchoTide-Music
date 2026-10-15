@@ -4,7 +4,6 @@
 #include <linux/usb/ch9.h>
 #include <linux/usbdevice_fs.h>
 #include <poll.h>
-#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/resource.h>
 #include <unistd.h>
@@ -38,10 +37,6 @@ constexpr int kDrainTimeoutMs = 200;
  */
 constexpr int kReapThreadPriority = -19;
 
-std::string errnoText(int code) {
-    return std::string(strerror(code)) + " (" + std::to_string(code) + ")";
-}
-
 uint32_t readU24(const uint8_t* p) {
     return uint32_t(p[0]) | (uint32_t(p[1]) << 8) | (uint32_t(p[2]) << 16);
 }
@@ -69,9 +64,9 @@ usbdevfs_urb* placeUrb(std::vector<uint64_t>& storage, int packetCount) {
 
 }  // namespace
 
-std::unique_ptr<UsbIsoStream> UsbIsoStream::create(const Config& config, std::string& error) {
+std::unique_ptr<UsbIsoStream> UsbIsoStream::create(const Config& config) {
     auto stream = std::unique_ptr<UsbIsoStream>(new UsbIsoStream());
-    if (!stream->start(config, error)) return nullptr;
+    if (!stream->start(config)) return nullptr;
     return stream;
 }
 
@@ -94,21 +89,18 @@ UsbIsoStream::~UsbIsoStream() {
     }
 }
 
-bool UsbIsoStream::start(const Config& config, std::string& error) {
+bool UsbIsoStream::start(const Config& config) {
     config_ = config;
+    // 失败原因不分类上报：调用方只按 nullptr 判失败，把原因细分出来没有消费者
     if (config_.fd < 0 || config_.frameBytes <= 0 || config_.maxPacketBytes <= 0 ||
         config_.sampleRate <= 0 || config_.packetsPerUrb <= 0 || config_.urbCount <= 0) {
-        error = "建流参数不完整";
         return false;
     }
     // 自己复制一份 fd 而不是直接用它：调用方随时可能因拔插或归还设备而关掉连接，而内核会把那个编号
     // 立刻回收给别的打开操作——继续用原编号发 ioctl 就打到别人的文件上去了。复制后本层的生命周期
     // 与调用方解耦：即便连接已关，本层收到的也只是设备已不可用，而不会误伤无关的文件
     fd_ = ::dup(config_.fd);
-    if (fd_ < 0) {
-        error = "复制设备文件描述符失败：" + errnoText(errno);
-        return false;
-    }
+    if (fd_ < 0) return false;
 
     // 服务间隔频率取决于 USB 速度：高速为 8000 个微帧/秒，其余为 1000 个帧/秒。
     // 速度取自平台自身的查询口（libusb 也是这么得到的），拿不到时按最大包长反推：
@@ -124,17 +116,9 @@ bool UsbIsoStream::start(const Config& config, std::string& error) {
     packetsPerSecond_ = (highSpeed_ ? 8000 : 1000) >> std::min(shift, 3);
 
     maxFramesPerPacket_ = uint32_t(config_.maxPacketBytes / config_.frameBytes);
-    if (maxFramesPerPacket_ == 0) {
-        error = "端点的单包容量放不下一个音频帧";
-        return false;
-    }
+    if (maxFramesPerPacket_ == 0) return false;
     const uint32_t nominalFrames = uint32_t(config_.sampleRate) / uint32_t(packetsPerSecond_);
-    if (nominalFrames == 0 || nominalFrames > maxFramesPerPacket_) {
-        error = "端点带宽容不下该采样率：" + std::to_string(config_.sampleRate) + "Hz 需 " +
-                std::to_string(config_.sampleRate / packetsPerSecond_) + " 帧/包，上限为 " +
-                std::to_string(maxFramesPerPacket_) + " 帧";
-        return false;
-    }
+    if (nominalFrames == 0 || nominalFrames > maxFramesPerPacket_) return false;
     // 标称每包帧数是分数，用 16.16 定点保存，由相位累积摊到整数包上
     nominalQ16_.store(uint32_t((uint64_t(config_.sampleRate) << 16) / uint64_t(packetsPerSecond_)));
 

@@ -10,7 +10,6 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <string>
 #include <thread>
 #include <vector>
 
@@ -62,8 +61,8 @@ public:
         bool disconnected = false;
     };
 
-    /** 建流并立即开始送出静音；参数不可用时返回 nullptr 并写出原因 */
-    static std::unique_ptr<UsbIsoStream> create(const Config& config, std::string& error);
+    /** 建流并立即开始送出静音；参数不可用时返回 nullptr */
+    static std::unique_ptr<UsbIsoStream> create(const Config& config);
 
     ~UsbIsoStream();
     UsbIsoStream(const UsbIsoStream&) = delete;
@@ -102,7 +101,7 @@ private:
     struct Urb;
     struct FeedbackUrb;
 
-    bool start(const Config& config, std::string& error);
+    bool start(const Config& config);
     void reapLoop();
     Urb* findSlot(usbdevfs_urb* urb);
     void fillAndSubmit(usbdevfs_urb* urb);

@@ -5,7 +5,6 @@
 #include <jni.h>
 
 #include <cstddef>
-#include <string>
 
 #include "UsbIsoStream.h"
 
@@ -38,9 +37,7 @@ Java_com_yichao_evilgodxu_data_music_playback_usb_UsbIsoNative_open(
     config.inFlightTargetMs = inFlightTargetMs;
     config.ringBytes = ringBytes;
 
-    // 失败原因由 create 写出：本层没有回传它的通道，调用方按返回值 0 判失败即可
-    std::string error;
-    std::unique_ptr<UsbIsoStream> stream = UsbIsoStream::create(config, error);
+    std::unique_ptr<UsbIsoStream> stream = UsbIsoStream::create(config);
     if (stream == nullptr) return 0;
     return reinterpret_cast<jlong>(stream.release());
 }
