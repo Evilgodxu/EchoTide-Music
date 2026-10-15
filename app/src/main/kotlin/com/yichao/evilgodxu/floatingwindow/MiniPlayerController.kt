@@ -126,8 +126,9 @@ class MiniPlayerController(
     /**
      * 结束整个应用：移除悬浮窗、停止播放前台服务，回收孤儿文件后终止进程。
      *
-     * 退出前的回收见 [CacheInventory.reclaimOnExit]。调用方须先把任务退到后台（见 AppContent），
-     * 让这次清理与随后的进程结束都发生在后台，而不是停在前台界面上把流程走完。
+     * 退出前的回收见 [CacheInventory.reclaimOnExit]。交互退出由调用方先把任务退到后台
+     * （见 AppContent），使清理与随后的进程结束都发生在后台；睡前定时到点是直接结束应用，
+     * 没有界面可退，按同一流程清理完即结束进程。
      */
     fun exitApplication() {
         dismissMiniPlayer()
