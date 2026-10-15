@@ -65,8 +65,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.panel.loadMoreSearchResults
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
@@ -103,10 +101,7 @@ internal fun SearchResultRow(
             val coverModel = (result.coverThumbUrl ?: result.coverUrl)?.takeIf { it.isNotBlank() }
             if (coverModel != null) {
                 AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(coverModel)
-                        .diskCachePolicy(CachePolicy.DISABLED)
-                        .build(),
+                    model = coverModel,
                     contentDescription = result.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

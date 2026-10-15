@@ -1,9 +1,6 @@
 package com.yichao.evilgodxu.data.cache
 
 import android.content.Context
-import coil3.SingletonImageLoader
-import com.yichao.evilgodxu.data.persistence.StoragePaths
-import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
 
 /**
@@ -13,8 +10,6 @@ import java.io.File
  * 整份计入该根的兜底分类。于是新模块漏登记只表现为兜底行非空，不会出现占用去向不明却查不到的产出。
  */
 internal object CacheInventory {
-
-    private const val TAG = "CacheInventory"
 
     // 更新安装包的过期判定：经系统下载管理器写入，本进程结束后其下载仍可能继续，
     // 故只回收隔日残留，避免删掉正在下载或待安装的包
@@ -60,20 +55,11 @@ internal object CacheInventory {
      * 清理应用自身缓存：与系统设置页「清除缓存」的作用域一致 —— 整清 cacheDir，
      * 从而自动覆盖任何第三方库落盘在 cacheDir 的缓存，无需逐个登记。
      * 系统缓存作用域不覆盖的应用专属外部产出（运行日志、更新安装包）在此手动删除。
-     * 活跃的 Coil 磁盘缓存须先经其接口清空以保持索引一致。
      */
     suspend fun clearSystemCache(context: Context) {
-        // 活跃缓存：Coil 磁盘缓存的 clear() 只删值文件、会遗留 .journal 元数据，须补删使目录真正为空
-        runCatching {
-            SingletonImageLoader.get(context).diskCache?.clear()
-            File(context.cacheDir, StoragePaths.IMAGE_CACHE_DIR_NAME)
-                .listFiles()?.forEach { it.delete() }
-        }.onFailure { CrashLogManager.logException(TAG, "清理图片缓存失败", it) }
-        // 清空 cacheDir 其余内容（等同系统「清除缓存」作用域）：跳过 image_cache 目录本身，
-        // 其值文件已清空，避免删掉 Coil 仍在使用的目录导致其后续写失效
-        context.cacheDir.listFiles()?.forEach { child ->
-            if (child.name != StoragePaths.IMAGE_CACHE_DIR_NAME) child.deleteRecursively()
-        }
+        // 整清 cacheDir：登记在此的产出（封面落盘缓存、中转文件等）无需逐条驱动，一并回收；
+        // 旧版本 Coil 磁盘缓存遗留的目录也落在其中，随这一次清扫一并消失
+        context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
         // 系统缓存作用域外、应用专属外部的产出（运行日志、更新安装包），系统 API 覆盖不到，手动删除
         StorageRegistry.logFiles(context).forEach { deleteQuietly(it) }
         StorageRegistry.updatePackages(context).forEach { deleteQuietly(it) }

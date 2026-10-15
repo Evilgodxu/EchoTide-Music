@@ -7,7 +7,6 @@ import android.os.StrictMode
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
-import coil3.disk.DiskCache
 import coil3.ImageLoader
 import coil3.memory.MemoryCache
 import coil3.request.allowHardware
@@ -16,7 +15,6 @@ import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
-import com.yichao.evilgodxu.data.persistence.StoragePaths
 import com.yichao.evilgodxu.data.playlist.ArtistOrderStore
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.repository.SettingsRepository
@@ -36,7 +34,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
-import okio.Path.Companion.toOkioPath
 
 // 应用入口，同时作为进程级单例的中心持有者：各应用级依赖挂在 App 上
 // 经 ProvideAppDependencies 注入 Compose 树，系统创建的组件经 (application as App) 取用
@@ -98,7 +95,10 @@ class App : Application() {
         }
         // 收窄图片内存缓存到进程堆的 10%，把堆留给 ExoPlayer 高解析度音频缓冲，
         // 缓解封面解码与播放并发时的 OOM；
-        // 磁盘缓存显式限定上限：默认值按可用空间推算，会让封面占用随设备剩余空间无界增长
+        // 磁盘缓存整体关闭：Coil 的磁盘缓存是它私有的键值格式，占用看不见构成，上限又按设备
+        // 剩余空间推算（不配就是它自带的进程级单例缓存，同样如此），且与我们自己的封面落盘互相重复。
+        // 网络封面按需重取即可；要跨进程留存的只有当前/上一/下一三张大图，由 LargeCoverStore
+        // 自行落盘（见 StorageRegistry 的图片缓存条目）
         SingletonImageLoader.setSafe { context ->
             ImageLoader.Builder(context)
                 // 关掉硬件位图：界面里的位图会被主题切换的整屏快照以软件画布重绘一次，
@@ -110,12 +110,7 @@ class App : Application() {
                         .maxSizePercent(context, 0.10)
                         .build()
                 }
-                .diskCache {
-                    DiskCache.Builder()
-                        .directory(context.cacheDir.resolve(StoragePaths.IMAGE_CACHE_DIR_NAME).toOkioPath())
-                        .maxSizeBytes(StoragePaths.IMAGE_DISK_CACHE_MAX_BYTES)
-                        .build()
-                }
+                .diskCache(null)
                 .build()
         }
 

@@ -27,8 +27,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
@@ -103,7 +101,7 @@ private fun LyricsCandidateItem(
             Box(Modifier.size(96.dp).clip(RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
                 if (coverUrl != null) {
                     AsyncImage(
-                        model = ImageRequest.Builder(context).data(coverUrl).diskCachePolicy(CachePolicy.DISABLED).build(),
+                        model = coverUrl,
                         contentDescription = candidate.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),

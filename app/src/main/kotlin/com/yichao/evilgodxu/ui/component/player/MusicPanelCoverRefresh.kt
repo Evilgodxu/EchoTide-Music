@@ -32,7 +32,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -40,8 +39,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
@@ -84,7 +81,7 @@ internal fun CoverRefreshDialog(
         onConfirm = onConfirm,
         onCancel = onCancel,
         candidateItem = { candidate, selected ->
-            CoverCandidateItem(candidate = candidate, selected = selected, context = context, onSelected = onCandidateSelected)
+            CoverCandidateItem(candidate = candidate, selected = selected, onSelected = onCandidateSelected)
         },
     )
 }
@@ -94,7 +91,6 @@ internal fun CoverRefreshDialog(
 private fun CoverCandidateItem(
     candidate: NeteaseSongSearchResult,
     selected: Boolean,
-    context: Context,
     onSelected: (NeteaseSongSearchResult) -> Unit,
 ) {
     Column(
@@ -107,10 +103,7 @@ private fun CoverCandidateItem(
             color = MaterialTheme.colorScheme.surfaceVariant
         ) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(candidate.coverUrl)
-                    .diskCachePolicy(CachePolicy.DISABLED)
-                    .build(),
+                model = candidate.coverUrl,
                 contentDescription = candidate.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp))
@@ -183,10 +176,7 @@ private fun CoverReplaceContent(
                 thumbnailSize = coverThumbnailSize(LocalDensity.current, COVER_PREVIEW_DP),
             )
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(candidate.coverUrl)
-                    .diskCachePolicy(CachePolicy.DISABLED)
-                    .build(),
+                model = candidate.coverUrl,
                 contentDescription = candidate.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(COVER_PREVIEW_DP).clip(RoundedCornerShape(10.dp))

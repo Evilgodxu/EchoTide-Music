@@ -26,7 +26,7 @@ import java.io.File
  * 漏登记只表现为它们非空（并落一条带具体路径的日志），不会静默不计。
  */
 enum class CacheCategory {
-    /** 网络图片磁盘缓存 */
+    /** 封面落盘缓存：当前曲目封面与首页三张大图 */
     IMAGE,
 
     /** 中转文件：下载与更新过程的临时产物，流程结束即删 */
@@ -139,12 +139,10 @@ internal object StorageRegistry {
 
     /** 登记条目：顺序即存储页展示顺序 */
     val entries: List<CacheEntry> = listOf(
-        // 图片缓存：Coil 磁盘缓存（上限见 StoragePaths，超出由 LRU 淘汰）、当前曲目封面落盘缓存
-        // （换歌即覆盖，只留一张）与首页大封面落盘缓存（保留上一/当前/下一三张）；
-        // 清理随 clearSystemCache 整清 cacheDir 完成（Coil 部分须先经其接口以保持索引一致）
+        // 封面落盘缓存：当前曲目封面（换歌即覆盖，只留一张）与首页大封面（保留上一/当前/下一三张）；
+        // 网络封面不落盘（Coil 的磁盘缓存已整体关闭，见 App），清理随 clearSystemCache 整清 cacheDir 完成
         CacheEntry(CacheCategory.IMAGE, CacheScope.CLEARABLE) { context ->
             listOf(
-                File(context.cacheDir, StoragePaths.IMAGE_CACHE_DIR_NAME),
                 CurrentCoverCache.location(context),
                 LargeCoverStore.location(context),
             )

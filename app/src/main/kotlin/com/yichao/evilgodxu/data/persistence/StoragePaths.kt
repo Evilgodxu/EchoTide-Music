@@ -8,12 +8,6 @@ import com.yichao.evilgodxu.data.music.clip.SpectrumImageSharing
  */
 object StoragePaths {
 
-    /** 图片磁盘缓存目录名：与 Coil 磁盘缓存配置共用，改名会使既有缓存变成无人认领的孤儿 */
-    const val IMAGE_CACHE_DIR_NAME = "image_cache"
-
-    /** 图片磁盘缓存上限：约可容纳百张 2048 长边封面，超出由 LRU 淘汰，不随可用空间无界增长 */
-    const val IMAGE_DISK_CACHE_MAX_BYTES = 32L * 1024 * 1024
-
     /** 歌曲缓存目录名：公共下载目录下的音频条目落点 */
     const val AUDIO_DIR_NAME = "Audio"
 

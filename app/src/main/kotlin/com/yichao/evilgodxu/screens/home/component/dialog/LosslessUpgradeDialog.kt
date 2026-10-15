@@ -40,8 +40,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.download.upgradeTrackToLossless
 import com.yichao.evilgodxu.data.music.panel.searchLosslessUpgradeCandidates
@@ -177,10 +175,7 @@ internal fun LosslessUpgradeDialog(
                                 ) {
                                     if (coverUrl != null) {
                                         AsyncImage(
-                                            model = ImageRequest.Builder(context)
-                                                .data(coverUrl)
-                                                .diskCachePolicy(CachePolicy.DISABLED)
-                                                .build(),
+                                            model = coverUrl,
                                             contentDescription = candidate.title,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier.fillMaxWidth(),
