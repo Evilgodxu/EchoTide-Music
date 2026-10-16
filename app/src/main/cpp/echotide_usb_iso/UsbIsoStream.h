@@ -51,7 +51,7 @@ public:
         /**
          * 已由主机侧送出的帧数：URB 回收时按各包实际长度累计。
          *
-         * 与 framesSent 差着在飞 URB 那一整段（本层按目标时长折算，高速下约 16ms、全速下约 64ms）。
+         * 与 framesSent 差着在飞 URB 那一整段（本层按目标时长折算，两种总线速度下都是 64ms）。
          * 播放位置只能取自本值——按提交量报位置会让进度条与曲末判定整体偏前，而设备内部缓冲的那点余量
          * 已小到不必再管。
          */
@@ -110,6 +110,8 @@ private:
     uint32_t nextPacketFrames();
     void onFeedback(const uint8_t* data, int length);
     size_t readRing(uint8_t* destination, size_t bytes);
+    /** 环内当前存量（字节）：写位置与读位置之差，两个位置各自单调，故不必取模 */
+    size_t ringUsed() const;
     struct Urb {
         /** usbdevfs_urb 及其尾部柔性数组成员 iso_frame_desc[] 的存放地 */
         std::vector<uint64_t> descriptor;
@@ -149,11 +151,23 @@ private:
     /** 在飞段的时长（微秒）：主机侧能撑住的时间上限，drain 按它等最后一段送出 */
     int64_t inFlightUs_ = 0;
 
-    // 环形缓冲：播放线程写、回收线程读
+    // 环形缓冲：**单生产者（播放线程写）单消费者（回收线程取）**，数据面上不设共享锁，靠下面两个原子量
+    // 的获取/释放语义同步。这不是风格取舍：回收线程的截止期是一个服务间隔，而播放线程随时可能被外部
+    // 应用抢走——若两者共用一把普通互斥锁，播放线程在锁内被抢占时高优先级的回收线程会干等在锁上，
+    // 优先级提升（kReapThreadPriority）就完全换不来东西。故回收线程取数据时一次也不进锁。
     std::vector<uint8_t> ring_;
-    size_t ringHead_ = 0;
-    size_t ringSize_ = 0;
-    mutable std::mutex ringMutex_;
+    /** 写位置（单调递增，取模得下标）：只由播放线程推进 */
+    std::atomic<size_t> ringWrite_{0};
+    /** 读位置（单调递增，取模得下标）：只由回收线程推进 */
+    std::atomic<size_t> ringRead_{0};
+
+    /**
+     * 等环空间的等待设施：**只有播放线程会在它上面等**（环满时在此等回收线程腾出空间）。
+     *
+     * 数据同步不靠它（靠上面两个原子量），故锁只在播放线程上用；回收线程腾出空间后只发一次**无锁**通知，
+     * 一次也不进这把锁——偶发漏通知至多让播放线程多等一个超时，而 20ms 的超时本就是既定兜底。
+     */
+    std::mutex ringWaitMutex_;
     std::condition_variable ringCv_;
 
     // 分包相位：标称每包帧数是分数（如 44.1kHz 高速下为 5.5125），靠 16.16 相位累积摊到整数包上，

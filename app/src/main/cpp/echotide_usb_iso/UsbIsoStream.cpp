@@ -34,6 +34,10 @@ constexpr int kDrainTimeoutMs = 200;
  * 本线程的截止期是**一个服务间隔**（高速下 1ms）：每回收一个 URB 就要立刻补一个上去，否则在飞段一旦
  * 被送空，设备侧收到的就是断续。默认优先级下，别的应用启动时那一波 CPU 抢占就足以让本线程误期，
  * 而它误期的表现恰好绕开所有既有计数——环里有数据，欠载计数不响；URB 正常完成，传输错误计数不响。
+ *
+ * 提升只治**调度**：本线程在音频数据面上因此不得再获取任何共享锁（见 UsbIsoStream 的环形缓冲字段与
+ * readRing）。否则抢占只要落在"播放线程持锁"的那一小段上，本线程就会干等在锁上——那把锁会把优先级
+ * 一并吃掉，提升等于没做。
  */
 constexpr int kReapThreadPriority = -19;
 
@@ -132,8 +136,8 @@ bool UsbIsoStream::start(const Config& config) {
     inFlightUs_ = int64_t(usPerUrb) * int64_t(urbCount_);
 
     ring_.assign(size_t(config_.ringBytes), 0);
-    ringHead_ = 0;
-    ringSize_ = 0;
+    ringWrite_.store(0);
+    ringRead_.store(0);
     // 环长由调用方按延迟预算给定，且不得短于整段在飞——环比它短时播放线程写不进、回收线程也腾不出，
     // 表现为周期性停顿，该下限由 UsbIsoOutput 在调用前保证
 
@@ -162,26 +166,31 @@ bool UsbIsoStream::start(const Config& config) {
 
 long UsbIsoStream::write(const uint8_t* data, size_t bytes) {
     size_t written = 0;
-    std::unique_lock<std::mutex> lock(ringMutex_);
     while (written < bytes) {
         if (!running_.load() || disconnected_.load()) {
             return written > 0 ? long(written) : -1;
         }
-        const size_t free = ring_.size() - ringSize_;
+        // 环容量在整个流的生命周期内不变，故空出的量就是容量减存量。写位置只由本线程推进，
+        // 因此直接读-改-写即可，不必用比较交换
+        const size_t write = ringWrite_.load(std::memory_order_relaxed);
+        const size_t free = ring_.size() - (write - ringRead_.load(std::memory_order_acquire));
         if (free == 0) {
             // 暂停期间环只进不出，继续等就是永久阻塞——而暂停与恢复都走调用方那一条线程。
             // 故就地把已接纳的部分交回去，余量由调用方按"下游已满"自行重试
             if (paused_.load()) break;
-            // 等回收线程腾出空间；超时只是为了避免在无通知时永久阻塞
+            // 等回收线程腾出空间。等待设施只有本线程会用（回收线程取数据时并不进锁），故不存在
+            // "高位线程卡在低位线程持锁的临界区里"那种倒挂；超时只是无通知时的兜底
+            std::unique_lock<std::mutex> lock(ringWaitMutex_);
             ringCv_.wait_for(lock, std::chrono::milliseconds(20));
             continue;
         }
         const size_t chunk = std::min(free, bytes - written);
-        const size_t tail = (ringHead_ + ringSize_) % ring_.size();
-        const size_t first = std::min(chunk, ring_.size() - tail);
-        std::memcpy(ring_.data() + tail, data + written, first);
+        const size_t head = write % ring_.size();
+        const size_t first = std::min(chunk, ring_.size() - head);
+        std::memcpy(ring_.data() + head, data + written, first);
         if (chunk > first) std::memcpy(ring_.data(), data + written + first, chunk - first);
-        ringSize_ += chunk;
+        // 释放语义：先把数据写完再发布写位置，回收线程据写位置取数据时才看得到这一段
+        ringWrite_.store(write + chunk, std::memory_order_release);
         written += chunk;
         // 一有真实音频即退出「未起播」态：起播前的空环不算欠载，否则每首开头都会记一次假欠载
         primed_ = true;
@@ -190,20 +199,19 @@ long UsbIsoStream::write(const uint8_t* data, size_t bytes) {
 }
 
 void UsbIsoStream::drain() {
-    {
-        std::unique_lock<std::mutex> lock(ringMutex_);
-        while (ringSize_ > 0 && running_.load() && !disconnected_.load()) {
-            ringCv_.wait_for(lock, std::chrono::milliseconds(10));
-        }
+    // 环空即已写入的数据全部装进了 URB。存量归零由回收线程推进读位置达成，故等它的通知
+    while (ringUsed() > 0 && running_.load() && !disconnected_.load()) {
+        std::unique_lock<std::mutex> lock(ringWaitMutex_);
+        ringCv_.wait_for(lock, std::chrono::milliseconds(10));
     }
     // 环已空，但在飞的 URB 仍按服务间隔逐个送出；等这段时间过完才算真的送尽
     std::this_thread::sleep_for(std::chrono::microseconds(inFlightUs_));
 }
 
 void UsbIsoStream::setPaused(bool paused) {
-    if (paused_.exchange(paused) == paused) return;
-    // 恢复时唤醒可能正在等环空间的播放线程：暂停期间环只进不出，写满即阻塞
-    if (!paused) ringCv_.notify_all();
+    // 不加通知：等在环上的只有播放线程，而暂停与恢复也走它那一条线——同一时刻不可能既在等又被调用。
+    // 故写满阻塞与暂停恢复不会互相卡住；write 那边另按 paused_ 就地交回已接纳的部分，不依赖任何唤醒
+    paused_.store(paused);
 }
 
 void UsbIsoStream::stop() {
@@ -214,11 +222,9 @@ void UsbIsoStream::stop() {
     // join 返回即保证在飞 URB 已全部回收（或已标记放弃）。析构路径与关闭 fd 都以此为前提：
     // 内核持有未回收 URB 的指针，早一刻释放就是 use-after-free
     if (reapThread_.joinable()) reapThread_.join();
-    {
-        std::lock_guard<std::mutex> lock(ringMutex_);
-        ringHead_ = 0;
-        ringSize_ = 0;
-    }
+    // 回收线程已 join，此刻环上没有并发读写者，直接归零
+    ringWrite_.store(0);
+    ringRead_.store(0);
     ringCv_.notify_all();
 }
 
@@ -348,9 +354,9 @@ void UsbIsoStream::fillAndSubmit(usbdevfs_urb* urb) {
     for (int i = 0; i < config_.packetsPerUrb; ++i) {
         const size_t want = size_t(nextPacketFrames()) * size_t(config_.frameBytes);
         size_t got = 0;
-        // 暂停期间不从环里取数据：环里攒着的正是"已写出而未播出"的部分，取走它等于把待播量抹平
+        // 暂停期间不从环里取数据：环里攒着的正是"已写出而未播出"的部分，取走它等于把待播量抹平。
+        // 取数据不进锁——数据面靠原子位置的获取/释放语义同步，见 readRing 与头文件的字段说明
         if (!paused) {
-            std::lock_guard<std::mutex> lock(ringMutex_);
             got = readRing(buffer + offset, want);
         }
         if (got < want) {
@@ -393,14 +399,13 @@ void UsbIsoStream::fillAndSubmit(usbdevfs_urb* urb) {
         if (isFatalSubmitError(code)) {
             disconnected_ = true;
             running_ = false;
+            // 反向的一次唤醒：本线程是回收线程，而等在环上的是播放线程。终止后写不进去，等下去没有意义
             ringCv_.notify_all();
         }
         return;
     }
     slot->inFlight = true;
     inFlightCount_.fetch_add(1);
-    // 环里腾出了空间，唤醒可能正在等空间的播放线程
-    ringCv_.notify_one();
 }
 
 void UsbIsoStream::submitFeedback() {
@@ -495,14 +500,26 @@ void UsbIsoStream::onFeedback(const uint8_t* data, int length) {
     feedbackQ16_.store(uint32_t(value));
 }
 
+size_t UsbIsoStream::ringUsed() const {
+    // 写位置只由播放线程推进、读位置只由回收线程推进，两个量各自单调，差值即存量
+    return ringWrite_.load(std::memory_order_acquire) - ringRead_.load(std::memory_order_acquire);
+}
+
 size_t UsbIsoStream::readRing(uint8_t* destination, size_t bytes) {
-    const size_t take = std::min(bytes, ringSize_);
+    // 获取语义：读到写位置即表示生产者在此之前写入的数据已可见
+    const size_t write = ringWrite_.load(std::memory_order_acquire);
+    const size_t read = ringRead_.load(std::memory_order_relaxed);
+    const size_t take = std::min(bytes, write - read);
     if (take == 0) return 0;
-    const size_t first = std::min(take, ring_.size() - ringHead_);
-    std::memcpy(destination, ring_.data() + ringHead_, first);
+    const size_t tail = read % ring_.size();
+    const size_t first = std::min(take, ring_.size() - tail);
+    std::memcpy(destination, ring_.data() + tail, first);
     const size_t second = take - first;
     if (second > 0) std::memcpy(destination + first, ring_.data(), second);
-    ringHead_ = (ringHead_ + take) % ring_.size();
-    ringSize_ -= take;
+    // 释放语义：先把数据取完再推进读位置，生产者据此判断哪一段已经可以覆盖
+    ringRead_.store(read + take, std::memory_order_release);
+    // 腾出了空间，唤醒可能在等环的播放线程。通知**不加锁**：回收线程一次也不该碰播放线程的等待设施，
+    // 那正是本层去锁的目的；调用方的等待带超时，偶发漏通知至多让它多等一个超时
+    ringCv_.notify_one();
     return take;
 }
