@@ -4,7 +4,7 @@ import com.yichao.evilgodxu.data.music.api.MusicQuality
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import org.json.JSONObject
 
-// 代理音源解析结果：成功返回规范模型，失败返回面向用户的提示
+// Failure.reason 直接面向用户展示
 internal sealed interface ProxyParseResult {
     data class Success(val spec: ProxySourceSpec) : ProxyParseResult
     data class Failure(val reason: String) : ProxyParseResult

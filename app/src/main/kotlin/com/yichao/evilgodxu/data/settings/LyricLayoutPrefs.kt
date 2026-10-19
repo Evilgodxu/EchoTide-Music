@@ -26,7 +26,7 @@ object LyricLayoutDefaults {
     const val THREE_D_MAX = 2f
     const val THREE_D_STEP = 0.25f
     // 歌词行间距（dp）：相邻歌词行之间的纵向留白，两场景共用同一默认值与范围。
-    // 默认 12dp 是行距与紧凑度的折中——行内上下内边距只撑开相邻行字形，行间留白靠它拉开
+    // 默认值取行距与紧凑度的折中——行内上下内边距只撑开相邻行字形，行间留白靠它拉开
     const val LINE_SPACING_DEFAULT_DP = 10
     const val LINE_SPACING_MIN_DP = 0
     const val LINE_SPACING_MAX_DP = 18
@@ -56,7 +56,6 @@ private val landscapeLinesKey = intPreferencesKey("lyric_lines_landscape")
 private val landscapeLineSpacingKey = intPreferencesKey("lyric_line_spacing_landscape")
 private val landscape3dKey = floatPreferencesKey("lyric_3d_intensity_landscape")
 
-// 首页竖屏歌词排版流
 fun Context.homePortraitLyricLayoutFlow(): Flow<LyricLayoutParams> =
     settingsDataStore.data.map { preferences ->
         LyricLayoutParams(
@@ -66,7 +65,6 @@ fun Context.homePortraitLyricLayoutFlow(): Flow<LyricLayoutParams> =
         )
     }
 
-// 首页横屏歌词排版流
 fun Context.landscapeLyricLayoutFlow(): Flow<LandscapeLyricLayoutParams> =
     settingsDataStore.data.map { preferences ->
         LandscapeLyricLayoutParams(
@@ -77,7 +75,6 @@ fun Context.landscapeLyricLayoutFlow(): Flow<LandscapeLyricLayoutParams> =
         )
     }
 
-// 保存首页竖屏歌词排版
 suspend fun Context.saveHomePortraitLyricLayout(fontSizeSp: Int, visibleLines: Int, lineSpacingDp: Int) =
     withContext(Dispatchers.IO) {
         settingsDataStore.edit { preferences ->
@@ -92,7 +89,6 @@ suspend fun Context.saveHomePortraitLyricLayout(fontSizeSp: Int, visibleLines: I
         }
     }
 
-// 保存首页横屏歌词排版：强度收敛到调节步进的倍数
 suspend fun Context.saveLandscapeLyricLayout(
     fontSizeSp: Int,
     visibleLines: Int,
@@ -117,11 +113,10 @@ suspend fun Context.saveLandscapeLyricLayout(
     }
 }
 
-// 取最接近目标的奇数行预设
 private fun nearestOddPreset(value: Int, presets: List<Int>): Int =
     presets.minByOrNull { kotlin.math.abs(it - value) } ?: value
 
-// 行间距收敛：限定在可调范围内并对齐到步进倍数，避免越界写入或落成非整步值
+// 避免越界写入或落成非整步值
 private fun snapLineSpacing(value: Int): Int {
     val min = LyricLayoutDefaults.LINE_SPACING_MIN_DP
     val max = LyricLayoutDefaults.LINE_SPACING_MAX_DP

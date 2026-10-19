@@ -8,7 +8,7 @@ import com.yichao.evilgodxu.data.persistence.PersistedData
 import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import org.json.JSONArray
 
-// 代理音源持久化：SharedPreferences 存储原始 JSON 列表与启用状态，同名音源重复导入时覆盖
+// 同名音源重复导入时覆盖
 internal object ProxySourceStore {
 
     // 代理音源的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
@@ -28,7 +28,6 @@ internal object ProxySourceStore {
             existing is ProxyParseResult.Success && existing.spec.name == spec.name
         }
         list.add(spec.rawJson)
-        // 新导入音源默认启用
         val enabled = enabledNames(context).toMutableSet()
         enabled.add(spec.name)
         // 音源列表与启用状态同属一份 XML，合并为一次落盘：拆成两次会多一倍 I/O，
@@ -55,7 +54,7 @@ internal object ProxySourceStore {
         }
     }
 
-    // 切换音源启用状态，停用的音源即时停止参与解析
+    // 停用的音源即时停止参与解析
     @Synchronized
     fun setEnabled(context: Context, name: String, enabled: Boolean) {
         val names = enabledNames(context).toMutableSet()
@@ -65,7 +64,7 @@ internal object ProxySourceStore {
         }
     }
 
-    // 全部已导入音源，按导入顺序返回（附带启用状态）；与写互斥保证列表与启用状态读取一致
+    // 与写互斥保证列表与启用状态读取一致
     @Synchronized
     fun all(context: Context): List<ProxySourceSpec> {
         val enabled = enabledNames(context)
@@ -124,7 +123,7 @@ internal object ProxySourceStore {
         prefs(context).unregisterOnSharedPreferenceChangeListener(listener)
     }
 
-    // 字符串集合序列化为 JSON 数组文本，交由调用方与其它键合并到同一次落盘
+    // 交由调用方与其它键合并到同一次落盘
     private fun encodeStringList(values: Collection<String>): String {
         val array = JSONArray()
         values.forEach { array.put(it) }

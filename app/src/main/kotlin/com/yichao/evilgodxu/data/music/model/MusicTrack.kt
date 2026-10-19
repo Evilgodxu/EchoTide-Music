@@ -1,6 +1,5 @@
 package com.yichao.evilgodxu.data.music.model
 
-// 本地音乐轨道
 data class MusicTrack(
     val id: Long,
     val path: String,
@@ -25,11 +24,10 @@ data class MusicTrack(
     // 本地音频文件修改时间（毫秒）：扫描时取自 MediaStore，供「文件修改时间」排序；在线/外部曲目为 0
     val fileModifiedMs: Long = 0L,
 ) {
-    // 是否为可读取本地音频源：本地文件路径或 MediaStore 本地文件 URI
     val isLocalAudioSource: Boolean
         get() = path.isNotBlank() || audioUri.startsWith("content:") || audioUri.startsWith("file:")
 
-    // 是否可升级为无损：仅本地音频源可被匹配并替换为无损版本
+    // 仅本地音频源可被匹配并替换为无损版本
     fun isUpgradableToLossless(): Boolean = isLocalAudioSource
 }
 

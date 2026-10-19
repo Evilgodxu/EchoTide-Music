@@ -18,7 +18,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-// 自定义歌单存储：JSON 持久化于 SharedPreferences，内存态驱动 Compose 重组。
 // 由 App 以单例持有，全库共享同一状态实例
 class PlaylistStore {
     companion object {
@@ -36,8 +35,7 @@ class PlaylistStore {
     private val persistMutex = Mutex()
     // 首次读盘的串行标记，避免多线程重复解析
     private val loadMutex = Mutex()
-    // 落盘代号：提交写任务时自增，持锁后发现已有更新的快照排队即跳过本次写入。
-    // 旧实现每次 launch 一个新任务，两次相邻变更可能后发先至，让更旧的快照最后落盘
+    // 落盘代号：提交写任务时自增，持锁后发现已有更新的快照排队即跳过本次写入，避免旧快照后发先至
     private val persistGeneration = AtomicLong(0)
 
     var playlists by mutableStateOf<List<Playlist>>(emptyList())
@@ -61,7 +59,6 @@ class PlaylistStore {
         }
     }
 
-    // 新建空歌单，名称空白时返回 null
     fun create(context: Context, name: String): Playlist? {
         // 写前先确保已加载，避免以空列表覆盖已持久化歌单
         ensureLoaded(context)
@@ -93,7 +90,6 @@ class PlaylistStore {
         persist(context)
     }
 
-    // 批量加入曲目并去重
     fun addTracks(context: Context, id: Long, trackIds: List<Long>) {
         ensureLoaded(context)
         if (trackIds.isEmpty()) return
@@ -122,7 +118,6 @@ class PlaylistStore {
         persist(context)
     }
 
-    // 按新顺序重排歌单曲目并持久化
     fun setTrackOrder(context: Context, id: Long, orderedIds: List<Long>) {
         ensureLoaded(context)
         playlists = playlists.map { playlist ->
@@ -132,7 +127,6 @@ class PlaylistStore {
     }
 
     private fun persist(context: Context) {
-        // 快照当前状态，序列化与写盘移出主线程并串行执行
         val appContext = context.applicationContext
         val snapshot = playlists
         val generation = persistGeneration.incrementAndGet()

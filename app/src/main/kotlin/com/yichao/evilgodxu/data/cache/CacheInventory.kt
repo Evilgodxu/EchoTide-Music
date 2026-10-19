@@ -80,8 +80,7 @@ internal object CacheInventory {
      * 系统缓存作用域不覆盖的应用专属外部产出（运行日志、更新安装包）在此手动删除。
      */
     suspend fun clearSystemCache(context: Context) {
-        // 整清 cacheDir：登记在此的产出（封面落盘缓存、中转文件等）无需逐条驱动，一并回收；
-        // 旧版本 Coil 磁盘缓存遗留的目录也落在其中，随这一次清扫一并消失
+        // 整清 cacheDir：登记在此的产出（封面落盘缓存、中转文件等）无需逐条驱动，一并回收
         context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
         // 系统缓存作用域外、应用专属外部的产出（运行日志、更新安装包），系统 API 覆盖不到，手动删除
         StorageRegistry.logFiles(context).forEach { deleteQuietly(it) }
@@ -125,7 +124,6 @@ internal object CacheInventory {
         }
     }
 
-    // 统计一组落点：逐个累加文件数与字节数
     private fun measureAll(locations: List<File>): Pair<Int, Long> {
         var fileCount = 0
         var sizeBytes = 0L
@@ -137,7 +135,7 @@ internal object CacheInventory {
         return fileCount to sizeBytes
     }
 
-    // 统计单个落点：目录递归累加、文件直接计入；不可读时按 0 计，统计失败不应中断调用方
+    // 不可读时按 0 计：统计失败不应中断调用方
     private fun measure(location: File): Pair<Int, Long> {
         if (location.isFile) return 1 to location.length()
         val children = runCatching { location.listFiles() }.getOrNull() ?: return 0 to 0L
@@ -151,12 +149,11 @@ internal object CacheInventory {
         return fileCount to sizeBytes
     }
 
-    // 删除并返回释放字节数；失败按 0 计，回收失败不抛异常
+    // 回收失败不抛异常，按 0 计
     private fun deleteQuietly(file: File): Long {
         val size = file.length()
         return if (runCatching { file.delete() }.getOrDefault(false)) size else 0L
     }
 
-    // 单个兜底分类下收集到的未主张落点
     private class Unclaimed(val scope: CacheScope, val files: MutableList<File> = mutableListOf())
 }

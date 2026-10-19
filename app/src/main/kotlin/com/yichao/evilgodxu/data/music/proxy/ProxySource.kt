@@ -61,7 +61,7 @@ data class ProxyResultSpec(
     val tlyric: String? = null,
 )
 
-// 最小 JSONPath 子集：支持 $、.字段 与 [下标]；提取失败返回 null
+// 最小 JSONPath 子集：仅支持 $、.字段 与 [下标]
 internal object ProxyJsonPath {
     fun resolve(root: Any?, rawPath: String?): Any? {
         if (rawPath.isNullOrBlank()) return null

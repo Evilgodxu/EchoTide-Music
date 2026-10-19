@@ -25,7 +25,6 @@ internal object SpectrumImageSharing {
     private const val MIME_PNG = "image/png"
     private const val TAG = "SpectrumImageSharing"
 
-    /** 把导出图写入系统相册，返回是否成功 */
     suspend fun saveToAlbum(context: Context, png: ByteArray, fileName: String): Boolean =
         withContext(Dispatchers.IO) {
             AlbumImageStore.write(context, "${safeName(fileName)}.png", MIME_PNG, png)

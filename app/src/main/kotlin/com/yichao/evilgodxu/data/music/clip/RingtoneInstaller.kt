@@ -64,7 +64,6 @@ internal suspend fun setTrackAsDefaultSound(
     RingtoneInstallResult.Success
 }
 
-// 复制音频到公共铃声/闹钟目录并登记媒体类型，返回系统读得到的媒体库 URI
 private fun publishForSystem(context: Context, source: Uri, title: String, usage: RingtoneUsage): Uri? {
     val resolver = context.contentResolver
     val mime = resolver.getType(source) ?: DEFAULT_AUDIO_MIME

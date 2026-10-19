@@ -253,7 +253,6 @@ internal object HighlightLocator {
             ending * ENDING_WEIGHT
     }
 
-    // 片段内相邻歌词行的最大间隔
     private fun maxGapMs(timed: List<LyricLine>, from: Int, to: Int): Long {
         var maxGap = 0L
         for (i in from until to) {
@@ -263,13 +262,12 @@ internal object HighlightLocator {
         return maxGap
     }
 
-    // 把值从 [zero, full] 线性映射到 0..1
     private fun normalize(value: Double, zero: Double, full: Double): Double {
         if (full <= zero) return 0.0
         return ((value - zero) / (full - zero)).coerceIn(0.0, 1.0)
     }
 
-    // 两候选的重叠占较短者的比例，用于把同一段落的重复列举收敛成一个
+    // 用于把同一段落的重复列举收敛成一个
     private fun overlapRatio(a: Candidate, b: Candidate): Double {
         val overlap = (minOf(a.endMs, b.endMs) - maxOf(a.startMs, b.startMs)).coerceAtLeast(0L)
         val shorter = minOf(a.durationMs, b.durationMs).coerceAtLeast(1L)

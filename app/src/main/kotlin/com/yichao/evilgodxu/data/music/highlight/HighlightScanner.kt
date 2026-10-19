@@ -10,11 +10,8 @@ import kotlinx.coroutines.withContext
 /**
  * 全库片段扫描：把每首歌的副歌区间算出来交给 [HighlightStore] 落盘。
  *
- * 只在后台成批进行，**不参与播放路径**。播放时只查表，于是切歌与切模式都不再读盘、不再定位，
- * 也就不会出现「片段何时生效取决于歌词何时就绪」的不确定行为。
- *
- * 定位是**纯歌词分析**（[HighlightLocator]）：不碰音频、不解码，只用歌词文本与时间戳。
- * 于是扫描没有「粗扫 / 精修」之分，整库扫描只读歌词，代价与是否进入心动模式无关。
+ * 只在后台成批进行，不参与播放路径：定位是纯歌词分析（[HighlightLocator]），不碰音频，
+ * 故整库扫描只读歌词，代价与是否进入心动模式无关。
  *
  * 只处理指纹过期的曲目（未扫过、歌词或时长已变、算法版本升级），重复调用无代价。
  * 歌词此刻不可得的曲目记为 [HighlightEntry.Unresolved] 而非「无副歌」，待歌词补齐后指纹改变会被重扫。
@@ -92,7 +89,7 @@ internal object HighlightScanner {
         return byName?.let { MusicMetadataCache.loadLyrics(it) }.orEmpty()
     }
 
-    // 时长缺失时的兜底：以末行歌词为锚向后留出片段上限，仍不足下限时按下限取
+    // 时长缺失时的兜底：以末行歌词为锚向后留出片段上限
     private fun effectiveDurationMs(track: MusicTrack, lines: List<LyricLine>): Long {
         if (track.duration > 0L) return track.duration
         val lastLine = lines.lastOrNull()?.timeMs ?: return 0L

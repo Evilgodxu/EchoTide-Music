@@ -6,10 +6,9 @@ import com.yichao.evilgodxu.data.persistence.PersistedData
 import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 
 // 启动语言镜像：与 settings DataStore 并存的单键副本，DataStore 始终是唯一事实源。
-// 存在的唯一理由是 attachBaseContext 必须在主线程同步拿到启动语言，而 DataStore 首次读取
-// 需要实例化 + 反序列化整份配置，放在启动关键路径上就是一处主线程阻塞。
-// 单键文件同步读取的开销远小于 DataStore 首次读取；写入点只有「语言变更」与「启动预热」两处。
-// 落盘落点：名字即持久化标识，读写在自身引用，存储页统计也取这一处
+// 存在的唯一理由是 attachBaseContext 须在主线程同步拿到启动语言，而 DataStore 首次读取要实例化并
+// 反序列化整份配置，放在启动关键路径上就是一处主线程阻塞。写入点只有「语言变更」与「启动预热」两处。
+// 名字即持久化标识，存储页统计也取这一处
 internal val BOOT_LANGUAGE_STORE = PersistedData("app_language_boot", PersistedFileKind.SHARED_PREFS)
 private const val BOOT_KEY = "language"
 

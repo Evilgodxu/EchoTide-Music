@@ -85,8 +85,7 @@ internal fun albumGroups(all: List<MusicTrack>, unknownAlbum: String): List<Play
         .sortedBy { it.name }
 
 // 按艺术家分组，组名回退为未知艺术家文案。
-// 多歌手曲目（如 "A / B"）解析后同时归属到每位歌手名下，
-// 避免把多个歌手视作单一歌手（原按整串 it.artist 分组会把 "A / B" 当作一个歌手）
+// 多歌手曲目（如 "A / B"）解析后同时归属到每位歌手名下，不把多个歌手当作单一歌手
 internal fun artistGroups(all: List<MusicTrack>, unknownArtist: String): List<PlaylistGroup> =
     buildMap<String, MutableList<Long>> {
         all.forEach { track ->

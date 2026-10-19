@@ -37,7 +37,6 @@ suspend fun Context.bootstrapAppLanguage(): AppLanguage = settingsDataStore.data
     AppLanguage.entries.find { it.languageTag == preferences[SettingsKeys.LANGUAGE] } ?: AppLanguage.SYSTEM
 }
 
-// 应用主题模式
 enum class ThemeMode(val value: String) {
     SYSTEM("system"),
     DARK("dark"),
@@ -48,7 +47,6 @@ enum class ThemeMode(val value: String) {
     }
 }
 
-// 应用语言：中文/英文/跟随系统
 enum class AppLanguage(val languageTag: String?) {
     SYSTEM(null),
     CHINESE("zh"),

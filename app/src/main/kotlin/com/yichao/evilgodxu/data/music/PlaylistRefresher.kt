@@ -19,7 +19,6 @@ import kotlinx.coroutines.withContext
 class PlaylistRefresher(private val playlistStore: PlaylistStore) {
     private val scanMutex = Mutex()
 
-    // 扫描本地音乐并与外部曲目合并；restoreCurrent 控制扫描后是否恢复当前播放曲目
     suspend fun refresh(
         context: Context,
         state: MusicPlaybackState,
@@ -38,8 +37,8 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
             if (!started) return@withLock
             try {
                 val tracks = MusicScanner.scan(context)
-                // 合并去重、缓存复用索引建立与排序与扫描同放 IO：原先这段留在主线程，
-                // 数千首的库在刷新期间会持续占用主线程；其中的内嵌标签补全还要读文件，更不能留在主线程
+                // 合并去重、缓存索引与排序同放 IO：数千首的库在刷新期间会持续占用主线程，
+                // 其中的内嵌标签补全还要读文件，更不能留在主线程
                 val sortedLibrary = withContext(Dispatchers.IO) {
                     // 在线播放曲目（含已缓存）仅保留当前播放项，其余未播放的一律丢弃，
                     // 其余外部曲目（path 为空）照常合并，避免刷新后在线歌曲常驻

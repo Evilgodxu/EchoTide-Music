@@ -4,7 +4,6 @@ import android.content.Context
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.R
 
-// 平台切换菜单的一项：平台标识 + 展示名
 internal data class OnlinePlatformOption(
     val source: MusicSearchSource,
     val name: String,
@@ -32,7 +31,7 @@ internal object OnlinePlatformRegistry {
         return ProxySourceStore.customSearchPlatforms(context)[source.key] ?: source.key
     }
 
-    // 内置平台名称资源；自定义平台无对应资源，返回 null
+    // 自定义平台无对应资源，返回 null
     private fun builtInNameRes(source: MusicSearchSource): Int? = when (source) {
         MusicSearchSource.NETEASE -> R.string.music_panel_search_source
         MusicSearchSource.QQ -> R.string.music_panel_search_source_qq

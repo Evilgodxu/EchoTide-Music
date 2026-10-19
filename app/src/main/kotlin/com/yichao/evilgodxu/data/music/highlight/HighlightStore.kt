@@ -32,17 +32,11 @@ internal sealed interface HighlightEntry {
 }
 
 /**
- * 全库副歌片段表：一次扫描算全库、落盘，播放路径只查表。
+ * 全库副歌片段表：一次扫描算全库、落盘，播放路径只查一次内存表，切歌与切模式都不再触解析。
  *
- * 片段曾放在播放路径上按需解析（切歌时读歌词、定位、再替换队列项），代价有三：
- * 每次切歌都要读盘与计算；解析是异步的，片段何时生效取决于歌词何时就绪，行为不确定；
- * 切换模式要逐项替换队列，队列长时可见卡顿。改为「扫描一次、查表使用」后这三项同时消失 ——
- * 播放路径只剩一次内存查表，切模式与切歌都不再触解析。
- *
- * 表按「歌词指纹 + 算法版本」判定新鲜度：任一变化即重算。指纹并入算法版本是有意的 ——
- * 定位算法升级后，旧结果必须整体作废重算，而这一步靠版本号触发，不靠人去清缓存。
- *
- * 定位为纯歌词分析（不解码音频），故扫描没有「粗扫 / 精修」两档之分，条目也不再记录精修状态。
+ * 表按「歌词指纹 + 算法版本」判定新鲜度，任一变化即重算。版本号并入指纹是有意的 ——
+ * 定位算法升级后旧结果必须整体作废，这一步靠版本号触发，不靠人去清缓存。
+ * 定位为纯歌词分析（不解码音频），故没有「粗扫 / 精修」之分。
  */
 internal object HighlightStore {
 
@@ -52,11 +46,8 @@ internal object HighlightStore {
     private const val CURRENT_VERSION = 1
 
     // 定位算法版本：参与指纹，算法改动后旧结果自动作废重算
-    // v4：改为纯歌词分析（重复段落 + 位置/时长/密度/停顿/结尾权重，取最后一遍完整副歌），
-    //     解码音频的精修与响度谷吸附一并移除，旧结果的端点不再有效
     private const val ALGORITHM_VERSION = "v4"
 
-    // 条目类型落盘标识
     private const val KIND_SEGMENT = "segment"
     private const val KIND_UNRESOLVED = "unresolved"
     private const val KIND_NO_CHORUS = "no_chorus"
@@ -136,7 +127,6 @@ internal object HighlightStore {
         }
     }
 
-    /** 单曲扫描结果：指纹与判定条目一并落盘 */
     class ScanResult(
         val fingerprint: String,
         val entry: HighlightEntry,

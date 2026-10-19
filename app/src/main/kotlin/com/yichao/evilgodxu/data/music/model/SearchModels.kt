@@ -11,7 +11,6 @@ internal data class NeteaseSongMatch(
 // 在线搜索结果的曲目标识在写入播放列表时统一加该偏移，与本地曲目 ID 分属不同空间避免碰撞
 private const val ONLINE_TRACK_ID_OFFSET = 1_000_000L
 
-// 在线结果对应的播放列表曲目 ID
 internal val NeteaseSongSearchResult.playlistTrackId: Long
     get() = id + ONLINE_TRACK_ID_OFFSET
 
@@ -30,12 +29,10 @@ value class MusicSearchSource(val key: String) {
         // 内置平台：顺序即平台切换菜单中的展示顺序
         val BUILT_IN: List<MusicSearchSource> = listOf(NETEASE, QQ, KUGOU, KUWO)
 
-        // 内置平台键集合：判定一个平台键是否具备内置实现
         val builtInKeys: Set<String> = BUILT_IN.map { it.key }.toSet()
     }
 }
 
-// 在线搜索结果
 data class NeteaseSongSearchResult(
     val id: Long,
     val title: String,
@@ -51,13 +48,10 @@ data class NeteaseSongSearchResult(
     val coverId: String? = null,
 )
 
-// 在线歌词数据
 internal data class NeteaseLyricData(val lines: List<LyricLine>)
 
-// 逐字歌词
 data class LyricWord(val startMs: Long, val durationMs: Long, val text: String)
 
-// 歌词行
 data class LyricLine(
     val timeMs: Long,
     val text: String,

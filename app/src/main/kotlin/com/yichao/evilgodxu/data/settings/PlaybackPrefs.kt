@@ -18,7 +18,6 @@ private val backgroundFlowEnabledKey = booleanPreferencesKey("background_flow_en
 // 键名沿用 usb_exclusive_mode：已落盘的持久化键，改名会让既有用户的该开关复位
 private val usbDirectOutputModeKey = booleanPreferencesKey("usb_exclusive_mode")
 
-// 迷你模式默认关闭
 fun Context.miniPlayerEnabledFlow(): Flow<Boolean> =
     settingsDataStore.data.map { it[miniPlayerEnabledKey] ?: false }
 

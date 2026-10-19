@@ -113,14 +113,10 @@ internal suspend fun cacheToDownloads(
         withContext(Dispatchers.Main) {
             updateTrackAudioUri(playbackState, trackId, audioUri)
         }
-        // 等待在线封面下载协程结束再内嵌：确保封面原图字节已就绪，
-        // 消除“封面未就绪即触发写入导致元数据整体丢失”的时序竞态
-        // 缓存完成时播放源仍是在线流，文件未被播放占用，可安全整文件重写；
-        // 将标题/艺术家与下载到的封面原图一次写入本地文件，刷新后不再丢失元数据
+        // 等封面任务结束再内嵌：封面未就绪即写入会让元数据整体丢失；
+        // 此时播放源仍是在线流，文件未被占用，可安全整文件重写
         embedCachedMetadata(context, playbackState, trackId, coverDeferred?.await(), lyricDeferred.awaitLyrics())
-        // 下载完成：补全歌词并回收无引用的歌词缓存
         metadataEnricher.enrichAndCleanup(context, playbackState)
-        // 缓存完成：登记本地音频库并刷新播放列表，建立本地索引
         registerCachedFileAsLocal(context, playbackState, trackId, audioUri, playlistRefresher)
     } catch (e: Exception) {
         CrashLogManager.logException("MusicDownloader", "缓存下载文件失败", e)
@@ -209,7 +205,7 @@ private const val TEMP_CLEANUP_INTERVAL_MS = 60 * 1000L
 @Volatile
 private var lastTempCleanupAt = 0L
 
-// 清理异常退出遗留的下载临时文件，避免缓存目录被半截文件长期占用
+// 避免缓存目录被半截文件长期占用
 private fun cleanupStaleTempFiles(context: Context) {
     val now = System.currentTimeMillis()
     if (now - lastTempCleanupAt < TEMP_CLEANUP_INTERVAL_MS) return
@@ -220,7 +216,6 @@ private fun cleanupStaleTempFiles(context: Context) {
     }
 }
 
-// 探测音频时长是否 ≤30 秒的试听片段
 private fun isTrialAudioFile(file: File): Boolean {
     val retriever = MediaMetadataRetriever()
     return try {
@@ -234,7 +229,7 @@ private fun isTrialAudioFile(file: File): Boolean {
     }
 }
 
-// 校验文件确为无损音频格式，读不到格式或非无损一律视为升级失败
+// 读不到格式或非无损一律视为升级失败
 private fun isLosslessAudioFile(file: File): Boolean {
     val retriever = MediaMetadataRetriever()
     return try {
@@ -259,7 +254,6 @@ private fun audioMimeType(extension: String): String = when (extension) {
     else -> "audio/mpeg"
 }
 
-// 查询公共下载目录下是否已存在同名缓存文件，命中时复用其 Uri
 internal suspend fun findExistingDownload(
     context: Context,
     fileName: String,
@@ -282,7 +276,6 @@ internal suspend fun findExistingDownload(
     null
 }
 
-// 缓存完成后把曲目的播放地址指向本地文件
 internal suspend fun updateTrackAudioUri(
     playbackState: MusicPlaybackState,
     trackId: Long,
@@ -300,10 +293,8 @@ internal suspend fun updateTrackAudioUri(
     playbackState.persistPlaylist()
 }
 
-// 缓存完成后把在线播放时的标题/艺术家与封面原图写入本地文件。
-// 封面用本次下载到的原图字节：写入后系统媒体扫描会为该文件生成封面略缩图，
-// 显示端（列表/面板/首页）读系统略缩图，系统媒体面板经 artworkUri 取同一份；缩略图只落盘当前曲目的一张
-// （见 CurrentCoverCache），首页大封面另落盘相邻三张高清档（见 LargeCoverStore）
+// 把在线播放时的标题/艺术家与封面原图写入本地文件。封面用本次下载到的原图字节：
+// 写入触发的媒体扫描会为该文件生成系统略缩图，显示端与系统媒体面板都读那一份
 // 在线歌词内嵌的等待上界：超过即放弃本次内嵌，避免拖慢音频文件的元数据写入
 private const val LYRIC_EMBED_WAIT_MS = 8_000L
 

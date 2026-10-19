@@ -67,7 +67,6 @@ class ArtistOrderStore {
         }
     }
 
-    // 记下某歌手的新曲序并持久化
     fun setOrder(context: Context, artist: String, orderedIds: List<Long>) {
         // 写前先确保已加载，避免以空表覆盖已持久化的其它歌手
         ensureLoaded(context)
@@ -77,7 +76,6 @@ class ArtistOrderStore {
     }
 
     private fun persist(context: Context) {
-        // 快照当前状态，序列化与写盘移出主线程并串行执行
         val appContext = context.applicationContext
         val snapshot = orders
         val generation = persistGeneration.incrementAndGet()
