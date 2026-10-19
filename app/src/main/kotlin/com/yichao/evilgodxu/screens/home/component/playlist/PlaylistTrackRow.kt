@@ -29,7 +29,6 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 
-// 歌单曲目行：封面 + 主次文字 + 排序手柄 + 收藏
 @Composable
 internal fun PlaylistTrackRow(
     track: MusicTrack,
