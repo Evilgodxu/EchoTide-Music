@@ -29,7 +29,6 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
-// 跑马灯滚动速度：长文本按此速度匀速平移
 private val MARQUEE_SPEED = 24.dp
 
 // 跑马灯两端停顿时长：滚动前/后短暂停留便于阅读

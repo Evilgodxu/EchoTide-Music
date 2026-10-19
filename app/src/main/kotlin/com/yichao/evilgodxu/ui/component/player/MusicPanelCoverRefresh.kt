@@ -144,7 +144,6 @@ internal fun CoverReplaceDialog(
     }
 }
 
-// 封面替换确认主体：对比图 + 按钮
 @Composable
 private fun CoverReplaceContent(
     track: MusicTrack,

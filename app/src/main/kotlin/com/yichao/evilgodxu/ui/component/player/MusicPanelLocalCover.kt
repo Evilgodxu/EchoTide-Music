@@ -111,7 +111,6 @@ internal fun LocalCoverDialog(
     }
 }
 
-// 本地封面主体：标题 + 候选列表 + 按钮
 @Composable
 private fun LocalCoverContent(
     candidates: List<RecentCover>,

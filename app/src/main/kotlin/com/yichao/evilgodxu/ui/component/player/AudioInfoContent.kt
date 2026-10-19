@@ -112,7 +112,6 @@ internal fun AudioInfoContent(
     }
 }
 
-// 单个分组：小标题 + 字段行
 @Composable
 private fun AudioInfoGroupView(group: AudioInfoGroup) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -166,10 +165,8 @@ private fun AudioInfoRowView(row: AudioInfoRow) {
     }
 }
 
-// 字段行文案：值为已格式化的展示文本
 private data class AudioInfoRow(val label: String, val value: String)
 
-// 字段分组文案
 private data class AudioInfoGroup(val title: String, val rows: List<AudioInfoRow>)
 
 // 组装四个分组的字段行；不可获取的字段不产出对应行
