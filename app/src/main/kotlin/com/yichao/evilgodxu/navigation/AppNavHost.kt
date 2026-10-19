@@ -27,7 +27,6 @@ import com.yichao.evilgodxu.screens.typography.TypographyScreen
 import com.yichao.evilgodxu.theme.SystemBarAppearance
 import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 
-// 导航宿主：统一走路由栈
 @Composable
 fun AppNavHost(
     modifier: Modifier = Modifier,

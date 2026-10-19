@@ -21,9 +21,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.Serializable
 import okhttp3.Request
 
-/**
- * 版本更新信息
- */
 data class UpdateInfo(
     val latestVersion: String,
     val downloadUrl: String,
@@ -34,7 +31,6 @@ data class UpdateInfo(
     val downloadId: Long? = null
 )
 
-/** 下载状态 */
 sealed class DownloadState {
     data object Idle : DownloadState()
     data class Downloading(val progress: Float) : DownloadState()
@@ -42,10 +38,6 @@ sealed class DownloadState {
     data class Failed(val errorMessage: String) : DownloadState()
 }
 
-/**
- * 应用更新管理器
- * 负责检查 GitHub Releases、版本比较和 APK 下载
- */
 object UpdateManager {
 
     // 待更新信息的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
@@ -57,7 +49,6 @@ object UpdateManager {
     private const val KEY_IGNORED_VERSION = "ignored_version"
     private const val TAG = "UpdateManager"
 
-    // GitHub 仓库配置
     private const val GITHUB_OWNER = "Evilgodxu"
     private const val GITHUB_REPO = "EchoTide-Music"
     const val GITHUB_REPOSITORY_URL = "https://github.com/$GITHUB_OWNER/$GITHUB_REPO"
@@ -71,9 +62,7 @@ object UpdateManager {
         }
     }
 
-    /**
-     * GitHub Release 响应模型（仅解析需要的字段）
-     */
+    // 仅声明用到的字段，其余由 ignoreUnknownKeys 忽略
     @Serializable
     private data class GitHubRelease(
         val tag_name: String = "",
@@ -89,9 +78,6 @@ object UpdateManager {
         val digest: String = ""
     )
 
-    /**
-     * 是否已进入新的一天，即是否需要检查更新
-     */
     fun shouldCheckUpdate(context: Context): Boolean {
         val lastCheckDay = prefs(context).getString(KEY_LAST_CHECK_DAY, null)
         return lastCheckDay != currentDay()
@@ -100,9 +86,6 @@ object UpdateManager {
     private fun currentDay(): String =
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
 
-    /**
-     * 检查是否有新版本（非强制检查时仅当进入新的一天才检查）
-     */
     suspend fun checkForUpdate(
         context: Context,
         force: Boolean = false,
@@ -181,9 +164,6 @@ object UpdateManager {
         return version.trim().trimStart('v', 'V')
     }
 
-    /**
-     * 获取当前版本号
-     */
     private fun getCurrentVersion(context: Context): String {
         return try {
             val pkgInfo = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -194,9 +174,6 @@ object UpdateManager {
         }
     }
 
-    /**
-     * 检查当前网络是否为 WiFi
-     */
     fun isOnWifi(context: Context): Boolean {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val network = cm.activeNetwork ?: return false
@@ -205,11 +182,10 @@ object UpdateManager {
     }
 
     /**
-     * 下载 APK 并引导安装（用于对话框点击「下载」）
-     * 文件名包含版本号，若目标版本安装包已下载且校验通过，直接引导安装而不重复下载；
-     * 校验不通过（含期望哈希缺失）说明安装包不可信或已损坏，删除后重新下载
-     * 下载到应用私有目录，通过 onProgress 回调进度，完成后通过 FileProvider 打开安装界面
-     * 长时间无进度变动（15 秒）判定为超时失败
+     * 下载 APK 并引导安装。
+     *
+     * 同名安装包已存在时先校验：通过即安装、不重复下载；不通过（含期望哈希缺失）一律删除重下。
+     * 进度长时间无推进（15 秒）判为超时失败。
      *
      * @return true 表示已启动安装界面，false 表示下载失败
      */
@@ -226,7 +202,6 @@ object UpdateManager {
 
         // 下载、轮询、文件操作全部在 IO 线程执行，避免 DownloadManager IPC 阻塞主线程
         return withContext(Dispatchers.IO) {
-            // 复用上次已下载但未安装的同一版本安装包，避免重复下载
             if (outFile.exists()) {
                 if (verifyApkHash(outFile, updateInfo.sha256)) {
                     onProgress(1f)
@@ -250,7 +225,6 @@ object UpdateManager {
             var stallCount = 0
             val STALL_TIMEOUT = 30  // 30 次无进度 * 500ms = 15 秒
 
-            // 轮询下载进度
             while (true) {
                 val (status, done, total) = dm.query(DownloadManager.Query().setFilterById(downloadId)).use { cursor ->
                     if (!cursor.moveToFirst()) return@use null
@@ -270,7 +244,6 @@ object UpdateManager {
                             onProgress(-1f)
                             return@withContext false
                         }
-                        // 下载完成，通过 FileProvider 打开安装界面
                         installApk(context, outFile)
                         return@withContext true
                     }
@@ -279,12 +252,10 @@ object UpdateManager {
                         return@withContext false
                     }
                     else -> {
-                        // 上报进度
                         if (total > 0) {
                             onProgress(done.toFloat() / total)
                         }
 
-                        // 检测进度停滞超时
                         if (done == lastProgressBytes) {
                             stallCount++
                             if (stallCount >= STALL_TIMEOUT) {
@@ -305,7 +276,7 @@ object UpdateManager {
         }
     }
 
-    // 通过 FileProvider 打开系统安装界面，并清理已消费的待更新信息
+    // 安装即视为用户已处理该版本，先清掉待更新信息，避免下次冷启动重复提示
     private suspend fun installApk(context: Context, apkFile: java.io.File) {
         val uri = androidx.core.content.FileProvider.getUriForFile(
             context,
@@ -360,9 +331,6 @@ object UpdateManager {
         return url
     }
 
-    /**
-     * 清除缓存的更新信息
-     */
     suspend fun clearPendingUpdate(context: Context) {
         withContext(Dispatchers.IO) {
             prefs(context).edit(commit = true) {
@@ -373,9 +341,6 @@ object UpdateManager {
         }
     }
 
-    /**
-     * 忽略某个版本
-     */
     suspend fun ignoreVersion(context: Context, version: String) {
         withContext(Dispatchers.IO) {
             prefs(context).edit(commit = true) {
@@ -387,9 +352,7 @@ object UpdateManager {
         }
     }
 
-    /**
-     * 版本号语义比较
-     */
+    // 逐段按整数比较：字符串比较会把 "1.10" 判为小于 "1.9"
     private fun isNewerVersion(latest: String, current: String): Boolean {
         val l = latest.split(".").mapNotNull { it.toIntOrNull() }
         val c = current.split(".").mapNotNull { it.toIntOrNull() }

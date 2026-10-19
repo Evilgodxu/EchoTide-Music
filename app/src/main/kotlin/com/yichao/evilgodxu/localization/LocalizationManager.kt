@@ -31,7 +31,6 @@ class LocalizationManager(
     // 确保跟随系统始终解析为真实系统语言
     private val systemLocale: Locale = Locale.getDefault()
 
-    // 供切换语言时按当前语言解析 Locale
     fun resolveLanguage(language: AppLanguage): Locale = language.toLocale(systemLocale)
 
     // 当前 Activity 引用，用于对话框等独立窗口同步语言
@@ -47,7 +46,6 @@ class LocalizationManager(
         if (this.activity === activity) this.activity = null
     }
 
-    // 以指定语言创建本地化上下文
     fun createLocalizedContext(locale: Locale): Context {
         val config = Configuration(context.resources.configuration).apply {
             setLocales(LocaleList(locale))

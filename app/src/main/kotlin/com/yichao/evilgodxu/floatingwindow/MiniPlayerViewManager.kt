@@ -44,7 +44,6 @@ import com.yichao.evilgodxu.floatingwindow.miniplayer.MiniPlayerOverlay
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-// 迷你播放器浮动窗管理器：状态栏下方的紧凑播放条，支持就地展开播放列表、回应用主界面与下滑隐藏
 class MiniPlayerViewManager(
     private val context: Context,
     private val stateHolder: MusicPanelStateHolder,
@@ -195,8 +194,8 @@ class MiniPlayerViewManager(
     /**
      * 展开/收起播放列表。
      *
-     * 窗口高度就是列表可见高度，故直接对窗口高度做补间动画：窗口长高多少就露出多少行，
-     * Compose 侧同步铺开列表。收起在窗口外触摸或再次点击播放列表按钮时触发。
+     * 窗口高度就是列表可见高度，故直接对窗口高度做补间：窗口长高多少就露出多少行，
+     * Compose 侧同步铺开列表。
      */
     private fun togglePlaylist() {
         val view = composeView ?: return
@@ -256,7 +255,6 @@ class MiniPlayerViewManager(
 
     private fun dpToPx(value: Int): Int = (value * context.resources.displayMetrics.density).roundToInt()
 
-    // 滑动临时关闭：仅收起并回调给上层记录临时隐藏状态
     private fun temporaryDismiss() {
         dismiss(notifySwiped = true)
     }
@@ -291,9 +289,8 @@ class MiniPlayerViewManager(
     }
 
     companion object {
-        // 迷你播放器条高度：紧凑容纳两行文本与 32dp 触控热区
+        // 紧凑容纳两行文本与最小触控热区
         private const val BAR_HEIGHT_DP = 32
-        // 横屏时顶部保留的间距
         private const val LANDSCAPE_TOP_GAP_DP = 1
     }
 }

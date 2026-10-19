@@ -9,12 +9,10 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.window.core.layout.computeWindowSizeClass
 import androidx.window.core.layout.WindowSizeClass
 
-// CompositionLocal 用于在 Compose 树中传递窗口尺寸类
 val LocalWindowSizeClass = compositionLocalOf<WindowSizeClass> {
     error("WindowSizeClass not provided")
 }
 
-// 提供窗口尺寸类给子组件，用于响应式布局适配
 // 取窗口实测 dp 尺寸计算：该值随窗口尺寸变化自动刷新，且不注册窗口监听，避免校验设备崩溃
 @Composable
 fun ProvideWindowSizeClass(content: @Composable () -> Unit) {
@@ -28,7 +26,7 @@ fun ProvideWindowSizeClass(content: @Composable () -> Unit) {
     }
 }
 
-// 窗口是否横向：以窗口实测宽高比为准；配置中的朝向作为尺寸未就绪时的兜底
+// 以窗口实测宽高比为准；容器尺寸未就绪时回退到配置朝向
 @Composable
 fun rememberWindowLandscape(): Boolean {
     val windowDpSize = LocalWindowInfo.current.containerDpSize

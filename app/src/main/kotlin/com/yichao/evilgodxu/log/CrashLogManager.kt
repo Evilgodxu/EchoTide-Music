@@ -24,10 +24,8 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
 
     private const val TAG = "CrashLogManager"
 
-    /** 日志目录名（应用专属外部目录下） */
     private const val LOG_DIR_NAME = "logs"
 
-    /** 日志文件名前缀 */
     private const val LOG_FILE_PREFIX = "EchoTideMusic_"
 
     private val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd")
@@ -65,7 +63,6 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
             Log.e(TAG, "$className: $description", throwable)
             return
         }
-        // 异步写入，不阻塞调用线程
         logExecutor.execute {
             writeLog(title = "$className: $description", throwable = throwable)
         }
@@ -74,7 +71,6 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
     override fun uncaughtException(thread: Thread, throwable: Throwable) {
         // 崩溃日志必须同步落盘，确保进程终止前写入完成
         writeLog(title = "未捕获异常（线程 ${thread.name}）", thread = thread, throwable = throwable)
-        // 交给原处理器，缺失时结束进程
         previousHandler?.uncaughtException(thread, throwable) ?: exitProcess(2)
     }
 
@@ -99,7 +95,7 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
         }
     }
 
-    /** 确保日志头部为当前版本：新文件写入头部，版本变化时重写头部 */
+    /** 保证头部反映当前版本：新文件直接写，版本变化时连正文一起重写 */
     private fun ensureHeader(logFile: File) {
         when {
             !logFile.exists() -> FileWriter(logFile).use { writeHeader(it) }
@@ -107,7 +103,6 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
         }
     }
 
-    /** 检测文件头部的版本行是否与当前版本一致 */
     private fun headerVersionOutdated(logFile: File): Boolean {
         val expected = "版本: $appVersion"
         runCatching {
@@ -135,7 +130,6 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
         }
     }
 
-    /** 追加一条日志条目 */
     private fun appendEntry(
         writer: FileWriter,
         title: String,
@@ -159,7 +153,7 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
         writer.appendLine()
     }
 
-    /** 返回今日日志文件，不存在时返回 null */
+    /** 今日日志文件，供设置页分享 */
     fun todayLogFile(): File? {
         val dir = logDir ?: return null
         val today = LocalDate.now().format(dateFormat)
@@ -169,7 +163,7 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
     /** 日志目录：缓存台账统计日志占用时按此定位，目录名只在此处定义一次 */
     fun logDirectory(context: Context): File = File(context.getExternalFilesDir(null), LOG_DIR_NAME)
 
-    /** 写入日志文件头：设备、系统、版本固定信息 */
+    /** 写入头部：设备与环境信息，用于定位用户反馈的问题出自何种环境 */
     private fun writeHeader(writer: FileWriter) {
         writer.appendLine("======== EchoTideMusic 日志 ========")
         writer.appendLine("设备: ${Build.MANUFACTURER} ${Build.MODEL}")

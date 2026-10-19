@@ -21,10 +21,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
 
-// 向 Compose 层暴露迷你播放器控制器的组合局部
 val LocalMiniPlayerController = staticCompositionLocalOf<MiniPlayerController?> { null }
 
-// 迷你播放器控制器：由 Activity 生命周期驱动悬浮播放条的显示与隐藏
+// 悬浮播放条的显示与隐藏由 Activity 前后台切换驱动
 class MiniPlayerController(
     private val context: Context,
     private val stateHolder: MusicPanelStateHolder,
@@ -124,11 +123,10 @@ class MiniPlayerController(
     }
 
     /**
-     * 结束整个应用：移除悬浮窗、停止播放前台服务，回收孤儿文件后终止进程。
+     * 结束整个应用。
      *
-     * 退出前的回收见 [CacheInventory.reclaimOnExit]。交互退出由调用方先把任务退到后台
-     * （见 AppContent），使清理与随后的进程结束都发生在后台；睡前定时到点是直接结束应用，
-     * 没有界面可退，按同一流程清理完即结束进程。
+     * 交互退出由调用方先把任务退到后台（见 AppContent），使清理与随后的进程结束都发生在后台；
+     * 睡前定时到点没有界面可退，按同一流程清理完即结束进程。回收见 [CacheInventory.reclaimOnExit]。
      */
     fun exitApplication() {
         dismissMiniPlayer()
@@ -143,7 +141,6 @@ class MiniPlayerController(
         }
     }
 
-    // 迷你播放器移除后，后台播放时恢复显示
     private fun maybeShowMiniPlayer() {
         if (appInForeground) return
         if (!miniPlayerEnabled || miniPlayerTemporarilyHidden) return

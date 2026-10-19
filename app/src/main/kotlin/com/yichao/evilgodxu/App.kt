@@ -64,7 +64,6 @@ class App : Application() {
     val updateViewModel: UpdateViewModel by lazy {
         UpdateViewModel(this, settingsRepository, localizationManager)
     }
-    // 应用版本号：冷启动读取一次
     val appVersion: String by lazy { readAppVersion() }
 
     override fun onCreate() {
@@ -73,9 +72,8 @@ class App : Application() {
         enableStrictModeInDebugBuild()
         // 最先初始化崩溃日志，捕获启动阶段异常
         CrashLogManager.init(this)
-        // 首帧前同步预置上次播放状态：曲目、进度、背景取色与封面/歌词一并就位，
-        // 使首页首帧即是完整内容，不必先渲染空态与占位符再等异步恢复（见 seedFromBootMirror）。
-        // 这是启动关键路径上的刻意读盘，与语言镜像同理，异步化会让空窗又回到首帧上
+        // 首帧前同步预置上次播放状态（见 seedFromBootMirror），使首页首帧即是完整内容而非空态；
+        // 这是启动关键路径上的刻意读盘，异步化会把空窗推回首帧之后
         stateHolder.state.seedFromBootMirror(applicationContext)
         // 冷启动尽早恢复持久化播放列表：恢复任务由首个调用方触发（见 restoreSavedState），
         // 此处预触发使首帧渲染时歌单与当前曲目已就绪，避免首页先以空态展示再等待首帧后的恢复
@@ -93,17 +91,13 @@ class App : Application() {
         appScope.launch {
             runCatching { usbExclusiveOutputModeFlow().collect { setUsbAttachEntryEnabled(it) } }
         }
-        // 收窄图片内存缓存到进程堆的 10%，把堆留给 ExoPlayer 高解析度音频缓冲，
-        // 缓解封面解码与播放并发时的 OOM；
-        // 磁盘缓存整体关闭：Coil 的磁盘缓存是它私有的键值格式，占用看不见构成，上限又按设备
-        // 剩余空间推算（不配就是它自带的进程级单例缓存，同样如此），且与我们自己的封面落盘互相重复。
-        // 网络封面按需重取即可；要跨进程留存的只有当前/上一/下一三张大图，由 LargeCoverStore
-        // 自行落盘（见 StorageRegistry 的图片缓存条目）
+        // 内存缓存收窄到进程堆的 10%，把堆留给 ExoPlayer 的高解析度音频缓冲；
+        // 磁盘缓存关闭：其私有键值格式的占用不可见，且与 LargeCoverStore 的封面落盘重复，
+        // 需要跨进程留存的只有当前/上一/下一三张大图
         SingletonImageLoader.setSafe { context ->
             ImageLoader.Builder(context)
-                // 关掉硬件位图：界面里的位图会被主题切换的整屏快照以软件画布重绘一次，
-                // 硬件位图进不了软件画布，会直接把快照打断。封面同步从系统略缩图侧收口到软件位图
-                // （见 MusicCoverLoader），两处合起来保证显示端不出现硬件位图
+                // 关掉硬件位图：主题切换的整屏快照以软件画布重绘，硬件位图进不了软件画布会打断快照；
+                // 封面同步从系统缩略图侧收口到软件位图（见 MusicCoverLoader）
                 .allowHardware(false)
                 .memoryCache {
                     MemoryCache.Builder()
@@ -125,8 +119,7 @@ class App : Application() {
             .getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0L))
             .versionName.orEmpty()
 
-    // 仅调试构建启用：检测主线程磁盘读写与网络访问并输出日志。
-    // 用日志而非崩溃作为惩罚，避免生命周期内必要的 I/O 直接把调试包打断
+    // 用日志而非崩溃作为惩罚：生命周期内必要的 I/O 不该把调试包打断
     private fun enableStrictModeInDebugBuild() {
         if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0) return
         StrictMode.setThreadPolicy(

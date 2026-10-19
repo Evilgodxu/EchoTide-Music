@@ -91,10 +91,9 @@ fun AppContent() {
             color = MaterialTheme.colorScheme.background,
         ) {
             AppNavHost(onExit = {
-                // 退出先在后台完成：先把任务退到后台，界面不留在前台等清理走完
+                // 先退到后台：界面不留在前台等清理走完
                 activity?.moveTaskToBack(true)
-                // 暂停/未播放时的退出需彻底结束应用：仅 finish() 会因前台服务与悬浮窗
-                // 残留导致进程未退出，此处经控制器移除悬浮窗、停止服务、回收孤儿文件并终止进程
+                // 仅 finish() 会因前台服务与悬浮窗残留导致进程未退出，故由控制器彻底结束应用
                 miniPlayerController?.exitApplication()
             })
         }

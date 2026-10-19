@@ -23,7 +23,6 @@ class MainViewModel(
     val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
 
     init {
-        // 数据流回流更新 UI 状态，写入后经同一持有者广播
         viewModelScope.launch {
             settingsRepository.settings.collect { settings ->
                 _uiState.update { it.copy(themeMode = settings.themeMode) }

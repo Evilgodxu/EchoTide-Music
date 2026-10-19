@@ -17,25 +17,19 @@ import kotlinx.coroutines.withContext
 /**
  * USB 接入时的接管入口：无界面，接住系统的选择框，然后把应用带到前台。
  *
- * 存在的理由是**系统的选择弹窗只在有应用认领该设备时才会出现**：清单里声明
- * `android.hardware.usb.action.USB_DEVICE_ATTACHED` 的过滤器（见 `res/xml/usb_device_filter.xml`）后，
- * 插入匹配的设备时系统会问「用哪个应用打开」，选中的应用随即被启动并**自动取得该设备的 USB 访问授权**
- * （见 AOSP `UsbProfileGroupSettingsManager`）。这也正是同类竞品在应用未启动时仍能弹窗的原因——
- * 弹窗由系统发出，不依赖应用进程。少了这一条声明，插入设备什么都不会发生，用户也就没有"交给谁"的机会。
+ * 弹窗只在有应用认领设备时出现，选中的应用会随之取得该设备的访问授权——这也正是应用未启动
+ * 仍能弹窗的原因：弹窗由系统发出，不依赖应用进程。
  *
- * 这条链路**只在 USB 独占开关已开启时成立**：弹窗换来的授权只有独占接管要用，开关关着时它没有用途，
- * 而"插上就弹、选了就接管"会被读成应用擅自改了开关。故组件由开关启停（见 [setUsbAttachEntryEnabled]），
- * 本入口自己再按落盘值核一次，并且**只把界面带到前台、不写开关**：要不要接管由用户在设置里决定，
- * 插入设备不是替用户改这个决定的时机。界面也要带出来——系统的选择框问的是「用哪个应用打开」，
- * 选完之后什么界面都不出现，用户只会当成没生效。
- *
- * 只认音频类设备：过滤器已经把范围限到音频类，此处再核一次接口，避免别的设备误触发接管。
+ * 这条链路只在 USB 独占开关已开启时成立：弹窗换来的授权只有独占接管要用，故组件由开关启停
+ * （见 [setUsbAttachEntryEnabled]），本入口再按落盘值核一次。此处只把界面带到前台、不写开关——
+ * 是否接管由用户在设置里决定。界面也必须带出来：选完之后什么都不出现，用户只会当成没生效。
  */
 class UsbAttachActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val device = intent?.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+        // 过滤器已限到音频类，此处再核一次接口，避免别的设备误触发接管
         if (device == null || !UsbExclusiveDac.isAudioDac(device)) {
             finish()
             return

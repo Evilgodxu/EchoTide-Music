@@ -3,7 +3,6 @@ package com.yichao.evilgodxu.navigation
 import androidx.navigation3.runtime.NavKey
 import kotlinx.serialization.Serializable
 
-// 首页路由键
 @Serializable
 data object Home : NavKey
 

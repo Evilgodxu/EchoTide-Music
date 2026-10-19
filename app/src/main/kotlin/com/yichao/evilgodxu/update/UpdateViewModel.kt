@@ -37,10 +37,8 @@ class UpdateViewModel(
     private val _messages = MutableSharedFlow<CheckFeedback>(extraBufferCapacity = 1)
     val messages: Flow<CheckFeedback> = _messages.asSharedFlow()
 
-    /** 手动检查结果的提示类型 */
     enum class CheckFeedback { UP_TO_DATE, ERROR }
 
-    // 检查更新：有新版本时弹出更新对话框，否则手动检查时给出"已是最新"或"失败"提示
     fun checkForUpdate(force: Boolean = false) {
         viewModelScope.launch {
             var checkFailed = false
@@ -60,7 +58,6 @@ class UpdateViewModel(
         }
     }
 
-    // 下载并安装当前待更新版本
     fun downloadAndInstall() {
         val info = _updateInfo.value ?: return
         _downloadState.value = DownloadState.Downloading(0f)
@@ -86,7 +83,6 @@ class UpdateViewModel(
         }
     }
 
-    // 关闭更新对话框并清理待更新信息
     fun dismissUpdateDialog() {
         _showUpdateDialog.value = false
         _downloadState.value = DownloadState.Idle

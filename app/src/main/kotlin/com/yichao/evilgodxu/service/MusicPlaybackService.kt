@@ -223,9 +223,8 @@ class MusicPlaybackService : MediaSessionService() {
             /**
              * 补上系统缺失的 ALAC 解码渲染器。
              *
-             * 追加在默认渲染器之后，即优先级低于系统渲染器：厂商自带的 `audio/alac` 解码器仍被优先选中，
-             * 本渲染器只在系统解不了该格式时接手。AOSP 不含 ALAC 解码组件，媒体3 在解码器列表为空时
-             * 会把整条音频轨判为不可解码，播放器随之不选中该轨——表现为静音走完且不报错。
+             * 追加在默认渲染器之后，优先级低于系统渲染器：厂商自带的 `audio/alac` 解码器仍被优先选中。
+             * 无解码器时媒体3 会把整条音频轨判为不可解码、播放器不选中该轨——表现为静音走完且不报错。
              */
             override fun buildAudioRenderers(
                 context: android.content.Context,
@@ -283,8 +282,8 @@ class MusicPlaybackService : MediaSessionService() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                // 播放错误此前无处留痕：音频输出初始化或写入失败会被媒体3 升级为致命错误，
-                // 界面上的表现只是「自动暂停」，日志里空无一物。错误码与原因在此一并记下
+                // 音频输出初始化或写入失败会被媒体3 升级为致命错误，界面上只表现为「自动暂停」，
+                // 故在此把错误码与原因记下
                 CrashLogManager.logException(
                     "MusicPlaybackService",
                     "播放失败：${error.errorCodeName}，${error.message}",
@@ -347,7 +346,6 @@ class MusicPlaybackService : MediaSessionService() {
                         )
                     }
                 }
-                // 每次轨道切换后按解码格式更新信号路径状态
                 val fileFormat = format?.let { f ->
                     formatDisplayName(currentTrack?.path, f.sampleMimeType)
                 }
@@ -476,8 +474,8 @@ class MusicPlaybackService : MediaSessionService() {
     /**
      * 档位落盘。
      *
-     * 延时合并长按产生的连续改动：档位在长按期间每几十毫秒变一次，逐档写盘等于把写盘频率挂在按键重复率上。
-     * 音量是非关键数据，合并到最后一次取值即可——中途进程被杀只丢最近一次改动。
+     * 延时合并长按产生的连续改动：逐档写盘等于把写盘频率挂在按键重复率上。
+     * 音量是非关键数据，中途进程被杀只丢最近一次改动。
      */
     private fun persistExclusiveVolume(step: Int) {
         persistVolumeJob?.cancel()

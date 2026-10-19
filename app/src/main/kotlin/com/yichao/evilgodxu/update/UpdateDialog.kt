@@ -21,7 +21,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.R
 
-// 更新对话框：显示更新日志、下载进度与失败状态，由 UpdateViewModel 驱动
 @Composable
 fun UpdateDialog(
     updateInfo: UpdateInfo,

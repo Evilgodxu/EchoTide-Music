@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 
-// 需要申请的核心权限类型
+// 权限类型：系统特殊权限走设置页，运行时权限走系统授权弹窗
 enum class PermissionType {
     OVERLAY,                 // 悬浮窗（系统特殊权限）
     MANAGE_EXTERNAL_STORAGE, // 全部文件（系统特殊权限）
@@ -25,19 +25,16 @@ enum class PermissionType {
     NOTIFICATION_POLICY,     // 免打扰访问（系统特殊权限，授权页改写授权态）
 }
 
-// 音乐访问的运行时权限名
 fun mediaAudioPermission(): String = Manifest.permission.READ_MEDIA_AUDIO
 
-// 图片访问的运行时权限名
 fun mediaImagePermission(): String = Manifest.permission.READ_MEDIA_IMAGES
 
-// 蓝牙设备访问的运行时权限名：读取已连接蓝牙设备（含远端设备名）依赖它
+// 读取已连接蓝牙设备（含远端设备名）依赖它
 fun bluetoothConnectPermission(): String = Manifest.permission.BLUETOOTH_CONNECT
 
-// 通知的运行时权限名：前台播放通知与锁屏控制依赖它
+// 前台播放通知与锁屏控制依赖它
 fun notificationPermission(): String = Manifest.permission.POST_NOTIFICATIONS
 
-// 权限状态监控器
 class PermissionMonitor(private val context: Context) {
 
     private val notificationManager: NotificationManager? =
