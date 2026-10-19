@@ -121,18 +121,29 @@ internal fun MetadataRowContainer(
 
 /**
  * 成块内容的容器：与字段行同一套底色，供整篇歌词卡片等纵向成块内容复用。
+ *
+ * @param onLongClick 长按入口（如整篇歌词的复制菜单）；为 null 时该块不响应长按
  */
 @Composable
 internal fun MetadataBlockContainer(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val base = modifier
         .fillMaxWidth()
         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f), ROW_SHAPE)
-    val interactive = if (onClick != null) base.clickable(enabled = enabled, onClick = onClick) else base
+    val interactive = when {
+        onLongClick != null -> base.combinedClickable(
+            enabled = enabled,
+            onClick = { onClick?.invoke() },
+            onLongClick = onLongClick,
+        )
+        onClick != null -> base.clickable(enabled = enabled, onClick = onClick)
+        else -> base
+    }
     Column(
         modifier = interactive.padding(horizontal = ROW_HORIZONTAL_PADDING, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),

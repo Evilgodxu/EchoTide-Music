@@ -366,6 +366,8 @@
     <string name="metadata_lyrics_translate_nothing">Nothing to translate in this line</string>
     <string name="metadata_lyrics_whole_edit">Edit all</string>
     <string name="metadata_lyrics_line_edit">Edit lines</string>
+    <string name="metadata_lyrics_copy_whole">Copy all</string>
+    <string name="metadata_lyrics_whole_copied">Full lyrics copied</string>
     <string name="metadata_save_done">Metadata written to the audio file</string>
     <string name="metadata_save_failed">Write failed: the file format is unsupported or not writable</string>
 

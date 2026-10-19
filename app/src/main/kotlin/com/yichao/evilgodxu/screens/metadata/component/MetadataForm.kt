@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.metadata.TagField
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
@@ -46,6 +47,7 @@ import com.yichao.evilgodxu.screens.metadata.MetadataEditTarget
 import com.yichao.evilgodxu.screens.metadata.MetadataUiState
 import com.yichao.evilgodxu.ui.component.player.LocalCoverDialog
 import com.yichao.evilgodxu.ui.component.player.loadRecentCovers
+import com.yichao.evilgodxu.ui.copyToClipboard
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -83,6 +85,8 @@ internal fun MetadataForm(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // 全文复制的提示不带内容：整篇歌词装不进一行提示
+    val wholeCopiedHint = stringResource(R.string.metadata_lyrics_whole_copied)
     // 本地封面候选：与播放面板同源（系统最近图片），选中后读回原始字节交给状态持有者自动落盘
     var localCovers by remember { mutableStateOf<List<RecentCover>>(emptyList()) }
     var showLocalCover by remember { mutableStateOf(false) }
@@ -230,6 +234,14 @@ internal fun MetadataForm(
             onRawChange = onLyricRawChange,
             onTranslationChange = onLyricTranslationChange,
             onTranslateLine = onLyricLineTranslate,
+            // 复制内容与全文编辑框同源：点击时才编码，避免「非全文模式也在每次歌词变化时序列化整篇」
+            onCopyWhole = {
+                copyToClipboard(
+                    context = context,
+                    text = MusicMetadataCache.encodeLyrics(uiState.lyricLines),
+                    toastText = wholeCopiedHint,
+                )
+            },
             onWholeModeToggle = onLyricsWholeModeToggle,
             onStartEdit = onEditStart,
             onEditDone = onEditEnd,

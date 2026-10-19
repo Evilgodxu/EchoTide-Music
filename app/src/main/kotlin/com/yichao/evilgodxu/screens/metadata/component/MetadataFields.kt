@@ -1,12 +1,16 @@
 package com.yichao.evilgodxu.screens.metadata.component
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,12 +25,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
@@ -36,6 +43,7 @@ import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.screens.metadata.MetadataEditTarget
 import com.yichao.evilgodxu.ui.component.menuEdgePositionProvider
 import com.yichao.evilgodxu.ui.icons.AppIcons
+import kotlin.math.roundToInt
 
 // 原文与翻译的字号层级：翻译行更小，从视觉上从属于原文行
 private val LYRIC_ORIGINAL_FONT_SIZE = 15.sp
@@ -67,9 +75,12 @@ private val LYRIC_GROUP_GAP = 6.dp
  *
  * 全文编辑：整篇以增强 LRC 文本一次性编辑，适合批量改写或整体替换。进入全文模式只切换展示形态，
  * 默认呈现整篇歌词卡片；点击卡片才建立编辑态并弹出键盘，点击别处即回到卡片展示（键盘收起不结束
- * 编辑态，用户可继续核对），不会退回逐行 —— 模式只由切换按钮结束。
+ * 编辑态，用户可继续核对），不会退回逐行 —— 模式只由切换按钮结束。卡片展示态另增长按菜单提供
+ * 全文复制：复制内容与全文编辑框同源（增强 LRC），这样复制出去既能粘回编辑框、也能转移到别的
+ * 曲目，而不是只拿到屏幕上的纯文本。
  *
  * @param translatingLine 正在补译的行下标，非空时该行显示补译中占位，且不再弹出补译菜单
+ * @param onCopyWhole 全文复制请求，由调用方读取整篇文本并写入剪贴板
  */
 @Composable
 internal fun LyricsSection(
@@ -83,6 +94,7 @@ internal fun LyricsSection(
     onRawChange: (String) -> Unit,
     onTranslationChange: (Int, String) -> Unit,
     onTranslateLine: (Int) -> Unit,
+    onCopyWhole: () -> Unit,
     onWholeModeToggle: () -> Unit,
     onStartEdit: (MetadataEditTarget) -> Unit,
     onEditDone: () -> Unit,
@@ -125,6 +137,7 @@ internal fun LyricsSection(
                     lines = lines,
                     enabled = enabled,
                     onClick = { onStartEdit(MetadataEditTarget.LyricsWhole) },
+                    onCopy = onCopyWhole,
                 )
             }
             return@MetadataSection
@@ -212,22 +225,55 @@ private fun LyricsHeader(
 }
 
 // 全文卡片：整篇歌词装在同一张卡里逐行呈现，点击后进入整篇文本编辑。
-// 默认只做展示，避免整篇区一直停留在编辑态的观感
+// 默认只做展示，避免整篇区一直停留在编辑态的观感；长按提供全文复制，
+// 免去为拿一份完整文本而先进编辑态再全选
 @Composable
 private fun LyricsWholeCard(
     lines: List<LyricLine>,
     enabled: Boolean,
     onClick: () -> Unit,
+    onCopy: () -> Unit,
 ) {
-    MetadataBlockContainer(enabled = enabled, onClick = onClick) {
-        lines.forEach { line ->
-            Text(
-                text = line.text,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = LYRIC_WHOLE_FONT_SIZE,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+    var menuVisible by remember { mutableStateOf(false) }
+    // 菜单落在按住的位置：整篇卡片常高过一屏，若贴卡片边缘展开，菜单会落到屏幕外
+    var pressOffset by remember { mutableStateOf(Offset.Zero) }
+    Box {
+        MetadataBlockContainer(
+            modifier = Modifier.pointerInput(Unit) {
+                // 只记录按下位置、不消费事件：点击与长按仍由容器自身的手势识别处理
+                awaitEachGesture {
+                    pressOffset = awaitFirstDown(requireUnconsumed = false).position
+                }
+            },
+            enabled = enabled,
+            onClick = onClick,
+            onLongClick = { menuVisible = true },
+        ) {
+            lines.forEach { line ->
+                Text(
+                    text = line.text,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = LYRIC_WHOLE_FONT_SIZE,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (menuVisible) {
+            // 零尺寸锚点：浮层定位只借用按下点的坐标，不占布局空间
+            Box(
+                Modifier.offset {
+                    IntOffset(pressOffset.x.roundToInt(), pressOffset.y.roundToInt())
+                },
+            ) {
+                LyricsWholeMenu(
+                    onCopy = {
+                        menuVisible = false
+                        onCopy()
+                    },
+                    onDismiss = { menuVisible = false },
+                )
+            }
         }
     }
 }
@@ -300,11 +346,39 @@ private fun LyricTranslationRow(
 
 // 翻译行长按菜单：只有「自动补译」一项 —— 长按已把目标行限定在这一行上，
 // 菜单无需二级结构，也不必再给整篇补译留入口（首页长按菜单已有）。
-// 外观与定位沿用本页封面菜单与首页歌词菜单的同一套浮层样式
 @Composable
 private fun LyricTranslationMenu(
     onTranslate: () -> Unit,
     onDismiss: () -> Unit,
+) {
+    LyricsPopupMenu(onDismiss = onDismiss) {
+        LyricMenuItem(
+            text = stringResource(R.string.music_panel_auto_translate),
+            onClick = onTranslate,
+        )
+    }
+}
+
+// 全文卡片长按菜单：只有「复制全文」一项。复制放到菜单里而非直接长按复制，
+// 是为了让长按的含义保持「弹出可执行的动作」，与翻译行一致
+@Composable
+private fun LyricsWholeMenu(
+    onCopy: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    LyricsPopupMenu(onDismiss = onDismiss) {
+        LyricMenuItem(
+            text = stringResource(R.string.metadata_lyrics_copy_whole),
+            onClick = onCopy,
+        )
+    }
+}
+
+// 歌词区长按菜单的公共外观与定位：外观沿用本页封面菜单与首页歌词菜单的同一套浮层样式
+@Composable
+private fun LyricsPopupMenu(
+    onDismiss: () -> Unit,
+    content: @Composable RowScope.() -> Unit,
 ) {
     Popup(
         properties = PopupProperties(
@@ -324,12 +398,8 @@ private fun LyricTranslationMenu(
             Row(
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.Center,
-            ) {
-                LyricMenuItem(
-                    text = stringResource(R.string.music_panel_auto_translate),
-                    onClick = onTranslate,
-                )
-            }
+                content = content,
+            )
         }
     }
 }
