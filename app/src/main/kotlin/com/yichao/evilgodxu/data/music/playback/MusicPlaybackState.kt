@@ -64,7 +64,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-// 音乐播放器状态持有者（悬浮窗级共享状态）
 class MusicPlaybackState(
     private val metadataEnricher: MetadataEnricher,
     private val playlistStore: PlaylistStore,
@@ -134,7 +133,6 @@ class MusicPlaybackState(
     private val viewedFollowsQueuePref = "music_viewed_follows_queue"
     private val viewedSourceKeyPref = "music_viewed_source_key"
     private val viewedSourceNamePref = "music_viewed_source_name"
-    // 排序规则持久化键
     private val playlistSortFieldPref = "music_playlist_sort_field"
     private val playlistSortDescPref = "music_playlist_sort_descending"
     private val searchHistoryKey = "music_search_history"
@@ -464,7 +462,6 @@ class MusicPlaybackState(
     // 在线搜索相关状态
     var isSearchMode by mutableStateOf(false)
     var searchQuery by mutableStateOf("")
-    // 当前选中的在线搜索平台，单平台搜索时使用
     var searchSource by mutableStateOf(MusicSearchSource.NETEASE)
     var searchResults by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
     var searchHistory by mutableStateOf<List<String>>(emptyList())
@@ -499,7 +496,6 @@ class MusicPlaybackState(
     // 无损升级候选：按来源搜索的在线原曲，用户确认选中后下载无损替换本地文件
     var losslessUpgradeCandidates by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
     var isLosslessUpgradeSearching by mutableStateOf(false)
-    // 无损升级候选搜索来源
     var losslessUpgradeSource by mutableStateOf(MusicSearchSource.NETEASE)
     var coverCandidates by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
     var isCoverSearching by mutableStateOf(false)
@@ -811,7 +807,6 @@ class MusicPlaybackState(
     var usbDirectOutputEnabled by mutableStateOf(false)
     var usbExclusiveEnabled by mutableStateOf(false)
 
-    // 收藏的歌曲 ID 集合（面板级内存状态）
     var likedIds by mutableStateOf<Set<Long>>(emptySet())
 
     // 常听：3 天内完整播放次数不少于 2 次的歌曲，按最近一次播放时间倒序
@@ -867,7 +862,6 @@ class MusicPlaybackState(
         persistPlaylist()
     }
 
-    // 面板恢复为跟随播放队列展示
     fun followPlaybackQueue() {
         if (viewedFollowsQueue) return
         viewedFollowsQueue = true
@@ -1788,7 +1782,6 @@ class MusicPlaybackState(
         }
     }
 
-    // 取消定时关闭
     fun stopTimer() {
         val wasArmed = stopAfterCurrentTrack
         stopAfterCurrentTrack = false
@@ -2055,10 +2048,8 @@ class MusicPlaybackState(
 
     private fun autoNextIndex(): Int = calculateIndex(direction = 1, repeatOne = true)
 
-    // 下一首索引
     fun nextIndex(): Int = calculateIndex(direction = 1, repeatOne = false)
 
-    // 上一首索引
     fun previousIndex(): Int = calculateIndex(direction = -1, repeatOne = false)
 
     /**

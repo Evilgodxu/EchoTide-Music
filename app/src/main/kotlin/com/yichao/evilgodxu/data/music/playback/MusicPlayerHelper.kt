@@ -185,8 +185,7 @@ private fun mapSavedResumePosition(mode: PlayMode, track: MusicTrack, savedAbsol
  * 进入时当前曲目自片段起点起播，退出时把片段内进度换算回整曲的绝对位置 ——
  * 两个方向的听感都不跳，而不是等下一位生效。
  *
- * 片段全部取自持久化表，这里只做查表与重建队列，不含任何解析，故切换不会卡顿；
- * 与之相对，「模式切换不影响当前曲目」的旧行为已废弃。
+ * 片段全部取自持久化表，这里只做查表与重建队列，不含任何解析，故切换不会卡顿。
  */
 internal fun applyHighlightModeChange(context: Context, state: MusicPlaybackState) {
     val tracks = state.playlist
