@@ -127,7 +127,6 @@ internal fun CreatePlaylistDialog(
     }
 }
 
-// 重命名歌单弹窗
 @Composable
 internal fun RenamePlaylistDialog(
     playlist: Playlist?,
@@ -203,7 +202,6 @@ internal fun RenamePlaylistDialog(
     }
 }
 
-// 删除歌单确认弹窗
 @Composable
 internal fun DeletePlaylistDialog(
     playlist: Playlist?,
@@ -275,7 +273,6 @@ internal fun DeletePlaylistDialog(
     }
 }
 
-// 手动选曲弹窗：全量曲目多选后加入歌单
 @Composable
 internal fun AddSongsPicker(
     visible: Boolean,

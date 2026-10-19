@@ -56,19 +56,14 @@ data class MetadataUiState(
     // 正在单行补译的行下标：非空时该行显示补译中占位，其余行不再接受新的补译请求
     // （翻译接口按 IP 限流，同一时刻只允许一个补译任务）
     val translatingLine: Int? = null,
-    // 同专辑封面选择面板是否展开
     val sameAlbumVisible: Boolean = false,
-    // 正在读取同专辑封面
     val sameAlbumLoading: Boolean = false,
-    // 同专辑候选封面：取自同名专辑的其它本地曲目的内嵌封面
+    // 取自同名专辑的其它本地曲目的内嵌封面
     val sameAlbumCovers: List<ByteArray> = emptyList(),
-    // 在线刷新封面面板是否展开（复用首页既有的封面搜索能力）
+    // 复用首页既有的封面搜索能力
     val coverRefreshVisible: Boolean = false,
-    // 在线刷新选中的候选曲目 id
     val coverRefreshSelectedId: Long? = null,
-    // 在线刷新正在写回封面
     val coverRefreshSaving: Boolean = false,
-    // 正在把封面保存到相册
     val exportingCover: Boolean = false,
     // 自动保存结果提示：成功或失败原因，显示后可被下次保存覆盖
     val message: String? = null,

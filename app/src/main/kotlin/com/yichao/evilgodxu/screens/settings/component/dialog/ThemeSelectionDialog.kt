@@ -27,7 +27,6 @@ fun ThemeSelectionDialog(
     }
 }
 
-// 主题模式对应的展示文案
 private fun themeLabelRes(themeMode: ThemeMode): Int = when (themeMode) {
     ThemeMode.SYSTEM -> R.string.theme_system
     ThemeMode.DARK -> R.string.theme_dark

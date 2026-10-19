@@ -79,7 +79,6 @@ fun LandscapePlayer(
     // 歌词区快速纵向滑动的切歌出口（true 为下一曲）：与整页上下滑动切歌同一套判定
     onVerticalFling: ((next: Boolean) -> Unit)? = null,
 ) {
-    // 无损升级确认对话框显隐
     var showLosslessUpgrade by remember { mutableStateOf(false) }
     // 封面与点击检测层在窗口坐标系下的位置，用于判定点击是否命中封面
     var tapBounds by remember { mutableStateOf<Rect?>(null) }
@@ -151,7 +150,6 @@ fun LandscapePlayer(
             onDismiss = { onModeSelectorExpandedChange(false) },
         )
 
-        // 底部控制栏
         AnimatedVisibility(
             visible = chromeVisible,
             enter = slideInVertically(animationSpec = tween(300)) { it } + fadeIn(),

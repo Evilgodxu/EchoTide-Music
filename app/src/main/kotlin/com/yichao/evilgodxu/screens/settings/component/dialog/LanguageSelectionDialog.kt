@@ -27,7 +27,6 @@ fun LanguageSelectionDialog(
     }
 }
 
-// 语言选项对应的展示文案
 private fun languageLabelRes(language: AppLanguage): Int = when (language) {
     AppLanguage.SYSTEM -> R.string.language_system
     AppLanguage.CHINESE -> R.string.language_chinese

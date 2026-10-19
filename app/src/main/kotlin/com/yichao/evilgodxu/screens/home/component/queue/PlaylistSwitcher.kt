@@ -204,7 +204,6 @@ private fun PlaylistSwitchList(
     }
 }
 
-// 二级列表：专辑/艺术家分组
 @Composable
 private fun PlaylistSwitchGroups(
     type: SmartPlaylistType,

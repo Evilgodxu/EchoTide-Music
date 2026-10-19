@@ -78,7 +78,6 @@ import com.yichao.evilgodxu.ui.component.smartTypeLabel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
-// 专辑/艺术家分组列表页
 @Composable
 internal fun PlaylistGroupsPage(
     type: SmartPlaylistType,
@@ -260,7 +259,6 @@ internal fun PlaylistGroupRow(
     }
 }
 
-// 自定义歌单曲目页：支持添加歌曲与移除
 @Composable
 internal fun PlaylistTracksPage(
     playlist: Playlist,
@@ -324,7 +322,6 @@ internal fun PlaylistTracksPage(
     )
 }
 
-// 系统歌单曲目页（常听/收藏）
 @Composable
 internal fun PlaylistSmartTracksPage(
     type: SmartPlaylistType,

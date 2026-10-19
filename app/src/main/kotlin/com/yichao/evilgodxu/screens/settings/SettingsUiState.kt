@@ -19,7 +19,6 @@ data class SettingsUiState(
     // USB 独占：开启后接管 USB 音频接口自行写出，期间该解码器从系统音频中消失；与直出互斥
     val usbExclusiveOutput: Boolean = false,
     val version: String = "",
-    // 已导入的代理音源列表
     val proxySources: List<ProxySourceSpec> = emptyList(),
     // 最近一次代理音源导入的提示信息（成功或失败原因），显示后自动清空
     val proxyImportMessage: String? = null,

@@ -228,7 +228,6 @@ private fun ImportMessage(
     )
 }
 
-// 导入结果提示自动消失时长
 private const val PROXY_IMPORT_MESSAGE_DISMISS_MS = 3_000L
 
 private enum class ImportMode { LINK, TEXT }

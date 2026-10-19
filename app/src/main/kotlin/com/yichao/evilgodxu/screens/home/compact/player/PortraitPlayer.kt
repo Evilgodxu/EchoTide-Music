@@ -240,7 +240,6 @@ internal fun PortraitPlayer(
     var menuIsTitle by remember { mutableStateOf(true) }
     // 点击歌手信息时待选择的歌手候选：多位歌手时弹出选择对话框
     var artistPicker by remember { mutableStateOf<List<String>>(emptyList()) }
-    // 无损升级确认对话框显隐
     var showLosslessUpgrade by remember { mutableStateOf(false) }
     // 歌词微调按钮显示状态：点击歌词区切换
     var lyricTuneVisible by remember { mutableStateOf(false) }
