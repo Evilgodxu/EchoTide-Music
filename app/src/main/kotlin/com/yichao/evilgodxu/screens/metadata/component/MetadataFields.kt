@@ -64,6 +64,11 @@ private val LYRIC_TRANSLATION_MIN_HEIGHT = 30.dp
 // 同一行歌词的原文行与翻译行紧邻，行与行之间留出更大间隔以形成分组
 private val LYRIC_GROUP_GAP = 6.dp
 
+// 全文卡片长按菜单的纵向让位：约一个菜单高度，正好让开手指的接触面。
+// 浮层若在按压点正下方展开，上半截被手指压住；向上让开则整体落在手指之上，
+// 同时保持与按压点的横向对齐，不像横向让位那样把菜单挪离按住的文字
+private val LYRIC_WHOLE_MENU_UP_SHIFT = 32.dp
+
 /**
  * 歌词分组：默认逐行编辑，可切换到全文编辑。
  *
@@ -235,7 +240,8 @@ private fun LyricsWholeCard(
     onCopy: () -> Unit,
 ) {
     var menuVisible by remember { mutableStateOf(false) }
-    // 菜单落在按住的位置：整篇卡片常高过一屏，若贴卡片边缘展开，菜单会落到屏幕外
+    // 菜单落在按住的位置上方（并让开一个身位避开手指）：整篇卡片常高过一屏，
+    // 若贴卡片边缘展开，菜单会落到屏幕外
     var pressOffset by remember { mutableStateOf(Offset.Zero) }
     Box {
         MetadataBlockContainer(
@@ -263,7 +269,10 @@ private fun LyricsWholeCard(
             // 零尺寸锚点：浮层定位只借用按下点的坐标，不占布局空间
             Box(
                 Modifier.offset {
-                    IntOffset(pressOffset.x.roundToInt(), pressOffset.y.roundToInt())
+                    IntOffset(
+                        pressOffset.x.roundToInt(),
+                        pressOffset.y.roundToInt() - LYRIC_WHOLE_MENU_UP_SHIFT.roundToPx(),
+                    )
                 },
             ) {
                 LyricsWholeMenu(
@@ -366,7 +375,8 @@ private fun LyricsWholeMenu(
     onCopy: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    LyricsPopupMenu(onDismiss = onDismiss) {
+    // 向上展开：锚点已抬到手指上方，菜单再贴锚点上沿长出来
+    LyricsPopupMenu(atTop = true, onDismiss = onDismiss) {
         LyricMenuItem(
             text = stringResource(R.string.metadata_lyrics_copy_whole),
             onClick = onCopy,
@@ -375,9 +385,12 @@ private fun LyricsWholeMenu(
 }
 
 // 歌词区长按菜单的公共外观与定位：外观沿用本页封面菜单与首页歌词菜单的同一套浮层样式
+//
+// @param atTop 菜单向上展开（贴锚点上沿）；为 false 时向下展开（贴锚点下沿）
 @Composable
 private fun LyricsPopupMenu(
     onDismiss: () -> Unit,
+    atTop: Boolean = false,
     content: @Composable RowScope.() -> Unit,
 ) {
     Popup(
@@ -387,7 +400,7 @@ private fun LyricsPopupMenu(
             dismissOnClickOutside = true,
         ),
         onDismissRequest = onDismiss,
-        popupPositionProvider = menuEdgePositionProvider(atTop = false),
+        popupPositionProvider = menuEdgePositionProvider(atTop = atTop),
     ) {
         Surface(
             shape = RoundedCornerShape(8.dp),
