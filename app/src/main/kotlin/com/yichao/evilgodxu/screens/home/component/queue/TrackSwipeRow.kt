@@ -32,7 +32,6 @@ import kotlinx.coroutines.launch
 private val SWIPE_REVEAL_DP = 96.dp
 // 触发操作的最小位移：松手时未达阈值即回弹
 private val SWIPE_TRIGGER_DP = 56.dp
-// 回弹动画时长
 private const val SWIPE_SETTLE_MS = 180
 
 /**

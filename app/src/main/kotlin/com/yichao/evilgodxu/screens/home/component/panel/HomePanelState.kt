@@ -31,7 +31,6 @@ internal class HomePanelState(
     var playlistVisible by mutableStateOf(false)
     // 首页音频信息弹窗（底部弹出）显隐：与播放列表同属底部弹层，显隐期间一并让出纵向手势
     var audioInfoVisible by mutableStateOf(false)
-    // 定时关闭对话框显隐
     var showTimer by mutableStateOf(false)
     // 首页背景代表色：供搜索页与歌单页的浮层容器复用，保持与首页底色一致
     var backgroundColor by mutableStateOf(md_theme_dark_surface)
@@ -46,7 +45,6 @@ internal class HomePanelState(
     // 是因为下钻页仍要看得到标题栏，只是不再让首页翻页参与横向滑动
     var playlistSwipeBack by mutableStateOf(false)
 
-    // 当前落点页面
     val currentPage: HomePage
         get() = HomePage.entries[pagerState.currentPage]
 
@@ -55,7 +53,6 @@ internal class HomePanelState(
         scope.launch { pagerState.animateScrollToPage(page.ordinal) }
     }
 
-    // 收起两侧页面回到播放器
     fun closePanels() {
         goToPage(HomePage.PLAYER)
     }

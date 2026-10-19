@@ -9,7 +9,6 @@ import com.yichao.evilgodxu.screens.settings.component.entry.SettingsEntry
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 
-// 外观设置
 @Composable
 fun Appearance(themeMode: ThemeMode, onThemeClick: (Offset) -> Unit) {
     GroupCard(title = stringResource(R.string.settings_section_appearance)) {

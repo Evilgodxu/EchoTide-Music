@@ -8,7 +8,6 @@ import com.yichao.evilgodxu.screens.settings.component.entry.SettingsEntry
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 
-// 语言设置
 @Composable
 fun Language(language: AppLanguage, onLanguageSelected: (AppLanguage) -> Unit, onShowDialog: () -> Unit) {
     GroupCard(title = stringResource(R.string.settings_section_language)) {

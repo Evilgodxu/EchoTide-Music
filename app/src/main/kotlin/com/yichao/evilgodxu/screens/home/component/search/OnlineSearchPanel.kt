@@ -220,7 +220,7 @@ private fun SearchInput(
             modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 平台切换触发器：向下展开的动画选择器，替换原先的下拉菜单与方向角标
+            // 平台切换触发器：向下展开的动画选择器
             ExpandPicker(
                 options = platformOptions,
                 selected = currentPlatform,
