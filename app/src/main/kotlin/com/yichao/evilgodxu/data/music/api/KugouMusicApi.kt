@@ -73,7 +73,6 @@ internal object KugouMusicApi : OnlineMusicSource {
         )
     }
 
-    /** 获取播放地址：trackercdn 的 key 为 hash + "kgcloudv2" 的 MD5 */
     suspend fun songUrl(hash: String): String? = withContext(Dispatchers.IO) {
         if (hash.isBlank()) return@withContext null
         try {
@@ -117,7 +116,7 @@ internal object KugouMusicApi : OnlineMusicSource {
         }
     }
 
-    // 下载并解析指定格式的歌词；格式不可用、载荷为空或解析不出内容时返回 null，由调用方决定是否回退
+    // 返回 null 时由调用方决定是否回退到其它格式
     private fun downloadLyrics(id: String, accesskey: String, format: String): List<LyricLine>? = try {
         val url = "https://lyrics.kugou.com/download?ver=1&client=pc&id=$id&accesskey=$accesskey&fmt=$format&charset=utf8"
         val content = JSONObject(get(url)).optString("content")

@@ -3,7 +3,7 @@ package com.yichao.evilgodxu.data.music.api
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 
-// 统一网络栈：各在线音乐源与更新检查共用同一 OkHttpClient，复用连接池，以 object 单例形态提供
+// 统一网络栈：各在线音乐源与更新检查共用同一 OkHttpClient，复用连接池
 internal object MusicHttpClient {
     val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)

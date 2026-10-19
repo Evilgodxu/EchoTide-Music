@@ -180,7 +180,6 @@ internal object ContainerHeaderParser {
         return null
     }
 
-    // 查找子盒子并返回其载荷范围
     private fun descend(buf: ByteArray, from: Int, to: Int, type: String): IntRange? {
         val box = findBox(buf, from, to, type) ?: return null
         return boxRange(buf, box, to)

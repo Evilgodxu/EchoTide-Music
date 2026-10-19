@@ -249,5 +249,4 @@ internal fun isLyricBodyLine(line: LyricLine, isFirst: Boolean): Boolean {
     return true
 }
 
-/** 补译结果：[added] 为本次新写入译文的行数 */
 private class TranslationResult(val lines: List<LyricLine>, val added: Int)

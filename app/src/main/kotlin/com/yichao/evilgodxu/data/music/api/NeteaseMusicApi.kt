@@ -64,7 +64,6 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         return song.copy(coverUrl = album?.optString("picUrl")?.takeIf { it.isNotBlank() })
     }
 
-    // 在线音乐源统一接口实现，返回完整的搜索结果列表
     override suspend fun search(keyword: String, page: Int, pageSize: Int): List<NeteaseSongSearchResult> = withContext(Dispatchers.IO) {
         val body = JSONObject().apply {
             put("s", keyword)
@@ -75,7 +74,6 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         val root = request("search/get", body)
         val songs = root.optJSONObject("result")?.optJSONArray("songs") ?: JSONArray()
         val results = List(songs.length()) { index -> songResult(songs.getJSONObject(index)) }
-        // 按与查询关键词的相关性重排，优先展示与原曲(歌名+歌手)更匹配的结果，再补全缺失封面
         fillMissingCovers(rankSearchResults(results, keyword))
     }
 
@@ -103,7 +101,6 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         "演唱会", "钢琴", "吉他", "纯音乐", "dj版", "remix", "cover", "live版", "重唱"
     )
 
-    /** 批量补全搜索结果中缺失封面 URL 的条目 */
     private fun fillMissingCovers(results: List<NeteaseSongSearchResult>): List<NeteaseSongSearchResult> {
         val missingIds = results.filter { it.coverUrl.isNullOrBlank() }.map { it.id }
         if (missingIds.isEmpty()) return results
@@ -133,7 +130,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         }
     }
 
-    // 获取歌曲播放 URL，返回 null 表示完全不可播；试听片段也如实返回
+    // 试听片段也如实返回，由调用方决定是否接受
     suspend fun getSongUrlInfo(songId: Long, level: String = "standard"): SongUrlInfo? = withContext(Dispatchers.IO) {
         try {
             val root = requestEapi("song/enhance/player/url/v1", eapiSongUrlPayload(songId, level))
@@ -148,7 +145,6 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         }
     }
 
-    /** 歌曲播放 URL 信息 */
     data class SongUrlInfo(val url: String, val trial: Boolean)
 
     // 多音质回退获取播放 URL：优先非试听完整 URL，全为试听时降级返回试听片段
@@ -165,7 +161,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         return null
     }
 
-    // 按音质档位解析播放地址；返回 null 表示该层级不可用（无版权/试听受限等）
+    // 返回 null 表示该层级不可用（无版权/试听受限等）
     suspend fun songUrl(songId: Long, quality: MusicQuality): String? {
         val level = when (quality) {
             MusicQuality.HI_RES -> "hires"
@@ -176,7 +172,6 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         return getSongUrlInfo(songId, level)?.url
     }
 
-    /** 补全歌曲元数据（标题/艺术家/封面等） */
     suspend fun songDetail(songId: Long): NeteaseSongSearchResult? = withContext(Dispatchers.IO) {
         try {
             val root = request("v3/song/detail", JSONObject().put("c", "[{\"id\":$songId}]"))

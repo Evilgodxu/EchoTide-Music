@@ -34,10 +34,8 @@ internal sealed interface TranslateResult {
  */
 internal object TranslationApi {
 
-    /** 目标语言：简体中文 */
     const val TARGET_CHINESE = "zh-CHS"
 
-    /** 单次请求最多提交的文本条数上限 */
     const val MAX_BATCH_SIZE = 20
 
     // 官方演示接口，仅接受短文本
@@ -51,7 +49,7 @@ internal object TranslationApi {
 
     private val FORM_MEDIA_TYPE = "application/x-www-form-urlencoded".toMediaType()
 
-    /** 翻译一批文本；限流按退避重试，规模超限立即返回 [TranslateResult.TooLarge] 交由调用方拆分 */
+    // 限流按退避重试；规模超限立即交由调用方拆分
     suspend fun translate(texts: List<String>, targetLanguage: String = TARGET_CHINESE): TranslateResult {
         if (texts.isEmpty()) return TranslateResult.Success(emptyList())
         if (texts.size > MAX_BATCH_SIZE) return TranslateResult.TooLarge

@@ -73,7 +73,6 @@ internal object QQMusicApi : OnlineMusicSource {
         }
     }
 
-    // 网页版搜索接口：无需登录票据，条目字段与客户端接口同源，复用 [songResult] 映射
     private fun doWebSearch(keyword: String, page: Int, pageSize: Int): List<NeteaseSongSearchResult> {
         val count = pageSize.coerceIn(1, WEB_SEARCH_MAX_PAGE_SIZE)
         val query = URLEncoder.encode(keyword, Charsets.UTF_8.name())
@@ -147,7 +146,6 @@ internal object QQMusicApi : OnlineMusicSource {
         }
     }
 
-    /** 获取指定音质的播放地址；只尝试该档位的候选代号，跨档降级由调用方逐档驱动 */
     suspend fun songUrl(mid: String, quality: MusicQuality = MusicQuality.LOSSLESS): String? = withContext(Dispatchers.IO) {
         if (mid.isBlank()) return@withContext null
         try {
@@ -312,7 +310,6 @@ internal object QQMusicApi : OnlineMusicSource {
         }
     }
 
-    // searchid 按时间戳与随机数拼出大整数
     private fun randomSearchId(): String {
         val t = (1 + Random.nextInt(20)) * 18014398509481984L
         val n = Random.nextInt(0, 4194305) * 4294967296L

@@ -432,7 +432,7 @@ internal object SpectrogramDecoder {
                     frames[write++] = merged
                     read += 2
                 }
-                // 帧数为奇数时末尾落单的一帧直接保留
+                // 帧数为奇数时末尾落单的一帧无处合并，原样保留
                 if (read < frames.size) frames[write++] = frames[read]
                 while (frames.size > write) frames.removeAt(frames.size - 1)
             }

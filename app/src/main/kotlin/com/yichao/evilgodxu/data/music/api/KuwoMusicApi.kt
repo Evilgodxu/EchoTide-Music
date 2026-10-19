@@ -27,7 +27,6 @@ internal object KuwoMusicApi : OnlineMusicSource {
     private const val COVER_ORIGINAL_SIZE = "ori"
     private const val COVER_THUMB_SIZE = "120"
 
-    // 播放参数加密密钥与歌词加密密钥
     private val SONG_KEY = "ylzsxkwm".toByteArray()
     private val LYRIC_KEY = "yeelion".toByteArray()
     private val LRC_PREFIX = "tp=content".toByteArray()
@@ -74,7 +73,6 @@ internal object KuwoMusicApi : OnlineMusicSource {
 
     private fun coverAt(path: String, size: String): String = "$COVER_CDN/$size/$path"
 
-    /** 获取指定音质播放地址；无损/高品优先 flac，标准使用 mp3，组的后项兜底 */
     suspend fun songUrl(rid: String, quality: MusicQuality = MusicQuality.LOSSLESS): String? = withContext(Dispatchers.IO) {
         if (rid.isBlank()) return@withContext null
         try {

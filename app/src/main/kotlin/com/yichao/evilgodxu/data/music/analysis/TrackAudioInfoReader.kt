@@ -103,7 +103,7 @@ internal object TrackAudioInfoReader {
             if (extensionNamesFormat(track.path)) null else readMimeFormat(context, track),
         )
 
-    // mime 映射为展示用格式名；已知格式统一命名，其余取 mime 尾段
+    // 已知格式统一命名，其余取 mime 尾段
     fun mimeToFormatName(mime: String?): String? = when (mime) {
         "audio/mpeg" -> "MP3"
         "audio/flac" -> "FLAC"
@@ -151,7 +151,6 @@ internal object TrackAudioInfoReader {
         }
     }
 
-    // 估算平均比特率：文件大小 × 8 ÷ 时长（秒）÷ 1000
     private fun estimateAverageBitrateKbps(context: Context, track: MusicTrack): Int? {
         val sizeBytes = readFileSize(context, track) ?: return null
         val durationSec = track.duration / 1000
@@ -159,7 +158,6 @@ internal object TrackAudioInfoReader {
         return (sizeBytes * 8 / durationSec / 1000).toInt().takeIf { it > 0 }
     }
 
-    // 读取本地音频文件字节大小：文件路径优先，否则经 ContentResolver 打开
     fun readFileSize(context: Context, track: MusicTrack): Long? {
         if (track.path.isNotBlank()) {
             val file = File(track.path)
@@ -186,7 +184,6 @@ internal object TrackAudioInfoReader {
         }.getOrNull()
     }
 
-    // 打开本地音频输入流：文件路径优先，否则经 ContentResolver
     private fun openInputStream(context: Context, track: MusicTrack): InputStream? = when {
         track.path.isNotBlank() -> runCatching { FileInputStream(track.path) }.getOrNull()
         track.audioUri.startsWith("content:") || track.audioUri.startsWith("file:") ->
@@ -195,7 +192,7 @@ internal object TrackAudioInfoReader {
         else -> null
     }
 
-    // 跳过指定字节数：InputStream.skip 允许少跳，循环补齐
+    // InputStream.skip 允许少跳，循环补齐
     private fun skipFully(stream: InputStream, count: Long): Boolean {
         var skipped = 0L
         while (skipped < count) {
@@ -206,7 +203,6 @@ internal object TrackAudioInfoReader {
         return true
     }
 
-    // 读取至多 size 字节
     private fun readUpTo(stream: InputStream, size: Int): ByteArray {
         val buffer = ByteArray(size)
         var read = 0
@@ -226,7 +222,6 @@ internal object TrackAudioInfoReader {
         path?.substringAfterLast('.', "")?.uppercase()?.let { it in CONTAINER_HEADER_FORMATS } == true
 }
 
-// 已知音频扩展名到展示名的映射
 private val FORMAT_EXTENSION_NAMES = mapOf(
     "MP3" to "MP3",
     "FLAC" to "FLAC",

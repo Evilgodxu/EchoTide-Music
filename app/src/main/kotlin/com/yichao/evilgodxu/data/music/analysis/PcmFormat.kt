@@ -22,7 +22,6 @@ internal object PcmFormat {
         else -> 2
     }
 
-    // 输出格式声明的 PCM 编码，缺省按 16 位
     fun encodingOf(format: MediaFormat): Int =
         format.getInteger(MediaFormat.KEY_PCM_ENCODING, ENCODING_16BIT)
 

@@ -48,7 +48,7 @@ private suspend fun searchSourceCandidates(
     runCatching { ProxySourceEngine.searchPlatform(context, source, query, page = 1, pageSize = limit).take(limit) }
         .getOrDefault(emptyList())
 
-// 单来源候选：先以“歌名+歌手”查询、再以纯歌名查询，各取前 10 后合并去重（10+10）
+// 单来源候选：两条查询各取前 10 后合并去重
 private suspend fun searchSingleSourceCandidates(
     context: Context,
     source: MusicSearchSource,
@@ -74,7 +74,7 @@ internal fun mergeCandidates(
 ): List<NeteaseSongSearchResult> =
     (primary + secondary).distinctBy { it.source to it.id }
 
-// 过滤候选：以是否匹配当前歌曲标题为唯一判定依据，normalize 后相等或互相包含
+// 标题相等或互相包含即视为匹配
 private fun matchesTrackTitle(title: String, result: NeteaseSongSearchResult): Boolean {
     val nTarget = normalizeTitle(title)
     if (nTarget.isBlank()) return true
@@ -151,7 +151,6 @@ internal suspend fun applyLyricsCandidate(
     }
 }
 
-// 导入本地 LRC 歌词文件：解析后写入歌词缓存并应用到当前曲目
 internal suspend fun applyLocalLyrics(
     context: Context,
     playbackState: MusicPlaybackState,
@@ -180,7 +179,6 @@ internal suspend fun applyLocalLyrics(
     }
 }
 
-// 编辑歌词行原文：整行按增强 LRC 文本（时间戳/逐字/翻译）重新解析后替换原行，写回缓存并刷新
 internal suspend fun applyLyricsLineEdit(
     context: Context,
     playbackState: MusicPlaybackState,
@@ -435,7 +433,7 @@ internal suspend fun loadMoreSearchResults(
     }
 }
 
-// 代理搜索结果的封面为逐条经 pic 动作换取：串行补齐前 N 条，控制聚合接口调用频率
+// 串行补齐前 N 条，控制聚合接口调用频率
 private fun fillProxySearchCovers(playbackState: MusicPlaybackState, context: Context) {
     val pending = playbackState.searchResults
         .filter { it.coverUrl.isNullOrBlank() && !it.coverId.isNullOrBlank() }
@@ -456,7 +454,6 @@ private fun fillProxySearchCovers(playbackState: MusicPlaybackState, context: Co
     }
 }
 
-// 代理搜索结果封面逐条换取的条数上限
 private const val MAX_PROXY_COVER_FILL = 8
 
 internal suspend fun downloadAndPlay(
@@ -589,7 +586,6 @@ internal suspend fun enrichOnlineMetadata(
     }
 }
 
-// 本地曲库命中同曲时直接播放；命中返回 true
 internal suspend fun tryPlayLocalMatch(
     target: NeteaseSongSearchResult,
     playbackState: MusicPlaybackState,
@@ -636,7 +632,7 @@ private suspend fun builtInPlayUrl(target: NeteaseSongSearchResult): String? =
         }
     }
 
-// 按指定音质解析在线播放地址；代理音源优先，返回 null 表示该音质不可用
+// 代理音源优先，返回 null 表示该音质不可用
 internal suspend fun resolvePlayUrlByQuality(
     context: Context,
     target: NeteaseSongSearchResult,
