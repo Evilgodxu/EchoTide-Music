@@ -72,7 +72,7 @@ internal class ContentUriTagSource(private val context: Context, private val uri
     }
 }
 
-// 已驻留内存的字节源：字节入口与测试用
+// 已驻留内存的字节源：供内存字节入口与测试使用
 internal class ByteArrayTagSource(private val bytes: ByteArray) : TagSource {
     override val size: Long = bytes.size.toLong()
 
@@ -89,7 +89,6 @@ internal class ByteArrayTagSource(private val bytes: ByteArray) : TagSource {
     }
 }
 
-// 区间搬运与跳过的读缓冲大小
 private const val STREAM_BUFFER_SIZE = 64 * 1024
 
 // 跳过指定字节数：InputStream.skip 允许少跳，而 content URI 的流还可能直接返回 0

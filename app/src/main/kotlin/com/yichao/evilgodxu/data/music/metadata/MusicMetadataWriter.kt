@@ -439,8 +439,7 @@ internal object MusicMetadataWriter {
     }
 
     // 顶层盒子表：逐个读盒子头并按声明的长度定位下一个，数据区不进入内存。
-    // 长度字段不合法（含 64 位长度与「延伸到文件末尾」）或未能恰好覆盖全文时放弃解析，
-    // 与旧实现「解析失败即放弃」同口径，不做截断猜测
+    // 长度字段不合法（含 64 位长度与「延伸到文件末尾」）或未能恰好覆盖全文时放弃解析，不做截断猜测
     private fun readMp4TopBoxes(source: TagSource): List<Mp4TopBox>? {
         val boxes = mutableListOf<Mp4TopBox>()
         var offset = 0L
@@ -448,7 +447,7 @@ internal object MusicMetadataWriter {
             val header = source.readAt(offset, MP4_BOX_HEADER_BYTES) ?: return null
             if (header.size < MP4_BOX_HEADER_BYTES) return null
             val size = int32(header, 0).toLong() and 0xffffffffL
-            // 长度字段为 1（64 位长度）或 0（延续到文件末尾）不解析：与旧实现「解析失败即放弃」同口径
+            // 长度字段为 1（64 位长度）或 0（延续到文件末尾）不解析
             if (size < MP4_BOX_HEADER_BYTES) return null
             boxes += Mp4TopBox(String(header, 4, 4, StandardCharsets.ISO_8859_1), offset, size)
             offset += size
@@ -577,7 +576,7 @@ internal object MusicMetadataWriter {
     private fun isFlac(bytes: ByteArray) = bytes.startsWith("fLaC")
 
     // Ogg 容器：Opus 与 Vorbis 的注释包位置与结构由 writeOggComments 按包头分辨。
-    // 只认 OggS 而不认 OpusHead——Vorbis 的包头不含 "OpusHead"，此前这类文件整体写不进标签
+    // 只认 OggS 而不认 OpusHead——Vorbis 的包头不含 "OpusHead"
     private fun isOgg(bytes: ByteArray) = bytes.startsWith("OggS")
 
     // MP3：既有标签区作为帧改写底本，音频帧按标签结束偏移整段搬运。

@@ -46,7 +46,7 @@ internal object SystemThumbnailCache {
 // 在低堆机型上又会把本该归缓存的额度压掉
 private const val COVER_CACHE_HEAP_RESERVE_BYTES = 300 * 1024 * 1024
 
-// 驻留下限：改造前的固定值。堆扣完余量后不足这里（低内存机型）仍按下限给，不因换口径而变小；
+// 驻留下限：堆扣完余量后不足这里（低内存机型）仍按下限给；
 // 列表行封面按显示尺寸取图后单张约 16–64 KB
 private const val COVER_CACHE_MIN_BYTES = 32 * 1024 * 1024
 

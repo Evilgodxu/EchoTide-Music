@@ -59,7 +59,7 @@ internal object LosslessContainerTags {
         put(TagField.LYRICS, lyrics)
     }, cover, removeCover = false)
 
-    // 字节入口（测试与字节级调用）：整段字节交回区间入口，判定与定位逻辑完全共用
+    // 判定与定位逻辑与区间入口共用
     fun write(
         source: ByteArray,
         fields: TrackTagFields,
@@ -270,7 +270,6 @@ internal object LosslessContainerTags {
         return null
     }
 
-    // 取内嵌封面图片字节
     fun readCover(
         header: ByteArray,
         tail: ByteArray?,

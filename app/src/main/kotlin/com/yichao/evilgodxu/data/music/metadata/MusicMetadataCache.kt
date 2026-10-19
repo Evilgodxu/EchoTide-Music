@@ -14,7 +14,7 @@ import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
 import org.json.JSONArray
 
-// 歌词缓存读写工具：全部为无状态静态函数，按需传入 Context，以 object 单例形态提供。
+// 歌词缓存读写工具：全部为无状态函数，按需传入 Context。
 // 封面不在此列：封面由显示端按需取系统略缩图或音频内嵌封面，仅当前曲目的一张缩略图另行落盘（见 CurrentCoverCache）
 internal object MusicMetadataCache {
     // 公共下载目录下的应用缓存根目录名，与在线音频缓存 Download/YiChao/Audio 保持同级。
@@ -22,7 +22,6 @@ internal object MusicMetadataCache {
     internal const val CACHE_DIR_NAME = "YiChao"
     private const val LYRIC_DIR = "Lyrics"
 
-    // 歌词缓存允许的扩展名
     private val LYRIC_CACHE_EXTENSIONS = listOf("lrc")
     // 回收的作用域上限：只认这个子目录，新增缓存类型须独立建目录 + 独立扩展名白名单
     private val CACHE_DIR_NAMES = listOf(LYRIC_DIR)
@@ -137,7 +136,6 @@ internal object MusicMetadataCache {
     private fun downloadsRelativePath(dirName: String): String =
         "${Environment.DIRECTORY_DOWNLOADS}/$CACHE_DIR_NAME/$dirName/"
 
-    // 按文件名推断缓存条目的 MIME 类型
     private fun cacheMimeType(name: String): String = when (name.substringAfterLast('.', "")) {
         "lrc" -> "text/plain"
         else -> "application/octet-stream"
@@ -198,14 +196,14 @@ internal object MusicMetadataCache {
         emptyList()
     }
 
-    // 解析本地导入的 LRC 文本（兼容逐字增强标签），供外部导入歌词时复用
+    // 兼容逐字增强标签；调用方为 LRC 导入与内嵌歌词读取
     fun parseLyricsText(text: String): List<LyricLine> {
         // 空/空白文本直接返回空列表，避免进入 JSON 兜底解析抛空值异常
         if (text.isBlank()) return emptyList()
         return parseEnhancedLrc(text).ifEmpty { parseJsonLyrics(text) }
     }
 
-    // 整体平移歌词时间轴（手动微调用）：应用幂等，缓存文件保存的始终是原始时间戳
+    // 应用幂等；缓存文件保存的始终是原始时间戳
     fun shiftLyrics(lines: List<LyricLine>, deltaMs: Long): List<LyricLine> =
         lines.map { line ->
             line.copy(

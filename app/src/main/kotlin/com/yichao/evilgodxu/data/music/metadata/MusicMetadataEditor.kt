@@ -174,7 +174,7 @@ internal object MusicMetadataEditor {
     private fun readAt(context: Context, track: MusicTrack): (Long, Int) -> ByteArray? =
         { offset, count -> LocalAudioSource.read(context, track.path, track.audioUri, offset, count) }
 
-    // Vorbis 注释中的字段读取：键名大小写不敏感，按候选键序取首个非空值
+    // 键名大小写不敏感，按候选键序取首个非空值
     private fun readVorbisFields(comments: List<String>): TrackTagFields? {
         val result = LinkedHashMap<TagField, String>()
         VORBIS_ALIASES.forEach { (field, keys) ->
@@ -183,7 +183,7 @@ internal object MusicMetadataEditor {
         return result.takeIf { it.isNotEmpty() }?.let { TrackTagFields.build { it.forEach { (f, v) -> put(f, v) } } }
     }
 
-    // Vorbis 注释中的字段取值：键名大小写不敏感，按给定键序取首个非空值
+    // 键名大小写不敏感，按给定键序取首个非空值
     private fun fieldValue(fields: List<String>, keys: List<String>): String? = keys.firstNotNullOfOrNull { key ->
         fields.firstOrNull { it.substringBefore('=').equals(key, ignoreCase = true) }
             ?.substringAfter('=', "")

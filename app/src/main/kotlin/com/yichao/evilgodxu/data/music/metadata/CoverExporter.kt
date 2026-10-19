@@ -21,7 +21,6 @@ internal object CoverExporter {
         Failed,
     }
 
-    /** 将 [track] 的内嵌封面原图存入系统相册 */
     suspend fun export(context: Context, track: MusicTrack): Result = withContext(Dispatchers.IO) {
         val bytes = EmbeddedCoverReader.readRawBytes(context, track.audioUri, track.path)
             ?: return@withContext Result.NoEmbeddedCover

@@ -170,10 +170,8 @@ class MetadataEnricher {
         }
     }
 
-    // 是否已具备歌词缓存
     private fun hasCompleteMetadata(track: MusicTrack): Boolean = track.lyricLines.isNotEmpty()
 
-    // 是否需要对曲目做全量补全
     private fun plansMetadataFor(track: MusicTrack): Boolean = needsLyrics(track)
 
     // 歌词未挂载即需处理：有有效缓存路径时必须读回内容；
