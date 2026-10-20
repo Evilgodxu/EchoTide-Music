@@ -103,8 +103,8 @@
              exported 是该机制的既定形态（弹窗由系统发起、选中后由系统启动本活动）；
              范围由 usb_device_filter 限到音频类，故不会在插 U 盘、键鼠时来打扰。
 
-             默认停用：弹窗换来的授权只有 USB 独占接管要用，故该入口由独占开关启停，开关关着时插入
-             设备不该有任何弹窗（见 UsbAttachEntry / App 启动时的镜像） -->
+             默认停用：弹窗换来的授权只有两个 USB 开关用得着（独占接管、直出读描述符），故该入口由
+             这两个开关任一启停，都关着时插入设备不该有任何弹窗（见 UsbAttachEntry / App 启动时的镜像） -->
         <activity
             android:name=".service.UsbAttachActivity"
             android:enabled="false"

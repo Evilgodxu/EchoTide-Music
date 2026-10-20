@@ -20,6 +20,7 @@ import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.repository.SettingsRepository
 import com.yichao.evilgodxu.data.settings.bootstrapAppLanguage
 import com.yichao.evilgodxu.data.settings.settingsDataStore
+import com.yichao.evilgodxu.data.settings.usbDirectOutputModeFlow
 import com.yichao.evilgodxu.data.settings.usbExclusiveOutputModeFlow
 import com.yichao.evilgodxu.data.settings.writeBootLanguage
 import com.yichao.evilgodxu.floatingwindow.LocalMiniPlayerController
@@ -31,6 +32,7 @@ import com.yichao.evilgodxu.update.LocalUpdateViewModel
 import com.yichao.evilgodxu.update.UpdateViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
@@ -86,10 +88,15 @@ class App : Application() {
             runCatching { settingsDataStore.data.first() }
             runCatching { writeBootLanguage(applicationContext, applicationContext.bootstrapAppLanguage()) }
         }
-        // USB 接入入口跟着独占开关启停：开关关着时该入口不认领设备，系统也就不会弹「用哪个应用打开」。
-        // 订阅落盘值而非开关回调，故设置页之外的写入同样生效（见 setUsbAttachEntryEnabled）
+        // USB 接入入口跟着两个 USB 开关的任一开启而启用：独占要用它换接管授权，直出要用那份授权读描述符
+        // （面板的设备能力只认描述符，见 UsbAudioCapabilities）。两者都关着时该入口不认领设备，
+        // 系统也就不会弹「用哪个应用打开」。订阅落盘值而非开关回调，故设置页之外的写入同样生效
         appScope.launch {
-            runCatching { usbExclusiveOutputModeFlow().collect { setUsbAttachEntryEnabled(it) } }
+            runCatching {
+                combine(usbExclusiveOutputModeFlow(), usbDirectOutputModeFlow()) { exclusive, direct ->
+                    exclusive || direct
+                }.collect { setUsbAttachEntryEnabled(it) }
+            }
         }
         // 内存缓存收窄到进程堆的 10%，把堆留给 ExoPlayer 的高解析度音频缓冲；
         // 磁盘缓存关闭：其私有键值格式的占用不可见，且与 LargeCoverStore 的封面落盘重复，
