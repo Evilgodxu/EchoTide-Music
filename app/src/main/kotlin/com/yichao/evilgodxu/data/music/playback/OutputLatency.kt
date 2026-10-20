@@ -31,7 +31,14 @@ private const val API_WRITTEN_FRAMES = 37
  * 公开而非模块内：它与 [AudioInfoSnapshot] 同类，是面板的读模型，经播放状态发布给界面取用。
  */
 data class OutputLatencyReading(
-    /** 音频轨缓冲容量（帧）：平台实际授予的容量 */
+    /**
+     * 音频轨缓冲容量（帧）：平台实际授予的容量。
+     *
+     * 每次取自 `AudioTrack.getBufferSizeInFrames()`，是**实时读数**而不是建轨时的申请值，故不参与滑动平均
+     * （只有后面两段入窗）。平台授予时会按自己的粒度对齐，实得帧数与目标时长往往不成整数关系：44.1k 下
+     * 80ms 为 3528 帧，平台给的若是 3532 帧，换算回来就是 80.1ms。**那零点几毫秒是平台对齐的余量，不是
+     * 缓冲被抬高**——判读时须留这个容差，别把 80.1 当成「策略没生效」。
+     */
     val trackBufferFrames: Int,
     /** 音频轨缓冲容量对应的时长（毫秒） */
     val trackBufferMs: Float,
