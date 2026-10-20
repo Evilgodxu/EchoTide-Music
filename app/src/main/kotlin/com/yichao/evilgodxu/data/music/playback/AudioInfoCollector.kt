@@ -14,13 +14,6 @@ import com.yichao.evilgodxu.data.music.playback.usb.UsbAudioCapabilities
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// USB 解码器会以设备、耳机、配件三类上报，三者都是可直接播放的输出目标
-private val USB_OUTPUT_TYPES = setOf(
-    AudioDeviceInfo.TYPE_USB_DEVICE,
-    AudioDeviceInfo.TYPE_USB_HEADSET,
-    AudioDeviceInfo.TYPE_USB_ACCESSORY,
-)
-
 // 蓝牙音频输出：A2DP 承载媒体音频，SCO 为通话通路，BLE 系列与助听器为低功耗音频设备
 private val BLUETOOTH_OUTPUT_TYPES = setOf(
     AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,

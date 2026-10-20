@@ -63,6 +63,7 @@ import com.yichao.evilgodxu.data.music.playback.OutputEncoding
 import com.yichao.evilgodxu.data.music.playback.OutputLatencyReading
 import com.yichao.evilgodxu.data.music.playback.OutputLatencySampler
 import com.yichao.evilgodxu.data.music.playback.outputEncodingOf
+import com.yichao.evilgodxu.data.music.playback.usb.usbCardNameOf
 import com.yichao.evilgodxu.permission.PermissionMonitor
 import com.yichao.evilgodxu.permission.bluetoothConnectPermission
 import com.yichao.evilgodxu.utils.formatMebibytes
@@ -73,9 +74,6 @@ import com.yichao.evilgodxu.R
 
 // 行内文本最大行数：超出以省略号截断，避免个别超长设备描述撑开整块面板
 private const val VALUE_MAX_LINES = 3
-
-// USB 声卡自报名中不携带设备信息的前缀：ALSA 以「声卡名 - 通道名」拼接，声卡名对所有 USB 声卡相同
-private const val USB_CARD_NAME_PREFIX = "USB-Audio - "
 
 /**
  * 音频信息内容：按分组渲染当前播放链路实际可获取的字段行。
@@ -401,9 +399,9 @@ private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
     )
 }
 
-// 设备名称：剥掉 USB 声卡自报名里不含设备信息的声卡名前缀，只留设备自称
-private fun deviceNameLabel(name: String): String =
-    name.removePrefix(USB_CARD_NAME_PREFIX).trim().ifEmpty { name }
+// 设备名称：剥掉 USB 声卡自报名里不含设备信息的声卡名前缀，只留设备自称。
+// 归一函数与描述符那侧的设备匹配共用（见 usbCardNameOf），两处认的是同一台设备的同一个名字
+private fun deviceNameLabel(name: String): String = usbCardNameOf(name).ifEmpty { name }
 
 // 设备类型名：便于一眼区分当前出口通路的类别
 @Composable

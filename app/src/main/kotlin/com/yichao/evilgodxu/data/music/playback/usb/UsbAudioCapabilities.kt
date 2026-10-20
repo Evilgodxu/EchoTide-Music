@@ -59,6 +59,7 @@ internal fun usbAudioDeviceInfo(
  * 展示，就只能读描述符。
  *
  * 无设备、无授权或读取失败一律返回 null，由调用方退回平台 API 的取值——读不到是常态而非异常。
+ * 授权本身不在此申请：弹窗属于交互，由界面在合适的时机发起（见 [UsbAccessRequest]）。
  */
 internal object UsbAudioCapabilities {
 
@@ -68,7 +69,8 @@ internal object UsbAudioCapabilities {
     fun read(context: Context, preferProductName: String? = null): UsbExclusiveDeviceInfo? {
         val manager = context.getSystemService(UsbManager::class.java) ?: return null
         val candidates = UsbExclusiveDac.attachedDacs(manager)
-        val device = candidates.firstOrNull { it.productName == preferProductName }
+        // 名称来自两处（ALSA 声卡名 / 描述符 iProduct），须归一后再比；归一后仍对不上且不唯一时不猜
+        val device = candidates.firstOrNull { usbProductNameMatches(preferProductName, it.productName) }
             ?: candidates.singleOrNull()
             ?: return null
         if (!manager.hasPermission(device)) return null
