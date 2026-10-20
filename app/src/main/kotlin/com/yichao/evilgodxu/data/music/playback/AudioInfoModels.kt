@@ -30,6 +30,10 @@ data class BluetoothLinkInfo(
     val codec: BluetoothCodecInfo?,
 )
 
+// 支持采样率的来源。设备声明的档位与平台上报的档位可以不一致（平台常漏报），
+// 面板上必须说清正在看的是哪一份，否则同一个设备在两处显示不同档位就无从对账
+enum class SampleRateSource { DEVICE, PLATFORM }
+
 // 当前输出设备的信息。各项均为平台上报值，未上报的项留空；
 // 蓝牙设备的名称与真实地址受 BLUETOOTH_CONNECT 限制，未授权时两项都读不到，同为留空
 data class OutputDeviceInfo(
@@ -38,6 +42,8 @@ data class OutputDeviceInfo(
     val address: String?,
     /** 设备支持的全部采样率，升序：设备自报的档位与动态混音端口声明的档位取并集 */
     val supportedSampleRates: List<Int>,
+    /** [supportedSampleRates] 的出处：设备声明还是平台上报 */
+    val sampleRateSource: SampleRateSource?,
     val channelCount: Int?,
     /**
      * 设备动态混音端口声明的 PCM 编码。
@@ -82,6 +88,8 @@ data class UsbExclusiveDeviceInfo(
     val supportedEncodings: List<OutputEncoding>,
     /** 设备声明的通道数 */
     val channelCount: Int?,
+    /** UAC 版本（1 或 2，0 表示未找到 AudioControl 接口）：档位来源随版本不同，诊断时须先看这一项 */
+    val uacVersion: Int? = null,
 )
 
 /**

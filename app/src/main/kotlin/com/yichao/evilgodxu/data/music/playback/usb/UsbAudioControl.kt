@@ -135,24 +135,51 @@ internal class UsbAudioControl(
     /**
      * 读时钟源支持的采样率档位。
      *
-     * 先问子区间个数再取全部（与内核驱动同序）：直接按最大长度问会超出设备应答的长度，部分设备据此报错。
-     * 取不到时退回读当前值，把"此刻正在用的那一档"当作唯一已知档位。
+     * 三条路依次尝试，谁先给出非空档位就用谁：
+     * 1. **一次问满**：请求长度取应答结构的上限，设备按实际长度短答复、宿主多要的部分被短包截断。
+     *    这是内核驱动的问法（`snd_usb_get_sample_rate` 一次要 `2 + 12 * MAX`），对「只认与应答等长的
+     *    请求」的设备最保险——KT02H20 就走这条才答得上来；
+     * 2. **两步问**：先要子区间个数、再按个数取。少数设备对超长请求报错，只认第二种；
+     * 3. **读当前值**：把"此刻正在用的那一档"当作唯一已知档位。
+     *
+     * [trace] 供诊断收取每次尝试的实际传输字节数：三次都失败时，是设备不应答还是宿主侧被拒，
+     * 只能靠这三个数分辨——-1 表示传输失败，0 或短读表示应答形状不符。
      */
-    fun readClockRates(clockSourceId: Int): List<Int> {
+    fun readClockRates(clockSourceId: Int, trace: ((String) -> Unit)? = null): List<Int> {
         val index = UsbAudioRequests.clockIndex(clockSourceId, controlInterface)
         val value = UsbAudioRequests.clockValue(UsbAudioRequests.CONTROL_SAMPLING_FREQ)
+
+        val bulk = ByteArray(MAX_RANGE_REPLY_BYTES)
+        val bulkRead = transferIn(UsbAudioRequests.UAC2_RANGE, value, index, bulk)
+        trace?.invoke("一次问满 ${bulk.size}B 得 $bulkRead")
+        if (bulkRead >= 2) {
+            val ranges = UsbAudioRequests.unsigned16(bulk, 0)
+            if (ranges in 1..MAX_RANGE_ENTRIES && bulkRead >= 2 + 12 * ranges) {
+                usbAudioRatesFromRange(bulk, 0, 2 + 12 * ranges)
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { return it }
+            }
+        }
+
         val head = ByteArray(2)
-        if (controlIn(UsbAudioRequests.UAC2_RANGE, value, index, head, head.size)) {
+        val headRead = transferIn(UsbAudioRequests.UAC2_RANGE, value, index, head)
+        trace?.invoke("先问个数 2B 得 $headRead")
+        if (headRead == head.size) {
             val ranges = UsbAudioRequests.unsigned16(head, 0)
             if (ranges in 1..MAX_RANGE_ENTRIES) {
                 val reply = ByteArray(2 + 12 * ranges)
-                if (controlIn(UsbAudioRequests.UAC2_RANGE, value, index, reply, reply.size)) {
-                    usbAudioRatesFromRange(reply, 0, reply.size).takeIf { it.isNotEmpty() }?.let { return it }
+                val read = transferIn(UsbAudioRequests.UAC2_RANGE, value, index, reply)
+                trace?.invoke("按个数取 ${reply.size}B 得 $read")
+                if (read == reply.size) {
+                    usbAudioRatesFromRange(reply, 0, read).takeIf { it.isNotEmpty() }?.let { return it }
                 }
             }
         }
+
         val current = ByteArray(4)
-        if (controlIn(UsbAudioRequests.UAC2_CUR, value, index, current, current.size)) {
+        val currentRead = transferIn(UsbAudioRequests.UAC2_CUR, value, index, current)
+        trace?.invoke("读当前值 4B 得 $currentRead")
+        if (currentRead == current.size) {
             val rate = UsbAudioRequests.unsigned16(current, 0) or
                 (UsbAudioRequests.unsigned16(current, 2) shl 16)
             if (rate > 0) return listOf(rate)
@@ -325,14 +352,25 @@ internal class UsbAudioControl(
         data: ByteArray,
         length: Int,
         requestType: Int = UsbAudioRequests.IN_INTERFACE,
-    ): Boolean {
-        val transferred = runCatching {
-            connection.controlTransfer(requestType, request, value, index, data, length, CONTROL_TIMEOUT_MS)
-        }.onFailure {
-            CrashLogManager.logException(LOG_TAG, "控制请求 $request 抛出异常", it)
-        }.getOrDefault(-1)
-        return transferred == length
-    }
+    ): Boolean = transferIn(request, value, index, data, requestType) == length
+
+    /**
+     * 类请求的读，返回实际传输的字节数：-1 为传输失败，短读如实给出。
+     *
+     * 与 [controlIn] 分开：多数调用点只需「读到想要的长度就算成功」，但诊断要知道失败是传输被拒还是
+     * 应答形状不符——这两种情况的下一步完全不同，混成一个布尔值就分不出来了。
+     */
+    private fun transferIn(
+        request: Int,
+        value: Int,
+        index: Int,
+        data: ByteArray,
+        requestType: Int = UsbAudioRequests.IN_INTERFACE,
+    ): Int = runCatching {
+        connection.controlTransfer(requestType, request, value, index, data, data.size, CONTROL_TIMEOUT_MS)
+    }.onFailure {
+        CrashLogManager.logException(LOG_TAG, "控制请求 $request 抛出异常", it)
+    }.getOrDefault(-1)
 
     private companion object {
         /** 主控的声道号 */
@@ -343,6 +381,9 @@ internal class UsbAudioControl(
 
         /** 子区间个数的合理上限：防止设备的异常应答让缓冲区按天量申请 */
         const val MAX_RANGE_ENTRIES = 8
+
+        /** RANGE 应答的请求上限：2 字节子区间数 + 每个子区间 12 字节（下限、上限、步长各 32 位） */
+        const val MAX_RANGE_REPLY_BYTES = 2 + 12 * MAX_RANGE_ENTRIES
 
         const val MAX_VOLUME_SUB_RANGES = 4
     }

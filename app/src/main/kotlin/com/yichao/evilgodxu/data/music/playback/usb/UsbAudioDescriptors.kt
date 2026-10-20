@@ -663,20 +663,22 @@ internal fun usbAudioRatesFromRange(data: ByteArray, offset: Int, length: Int): 
         // 区间条目须完整落在可读范围内，否则停止而非读越界
         if (12 * (i + 1) > length - 2) break
         val entry = offset + 2 + 12 * i
-        val low = data.u32(entry)
-        val high = data.u32(entry + 4)
-        val step = data.u32(entry + 8)
-        if (low == high) {
-            if (low in 1L..MAX_AUDIO_RATE.toLong()) rates += low.toInt()
-            continue
-        }
-        for (rate in COMMON_AUDIO_RATES) {
-            if (rate >= low && rate <= high && (step == 0L || (rate - low) % step == 0L)) {
-                rates += rate.toInt()
-            }
-        }
+        rates += usbAudioRatesInRange(data.u32(entry), data.u32(entry + 4), data.u32(entry + 8))
     }
-    return rates.filter { it > 0 }.distinct().sorted()
+    return rates.distinct().sorted()
+}
+
+/**
+ * 一个采样率区间里可用的档位。
+ *
+ * 上下限相同是单点档位；步长为 0 表示连续。UAC1 的连续区间与 UAC2 的 RANGE 应答走同一条口径，
+ * 两处因此给出同一份档位表——同一个区间不该因声明它的是哪个版本而报出不同的支持范围。
+ */
+internal fun usbAudioRatesInRange(low: Long, high: Long, step: Long): List<Int> {
+    if (low == high) return if (low in 1L..MAX_AUDIO_RATE.toLong()) listOf(low.toInt()) else emptyList()
+    return COMMON_AUDIO_RATES
+        .filter { it in low..high && (step == 0L || (it - low) % step == 0L) }
+        .map { it.toInt() }
 }
 
 private const val MAX_AUDIO_RATE = 768000

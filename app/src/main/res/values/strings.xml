@@ -199,6 +199,10 @@
     <string name="audio_info_device_sample_rates">支持采样率</string>
     <!-- 档位列表按 kHz 紧凑呈现，尾零不展示 -->
     <string name="audio_info_value_khz_list">%s kHz</string>
+    <!-- 档位来源：设备自己声明的，或平台上报的。两者可以不一致，展示时须说清是哪一份 -->
+    <string name="audio_info_value_khz_list_source">%1$s kHz · %2$s</string>
+    <string name="audio_info_rate_source_device">设备声明</string>
+    <string name="audio_info_rate_source_platform">平台上报</string>
     <string name="audio_info_device_encodings">支持编码</string>
     <string name="audio_info_device_channels">支持通道数</string>
     <string name="audio_info_bluetooth_type">蓝牙类型</string>

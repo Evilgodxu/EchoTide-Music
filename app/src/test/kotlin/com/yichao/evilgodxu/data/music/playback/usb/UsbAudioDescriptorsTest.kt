@@ -216,6 +216,31 @@ class UsbAudioDescriptorsTest {
         assertTrue(usbAudioRatesFromRange(declared, 0, declared.size).isEmpty())
     }
 
+    /**
+     * UAC1 的连续区间与 UAC2 的 RANGE 应答取同一份档位表。
+     *
+     * 用例取自实测现场（KT02H20）：连续区间 48000..384000，平台报出的档位正是这几个。
+     * 44.1k 家族缺 44100 而只有倍率档，是这类设备的常态——故区间下界以下的档位不得混入。
+     */
+    @Test
+    fun continuousRangeUsesTheSameRateTableAsRangeReplies() {
+        assertEquals(
+            listOf(48000, 88200, 96000, 176400, 192000, 352800, 384000),
+            usbAudioRatesInRange(48000, 384000, 0),
+        )
+    }
+
+    @Test
+    fun continuousRangeHonoursItsStep() {
+        // 步长 44100 自下界起算：只有落在格点上的常见档位可用
+        assertEquals(listOf(44100, 88200), usbAudioRatesInRange(44100, 96000, 44100))
+    }
+
+    @Test
+    fun invertedRangeYieldsNothing() {
+        assertTrue(usbAudioRatesInRange(96000, 48000, 0).isEmpty())
+    }
+
     // ---------------------------------------------------------------- 合成描述符
 
     /**

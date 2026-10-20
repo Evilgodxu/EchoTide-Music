@@ -195,6 +195,10 @@
     <string name="audio_info_device_sample_rates">Supported sample rates</string>
     <!-- The rate list is rendered in kHz, without trailing zeros -->
     <string name="audio_info_value_khz_list">%s kHz</string>
+    <!-- Provenance of the rate list: declared by the device itself, or reported by the platform -->
+    <string name="audio_info_value_khz_list_source">%1$s kHz · %2$s</string>
+    <string name="audio_info_rate_source_device">Device</string>
+    <string name="audio_info_rate_source_platform">Platform</string>
     <string name="audio_info_device_encodings">Supported encodings</string>
     <string name="audio_info_device_channels">Supported channel counts</string>
     <string name="audio_info_bluetooth_type">Bluetooth type</string>

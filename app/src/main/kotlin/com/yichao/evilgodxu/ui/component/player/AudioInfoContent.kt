@@ -58,6 +58,7 @@ import com.yichao.evilgodxu.data.music.playback.DecodedOutputFormat
 import com.yichao.evilgodxu.data.music.playback.FloatOutputState
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.OutputDeviceInfo
+import com.yichao.evilgodxu.data.music.playback.SampleRateSource
 import com.yichao.evilgodxu.data.music.playback.OutputDeviceKind
 import com.yichao.evilgodxu.data.music.playback.OutputEncoding
 import com.yichao.evilgodxu.data.music.playback.OutputLatencyReading
@@ -334,13 +335,20 @@ private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
         },
         device.supportedSampleRates
             .takeIf { it.isNotEmpty() }
-            ?.let {
+            ?.let { rates ->
+                val rateSource = when (device.sampleRateSource) {
+                    SampleRateSource.DEVICE -> stringResource(R.string.audio_info_rate_source_device)
+                    SampleRateSource.PLATFORM -> stringResource(R.string.audio_info_rate_source_platform)
+                    null -> null
+                }
+                val list = rates.joinToString("/", transform = ::formatSampleRateKHz)
                 AudioInfoRow(
                     stringResource(R.string.audio_info_device_sample_rates),
-                    stringResource(
-                        R.string.audio_info_value_khz_list,
-                        it.joinToString("/", transform = ::formatSampleRateKHz),
-                    ),
+                    if (rateSource == null) {
+                        stringResource(R.string.audio_info_value_khz_list, list)
+                    } else {
+                        stringResource(R.string.audio_info_value_khz_list_source, list, rateSource)
+                    },
                 )
             },
         device.supportedEncodings

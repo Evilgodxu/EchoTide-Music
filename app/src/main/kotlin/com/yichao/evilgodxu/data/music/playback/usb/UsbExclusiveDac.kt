@@ -105,6 +105,8 @@ internal class UsbExclusiveDac private constructor(
      */
     fun declaredCapabilities(): UsbExclusiveDeviceInfo? =
         withDevice(null) { usbAudioDeviceInfo(deviceName, descriptors, control, clockRates) }
+            // 独占期间它是唯一读得到设备声明的那条路，顺手留一份给只读方（诊断报告）引用
+            ?.also { UsbAudioCapabilities.remember(it) }
 
     /**
      * 让设备按 [format] 与 [sampleRate] 就绪，成功即可以该格式建流。
@@ -153,6 +155,16 @@ internal class UsbExclusiveDac private constructor(
             selectAlternateSetting(format.interfaceNumber, 0)
             activeStreamInterface = 0
             return false
+        }
+        // 回读为 0 只说明"设备没告诉我们要不要设"，不足以否掉直出。是否值得留痕取决于端点的同步方式：
+        // 自适应与同步端点跟着包速率走，时钟不必设、设了没应答也无碍；只有异步端点的时钟说了算，
+        // 那时"未设置"意味着以错误速率送出，只能靠听感发现——故仅在异步端点记这一条
+        if (deviceRate == 0 && uacVersion == 2 && format.syncType == UsbAudioSyncType.ASYNCHRONOUS) {
+            CrashLogManager.logException(
+                LOG_TAG,
+                "时钟源 #$clockSource 采样率读写均无应答（请求 $sampleRate），本次直出未经速率核验",
+                null,
+            )
         }
         return true
     }

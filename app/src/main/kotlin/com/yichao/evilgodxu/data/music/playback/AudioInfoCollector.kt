@@ -263,6 +263,8 @@ internal object AudioInfoCollector {
                 name = device.name,
                 address = null,
                 supportedSampleRates = device.supportedSampleRates,
+                // 独占期间设备已从系统音频里消失，这份档位只可能来自设备描述符与时钟查询
+                sampleRateSource = SampleRateSource.DEVICE,
                 channelCount = device.channelCount,
                 supportedEncodings = device.supportedEncodings,
                 bluetooth = null,
@@ -279,6 +281,7 @@ internal object AudioInfoCollector {
         val mixerAttributes = supportedMixerAttributes(audioManager, device)
         // USB 解码器按描述符声明的口径给出能力，其余通路只能按平台上报值
         val declared = declaredCapabilities(context, kind, device)
+        val declaredRates = declared?.supportedSampleRates?.takeIf { it.isNotEmpty() }
         return OutputDeviceInfo(
             kind = kind,
             name = if (kind == OutputDeviceKind.BLUETOOTH) {
@@ -287,8 +290,8 @@ internal object AudioInfoCollector {
                 device.productName?.toString()?.takeIf { it.isNotBlank() }
             },
             address = address,
-            supportedSampleRates = declared?.supportedSampleRates?.takeIf { it.isNotEmpty() }
-                ?: supportedSampleRates(device, mixerAttributes),
+            supportedSampleRates = declaredRates ?: supportedSampleRates(device, mixerAttributes),
+            sampleRateSource = if (declaredRates != null) SampleRateSource.DEVICE else SampleRateSource.PLATFORM,
             channelCount = declared?.channelCount
                 ?: device.channelCounts.firstOrNull()?.takeIf { it > 0 },
             supportedEncodings = declared?.supportedEncodings?.takeIf { it.isNotEmpty() }

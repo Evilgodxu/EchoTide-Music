@@ -454,26 +454,6 @@ class UsbDirectOutput(
     private fun deviceLabel(device: AudioDeviceInfo): String =
         device.productName?.toString()?.takeIf { it.isNotBlank() } ?: "id=${device.id}"
 
-    private fun describeMixer(attributes: AudioMixerAttributes): String =
-        "${behaviorName(attributes.mixerBehavior)} " +
-            "${attributes.format.sampleRate}Hz/${attributes.format.channelCount}ch/" +
-            encodingName(attributes.format.encoding)
-
-    private fun behaviorName(behavior: Int): String = when (behavior) {
-        AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT -> "默认行为"
-        AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT -> "位完美"
-        else -> "行为$behavior"
-    }
-
-    private fun encodingName(encoding: Int): String = when (encoding) {
-        AudioFormat.ENCODING_PCM_8BIT -> "8位整型"
-        AudioFormat.ENCODING_PCM_16BIT -> "16位整型"
-        AudioFormat.ENCODING_PCM_24BIT_PACKED -> "24位整型"
-        AudioFormat.ENCODING_PCM_32BIT -> "32位整型"
-        AudioFormat.ENCODING_PCM_FLOAT -> "32位浮点"
-        else -> "编码$encoding"
-    }
-
     private fun findUsbOutputDevice(): AudioDeviceInfo? =
         audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
             .firstOrNull { it.isSink && it.type in USB_OUTPUT_TYPES }
