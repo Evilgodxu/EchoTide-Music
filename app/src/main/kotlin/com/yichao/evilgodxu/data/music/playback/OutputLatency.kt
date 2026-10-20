@@ -17,29 +17,20 @@ private const val API_WRITTEN_FRAMES = 37
 /**
  * 输出链路的实测延迟读数。
  *
- * 链路按音频轨切成两段，两段各自可测，相加即全链路：
+ * 链路按音频轨切成两段，两段各自可测：
  * - [afterTrackMs]：数据**离开音频轨之后**的那一段——AudioFlinger 的混音缓冲、HAL 与设备传输、
  *   解码器自身的排队。它由音频轨把数据交出去起算，与音频轨容量无关，也是全链路能到的最低值
  *   （驻留为 0 时全链路就等于它）。这一段之内不再可拆：没有接口能把「设备传输」与「解码器自身缓冲」
  *   分开，只能靠换通路对照（同一时刻另测内置通路相减）；
  * - [trackResidentMs]：**音频轨自身的驻留**，即已写入而未交出的量。缓冲策略直接决定它，上限为
- *   [trackBufferFrames]；
- * - [fullChainMs]：从**写进音频轨**起算的全链路，恒等于上面两段之和。
+ *   [trackBufferFrames]。
  *
- * 容量与驻留并列，才能看出缓冲策略的效果与余量：目标给出策略的取向，容量是平台实际授予的上限，驻留是
- * 此刻实际占用。三者并列，才看得出策略是否被平台下限抬升、余量还剩多少。
+ * 容量与驻留并列才看得出缓冲的余量：容量是平台实际授予的上限，驻留是此刻实际占用——差越大，抗欠载
+ * 的余量越大，可压缩的延迟也越多。
  *
  * 公开而非模块内：它与 [AudioInfoSnapshot] 同类，是面板的读模型，经播放状态发布给界面取用。
  */
 data class OutputLatencyReading(
-    /**
-     * 缓冲目标（帧）：[PlaybackBufferPolicy] 按采样率换算出的申请值。
-     *
-     * 不是实测量，也不受本机授予多少影响——平台下限更高时，实得容量会高于此值。
-     */
-    val targetBufferFrames: Int,
-    /** 缓冲目标对应的时长（毫秒） */
-    val targetBufferMs: Float,
     /** 音频轨缓冲容量（帧）：平台实际授予的容量 */
     val trackBufferFrames: Int,
     /** 音频轨缓冲容量对应的时长（毫秒） */
@@ -48,8 +39,6 @@ data class OutputLatencyReading(
     val afterTrackMs: Float?,
     /** 音频轨自身的驻留（毫秒）；取不到写入帧位时为 null */
     val trackResidentMs: Float?,
-    /** 从写进音频轨起算的全链路（毫秒）；取不到写入帧位时为 null */
-    val fullChainMs: Float?,
 )
 
 /**
@@ -65,10 +54,10 @@ data class OutputLatencyReading(
  * - 与**播放头**（[AudioTrack.getPlaybackHeadPosition]）相比，得 [OutputLatencyReading.afterTrackMs]
  *   ——播放头是音频系统已经取走的位置，差值即「离开音频轨之后还要多久才发声」，取自公开接口且各系统
  *   稳定可用；
- * - 与**写入帧位**相比，得全链路——它是应用已经写进音频轨的位置，差值含音频轨自身的驻留。
- *   该帧位优先取自应用自己的输出实现（逐次记账音频轨实际接受的字节，任何 API 都有）；媒体3 的默认
- *   输出不暴露写入量，那两个变体只能退到平台接口 [AudioTrack.getWrittenFramesCount]（API 37 起可读），
- *   再取不到时就只产出前一段。
+ * - 写入帧位与播放头之差得音频轨自身的驻留，见 [OutputLatencyReading.trackResidentMs]。该帧位优先取自
+ *   应用自己的输出实现（逐次记账音频轨实际接受的字节，任何 API 都有）；媒体3 的默认输出不暴露写入量，
+ *   那两个变体只能退到平台接口 [AudioTrack.getWrittenFramesCount]（API 37 起可读），再取不到时就只
+ *   产出前一段。
  *
  * 取不到时不产出对应值：不接受与当前路由无关的下界值顶替，也不拿上界冒充实测。
  */
@@ -78,7 +67,7 @@ internal object OutputLatency {
      * 读一次当前音频轨的延迟读数，轨道不可用时返回 null。
      *
      * 延迟只在链路推进时才谈得上：未推进时播放头与时间戳都不随时间前进，比对出来的差值无从对应到
-     * 出站后的那一段，故两项延迟此时留空；目标与容量是链路的属性，不受推进与否影响，照常给出。
+     * 出站后的那一段，故两项延迟此时留空；容量是链路的属性，不受推进与否影响，照常给出。
      *
      * [writtenFrames] 是「已写进音频轨的帧数」的取值入口，取不到时传 null，此时退到平台接口。
      */
@@ -87,23 +76,18 @@ internal object OutputLatency {
         if (track.state != AudioTrack.STATE_INITIALIZED) return null
         val sampleRate = track.sampleRate.takeIf { it > 0 } ?: return null
         val bufferFrames = track.bufferSizeInFrames.takeIf { it > 0 } ?: return null
-        val targetFrames = PlaybackBufferPolicy.targetBufferFrames(sampleRate)
         val advanced = advancedLatencyMs(track, sampleRate, bufferFrames, writtenFrames)
         return OutputLatencyReading(
-            targetBufferFrames = targetFrames,
-            targetBufferMs = framesToMs(targetFrames, sampleRate),
             trackBufferFrames = bufferFrames,
             trackBufferMs = framesToMs(bufferFrames, sampleRate),
             afterTrackMs = advanced?.afterTrackMs,
             trackResidentMs = advanced?.trackResidentMs,
-            fullChainMs = advanced?.fullChainMs,
         )
     }
 
     private data class AdvancedLatency(
         val afterTrackMs: Float,
         val trackResidentMs: Float?,
-        val fullChainMs: Float?,
     )
 
     /** 推进中的两段延迟；未推进或时间戳不可用时返回 null */
@@ -126,10 +110,7 @@ internal object OutputLatency {
         val afterTrackMs = afterTrackFrames.toMs(sampleRate) ?: return null
         val residentMs = writtenResidueFrames(track, headFrames, bufferFrames, writtenFrames)
             ?.toMs(sampleRate)
-        // 全链路按两段相加得出，不另做一次帧到毫秒的换算：面板上三行因此恒能对上
-        val fullChainMs = residentMs
-            ?.let { resident -> (afterTrackMs + resident).takeIf { it <= MAX_PLAUSIBLE_LATENCY_MS } }
-        return AdvancedLatency(afterTrackMs, residentMs, fullChainMs)
+        return AdvancedLatency(afterTrackMs, residentMs)
     }
 
     /**
@@ -137,7 +118,7 @@ internal object OutputLatency {
      *
      * 写入帧位有两个来源，优先取应用自己的输出实现：[writtenFrames] 由音频输出逐次记账音频轨实际
      * 接受的字节，任何 API 上都能精确给出；媒体3 的默认输出不暴露写入量，那两个变体只能退到平台接口
-     * [AudioTrack.getWrittenFramesCount]（API 37 起可读）。两者都拿不到时为 null，全链路延迟随之不产出。
+     * [AudioTrack.getWrittenFramesCount]（API 37 起可读）。两者都拿不到时为 null，驻留随之不产出。
      *
      * 两个来源的基准都与播放头一致：写入帧位自音频轨创建起累计，而播放头会被冲刷与停止清零；媒体3 在
      * 每次冲刷时整个释放并重建音频轨（默认输出与 24 位输出都是如此），写入量也随之归零，故同一条音频轨
@@ -172,7 +153,7 @@ internal object OutputLatency {
     private fun Long.toMs(sampleRate: Int): Float? =
         (this * MILLIS_PER_SECOND / sampleRate).takeIf { it in 0f..MAX_PLAUSIBLE_LATENCY_MS }
 
-    // 缓冲那几行的帧数换算：申请值与实得容量都按它折算，不设可信上界——那是延迟读数才有的判定
+    // 缓冲容量的帧数换算：不设可信上界——那是延迟读数才有的判定
     private fun framesToMs(frames: Int, sampleRate: Int): Float = frames * MILLIS_PER_SECOND / sampleRate
 
     private const val NANOS_PER_SECOND = 1_000_000_000L
@@ -183,8 +164,7 @@ internal object OutputLatency {
  * 输出延迟读数的滑动平均采样器。
  *
  * 平台明确说明「时间戳在短期内的相邻两次差异不具意义」，单次取值直接展示会把抖动当成变化，故按最近
- * [window] 次取值取平均——两段延迟各成一窗，全链路取两段均值之和。目标与容量是链路的属性而非随时波动
- * 的观测量，不参与平均。
+ * [window] 次取值取平均——两段延迟各成一窗。目标与容量是链路的属性而非随时波动的观测量，不参与平均。
  *
  * 取不到延迟的采样不入窗：那时链路并未推进，掺入零值会把均值拉低。窗口随每次成功采样推移，旧样本
  * 自然被挤出，无需专门复位；换了一条音频轨则由调用方换一个采样器，历史样本不会跨轨混入。
@@ -220,13 +200,6 @@ internal class OutputLatencySampler(private val window: Int = AVERAGE_WINDOW) {
         return reading.copy(
             afterTrackMs = averagedAfterTrackMs,
             trackResidentMs = averagedResidentMs,
-            // 全链路取两段均值之和，而不是把每次读数各自求和后再平均：面板上三行因此恒能对上。
-            // 两段缺一即不产出——把它当成 0 会把「测不到」显示成「很短」
-            fullChainMs = if (averagedAfterTrackMs != null && averagedResidentMs != null) {
-                averagedAfterTrackMs + averagedResidentMs
-            } else {
-                null
-            },
         )
     }
 

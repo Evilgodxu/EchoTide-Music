@@ -175,18 +175,14 @@
     <string name="audio_info_decoded_output">Decoded output</string>
     <string name="audio_info_float_output">Float output</string>
     <string name="audio_info_output_encoding">Output encoding</string>
-    <!-- Two readings of the same chain: one starts at the buffer outlet, the other includes the buffered segment —
-         their difference is the "Buffer residency" row. "Buffer" rather than "audio track": the exclusive path has no
-         AudioTrack, its part sits in the ring buffer -->
-    <string name="audio_info_latency">Output latency (excl. buffer residency)</string>
-    <string name="audio_info_latency_full">Output latency (incl. buffer residency)</string>
-    <!-- The three buffer rows: the target comes from the buffer policy, the other two are measured -->
-    <string name="audio_info_target_buffer">Target buffer</string>
-    <!-- What the policy asks for at this sample rate, regardless of what the device grants -->
+    <!-- The latency row starts at the buffer outlet and excludes the buffered segment — residency has its own row.
+         "Buffer" rather than "audio track": the exclusive path has no AudioTrack, its part sits in the ring buffer -->
+    <string name="audio_info_latency">Output latency</string>
+    <!-- Buffer rows: granted capacity, then current occupancy. Residency sits above latency in the panel -->
+    <!-- Capacity actually granted; higher than the policy target when the platform minimum is higher -->
     <string name="audio_info_track_buffer">Current buffer</string>
-    <!-- The capacity actually granted; higher than the target when the platform minimum is higher -->
-    <string name="audio_info_track_resident">Buffer residency</string>
     <!-- Current occupancy; the closer to "Current buffer", the more underrun headroom — and the higher the latency -->
+    <string name="audio_info_track_resident">Buffer residency</string>
     <string name="audio_info_transport_state">Transfer state</string>
     <string name="audio_info_device_usb">USB device</string>
     <string name="audio_info_device_bluetooth">Bluetooth device</string>

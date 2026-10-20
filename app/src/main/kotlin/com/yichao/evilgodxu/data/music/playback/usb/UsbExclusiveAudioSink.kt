@@ -14,7 +14,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.audio.AudioSink
 import com.yichao.evilgodxu.data.music.playback.OutputLatencyReading
-import com.yichao.evilgodxu.data.music.playback.PlaybackBufferPolicy
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -465,25 +464,18 @@ internal class UsbExclusiveAudioSink(
      * - **缓冲之后那一段**（设备传输与解码器自身的排队）在 usbfs 上没有可查询的口子，一律不产出。
      *   不接受用别的量顶替：把「测不到」显示成「很短」比空着更糟。已取走而尚未送出的在飞 URB 段同属
      *   这一档而不计入驻留——它是主机侧的传输在途量，不是本层缓冲里的存量，计入会让驻留超过缓冲容量。
-     *
-     * 因此全链路同样不产出——它由两段相加得出，缺一段就不是全链路。
      */
     fun latencyReading(): OutputLatencyReading? {
         val output = output ?: return null
         val sampleRate = output.sampleRate.takeIf { it > 0 } ?: return null
         val bufferFrames = output.bufferFrames.takeIf { it > 0 } ?: return null
-        // 目标与平台路径同一个口径；环长取 max(目标, 在飞段)，故实得容量可能高于这个目标
-        val targetFrames = PlaybackBufferPolicy.targetBufferFrames(sampleRate)
         return OutputLatencyReading(
-            targetBufferFrames = targetFrames,
-            targetBufferMs = targetFrames * MILLIS_PER_SECOND / sampleRate,
             trackBufferFrames = bufferFrames,
             trackBufferMs = bufferFrames * MILLIS_PER_SECOND / sampleRate,
             afterTrackMs = null,
             // 读数取播放线程留下的快照而非直接问原生层——句柄会随播放结束被释放，界面不该去碰它
             trackResidentMs = ringResidentFrames(writtenFrames, cachedSentFrames, bufferFrames) *
                 MILLIS_PER_SECOND / sampleRate,
-            fullChainMs = null,
         )
     }
 

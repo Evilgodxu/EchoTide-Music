@@ -17,16 +17,13 @@ class OutputLatencySamplerTest {
         afterTrackMs: Float? = null,
         bufferFrames: Int = 4800,
     ) = OutputLatencyReading(
-        targetBufferFrames = 3840,
-        targetBufferMs = 80f,
         trackBufferFrames = bufferFrames,
         trackBufferMs = 100f,
         afterTrackMs = afterTrackMs,
         trackResidentMs = residentMs,
-        fullChainMs = null,
     )
 
-    // 独占链路上只有驻留可测：均值取窗口内的驻留，目标与容量是链路属性不参与平均
+    // 独占链路上只有驻留可测：均值取窗口内的驻留，容量是链路属性不参与平均
     @Test
     fun providedReadingAveragesTheResidency() {
         val sampler = OutputLatencySampler(window = 3)
@@ -37,8 +34,6 @@ class OutputLatencySamplerTest {
         assertEquals(20f, averaged.trackResidentMs!!, 0.001f)
         assertEquals("容量不参与平均", 4800, averaged.trackBufferFrames)
         assertEquals(100f, averaged.trackBufferMs, 0.001f)
-        assertEquals("目标不参与平均", 3840, averaged.targetBufferFrames)
-        assertEquals(80f, averaged.targetBufferMs, 0.001f)
     }
 
     // 窗口只覆盖最近几次：更早的样本被挤出，均值随之跟手
@@ -52,26 +47,24 @@ class OutputLatencySamplerTest {
         assertEquals(15f, averaged.trackResidentMs!!, 0.001f)
     }
 
-    // 「缓冲之后」那一段在独占链路上测不到，全链路由两段相加得出，缺一段就不该产出——
-    // 把它当成 0 会把「测不到」显示成「很短」
+    // 「缓冲之后」那一段在独占链路上测不到，此时不出均值，也不拿驻留去顶替
     @Test
-    fun fullChainIsAbsentWhenTheAfterBufferSegmentIsUnmeasurable() {
+    fun afterTrackStaysAbsentWhenItIsUnmeasurable() {
         val sampler = OutputLatencySampler(window = 3)
         val averaged = sampler.sampleProvided(reading(12f))
 
         assertNull(averaged.afterTrackMs)
-        assertNull(averaged.fullChainMs)
+        assertEquals(12f, averaged.trackResidentMs!!, 0.001f)
     }
 
-    // 两段都测得到时，全链路取两段均值之和：面板上三行因此恒能对上
+    // 两段各成一窗：互不干扰，缺一段不影响另一段的均值
     @Test
-    fun fullChainIsTheSumOfBothAveragedSegments() {
+    fun segmentsAreAveragedIndependently() {
         val sampler = OutputLatencySampler(window = 3)
         sampler.sampleProvided(reading(residentMs = 4f, afterTrackMs = 6f))
         val averaged = sampler.sampleProvided(reading(residentMs = 6f, afterTrackMs = 8f))
 
         assertEquals(5f, averaged.trackResidentMs!!, 0.001f)
         assertEquals(7f, averaged.afterTrackMs!!, 0.001f)
-        assertEquals(12f, averaged.fullChainMs!!, 0.001f)
     }
 }

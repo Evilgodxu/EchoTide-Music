@@ -278,20 +278,8 @@ private fun audioInfoGroups(
             },
             latency?.let {
                 AudioInfoRow(
-                    stringResource(R.string.audio_info_target_buffer),
-                    bufferSizeLabel(it.targetBufferFrames, it.targetBufferMs),
-                )
-            },
-            latency?.let {
-                AudioInfoRow(
                     stringResource(R.string.audio_info_track_buffer),
                     bufferSizeLabel(it.trackBufferFrames, it.trackBufferMs),
-                )
-            },
-            latency?.afterTrackMs?.let {
-                AudioInfoRow(
-                    stringResource(R.string.audio_info_latency),
-                    stringResource(R.string.audio_info_value_ms, it),
                 )
             },
             latency?.trackResidentMs?.let {
@@ -300,9 +288,9 @@ private fun audioInfoGroups(
                     stringResource(R.string.audio_info_value_ms, it),
                 )
             },
-            latency?.fullChainMs?.let {
+            latency?.afterTrackMs?.let {
                 AudioInfoRow(
-                    stringResource(R.string.audio_info_latency_full),
+                    stringResource(R.string.audio_info_latency),
                     stringResource(R.string.audio_info_value_ms, it),
                 )
             },
