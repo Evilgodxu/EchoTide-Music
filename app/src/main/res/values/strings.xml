@@ -172,6 +172,8 @@
     <string name="audio_info_channel_layout">声道</string>
     <string name="audio_info_channel_count">通道数</string>
     <string name="audio_info_resampled">重采样</string>
+    <!-- 同族倍率由本应用插值，原样本逐位保留，与系统重采样不是一回事 -->
+    <string name="audio_info_resample_same_family">同族插值</string>
     <string name="audio_info_quality">品质</string>
     <string name="audio_info_output_mode">音频输出模式</string>
     <string name="audio_info_session_id">音频会话 ID</string>

@@ -69,6 +69,12 @@ class PerDeviceAudioSink(
     /** 输出编码变更回调：报告生效变体音频轨实际写出的 PCM 编码，null 表示当前链路无音频轨 */
     private val onOutputEncodingChanged: (Int?) -> Unit = {},
     /**
+     * 输出速率变更回调：报告音频轨实际建起的采样率，null 表示当前链路无音频轨。
+     *
+     * 取轨道自报值而非源格式：同族倍率档下轨开在倍率速率上，按源格式推算会把 88.2 的写出说成 44.1。
+     */
+    private val onOutputStreamRateChanged: (Int?) -> Unit = {},
+    /**
      * 音频轨变更回调：报告生效变体当前使用的音频轨，释放时报告 null。
      *
      * 输出延迟只能从音频轨本身取（平台没有按设备查询延迟的公开接口，默认值又与当前路由无关），
@@ -246,16 +252,17 @@ class PerDeviceAudioSink(
     /**
      * 上报当前生效链路的音频轨。
      *
-     * 两个打包整型变体自建轨道因而直接可读，两个默认变体取输出提供者登记的那一个。
+     * 两个打包整型变体自建轨道因而直接可读，两个默认变体取输出提供者登记的那一个。速率随轨道一并上报，
+     * 两个量同生同灭：轨道在则两者都在，轨道释放则两者一起清空。
      */
     private fun reportAudioTrack() {
-        onAudioTrackChanged(
-            when (activeVariant) {
-                OutputVariant.INT24 -> int24Sink.currentAudioTrack
-                OutputVariant.INT32 -> int32Sink.currentAudioTrack
-                else -> capturedTracks[activeVariant]
-            }
-        )
+        val track = when (activeVariant) {
+            OutputVariant.INT24 -> int24Sink.currentAudioTrack
+            OutputVariant.INT32 -> int32Sink.currentAudioTrack
+            else -> capturedTracks[activeVariant]?.takeIf { it.state == AudioTrack.STATE_INITIALIZED }
+        }
+        onAudioTrackChanged(track)
+        onOutputStreamRateChanged(track?.sampleRate?.takeIf { it > 0 })
     }
 
     /**
@@ -271,6 +278,7 @@ class PerDeviceAudioSink(
         capturedTracks.remove(variant)
         onOutputEncodingChanged(null)
         onAudioTrackChanged(null)
+        onOutputStreamRateChanged(null)
     }
 
     private fun buildSink(variant: OutputVariant, enableFloatOutput: Boolean): AudioSink =

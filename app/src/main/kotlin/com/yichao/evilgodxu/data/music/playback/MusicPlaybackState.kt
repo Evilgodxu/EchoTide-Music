@@ -745,6 +745,14 @@ class MusicPlaybackState(
     var audioSinkOutputEncoding by mutableStateOf<Int?>(null)
 
     /**
+     * 音频轨实际建起的采样率：null 表示输出尚未建立。
+     *
+     * 不按源格式推算——同族倍率档下轨开在倍率速率上（44.1 的源、88.2 的轨），推算值会与真正写出速率的
+     * 那一个差一个倍率。取轨道自报值，面板的「输出采样率」才不会把 44.1 的源说成 44.1 的输出。
+     */
+    var audioSinkOutputSampleRate by mutableStateOf<Int?>(null)
+
+    /**
      * 解码头实际输出的格式，null 表示尚未取得。
      *
      * 由音频输出在重配那一刻上报——容器格式对压缩源只给采样率与声道，编码要等解码头出格式才知道，

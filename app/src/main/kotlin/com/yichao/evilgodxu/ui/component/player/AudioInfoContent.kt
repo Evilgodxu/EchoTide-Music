@@ -58,6 +58,7 @@ import com.yichao.evilgodxu.data.music.playback.DecodedOutputFormat
 import com.yichao.evilgodxu.data.music.playback.FloatOutputState
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.OutputDeviceInfo
+import com.yichao.evilgodxu.data.music.playback.ResampleState
 import com.yichao.evilgodxu.data.music.playback.SampleRateSource
 import com.yichao.evilgodxu.data.music.playback.OutputDeviceKind
 import com.yichao.evilgodxu.data.music.playback.OutputEncoding
@@ -238,8 +239,16 @@ private fun audioInfoGroups(
                     stringResource(R.string.audio_info_value_channel_count, it),
                 )
             },
-            snapshot.resampled?.let {
-                AudioInfoRow(stringResource(R.string.audio_info_resampled), booleanLabel(it))
+            snapshot.resampleState?.let { state ->
+                AudioInfoRow(
+                    stringResource(R.string.audio_info_resampled),
+                    when (state) {
+                        ResampleState.NONE -> booleanLabel(false)
+                        ResampleState.SYSTEM -> booleanLabel(true)
+                        // 同族插值不是「重采样」：原样本逐位保留，只是多了插出来的样本，两者不能混说
+                        ResampleState.SAME_FAMILY -> stringResource(R.string.audio_info_resample_same_family)
+                    },
+                )
             },
             qualityLabel(snapshot)?.let {
                 AudioInfoRow(stringResource(R.string.audio_info_quality), it)

@@ -167,6 +167,10 @@ class MusicPlaybackService : MediaSessionService() {
             },
             onOutputVariantChanged = reportOutputVariant,
             onOutputEncodingChanged = reportOutputEncoding,
+            // 轨道自报的采样率：同族倍率档下它才是真实写出速率，按源格式推算会把 88.2 说成 44.1
+            onOutputStreamRateChanged = { rate ->
+                stateHolder.state.audioSinkOutputSampleRate = rate
+            },
             onAudioTrackChanged = reportAudioTrack,
             onDecodedFormatChanged = reportDecodedFormat,
         )
@@ -182,6 +186,8 @@ class MusicPlaybackService : MediaSessionService() {
             // 不走 reportOutputEncoding：那条出口还兼着"让直出重算路由"的职责，而独占期间直出并不参与
             onOutputEncodingChanged = { encoding ->
                 stateHolder.state.audioSinkOutputEncoding = encoding
+                // 平台侧那条轨道已不参与这条链路，留着它报过的速率只会误导面板
+                stateHolder.state.audioSinkOutputSampleRate = null
             },
         )
         val audioSink = UsbOutputSink(

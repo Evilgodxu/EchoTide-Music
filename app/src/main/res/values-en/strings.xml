@@ -168,6 +168,8 @@
     <string name="audio_info_channel_layout">Channels</string>
     <string name="audio_info_channel_count">Channel count</string>
     <string name="audio_info_resampled">Resampled</string>
+    <!-- Same-family rates are interpolated in-app; original samples are kept bit-exact -->
+    <string name="audio_info_resample_same_family">Same-family interpolation</string>
     <string name="audio_info_quality">Quality</string>
     <string name="audio_info_output_mode">Output mode</string>
     <string name="audio_info_session_id">Audio session ID</string>

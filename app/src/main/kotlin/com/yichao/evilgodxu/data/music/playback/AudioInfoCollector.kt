@@ -211,23 +211,26 @@ internal object AudioInfoCollector {
     }
 
     /**
-     * 输出采样率。
+     * 输出侧的流速率。
      *
-     * **这一栏报的是内容速率，不是设备侧那条流的速率**——两者在同族倍率档下并不相等，故口径写死在此。
-     * 直出成立时给源采样率：设备声明的档位要么与源同率、要么是同族整数倍（44.1→88.2 这类），后者由
-     * 本应用把数据插值补齐（见 [SameFamilyUpsampler]），原样本逐位保留、内容一字未改，故对听的人来说
-     * 仍是「44.1 的曲子、没被换成别的采样率」。设备侧真实的流速率见设备信息里的支持档位——
-     * 打印已受理属性的采样率。
-     * 未直出时输出采样率由系统混音器决定，只认系统上报值——混音器采样率与源采样率不等即发生重采样，
-     * 故不能用源采样率冒充输出值。系统未上报时返回 null，交由展示层跳过该行。
+     * 三个模式各有一个真值来源，不能互相顶替：
+     * - 混音：跑在设备上的是平台那条流，只有平台属性报得出它的速率；
+     * - 直出：按源格式或同族倍率档建轨，**轨道自报的速率**才是写出去的那一个（44.1 的源挂 88.2 的档时
+     *   就是 88.2）；按源速率报会让人以为设备在跑 44.1；
+     * - 独占：按源速率直接写等时端点，两端必然相等，取源速率即可。
+     *
+     * 取不到时留空，不再用源速率顶替——那正是把 88.2 的写出说成 44.1 的来路。
      */
-    private fun outputSampleRate(audioManager: AudioManager?, state: MusicPlaybackState): Int? {
-        if (state.effectiveOutputMode() != AudioOutputMode.MIXER) return state.sourceSampleRate()
-        return audioManager
-            ?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
-            ?.toIntOrNull()
-            ?.takeIf { it > 0 }
-    }
+    private fun outputSampleRate(audioManager: AudioManager?, state: MusicPlaybackState): Int? =
+        when (state.effectiveOutputMode()) {
+            AudioOutputMode.MIXER -> audioManager
+                ?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
+                ?.toIntOrNull()
+                ?.takeIf { it > 0 }
+
+            AudioOutputMode.FORMAT_LOCKED -> state.audioSinkOutputSampleRate
+            AudioOutputMode.EXCLUSIVE -> state.sourceSampleRate()
+        }
 
     // 传输状态：缓冲与结束属播放器的推进态，优先于起播意愿；空闲态说明输出尚未建立
     private fun transportState(player: Player?): AudioTransportState? = when {

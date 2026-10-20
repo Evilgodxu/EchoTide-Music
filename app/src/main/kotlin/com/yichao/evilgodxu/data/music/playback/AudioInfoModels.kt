@@ -198,6 +198,13 @@ data class AudioInfoSnapshot(
     val decoderUnavailableFormat: String?,
     // 音频参数
     val sourceSampleRate: Int?,
+    /**
+     * 设备侧那条流的实际速率。
+     *
+     * **报的是写出去的速率，不是源的速率**：直出挂上同族倍率档时（如 44.1 的源只有 88.2 的档位可挂），
+     * 写出确实是 88.2，此时报源速率会让人以为设备按 44.1 在跑——同一个数在两行里各指一件事，
+     * 对照时就分不清哪一行才是真的。混音模式下真正跑在设备上的是平台那条流，故取平台值。
+     */
     val outputSampleRate: Int?,
     val bitrateKbps: Int?,
     val channelCount: Int?,
@@ -214,11 +221,30 @@ data class AudioInfoSnapshot(
     // 输出设备
     val outputDevice: OutputDeviceInfo?,
 ) {
-    // 是否发生重采样：原始采样率与输出采样率都已知时才可判定，任一未知即无从比较
-    val resampled: Boolean?
-        get() = if (sourceSampleRate != null && outputSampleRate != null) {
-            sourceSampleRate != outputSampleRate
-        } else {
-            null
+    /**
+     * 输出侧的变速方式：源速率与写出速率不一致时发生了什么。
+     *
+     * 三态而非布尔：直出的同族倍率由本应用插值（原样本逐位保留、不经系统重采样器），与系统重采样
+     * 是两回事，合成一个「是」会把「没经系统重采样器」这个关键事实抹掉。
+     */
+    val resampleState: ResampleState?
+        get() {
+            val source = sourceSampleRate ?: return null
+            val output = outputSampleRate ?: return null
+            return when (outputMode) {
+                AudioOutputMode.MIXER ->
+                    if (source != output) ResampleState.SYSTEM else ResampleState.NONE
+
+                // 直出按源格式，唯一可能改速率的是同族倍率档
+                AudioOutputMode.FORMAT_LOCKED ->
+                    if (source != output) ResampleState.SAME_FAMILY else ResampleState.NONE
+
+                // 独占按源速率直接写出，两端必然相等；写成显式分支是为了让「独占没有变速这一档」可读
+                AudioOutputMode.EXCLUSIVE -> ResampleState.NONE
+                null -> null
+            }
         }
 }
+
+/** 输出速率与源速率的关系：[NONE] 未变，[SYSTEM] 经系统重采样器，[SAME_FAMILY] 本应用同族插值 */
+enum class ResampleState { NONE, SYSTEM, SAME_FAMILY }
