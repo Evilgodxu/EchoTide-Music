@@ -179,9 +179,13 @@
          "Buffer" rather than "audio track": the exclusive path has no AudioTrack, its part sits in the ring buffer -->
     <string name="audio_info_latency">Output latency (after buffer)</string>
     <string name="audio_info_latency_full">Output latency (incl. buffer)</string>
-    <string name="audio_info_track_buffer">Output buffer</string>
-    <!-- "Output buffer" reports the capacity (the granted ceiling); this row reports the current occupancy -->
+    <!-- The three buffer rows: the target comes from the buffer policy, the other two are measured -->
+    <string name="audio_info_target_buffer">Target buffer</string>
+    <!-- What the policy asks for at this sample rate, regardless of what the device grants -->
+    <string name="audio_info_track_buffer">Current buffer</string>
+    <!-- The capacity actually granted; higher than the target when the platform minimum is higher -->
     <string name="audio_info_track_resident">Buffer residency</string>
+    <!-- Current occupancy; the closer to "Current buffer", the more underrun headroom — and the higher the latency -->
     <string name="audio_info_transport_state">Transfer state</string>
     <string name="audio_info_device_usb">USB device</string>
     <string name="audio_info_device_bluetooth">Bluetooth device</string>

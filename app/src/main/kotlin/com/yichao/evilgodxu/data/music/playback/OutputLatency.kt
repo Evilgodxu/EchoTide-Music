@@ -26,12 +26,21 @@ private const val API_WRITTEN_FRAMES = 37
  *   [trackBufferFrames]；
  * - [fullChainMs]：从**写进音频轨**起算的全链路，恒等于上面两段之和。
  *
- * 容量与驻留并列，才能看出缓冲策略的效果与余量：容量是申请到的上限，驻留是此刻实际占用。
+ * 容量与驻留并列，才能看出缓冲策略的效果与余量：目标给出策略的取向，容量是平台实际授予的上限，驻留是
+ * 此刻实际占用。三者并列，才看得出策略是否被平台下限抬升、余量还剩多少。
  *
  * 公开而非模块内：它与 [AudioInfoSnapshot] 同类，是面板的读模型，经播放状态发布给界面取用。
  */
 data class OutputLatencyReading(
-    /** 音频轨缓冲容量（帧） */
+    /**
+     * 缓冲目标（帧）：[PlaybackBufferPolicy] 按采样率换算出的申请值。
+     *
+     * 不是实测量，也不受本机授予多少影响——平台下限更高时，实得容量会高于此值。
+     */
+    val targetBufferFrames: Int,
+    /** 缓冲目标对应的时长（毫秒） */
+    val targetBufferMs: Float,
+    /** 音频轨缓冲容量（帧）：平台实际授予的容量 */
     val trackBufferFrames: Int,
     /** 音频轨缓冲容量对应的时长（毫秒） */
     val trackBufferMs: Float,
@@ -69,7 +78,7 @@ internal object OutputLatency {
      * 读一次当前音频轨的延迟读数，轨道不可用时返回 null。
      *
      * 延迟只在链路推进时才谈得上：未推进时播放头与时间戳都不随时间前进，比对出来的差值无从对应到
-     * 出站后的那一段，故两项延迟此时留空；容量是轨道的属性，不受推进与否影响，照常给出。
+     * 出站后的那一段，故两项延迟此时留空；目标与容量是链路的属性，不受推进与否影响，照常给出。
      *
      * [writtenFrames] 是「已写进音频轨的帧数」的取值入口，取不到时传 null，此时退到平台接口。
      */
@@ -78,10 +87,13 @@ internal object OutputLatency {
         if (track.state != AudioTrack.STATE_INITIALIZED) return null
         val sampleRate = track.sampleRate.takeIf { it > 0 } ?: return null
         val bufferFrames = track.bufferSizeInFrames.takeIf { it > 0 } ?: return null
+        val targetFrames = PlaybackBufferPolicy.targetBufferFrames(sampleRate)
         val advanced = advancedLatencyMs(track, sampleRate, bufferFrames, writtenFrames)
         return OutputLatencyReading(
+            targetBufferFrames = targetFrames,
+            targetBufferMs = framesToMs(targetFrames, sampleRate),
             trackBufferFrames = bufferFrames,
-            trackBufferMs = bufferFrames * MILLIS_PER_SECOND / sampleRate,
+            trackBufferMs = framesToMs(bufferFrames, sampleRate),
             afterTrackMs = advanced?.afterTrackMs,
             trackResidentMs = advanced?.trackResidentMs,
             fullChainMs = advanced?.fullChainMs,
@@ -160,6 +172,9 @@ internal object OutputLatency {
     private fun Long.toMs(sampleRate: Int): Float? =
         (this * MILLIS_PER_SECOND / sampleRate).takeIf { it in 0f..MAX_PLAUSIBLE_LATENCY_MS }
 
+    // 缓冲那几行的帧数换算：申请值与实得容量都按它折算，不设可信上界——那是延迟读数才有的判定
+    private fun framesToMs(frames: Int, sampleRate: Int): Float = frames * MILLIS_PER_SECOND / sampleRate
+
     private const val NANOS_PER_SECOND = 1_000_000_000L
     private const val MILLIS_PER_SECOND = 1_000f
 }
@@ -168,8 +183,8 @@ internal object OutputLatency {
  * 输出延迟读数的滑动平均采样器。
  *
  * 平台明确说明「时间戳在短期内的相邻两次差异不具意义」，单次取值直接展示会把抖动当成变化，故按最近
- * [window] 次取值取平均——两段延迟各成一窗，全链路取两段均值之和。容量是音频轨的属性而非随时波动的
- * 观测量，不参与平均。
+ * [window] 次取值取平均——两段延迟各成一窗，全链路取两段均值之和。目标与容量是链路的属性而非随时波动
+ * 的观测量，不参与平均。
  *
  * 取不到延迟的采样不入窗：那时链路并未推进，掺入零值会把均值拉低。窗口随每次成功采样推移，旧样本
  * 自然被挤出，无需专门复位；换了一条音频轨则由调用方换一个采样器，历史样本不会跨轨混入。

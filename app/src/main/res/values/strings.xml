@@ -183,9 +183,13 @@
          用「缓冲」而非「音频轨」：独占路径上没有音频轨，那一段落在环形缓冲上 -->
     <string name="audio_info_latency">输出延迟（缓冲之后）</string>
     <string name="audio_info_latency_full">输出延迟（含缓冲）</string>
-    <string name="audio_info_track_buffer">输出缓冲</string>
-    <!-- 「输出缓冲」一行报容量（申请到的上限），本行报此刻的实际占用 -->
+    <!-- 缓冲三行：目标由缓冲策略给出，另两行是实测 -->
+    <string name="audio_info_target_buffer">目标缓冲</string>
+    <!-- 策略按采样率换算的申请值，本机实际授予多少不影响这一行 -->
+    <string name="audio_info_track_buffer">当前缓冲</string>
+    <!-- 平台实际授予的容量：平台下限更高时高于目标 -->
     <string name="audio_info_track_resident">缓冲驻留</string>
+    <!-- 此刻的占用；越接近「当前缓冲」抗欠载余量越大，贴近容量即满负荷，延迟也最大 -->
     <string name="audio_info_transport_state">传输状态</string>
     <string name="audio_info_device_usb">USB 设备</string>
     <string name="audio_info_device_bluetooth">蓝牙设备</string>

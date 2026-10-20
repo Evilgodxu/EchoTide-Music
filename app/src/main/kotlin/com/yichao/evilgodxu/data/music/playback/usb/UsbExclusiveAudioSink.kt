@@ -14,6 +14,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.audio.AudioSink
 import com.yichao.evilgodxu.data.music.playback.OutputLatencyReading
+import com.yichao.evilgodxu.data.music.playback.PlaybackBufferPolicy
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -471,7 +472,11 @@ internal class UsbExclusiveAudioSink(
         val output = output ?: return null
         val sampleRate = output.sampleRate.takeIf { it > 0 } ?: return null
         val bufferFrames = output.bufferFrames.takeIf { it > 0 } ?: return null
+        // 目标与平台路径同一个口径；环长取 max(目标, 在飞段)，故实得容量可能高于这个目标
+        val targetFrames = PlaybackBufferPolicy.targetBufferFrames(sampleRate)
         return OutputLatencyReading(
+            targetBufferFrames = targetFrames,
+            targetBufferMs = targetFrames * MILLIS_PER_SECOND / sampleRate,
             trackBufferFrames = bufferFrames,
             trackBufferMs = bufferFrames * MILLIS_PER_SECOND / sampleRate,
             afterTrackMs = null,

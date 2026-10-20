@@ -280,13 +280,14 @@ private fun audioInfoGroups(
             },
             latency?.let {
                 AudioInfoRow(
+                    stringResource(R.string.audio_info_target_buffer),
+                    bufferSizeLabel(it.targetBufferFrames, it.targetBufferMs),
+                )
+            },
+            latency?.let {
+                AudioInfoRow(
                     stringResource(R.string.audio_info_track_buffer),
-                    pluralStringResource(
-                        R.plurals.audio_info_value_frames_ms,
-                        it.trackBufferFrames,
-                        it.trackBufferFrames,
-                        it.trackBufferMs,
-                    ),
+                    bufferSizeLabel(it.trackBufferFrames, it.trackBufferMs),
                 )
             },
             latency?.afterTrackMs?.let {
@@ -482,6 +483,11 @@ private fun channelLayoutLabel(channelCount: Int): String = when (channelCount) 
 private fun booleanLabel(value: Boolean): String = stringResource(
     if (value) R.string.audio_info_value_yes else R.string.audio_info_value_no
 )
+
+// 缓冲的目标与容量同格式：帧数与时长并列，两行才能直接对照
+@Composable
+private fun bufferSizeLabel(frames: Int, millis: Float): String =
+    pluralStringResource(R.plurals.audio_info_value_frames_ms, frames, frames, millis)
 
 // 浮点写出状态：直述链路当前取向；输出未建立与未启用分开表述，前者说明尚未起播而非能力欠缺
 @Composable

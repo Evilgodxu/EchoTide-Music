@@ -33,7 +33,7 @@ class UsbExclusiveAudioSinkTest {
         assertEquals(0, sourceBitDepthOf(C.ENCODING_AAC_LC))
     }
 
-    // 驻留只算还在环里的那一段：已取走（装入 URB）的量不计，否则面板上它会超过"输出缓冲"这一行
+    // 驻留只算还在环里的那一段：已取走（装入 URB）的量不计，否则面板上它会超过"当前缓冲"这一行
     @Test
     fun residentCountsOnlyWhatIsStillInRing() {
         assertEquals(3528, ringResidentFrames(writtenFrames = 3528, sentFrames = 0, bufferFrames = 3528))

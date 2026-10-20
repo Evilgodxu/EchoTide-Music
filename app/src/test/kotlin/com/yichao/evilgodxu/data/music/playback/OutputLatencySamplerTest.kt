@@ -17,6 +17,8 @@ class OutputLatencySamplerTest {
         afterTrackMs: Float? = null,
         bufferFrames: Int = 4800,
     ) = OutputLatencyReading(
+        targetBufferFrames = 3840,
+        targetBufferMs = 80f,
         trackBufferFrames = bufferFrames,
         trackBufferMs = 100f,
         afterTrackMs = afterTrackMs,
@@ -24,7 +26,7 @@ class OutputLatencySamplerTest {
         fullChainMs = null,
     )
 
-    // 独占链路上只有驻留可测：均值取窗口内的驻留，容量是链路属性不参与平均
+    // 独占链路上只有驻留可测：均值取窗口内的驻留，目标与容量是链路属性不参与平均
     @Test
     fun providedReadingAveragesTheResidency() {
         val sampler = OutputLatencySampler(window = 3)
@@ -35,6 +37,8 @@ class OutputLatencySamplerTest {
         assertEquals(20f, averaged.trackResidentMs!!, 0.001f)
         assertEquals("容量不参与平均", 4800, averaged.trackBufferFrames)
         assertEquals(100f, averaged.trackBufferMs, 0.001f)
+        assertEquals("目标不参与平均", 3840, averaged.targetBufferFrames)
+        assertEquals(80f, averaged.targetBufferMs, 0.001f)
     }
 
     // 窗口只覆盖最近几次：更早的样本被挤出，均值随之跟手
