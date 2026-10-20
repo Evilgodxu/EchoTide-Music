@@ -175,10 +175,11 @@
     <string name="audio_info_decoded_output">Decoded output</string>
     <string name="audio_info_float_output">Float output</string>
     <string name="audio_info_output_encoding">Output encoding</string>
-    <!-- The parentheses state where this reading starts; the output buffer's own part is reported by the "incl. buffer" row.
-         "Buffer" rather than "audio track": the exclusive path has no AudioTrack, its part sits in the ring buffer -->
-    <string name="audio_info_latency">Output latency (after buffer)</string>
-    <string name="audio_info_latency_full">Output latency (incl. buffer)</string>
+    <!-- Two readings of the same chain: one starts at the buffer outlet, the other includes the buffered segment —
+         their difference is the "Buffer residency" row. "Buffer" rather than "audio track": the exclusive path has no
+         AudioTrack, its part sits in the ring buffer -->
+    <string name="audio_info_latency">Output latency (excl. buffer residency)</string>
+    <string name="audio_info_latency_full">Output latency (incl. buffer residency)</string>
     <!-- The three buffer rows: the target comes from the buffer policy, the other two are measured -->
     <string name="audio_info_target_buffer">Target buffer</string>
     <!-- What the policy asks for at this sample rate, regardless of what the device grants -->

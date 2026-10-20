@@ -179,10 +179,10 @@
     <string name="audio_info_decoded_output">解码输出</string>
     <string name="audio_info_float_output">浮点输出</string>
     <string name="audio_info_output_encoding">输出编码</string>
-    <!-- 括号内是这段读数的起算点：本层缓冲自身那一段另由「含缓冲」一行给出。
+    <!-- 同一段链路的两档口径：一行从缓冲出口起算，另一行含缓冲驻留那一段——两行之差即「缓冲驻留」。
          用「缓冲」而非「音频轨」：独占路径上没有音频轨，那一段落在环形缓冲上 -->
-    <string name="audio_info_latency">输出延迟（缓冲之后）</string>
-    <string name="audio_info_latency_full">输出延迟（含缓冲）</string>
+    <string name="audio_info_latency">输出延迟（不含缓冲驻留）</string>
+    <string name="audio_info_latency_full">输出延迟（包含缓冲驻留）</string>
     <!-- 缓冲三行：目标由缓冲策略给出，另两行是实测 -->
     <string name="audio_info_target_buffer">目标缓冲</string>
     <!-- 策略按采样率换算的申请值，本机实际授予多少不影响这一行 -->
