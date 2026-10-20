@@ -189,9 +189,7 @@ internal class UsbIsoOutput private constructor(
             // 同一台设备上换开关才不会换一种断流/滞后表现。另不小于在飞段的**目标**时长——环比在飞段
             // 还短时播放线程写不进、回收线程也腾不出，表现为周期性停顿。全速下的实际在飞段（bInterval=1
             // 时 64ms，更长间隔下更长）与高速下的目标值（64ms）都低于目标帧数（80ms 基准），故这一侧
-            // 两者都盖得住。反过来看：环长因此恒由 80ms 那一侧决定，在飞段永不成为约束，本路径上唯一
-            // 可能缩短环长的余量就是这 16ms（80→64）——而它专用于抗调度误期，不是可省的（见
-            // IN_FLIGHT_TARGET_MS 的取向），故不要为了起播快一点去动它
+            // 两者都盖得住
             val ringFrames = maxOf(
                 PlaybackBufferPolicy.targetBufferFrames(sampleRate),
                 sampleRate * IN_FLIGHT_TARGET_MS / 1000,
