@@ -146,15 +146,19 @@ class BaselineProfileGenerator {
     fun queueJourney() = rule.collect(TARGET_PACKAGE) {
         prepare()
         launch()
-        tap("music_panel_playlist")
+        openQueuePanel()
         // 播放列表滚动查看：手势收在面板内，避免起点落到遮罩上收起面板
         scrollVertically(times = 2, topFraction = PANEL_SCROLL_TOP, bottomFraction = PANEL_SCROLL_BOTTOM)
+        // 反向滚动覆盖回滚路径。列表滑到顶后继续下拉会触发面板自身的下拉收起，
+        // 是否触发取决于回滚距离与队列长度的差值，故滑完重新核对面板，被收起则再打开，
+        // 否则后续排序步骤全部落在已消失的面板上，整轮只能空等到超时
         scrollVertically(
             times = 2,
             reversed = true,
             topFraction = PANEL_SCROLL_TOP,
             bottomFraction = PANEL_SCROLL_BOTTOM,
         )
+        openQueuePanel()
         // 切换排序（按标题）后再滚动，覆盖排序重组路径
         tap("music_panel_sort")
         tap("music_panel_sort_by_title")
@@ -336,6 +340,33 @@ private fun MacrobenchmarkScope.awaitText(resourceName: String): Boolean {
     Log.i(TAG, if (found) "SHOWN $resourceName($label)" else "MISS $resourceName($label)")
     return found
 }
+
+/** 等控件按无障碍标签出现：用于确认展开态，与 [awaitText] 同一口径只打点不改变流程。 */
+private fun MacrobenchmarkScope.awaitDesc(resourceName: String): Boolean {
+    val label = label(resourceName)
+    val found = device.wait(Until.hasObject(By.desc(label)), UI_TIMEOUT_MS)
+    Log.i(TAG, if (found) "SHOWN $resourceName($label)" else "MISS $resourceName($label)")
+    return found
+}
+
+/**
+ * 确保播放列表面板处于展开态。
+ *
+ * 面板头部的排序按钮常驻，以它是否在无障碍树中判定展开：面板收起时其内容整体移除，
+ * 判据不会误判。面板支持下拉收起，上一段滚动可能已把它收走；点击本身也可能落在
+ * 滑入动画的过渡态上被吞掉，故不在展开态就点按钮，点后仍不出现则重试。
+ */
+private fun MacrobenchmarkScope.openQueuePanel(): Boolean {
+    if (queuePanelShown()) return true
+    repeat(RETRY_TIMES) {
+        if (tap("music_panel_playlist") && awaitDesc("music_panel_sort")) return true
+    }
+    Log.w(TAG, "MISS open queue panel")
+    return false
+}
+
+private fun MacrobenchmarkScope.queuePanelShown(): Boolean =
+    device.findObject(By.desc(label("music_panel_sort"))) != null
 
 /** 取首个落在 [maxLeftPx] 左侧的候选节点：同名文案在左右两栏各有一份时用于区分。 */
 private fun MacrobenchmarkScope.findFirst(selector: BySelector, maxLeftPx: Int): UiObject2? {
