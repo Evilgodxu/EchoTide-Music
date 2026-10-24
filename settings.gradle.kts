@@ -1,6 +1,15 @@
 pluginManagement {
-    // 依赖版本巡检插件改用本地维护分支构建，源码位于项目同级目录
-    includeBuild("../refreshVersions/plugins")
+    // 依赖版本巡检插件在本机用本地维护分支构建，源码位于项目同级目录。
+    // CI 检出里没有这个目录，此时回退到插件仓库中的正式版本——includeBuild 指向不存在的路径
+    // 会让 settings 解析阶段直接失败，构建连配置都走不到
+    val localRefreshVersionsPlugins = java.io.File(settingsDir, "../refreshVersions/plugins")
+    if (localRefreshVersionsPlugins.isDirectory) {
+        includeBuild("../refreshVersions/plugins")
+    } else {
+        plugins {
+            id("de.fayard.refreshVersions") version "0.60.6"
+        }
+    }
     repositories {
         // 依赖与插件统一走腾讯云镜像：maven-public 聚合了 Google Maven 与 Maven Central
         maven { url = uri("https://mirrors.cloud.tencent.com/nexus/repository/maven-public/") }

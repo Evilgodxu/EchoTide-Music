@@ -10,10 +10,10 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-5.4.3-informational)
+![Version](https://img.shields.io/badge/version-5.4.5-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
-![Gradle](https://img.shields.io/badge/Gradle-9.8.0-blue)
+![Gradle](https://img.shields.io/badge/Gradle-9.8.2-blue)
 ![Compose BOM](https://img.shields.io/badge/Compose%20BOM-2026.09.00-blue)
 ![minSdk](https://img.shields.io/badge/minSdk-34-orange)
 ![targetSdk](https://img.shields.io/badge/targetSdk-37-orange)
@@ -41,15 +41,15 @@ Portrait or landscape, immersion is the only goal.
 | Playback | Media3 ExoPlayer 1.11.1 + MediaSessionService (USB exclusive output goes through the native isochronous layer) |
 | Navigation | AndroidX Navigation3 1.2.0 (type-safe routes) |
 | Dependency injection | Manual DI (singletons held on Application) |
-| Persistence | DataStore Preferences 1.2.1 |
+| Persistence | DataStore Preferences 1.3.0 |
 | Image loading | Coil 3.6.3 |
-| Network | OkHttp 5.5.0 |
-| Serialization | kotlinx.serialization 1.11.0 |
+| Network | OkHttp 5.5.1 |
+| Serialization | kotlinx.serialization 1.12.0 |
 | Async | kotlinx.coroutines 1.11.0 (incl. coroutines-guava bridging MediaController futures) |
 | Adaptive layout | androidx.window 1.5.1, material3-adaptive 1.3.0 |
 | Lifecycle | androidx.lifecycle 2.11.0, activity-compose 1.13.0 |
 | Native layer | NDK 28.2.13676358, CMake 3.22.1 (usbfs isochronous transfer for USB exclusive output) |
-| Build | AGP 9.4.1, Gradle 9.8.0, refreshVersions |
+| Build | AGP 9.4.1, Gradle 9.8.2, refreshVersions |
 
 ## Project Structure
 

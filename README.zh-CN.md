@@ -10,10 +10,10 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-5.4.3-informational)
+![Version](https://img.shields.io/badge/version-5.4.5-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
-![Gradle](https://img.shields.io/badge/Gradle-9.8.0-blue)
+![Gradle](https://img.shields.io/badge/Gradle-9.8.2-blue)
 ![Compose BOM](https://img.shields.io/badge/Compose%20BOM-2026.09.00-blue)
 ![minSdk](https://img.shields.io/badge/minSdk-34-orange)
 ![targetSdk](https://img.shields.io/badge/targetSdk-37-orange)
@@ -41,15 +41,15 @@
 | 播放 | Media3 ExoPlayer 1.11.1 + MediaSessionService（USB 独占另走原生等时层） |
 | 导航 | AndroidX Navigation3 1.2.0（类型安全路由） |
 | 依赖注入 | 手动 DI（单例挂在 Application） |
-| 持久化 | DataStore Preferences 1.2.1 |
+| 持久化 | DataStore Preferences 1.3.0 |
 | 图片加载 | Coil 3.6.3 |
-| 网络 | OkHttp 5.5.0 |
-| 序列化 | kotlinx.serialization 1.11.0 |
+| 网络 | OkHttp 5.5.1 |
+| 序列化 | kotlinx.serialization 1.12.0 |
 | 异步 | kotlinx.coroutines 1.11.0（含 coroutines-guava 桥接 MediaController Future） |
 | 自适应布局 | androidx.window 1.5.1、material3-adaptive 1.3.0 |
 | 生命周期 | androidx.lifecycle 2.11.0、activity-compose 1.13.0 |
 | 原生层 | NDK 28.2.13676358、CMake 3.22.1（USB 独占的 usbfs 等时传输） |
-| 构建 | AGP 9.4.1、Gradle 9.8.0、refreshVersions |
+| 构建 | AGP 9.4.1、Gradle 9.8.2、refreshVersions |
 
 ## 项目结构
 
