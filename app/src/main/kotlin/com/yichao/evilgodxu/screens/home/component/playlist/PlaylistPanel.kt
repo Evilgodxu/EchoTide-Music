@@ -659,10 +659,12 @@ internal fun PlaylistListRow(
             }
         }
         Column(modifier = Modifier.weight(1f)) {
+            // 行高须显式给出：只改字号会沿用主题正文的 24sp 行高，把标题与数量之间撑出空档
             Text(
                 text = playlist.name,
                 color = Color.White,
                 fontSize = 12.sp,
+                lineHeight = 15.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -670,6 +672,7 @@ internal fun PlaylistListRow(
                 text = pluralStringResource(R.plurals.music_panel_track_count, count, count),
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 10.sp,
+                lineHeight = 12.sp,
             )
         }
         ExpandPicker(
