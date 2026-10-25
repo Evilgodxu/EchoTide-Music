@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,6 +53,10 @@ internal val SEARCH_BAR_REGION_DP = 54.dp
 // 搜索框上方悬浮操作区与搜索框的间距：调用方计算底部遮挡区域高度时需一并计入
 internal val SEARCH_ACTION_GAP_DP = 6.dp
 
+// 搜索条底色与描边的透明度：歌手/专辑分组列表与在线搜索共用同一档，两处观感因此一致
+internal const val SEARCH_BAR_FILL_ALPHA = 0.08f
+internal const val SEARCH_BAR_BORDER_ALPHA = 0.22f
+
 // 判定软键盘可见的高度差比例：可见区域较根视图缩减超过该比例即视为键盘弹出
 private const val KEYBOARD_VISIBLE_RATIO = 0.15f
 
@@ -64,6 +69,7 @@ internal fun BoxScope.BottomSearchBarOverlay(
     query: String,
     onQueryChange: (String) -> Unit,
     onFocusChanged: (Boolean) -> Unit,
+    fillColor: Color? = null,
     borderColor: Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
     textColor: Color = MaterialTheme.colorScheme.onSurface,
     hintColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -108,6 +114,7 @@ internal fun BoxScope.BottomSearchBarOverlay(
                 query = query,
                 onQueryChange = onQueryChange,
                 onFocusChanged = onFocusChanged,
+                fillColor = fillColor,
                 borderColor = borderColor,
                 textColor = textColor,
                 hintColor = hintColor,
@@ -116,8 +123,8 @@ internal fun BoxScope.BottomSearchBarOverlay(
     }
 }
 
-// 列表内搜索输入框：胶囊描边样式，输入即回调过滤。
-// 前景配色默认跟随主题；底色为深色沉浸背景的面板需传入白色系，避免深色主题色压在深底上不可辨
+// 列表内搜索输入框：胶囊描边样式，输入即回调过滤。默认不加底色；
+// 深色沉浸背景的面板可传入白色系填充与描边，避免主题色压在深底上不可辨
 @Composable
 internal fun SearchInputBar(
     placeholder: String,
@@ -125,6 +132,7 @@ internal fun SearchInputBar(
     onQueryChange: (String) -> Unit,
     onFocusChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    fillColor: Color? = null,
     borderColor: Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
     textColor: Color = MaterialTheme.colorScheme.onSurface,
     hintColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -155,6 +163,7 @@ internal fun SearchInputBar(
             .fillMaxWidth()
             .height(44.dp)
             .clip(RoundedCornerShape(22.dp))
+            .background(fillColor ?: Color.Transparent)
             .border(
                 width = 1.dp,
                 color = borderColor,

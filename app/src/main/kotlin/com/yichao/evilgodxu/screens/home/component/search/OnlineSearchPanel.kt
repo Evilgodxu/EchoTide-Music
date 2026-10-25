@@ -76,6 +76,8 @@ import com.yichao.evilgodxu.ui.component.ExpandDirection
 import com.yichao.evilgodxu.ui.component.ExpandPicker
 import com.yichao.evilgodxu.ui.component.qualityLabelRes
 import com.yichao.evilgodxu.ui.component.rememberOnlinePlatformOptions
+import com.yichao.evilgodxu.ui.component.SEARCH_BAR_BORDER_ALPHA
+import com.yichao.evilgodxu.ui.component.SEARCH_BAR_FILL_ALPHA
 import com.yichao.evilgodxu.ui.component.dialog.SearchResultsLazyList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -84,8 +86,8 @@ import kotlinx.coroutines.launch
 // 填充取半透明白，使搜索条与下方的历史标签处在同一套质感语言里（配色不依赖封面底色）
 private val SearchBarHeight = 44.dp
 private val SearchBarShape = RoundedCornerShape(22.dp)
-private val SearchBarFill = Color.White.copy(alpha = 0.08f)
-private val SearchBarBorder = Color.White.copy(alpha = 0.22f)
+private val SearchBarFill = Color.White.copy(alpha = SEARCH_BAR_FILL_ALPHA)
+private val SearchBarBorder = Color.White.copy(alpha = SEARCH_BAR_BORDER_ALPHA)
 
 // 面板内相邻区块的统一纵向间距：标题、搜索条、历史标签、搜索结果一律取这一档。
 // 四处各写一个数会让间距参差，故收敛成一个共用值，由本面板与其组件共同引用

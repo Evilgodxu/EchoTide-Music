@@ -73,6 +73,8 @@ import com.yichao.evilgodxu.ui.component.DialogCard
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
+import com.yichao.evilgodxu.ui.component.SEARCH_BAR_BORDER_ALPHA
+import com.yichao.evilgodxu.ui.component.SEARCH_BAR_FILL_ALPHA
 import com.yichao.evilgodxu.ui.component.SEARCH_BAR_REGION_DP
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 import kotlinx.coroutines.CoroutineScope
@@ -177,7 +179,7 @@ internal fun PlaylistGroupsPage(
                 }
             }
             // 底部搜索框：滚到底部或滚动中隐藏，避免遮挡末尾条目；输入中常驻。
-            // 本面板为深色沉浸背景，前景统一走白色系，与上方条目文字一致
+            // 本面板为深色沉浸背景，底色与前景统一走白色系，与在线搜索输入框同款
             BottomSearchBarOverlay(
                 hidden = searchHidden,
                 placeholder = stringResource(
@@ -187,7 +189,8 @@ internal fun PlaylistGroupsPage(
                 query = searchQuery,
                 onQueryChange = { searchQuery = it },
                 onFocusChanged = { searchFocused = it },
-                borderColor = Color.White.copy(alpha = 0.45f),
+                fillColor = Color.White.copy(alpha = SEARCH_BAR_FILL_ALPHA),
+                borderColor = Color.White.copy(alpha = SEARCH_BAR_BORDER_ALPHA),
                 textColor = Color.White,
                 hintColor = Color.White.copy(alpha = 0.6f),
             )
