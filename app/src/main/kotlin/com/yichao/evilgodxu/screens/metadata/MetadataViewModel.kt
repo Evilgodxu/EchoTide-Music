@@ -178,12 +178,12 @@ class MetadataViewModel(
      * 因此取二者中修改时间较新的一个；时间不可比（任一侧取不到）时优先内嵌歌词。
      */
     private suspend fun resolveLyrics(target: MusicTrack, embedded: String?, embeddedMs: Long): String {
-        val cachePath = target.lyricCachePath.takeIf { MusicMetadataCache.isValid(it) }
+        val cachePath = target.lyricCachePath.takeIf { MusicMetadataCache.isValid(getApplication(), it) }
             ?: MusicMetadataCache.findLyrics(getApplication(), target.title, target.artist)
         val cached = cachePath?.let { path ->
             withContext(Dispatchers.IO) {
                 runCatching { File(path).readText() }.getOrNull()
-            }?.takeIf { it.isNotBlank() }?.let { it to MusicMetadataCache.lyricsModifiedMs(path) }
+            }?.takeIf { it.isNotBlank() }?.let { it to MusicMetadataCache.lyricsModifiedMs(getApplication(), path) }
         }
         return when {
             embedded.isNullOrBlank() -> cached?.first.orEmpty()

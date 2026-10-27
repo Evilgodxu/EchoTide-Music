@@ -81,7 +81,7 @@ import com.yichao.evilgodxu.data.music.panel.searchLyricsCandidates
 import com.yichao.evilgodxu.data.music.panel.TranslateOutcome
 import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.permission.ensureAllFilesAccess
+import com.yichao.evilgodxu.permission.hasAllFilesAccess
 import com.yichao.evilgodxu.permission.hasImageAccess
 import com.yichao.evilgodxu.permission.mediaImagePermission
 import com.yichao.evilgodxu.screens.home.component.dialog.ArtistPickerDialog
@@ -725,7 +725,7 @@ internal fun PortraitPlayer(
                     playbackState.renameTrackMetadata(updated)
                     // 手动重命名标题/艺术家后写入音频文件元数据
                     scope.launch {
-                        if (!ensureAllFilesAccess(context)) return@launch
+                        if (!hasAllFilesAccess()) return@launch
                         MusicMetadataWriter.writeTitleArtist(context, track, updated.title, updated.artist)
                     }
                 }

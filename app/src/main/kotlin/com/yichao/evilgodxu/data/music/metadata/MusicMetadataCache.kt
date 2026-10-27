@@ -1,11 +1,13 @@
 package com.yichao.evilgodxu.data.music.metadata
 
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.core.net.toUri
 import com.yichao.evilgodxu.data.music.api.parseWordTimedLrcText
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.LyricWord
@@ -65,9 +67,10 @@ internal object MusicMetadataCache {
     // 是否具备直接读写公共下载目录的特殊权限（全部文件访问）
     private fun hasDirectDownloadAccess(): Boolean = Environment.isExternalStorageManager()
 
-    // 写入缓存文件：有全部文件权限时直写文件系统；否则经 MediaStore Downloads 集合写入
-    // 自身条目，mediaRoot 两路返回同一绝对路径。直写或 MediaStore 均失败时回退应用专属目录
-    private fun writeCacheFile(context: Context, dirName: String, name: String, bytes: ByteArray): File? {
+    // 写入缓存文件：有全部文件权限时直写文件系统；否则经 MediaStore Downloads 集合写入自身条目。
+    // 两条路都失败才回退应用专属目录。
+    // 返回的是「可读位置」：直写与私有目录给绝对路径，MediaStore 给该条目的 content URI。
+    private fun writeCacheFile(context: Context, dirName: String, name: String, bytes: ByteArray): String? {
         if (!hasDirectDownloadAccess()) {
             return writeViaMediaStore(context, dirName, name, bytes)
                 ?: writeToPrivateDir(context, dirName, name, bytes)
@@ -75,11 +78,14 @@ internal object MusicMetadataCache {
         val dir = File(mediaRoot(context), dirName)
         if (!dir.isDirectory && !runCatching { dir.mkdirs() }.getOrDefault(false)) return null
         val file = File(dir, name)
-        return if (runCatching { file.writeBytes(bytes) }.isSuccess && file.isFile) file else null
+        return file.absolutePath
+            .takeIf { runCatching { file.writeBytes(bytes) }.isSuccess && file.isFile }
     }
 
-    // MediaStore Downloads 兜底写入：按 目录+文件名 复用既有条目覆盖写，避免同名重复文件
-    private fun writeViaMediaStore(context: Context, dirName: String, name: String, bytes: ByteArray): File? = try {
+    // MediaStore Downloads 兜底写入：按 目录+文件名 复用既有条目覆盖写，避免同名重复文件。
+    // 返回该条目的 content URI——没有全部文件权限时，公共目录下自己写的非媒体文件
+    // 不能按路径可靠读取（AOSP 明确实际权限取决于实现），只有 URI 是自己一定读得到的
+    private fun writeViaMediaStore(context: Context, dirName: String, name: String, bytes: ByteArray): String? = try {
         val resolver = context.contentResolver
         val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
         val uri = queryDownloadsUri(context, dirName, name) ?: resolver.insert(
@@ -100,10 +106,7 @@ internal object MusicMetadataCache {
             put(MediaStore.MediaColumns.DATE_MODIFIED, System.currentTimeMillis() / 1000)
         }, null, null)
         if (!written) return null
-        // 落点由相对路径与文件名唯一确定，不必再查 DATA 列——Android 10 起该列对自己写入的条目
-        // 也未必读得回来，取不到就把一次成功的写入误判成失败、退到私有目录。
-        // 推算后校验存在：个别 ROM 对公共目录的路径访问收得更紧，读不到才回退
-        File(File(mediaRoot(context), dirName), name).takeIf { it.isFile }
+        uri.toString()
     } catch (e: Exception) {
         CrashLogManager.logException("MusicMetadataCache", "MediaStore 写入缓存失败: $dirName/$name", e)
         null
@@ -132,18 +135,18 @@ internal object MusicMetadataCache {
     }
 
     // 应用专属目录兜底：MediaStore 与公共目录直写均不可用时保证缓存仍可落盘
-    private fun writeToPrivateDir(context: Context, dirName: String, name: String, bytes: ByteArray): File? {
+    private fun writeToPrivateDir(context: Context, dirName: String, name: String, bytes: ByteArray): String? {
         val root = context.getExternalFilesDir(null) ?: return null
         val dir = File(root, dirName)
         if (!dir.isDirectory && !dir.mkdirs()) return null
         val file = File(dir, name)
-        return if (runCatching { file.writeBytes(bytes) }.isSuccess && file.isFile) file else null
+        return file.absolutePath
+            .takeIf { runCatching { file.writeBytes(bytes) }.isSuccess && file.isFile }
     }
 
     fun saveLyrics(context: Context, title: String, artist: String, lines: List<LyricLine>): String? = try {
         val name = lyricFileName(title, artist)
-        val file = writeCacheFile(context, LYRIC_DIR, name, encodeLyrics(lines).toByteArray()) ?: return null
-        file.absolutePath
+        writeCacheFile(context, LYRIC_DIR, name, encodeLyrics(lines).toByteArray())
     } catch (e: Exception) {
         CrashLogManager.logException("MusicMetadataCache", "保存歌词失败: 标题=${title} 艺术家=${artist}", e)
         null
@@ -172,17 +175,22 @@ internal object MusicMetadataCache {
     // 按“标题 - 艺术家”查找已存在的歌词缓存文件：在线播放/手动刷新保存的 .lrc 可直接复用
     fun findLyrics(context: Context, title: String, artist: String): String? {
         val file = lyricFile(context, title, artist)
-        return file.absolutePath.takeIf { isValid(it) }
+        if (isValid(context, file.absolutePath)) return file.absolutePath
+        // 无全部文件权限时公共目录不可按路径读：改从 Downloads 集合找自己写入的那一条
+        return queryDownloadsUri(context, LYRIC_DIR, file.name)?.toString()
     }
 
     // 歌词缓存文件的最后修改时间（毫秒）：与音频内嵌歌词择新时用作比较基准，不可用时返回 0
-    fun lyricsModifiedMs(path: String): Long =
-        path.takeIf { isValid(it) }?.let { runCatching { File(it).lastModified() }.getOrDefault(0L) } ?: 0L
+    fun lyricsModifiedMs(context: Context, location: String): Long = when {
+        !isValid(context, location) -> 0L
+        isContentLocation(location) -> queryModifiedSeconds(context, location) * 1000L
+        else -> runCatching { File(location).lastModified() }.getOrDefault(0L)
+    }
 
-    fun loadLyrics(path: String): List<LyricLine> = try {
-        parseLyricsText(File(path).readText())
+    fun loadLyrics(context: Context, location: String): List<LyricLine> = try {
+        parseLyricsText(readLyricsText(context, location))
     } catch (e: Exception) {
-        CrashLogManager.logException("MusicMetadataCache", "加载歌词失败: 路径=$path", e)
+        CrashLogManager.logException("MusicMetadataCache", "加载歌词失败: 位置=$location", e)
         emptyList()
     }
 
@@ -263,7 +271,36 @@ internal object MusicMetadataCache {
         }
     }
 
-    fun isValid(path: String): Boolean = path.isNotBlank() && File(path).let { it.isFile && it.length() > 0 }
+    // 缓存位置既可能是绝对路径，也可能是 MediaStore 的 content URI（见 writeCacheFile）
+    private fun isContentLocation(location: String): Boolean =
+        location.startsWith(ContentResolver.SCHEME_CONTENT)
+
+    // 缓存是否可用。content URI 不做存在性探测：逐首 query 会把冷启动拖成几百次 IPC，
+    // 真正读不到时由加载路径回退重建
+    fun isValid(context: Context, location: String): Boolean = when {
+        location.isBlank() -> false
+        isContentLocation(location) -> true
+        else -> File(location).let { it.isFile && it.length() > 0 }
+    }
+
+    private fun readLyricsText(context: Context, location: String): String =
+        if (isContentLocation(location)) {
+            context.contentResolver.openInputStream(location.toUri())?.use {
+                it.readBytes().toString(Charsets.UTF_8)
+            }.orEmpty()
+        } else {
+            File(location).readText()
+        }
+
+    private fun queryModifiedSeconds(context: Context, location: String): Long = runCatching {
+        context.contentResolver.query(
+            location.toUri(),
+            arrayOf(MediaStore.MediaColumns.DATE_MODIFIED),
+            null,
+            null,
+            null,
+        )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 0L } ?: 0L
+    }.getOrDefault(0L)
 
     // ===== 孤儿缓存回收 =====
     //

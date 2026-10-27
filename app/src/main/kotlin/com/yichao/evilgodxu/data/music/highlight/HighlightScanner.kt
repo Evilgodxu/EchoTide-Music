@@ -84,9 +84,9 @@ internal object HighlightScanner {
     private fun lyricLines(context: Context, track: MusicTrack): List<LyricLine> {
         if (track.lyricLines.isNotEmpty()) return track.lyricLines
         val path = track.lyricCachePath
-        if (MusicMetadataCache.isValid(path)) return MusicMetadataCache.loadLyrics(path)
+        if (MusicMetadataCache.isValid(context, path)) return MusicMetadataCache.loadLyrics(context, path)
         val byName = MusicMetadataCache.findLyrics(context, track.title, track.artist)
-        return byName?.let { MusicMetadataCache.loadLyrics(it) }.orEmpty()
+        return byName?.let { MusicMetadataCache.loadLyrics(context, it) }.orEmpty()
     }
 
     // 时长缺失时的兜底：以末行歌词为锚向后留出片段上限

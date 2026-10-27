@@ -21,7 +21,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * 同一时刻只跟随一项权限，重复发起即取消上一次。
  */
 object PermissionReturnMonitor {
-    private const val POLL_INTERVAL_MS = 800L
+    // 轮询间隔取 500ms：授权开关拨下到系统落库通常就在这一档内，再慢会让人以为没生效
+    private const val POLL_INTERVAL_MS = 500L
     private const val TIMEOUT_MS = 180_000L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

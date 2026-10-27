@@ -1363,11 +1363,11 @@ class MusicPlaybackState(
     private fun loadCachedPlaylist(context: Context, cacheKey: String): List<MusicTrack> {
         val json = context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
             .getString(cacheKey, null) ?: return emptyList()
-        return decodePlaylist(json)
+        return decodePlaylist(context, json)
     }
 
     // 曲目列表 JSON 反序列化：播放列表缓存与启动镜像共用同一份字段口径，避免两处各写一份解析
-    private fun decodePlaylist(json: String): List<MusicTrack> {
+    private fun decodePlaylist(context: Context, json: String): List<MusicTrack> {
         return try {
             val array = JSONArray(json)
             List(array.length()) { index ->
@@ -1376,7 +1376,7 @@ class MusicPlaybackState(
                 val lyricOffset = item.optLong("lyricOffsetMs", 0L)
                 // 歌词内容延迟到显示时按需从缓存文件读取（含偏移），
                 // 冷启动不逐首解析歌词，避免大歌单的数百次文件读取拖慢所有界面首帧
-                val lyricCachePath = savedLyricPath.takeIf { MusicMetadataCache.isValid(it) }.orEmpty()
+                val lyricCachePath = savedLyricPath.takeIf { MusicMetadataCache.isValid(context, it) }.orEmpty()
                 MusicTrack(
                     id = item.getLong("id"),
                     path = item.getString("path"),
@@ -1698,13 +1698,13 @@ class MusicPlaybackState(
                 .getString(bootMirrorKey, null)
         }.getOrNull() ?: return
         val snapshot = runCatching { JSONObject(json) }.getOrNull() ?: return
-        val track = runCatching { decodePlaylist(snapshot.optString("track", "")) }
+        val track = runCatching { decodePlaylist(context, snapshot.optString("track", "")) }
             .getOrNull()?.firstOrNull() ?: return
         // 歌词内容随首帧一并读出：歌词区不再经历「空白 → 内容」。
         // 缓存文件保存的始终是原始时间戳，需与补全路径一致地应用手动偏移，否则首帧歌词会错位
         val lines = track.lyricCachePath
-            .takeIf { MusicMetadataCache.isValid(it) }
-            ?.let { MusicMetadataCache.loadLyrics(it) }
+            .takeIf { MusicMetadataCache.isValid(context, it) }
+            ?.let { MusicMetadataCache.loadLyrics(context, it) }
             ?.let { if (track.lyricOffsetMs != 0L) MusicMetadataCache.shiftLyrics(it, track.lyricOffsetMs) else it }
             .orEmpty()
         // 封面位图同步驻留：封面不再经历「占位符 → 图片」

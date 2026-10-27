@@ -66,7 +66,7 @@ class MetadataEnricher {
         // 「是否需要补全」的判定含逐个缓存文件的 stat（isValid → File.isFile/length），
         // 放 IO 执行：外部存储路径经 FUSE 的 stat 开销远高于内存判断，数千首在主线程判定会直接掉帧
         val plannedIds = withContext(Dispatchers.IO) {
-            tracks.filter { plansMetadataFor(it) }.map { it.id }
+            tracks.filter { plansMetadataFor(context, it) }.map { it.id }
         }
         bulkInFlight.addAll(plannedIds)
         try {
@@ -159,7 +159,7 @@ class MetadataEnricher {
                 if (hasCompleteMetadata(track)) return@withContext track
                 // 没有可做的补全时直接跳过，判定与全量排期同源：
                 // 「曾落盘但文件已失效」不算已尝试失败，仍需重建
-                if (!needsLyrics(track)) return@withContext track
+                if (!needsLyrics(context, track)) return@withContext track
                 enrichLyric(context, track)
             } ?: return
             if (updated != track) {
@@ -178,13 +178,13 @@ class MetadataEnricher {
 
     private fun hasCompleteMetadata(track: MusicTrack): Boolean = track.lyricLines.isNotEmpty()
 
-    private fun plansMetadataFor(track: MusicTrack): Boolean = needsLyrics(track)
+    private fun plansMetadataFor(context: Context, track: MusicTrack): Boolean = needsLyrics(context, track)
 
     // 歌词未挂载即需处理：有有效缓存路径时必须读回内容；
     // 仅当既无缓存又已标记失败时才跳过，避免 lyricFailed 挡住缓存歌词的恢复
-    private fun needsLyrics(track: MusicTrack): Boolean =
+    private fun needsLyrics(context: Context, track: MusicTrack): Boolean =
         track.lyricLines.isEmpty() &&
-            (MusicMetadataCache.isValid(track.lyricCachePath) || !track.lyricFailed)
+            (MusicMetadataCache.isValid(context, track.lyricCachePath) || !track.lyricFailed)
 
     /** 歌词懒加载：并发读取本地歌词，每首完成即回写内存态（面板/列表逐首刷新）；不联网 */
     private suspend fun enrichLyricsProgressively(
@@ -199,7 +199,7 @@ class MetadataEnricher {
         // 筛选与排序放 IO：歌词缓存有效性判定含文件 stat，主线程逐首判定代价高
         val ordered = withContext(Dispatchers.IO) {
             tracks
-                .filter { needsLyrics(it) }
+                .filter { needsLyrics(context, it) }
                 .sortedWith(compareBy { it.id != currentId })
         }
         if (ordered.isEmpty()) return
@@ -225,8 +225,8 @@ class MetadataEnricher {
     // 读取单曲本地歌词：曲目缓存 → 内嵌歌词 → 共享 .lrc 缓存；三处均未命中即标记失败
     private suspend fun enrichLyric(context: Context, track: MusicTrack): MusicTrack? = try {
         // 优先直接复用曲目已关联的歌词缓存（冷启动恢复残留的路径），按需读取并应用手动偏移
-        track.lyricCachePath.takeIf { MusicMetadataCache.isValid(it) }?.let { path ->
-            MusicMetadataCache.loadLyrics(path).takeIf { it.isNotEmpty() }?.let { lines ->
+        track.lyricCachePath.takeIf { MusicMetadataCache.isValid(context, it) }?.let { path ->
+            MusicMetadataCache.loadLyrics(context, path).takeIf { it.isNotEmpty() }?.let { lines ->
                 return track.copy(
                     lyricCachePath = path,
                     lyricLines = applyLyricOffset(lines, track.lyricOffsetMs),
@@ -248,7 +248,7 @@ class MetadataEnricher {
         }
         // 再次复用按"标题 - 艺术家"落盘的通用歌词缓存（在线播放/手动刷新保存的 .lrc）
         val existingPath = MusicMetadataCache.findLyrics(context, track.title, track.artist)
-        val existingLines = existingPath?.let { MusicMetadataCache.loadLyrics(it) }
+        val existingLines = existingPath?.let { MusicMetadataCache.loadLyrics(context, it) }
         if (!existingLines.isNullOrEmpty()) {
             return track.copy(
                 lyricCachePath = existingPath,

@@ -66,7 +66,7 @@ import com.yichao.evilgodxu.data.music.playback.PlaylistSource
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.permission.ensureAllFilesAccess
+import com.yichao.evilgodxu.permission.hasAllFilesAccess
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
@@ -394,7 +394,7 @@ internal fun PlaylistAlbumTracksPage(
             editAlbumTrack = null
             // 将专辑名写回音频文件标签
             scope.launch {
-                if (!ensureAllFilesAccess(context)) return@launch
+                if (!hasAllFilesAccess()) return@launch
                 MusicMetadataWriter.writeAlbum(context, track, albumName)
             }
         },

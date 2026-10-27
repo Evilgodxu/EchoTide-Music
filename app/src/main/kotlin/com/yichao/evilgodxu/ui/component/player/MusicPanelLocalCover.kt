@@ -31,7 +31,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
-import com.yichao.evilgodxu.permission.ensureAllFilesAccess
+import com.yichao.evilgodxu.permission.hasAllFilesAccess
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.RecentCover
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
@@ -72,7 +72,7 @@ internal suspend fun applyLocalCover(
 ): Boolean = withContext(Dispatchers.IO) {
     try {
         // 写入音频文件需要「全部文件」访问：缺权限时打开系统授权页并放弃本次写入
-        if (!ensureAllFilesAccess(context)) return@withContext false
+        if (!hasAllFilesAccess()) return@withContext false
         val bytes = context.contentResolver.openInputStream(cover.uri)?.use { it.readBytes() } ?: return@withContext false
         // 封面写入音频文件，系统据此重建封面略缩图；显示端据此重新取图（系统略缩图或文件内嵌封面），落盘的旧缩略图由 bumpCoverRevision 一并作废
         val writeSuccess = MusicMetadataWriter.writeCover(context, track, bytes)

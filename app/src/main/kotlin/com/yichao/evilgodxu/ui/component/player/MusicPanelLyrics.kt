@@ -419,7 +419,7 @@ internal fun LyricsPanel(
         if (lines.isEmpty()) {
             // 关联歌词缓存存在时读取挂载极快，不闪"暂无歌词"占位；仅真正缺失时提示
             val hasLyricCache = playbackState.currentTrack?.lyricCachePath
-                ?.let { MusicMetadataCache.isValid(it) } == true
+                ?.let { MusicMetadataCache.isValid(context, it) } == true
             if (!hasLyricCache) {
                 Text(
                     stringResource(R.string.music_panel_no_lyrics),
