@@ -1,7 +1,6 @@
 package com.yichao.evilgodxu.data.cache
 
 import android.content.Context
-import android.os.Environment
 import com.yichao.evilgodxu.data.music.highlight.HighlightStore
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
 import com.yichao.evilgodxu.data.music.metadata.LargeCoverStore
@@ -213,9 +212,11 @@ internal object StorageRegistry {
         .orEmpty()
 
     // 应用专属下载目录下的更新安装包：该目录仅由本应用写入，按扩展名匹配即可
-    internal fun updatePackages(context: Context): List<File> = context
-        .getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-        ?.listFiles { file -> file.isFile && file.extension.equals("apk", ignoreCase = true) }
+    internal fun updatePackages(context: Context): List<File> = File(
+        context.getExternalFilesDir(null),
+        StoragePaths.UPDATE_DIR_NAME,
+    )
+        .listFiles { file -> file.isFile && file.extension.equals("apk", ignoreCase = true) }
         ?.toList()
         .orEmpty()
 

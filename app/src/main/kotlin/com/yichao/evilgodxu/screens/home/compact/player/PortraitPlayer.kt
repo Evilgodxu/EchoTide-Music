@@ -635,10 +635,19 @@ internal fun PortraitPlayer(
                         },
                         onRename = {
                             showMetaMenu = false
-                            renameIsTitle = menuIsTitle
-                            renameInitValue = menuText
-                            renameTargetId = playbackState.currentTrack?.id
-                            showRename = true
+                            val track = playbackState.currentTrack
+                            when {
+                                track == null -> Unit
+                                // 写回音频文件要全部文件访问：缺权限就直接去元数据编辑页，
+                                // 那一页打开时会申请；不该让用户先填一遍再被告知写不进去
+                                !hasAllFilesAccess() -> onOpenMetadata(track.id)
+                                else -> {
+                                    renameIsTitle = menuIsTitle
+                                    renameInitValue = menuText
+                                    renameTargetId = track.id
+                                    showRename = true
+                                }
+                            }
                         },
                         // 标题整体作为唯一关键词；艺术家按多歌手分隔符解析，多位时由菜单下钻选择
                         searchTargets = if (menuIsTitle) listOf(menuText) else parseTrackArtists(menuText),
@@ -719,19 +728,13 @@ internal fun PortraitPlayer(
             onConfirm = { newValue ->
                 showRename = false
                 val track = playbackState.currentTrack
-                when {
-                    track == null || track.id != renameTargetId -> Unit
-                    // 没有写文件的权限就转到元数据编辑页：那一页打开时申请全部文件访问，
-                    // 比在这里静默写失败更清楚，也不必在首页弹系统设置
-                    !hasAllFilesAccess() -> onOpenMetadata(track.id)
-                    else -> {
-                        val updated = if (renameIsTitle) track.copy(title = newValue)
-                        else track.copy(artist = newValue)
-                        playbackState.renameTrackMetadata(updated)
-                        // 手动重命名标题/艺术家后写入音频文件元数据
-                        scope.launch {
-                            MusicMetadataWriter.writeTitleArtist(context, track, updated.title, updated.artist)
-                        }
+                if (track != null && track.id == renameTargetId) {
+                    val updated = if (renameIsTitle) track.copy(title = newValue)
+                    else track.copy(artist = newValue)
+                    playbackState.renameTrackMetadata(updated)
+                    // 手动重命名标题/艺术家后写入音频文件元数据
+                    scope.launch {
+                        MusicMetadataWriter.writeTitleArtist(context, track, updated.title, updated.artist)
                     }
                 }
             },

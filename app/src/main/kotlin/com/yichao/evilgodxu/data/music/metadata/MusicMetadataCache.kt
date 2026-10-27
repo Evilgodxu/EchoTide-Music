@@ -73,6 +73,7 @@ internal object MusicMetadataCache {
     private fun writeCacheFile(context: Context, dirName: String, name: String, bytes: ByteArray): String? {
         if (!hasDirectDownloadAccess()) {
             return writeViaMediaStore(context, dirName, name, bytes)
+                ?: writeToPrivateDir(context, dirName, name, bytes)
         }
         val dir = File(mediaRoot(context), dirName)
         if (!dir.isDirectory && !runCatching { dir.mkdirs() }.getOrDefault(false)) return null
@@ -122,6 +123,17 @@ internal object MusicMetadataCache {
             arrayOf(name, downloadsRelativePath(dirName)),
             null,
         )?.use { cursor -> if (cursor.moveToFirst()) ContentUris.withAppendedId(collection, cursor.getLong(0)) else null }
+    }
+
+    // 应用专属目录兜底：MediaStore 写入失败时保证缓存仍可落盘。
+    // 目录只在真正走到这一步时才创建，命中 MediaStore 时不会留下任何空目录
+    private fun writeToPrivateDir(context: Context, dirName: String, name: String, bytes: ByteArray): String? {
+        val root = context.getExternalFilesDir(null) ?: return null
+        val dir = File(root, dirName)
+        if (!dir.isDirectory && !dir.mkdirs()) return null
+        val file = File(dir, name)
+        return file.absolutePath
+            .takeIf { runCatching { file.writeBytes(bytes) }.isSuccess && file.isFile }
     }
 
     // Downloads 集合的目录相对路径：Download/YiChao/<子目录>/

@@ -6,13 +6,13 @@ import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
-import android.os.Environment
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
 import com.yichao.evilgodxu.data.persistence.PersistedData
 import com.yichao.evilgodxu.data.persistence.PersistedFileKind
+import com.yichao.evilgodxu.data.persistence.StoragePaths
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
@@ -195,13 +195,17 @@ object UpdateManager {
         onProgress: (Float) -> Unit = {}
     ): Boolean {
         val fileName = "EchoTideMusic_${updateInfo.latestVersion}.apk"
+        // 落自定义 update 子目录：系统约定的 Download 目录一被 getExternalFilesDir 调用就会
+        // 被创建出来并一直空着（见 StoragePaths.UPDATE_DIR_NAME）
         val outFile = java.io.File(
-            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
+            java.io.File(context.getExternalFilesDir(null), StoragePaths.UPDATE_DIR_NAME),
             fileName
         )
 
         // 下载、轮询、文件操作全部在 IO 线程执行，避免 DownloadManager IPC 阻塞主线程
         return withContext(Dispatchers.IO) {
+            // 目录只在真要下载时才建：检查更新、比对哈希都不该留下空目录
+            outFile.parentFile?.mkdirs()
             if (outFile.exists()) {
                 if (verifyApkHash(outFile, updateInfo.sha256)) {
                     onProgress(1f)
