@@ -84,17 +84,15 @@ private const val COLOR_SAMPLE_EDGE_PX = 64
 /**
  * 封面背景取色结果：封面四周边缘环自上而下的三段主色，三段已收敛为相近色。
  *
- * 背景流动的三个色块、关闭流动时的静态渐变、落盘与浮层底色全部取自这一份结果，
- * 背景因此在任何状态下都同源，切换流动开关只改变呈现方式而不改变色调。
+ * 背景帧的色调、底色兜底与浮层底色全部取自这一份结果，背景因此在任何状态下都同源。
+ *
+ * 三段色已收敛为相近色，渲染只取代表色（中段）；另两段仍随结果落盘，供旧版本数据读回时不丢字段。
  */
 internal data class CoverBackgroundColors(
     val top: Color,
     val middle: Color,
     val bottom: Color,
 ) {
-    // 自上而下的色序：静态渐变按此顺序铺开，流动帧按图层顺序取用
-    val stops: List<Color> = listOf(top, middle, bottom)
-
     // 单一取值：三段色相近，任取一段都能代表整体色调，取中段供落盘与浮层底色复用
     val representative: Color = middle
 }

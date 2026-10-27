@@ -8,7 +8,7 @@ import android.util.LruCache
  * 取色本身便宜，昂贵的是它依赖的图：等背景自己的 64px 略缩图解码完再取色，封面已换成新曲目、
  * 背景却还停在上一首的色调。故切歌预取高清封面时顺手把相邻几首的取色一并算出记在这里
  * （见 [LargeCoverStore.prefetch]），冷启动则由已持久化的结果回填（见 MusicPlaybackState 的
- * savedBackgroundColors），静态渐变与流动帧同取这一份。
+ * savedBackgroundColors），背景帧与底色同取这一份。
  *
  * 与封面缓存同口径只驻留最近几首；封面被重写后由播放状态在自增封面版本时清空。
  */

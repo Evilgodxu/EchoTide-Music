@@ -53,10 +53,6 @@ internal object CoverFlowFrameStore {
     @Volatile
     private var viewport = IntSize.Zero
 
-    // 背景流动开关：由显示端上报。它本就是开关的唯一观察者，关闭流动时帧根本不参与渲染
-    @Volatile
-    private var flowEnabled = false
-
     // 观察与现算都在本作用域内：进程级缓存，不随任何一处界面离场而中断。
     // 取主调度器，与播放状态自身的协程同源（见 MusicPlaybackState.playbackScope）：
     // 主队列在应用退到后台后照常运行，观察因此不会被调度器挡在门外
@@ -70,11 +66,6 @@ internal object CoverFlowFrameStore {
     /** 显示尺寸变更：其后代现算按新尺寸渲染 */
     fun setViewport(size: IntSize) {
         viewport = size
-    }
-
-    /** 背景流动开关变更：关闭时停止代现算 */
-    fun setFlowEnabled(enabled: Boolean) {
-        flowEnabled = enabled
     }
 
     /**
@@ -98,7 +89,6 @@ internal object CoverFlowFrameStore {
         delay(PREPARE_DELAY_MS)
         val size = viewport
         if (size.width <= 0 || size.height <= 0) return
-        if (!flowEnabled) return
         // 封面按显示端首帧的同一顺序取内存里那一张：两处落在同一张图上，帧才与显示端现算的完全一致
         val cover = MusicCoverLoader.cachedThumbnail(track, COVER_BACKGROUND_SAMPLE_SIZE)
             ?: CurrentCoverCache.peek(track.audioUri)

@@ -100,7 +100,10 @@ internal object MusicMetadataCache {
             put(MediaStore.MediaColumns.DATE_MODIFIED, System.currentTimeMillis() / 1000)
         }, null, null)
         if (!written) return null
-        queryDataPath(context, dirName, name)?.let(::File)
+        // 落点由相对路径与文件名唯一确定，不必再查 DATA 列——Android 10 起该列对自己写入的条目
+        // 也未必读得回来，取不到就把一次成功的写入误判成失败、退到私有目录。
+        // 推算后校验存在：个别 ROM 对公共目录的路径访问收得更紧，读不到才回退
+        File(File(mediaRoot(context), dirName), name).takeIf { it.isFile }
     } catch (e: Exception) {
         CrashLogManager.logException("MusicMetadataCache", "MediaStore 写入缓存失败: $dirName/$name", e)
         null
@@ -117,19 +120,6 @@ internal object MusicMetadataCache {
             arrayOf(name, downloadsRelativePath(dirName)),
             null,
         )?.use { cursor -> if (cursor.moveToFirst()) ContentUris.withAppendedId(collection, cursor.getLong(0)) else null }
-    }
-
-    // 查询自身条目的真实磁盘路径：自身写入的条目，其路径可直接由本应用回读
-    private fun queryDataPath(context: Context, dirName: String, name: String): String? {
-        val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
-        val selection = "${MediaStore.Downloads.DISPLAY_NAME}=? AND ${MediaStore.Downloads.RELATIVE_PATH}=?"
-        return context.contentResolver.query(
-            collection,
-            arrayOf(MediaStore.Downloads.DATA),
-            selection,
-            arrayOf(name, downloadsRelativePath(dirName)),
-            null,
-        )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
     }
 
     // Downloads 集合的目录相对路径：Download/YiChao/<子目录>/

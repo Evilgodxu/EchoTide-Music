@@ -47,7 +47,6 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.settings.backgroundFlowEnabledFlow
 import com.yichao.evilgodxu.theme.md_theme_dark_surface
-import com.yichao.evilgodxu.theme.md_theme_dark_surfaceVariant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.max
@@ -76,8 +75,8 @@ private const val COVER_BACKGROUND_FLOW_FRAME_INTERVAL_MS = 32L
 private const val FLOW_FRAME_MAX_GAP_MS = 1_000L
 
 // 压暗强度的下限：底色的明度再高，各层压暗也不低于这一强度。压暗层同时承担前景文字与状态栏的
-// 对比，浅色底若按明度一路减下去，对比就不够了。关闭流动时的静态底色压暗层正按这一强度铺开，
-// 故它不参与明度收敛；流动帧的压暗层与蒙层基准强度更高，收敛后由本值兜底
+// 对比，浅色底若按明度一路减下去，对比就不够了。取不到封面时只剩底色，那层压暗正按这一强度铺开，
+// 故它不参与明度收敛；帧的压暗层与蒙层基准强度更高，收敛后由本值兜底
 private const val DIM_MIN_ALPHA = 0.15f
 
 // 压暗的明度自适应：底色相对亮度低于 [DIM_LUMINANCE_DARK] 时全额压暗，高于 [DIM_LUMINANCE_LIGHT] 时
@@ -192,12 +191,13 @@ private enum class BackgroundSwitch {
 private data class BackgroundSwitchState(
     val base: BackgroundBase,
     val switch: BackgroundSwitch,
-    // 切歌那一刻画面上的流动帧：退场层用它复现旧曲目的完整背景。
-    // 为空表示切歌时本就只有静态底色（未开流动，或帧尚未就绪）
+    // 切歌那一刻画面上的帧：退场层用它复现旧曲目的完整背景。
+    // 为空表示切歌时本就只有底色（该曲目取不到封面，或帧尚未就绪）
     val frame: ImageBitmap?,
 )
 
-// 整屏底色的一种渲染口径：三段取色就绪时为自上而下三段渐变，未就绪时退化为单色铺底
+// 整屏底色的一种渲染口径：有取色时以代表色铺底，未就绪时退化为落盘单色。
+// 层次由流动帧负责，底色只承担「帧还没到时不能露出空白」这一件事
 private data class BackgroundBase(
     val colors: CoverBackgroundColors?,
     val solid: Color?,
@@ -206,21 +206,21 @@ private data class BackgroundBase(
     val tone: Color?
         get() = colors?.representative ?: solid
 
-    fun brush(): Brush = colors?.let { Brush.verticalGradient(it.stops) }
-        ?: solid?.let { SolidColor(it) }
-        ?: defaultBackgroundGradient()
+    fun fill(): Brush = SolidColor(tone ?: md_theme_dark_surface)
 }
 
 // 歌曲沉浸式背景：整屏统一渲染，不随顶置封面位置做局部处理，左右切页时背景始终连续。
-// 底色取自封面边缘的三段相近色（见 extractCoverBackgroundColors）：关闭「背景流动」时只铺一条
-// 由三段色构成的自上而下渐变，开启后在其上叠一层缓慢漂移的封面叠画帧（见 renderCoverFlowFrame），
-// 帧内以封面主色与中性黑压暗、其上再按 [coverScrimStops] 渐变压暗；关掉流动即撤下帧回到渐变。
-// 帧上的压暗层与蒙层随底色的明度收敛（见 [dimScaleOf]）：浅色封面叠出的浅色背景只轻度压暗，
-// 保持与封面外缘同色调，封面渐隐带上不出现暗色差带；收敛后各层强度由 [DIM_MIN_ALPHA] 兜底，
-// 静态底色压暗层恒定按该强度铺开——浅色底同样要留出前景文字与状态栏的对比。
+// 背景只有一条渲染路径：封面叠画出的一帧（见 renderCoverFlowFrame）。
+// 「背景流动」开关只决定相位推不推进——关着时相位钉在零点，画面就是这一帧的首帧；
+// 开着时逐帧重算。静止与流动因此共用同一份构图与压暗，切换开关不会看到两种背景互相塌换。
+// 帧内的压暗层与蒙层随底色的明度收敛（见 [dimScaleOf]）：浅色封面叠出的浅色背景只轻度压暗，
+// 保持与封面外缘同色调，封面渐隐带上不出现暗色差带；收敛后各层强度由 [DIM_MIN_ALPHA] 兜底。
+// 底色（封面边缘三段色里的代表色）只在帧未就绪时露出，那层压暗恒定按该强度铺开——
+// 浅色底同样要留出前景文字与状态栏的对比。
 // 取色同源且已持久化：命中缓存（切歌预取、或冷启动时由持久化结果回填）即视为已取色，
-// 三段渐变与流动帧的色调直接复用；缓存未命中才从略缩图现算并回传落盘。
+// 帧的色调直接复用；缓存未命中才从略缩图现算并回传落盘。
 // 三段取色都取不到时先回落「该曲上次持久化结果的代表色」整幅铺色，避免冷启动首帧闪默认色。
+// 该曲目确认无封面（见 CoverSkipRegistry）时帧整体撤下，背景退为这一片底色加均匀压暗。
 // 这份结果由本组件按曲目自行取用、不由调用方传入：浏览场景（如 3D 封面轮播）居中的曲目随时在换，
 // 调用方无从替「此刻居中的那一首」预先给定，而它正要复用同一份已算好的结果。
 // 底色有变时上一份底色与当前底色交叠一处：切歌按方向整屏横移，同曲取色落地则原地淡出，
@@ -276,10 +276,9 @@ internal fun SongImmersiveBackground(
     val background = colors?.representative ?: restoredColor ?: md_theme_dark_surface
     LaunchedEffect(background) { onBackgroundColor?.invoke(background) }
 
-    // 流动帧：只在开启流动且封面略缩图就绪时渲染，随流动时间推进重算；
-    // 关闭流动即置空，背景不再有任何流动帧参与渲染，只剩下方静态渐变。
+    // 背景帧：封面略缩图就绪即渲染，静止与流动共用同一帧——关闭流动只是让相位停在零点，
+    // 看到的就是流动的首帧，不再是另一条独立的渐变。
     // 提前于换色逻辑声明：换色过渡要把切歌瞬间的这一帧冻结进退场层
-    // 流动开关与帧的状态同处声明：帧是否参与渲染由它决定，关闭时连代现算备下的那一帧也不铺
     val flowEnabled by context.backgroundFlowEnabledFlow().collectAsStateWithLifecycle(initialValue = false)
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -316,10 +315,8 @@ internal fun SongImmersiveBackground(
     // 与显示端现算的帧同源同相位，两者可互换（见 renderCoverFlowFrame 与流动时间轴）
     val preparedFrame = remember(audioUri, coverRevision) { CoverFlowFrameStore.peek(audioUri, coverRevision) }
     // 铺出的一帧：显示端为本曲目现算过就以它为准；尚未现算过（刚换曲、页面重建、后台切歌回来）
-    // 才由代现算那一帧顶上，取不到时沿用上一次铺出的帧，避免换帧窗口里露出底色。
-    // 关闭流动时一律为空：帧整体退出渲染，代现算残留的那一帧同样不铺
+    // 才由代现算那一帧顶上，取不到时沿用上一次铺出的帧，避免换帧窗口里露出底色
     val shownFrame = when {
-        !flowEnabled -> null
         // 底色还没换到当前曲目：本曲目的帧（连同代现算备下的那一份）先不铺，沿用上一次铺出的帧。
         // 底纹必须与其底色一同入场——抢先露出来就是一次「下一首的背景一闪而过」，
         // 而底色交叠的那段时长里它还会被当成退场层的帧冻结带走
@@ -397,9 +394,8 @@ internal fun SongImmersiveBackground(
     // 而不是把停滞的整段时间一次性补上——那一次跳变正落在回前台首帧上。
     // 起点为零还让帧可被代现算（见 CoverFlowFrameStore）：代现算备好的就是零点那一帧，
     // 与显示端接管后现算出的帧同相位，两者可互换而看不出接缝。
-    // 会话与首帧都从零累计：前者是停滞后的第一个间隔（正是那段停滞本身），后者根本无间隔可累加
-    // 开关上报给代现算：关闭流动时帧根本不参与渲染，代现算连同取图都可省下
-    LaunchedEffect(flowEnabled) { CoverFlowFrameStore.setFlowEnabled(flowEnabled) }
+    // 会话与首帧都从零累计：前者是停滞后的第一个间隔（正是那段停滞本身），后者根本无间隔可累加。
+    // 开关只决定相位推不推进：关着时相位钉在零点，画面停在同一帧的首帧上
     var flowTimeMs by remember(audioUri) { mutableLongStateOf(0L) }
     LaunchedEffect(flowEnabled, thumbnail, visibleSession) {
         if (!flowEnabled) {
@@ -425,10 +421,10 @@ internal fun SongImmersiveBackground(
         }
     }
 
-    LaunchedEffect(thumbnail, flowEnabled, viewportSize, flowTimeMs, base.tone, baseApplied) {
-        // 无源可渲染：关闭流动、没有曲目，或该曲目已确认取不到封面（见 CoverSkipRegistry）。
-        // 这三种情形下帧整体撤下，背景只剩静态渐变，不留上一首的底纹
-        if (!flowEnabled || track == null || CoverSkipRegistry.isSkipped(track)) {
+    LaunchedEffect(thumbnail, viewportSize, flowTimeMs, base.tone, baseApplied) {
+        // 无源可渲染：没有曲目，或该曲目已确认取不到封面（见 CoverSkipRegistry）。
+        // 这两种情形下帧整体撤下，背景只剩底色，不留上一首的底纹
+        if (track == null || CoverSkipRegistry.isSkipped(track)) {
             frame = null
             frameUri = null
             return@LaunchedEffect
@@ -460,10 +456,10 @@ internal fun SongImmersiveBackground(
                 CoverFlowFrameStore.setViewport(it)
             },
     ) {
-        // 当前底色层：三段取色构成的自上而下渐变，流动帧叠在其上，关掉流动即露出渐变；
-        // 仅持上次持久化的代表色时先整幅铺该色，取色未就绪时才用主题默认渐变。
-        // 切歌横移时整层自进入侧入场，落位后偏移归零——底色自身的竖向渐变横移看不出变化，
-        // 读到的位移来自本层与原底色层色面的相对运动
+        // 当前底色层：一片代表色打底，帧铺在其上；帧没到时它就是全部画面。
+        // 仅持上次持久化的代表色时先铺该色，取色未就绪时才用主题默认深色。
+        // 切歌横移时整层自进入侧入场，落位后偏移归零——纯色层本身横移看不出变化，
+        // 读到的位移来自它上面那帧与原底色层色面的相对运动
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -477,15 +473,17 @@ internal fun SongImmersiveBackground(
                     }
                 },
         ) {
-            Box(modifier = Modifier.fillMaxSize().background(base.brush()))
-            // 静态底色压暗层：关闭流动时背景只剩这条渐变，均匀压暗给前景文字留出对比。
-            // 强度沿全幅一致，不随位置变化，因而不产生亮度层次分界；按压暗下限铺开，浅色底也是这个强度
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = DIM_MIN_ALPHA)),
-            )
-            // 流动帧整幅铺满并盖住静态底色；帧内已做整体模糊，封面叠画的边界不显形
+            Box(modifier = Modifier.fillMaxSize().background(base.fill()))
+            // 无帧时才铺这层压暗：有帧时压暗由帧自带的渐深层承担，两层叠起来会把画面压死。
+            // 强度沿全幅一致，不产生亮度层次分界；按压暗下限铺开，浅色底也是这个强度
+            if (shownFrame == null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = DIM_MIN_ALPHA)),
+                )
+            }
+            // 帧整幅铺满并盖住底色；帧内已做整体模糊，封面叠画的边界不显形
             shownFrame?.let { bitmap ->
                 Image(
                     bitmap = bitmap,
@@ -524,14 +522,16 @@ internal fun SongImmersiveBackground(
                         }
                     },
             ) {
-                Box(modifier = Modifier.fillMaxSize().background(previous.base.brush()))
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = DIM_MIN_ALPHA)),
-                )
-                // 冻结的流动帧连同其压暗层一并在层内复刻，退场侧与切歌前的静止画面完全同源，
-                // 不会在切歌伊始由流动帧骤然塌回静态渐变
+                Box(modifier = Modifier.fillMaxSize().background(previous.base.fill()))
+                if (previous.frame == null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = DIM_MIN_ALPHA)),
+                    )
+                }
+                // 冻结的帧连同其压暗层一并在层内复刻，退场侧与切歌前的静止画面完全同源，
+                // 不会在切歌伊始由帧骤然塌回一片纯色
                 previous.frame?.let { bitmap ->
                     Image(
                         bitmap = bitmap,
@@ -549,15 +549,6 @@ internal fun SongImmersiveBackground(
         }
     }
 }
-
-// 首页默认背景固定深色，不随主题变化
-private fun defaultBackgroundGradient(): Brush =
-    Brush.verticalGradient(
-        listOf(
-            md_theme_dark_surface,
-            md_theme_dark_surfaceVariant,
-        )
-    )
 
 /**
  * 现算一帧背景流动帧：底色蒙层、叠画尺寸与模糊的全套口径都在本入口内定下。

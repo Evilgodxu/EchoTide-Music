@@ -118,7 +118,7 @@ class MusicPlaybackState(
     private val savedPositionKey = longPreferencesKey("music_saved_position")
     private val savedModeKey = intPreferencesKey("music_saved_mode")
     // 首页背景取色结果持久化键：与播放快照同库写入，冷启动恢复后首帧即可渲染。
-    // 三段色统一落盘（top / middle / bottom），静态渐变与流动帧的色调同取这一份，
+    // 三段色统一落盘（top / middle / bottom），背景帧与底色的色调同取这一份，
     // 下次播放直接复用而不必再从封面边缘重算。
     // 键名沿用历史取值：早期版本只有一个代表色存在 edge 键下，改键名会让已装机用户的取色结果读不到
     // 而多闪一次默认背景；历史数据只有 edge 一项，读回时按单色展开成三段同色
@@ -1432,7 +1432,7 @@ class MusicPlaybackState(
     var pendingSavedUri: String? = null
     var pendingResumePosition: Long = 0L
     // 已持久化的首页背景取色结果（封面边缘三段色）及其所属曲目 URI：
-    // 冷启动首帧、略缩图就绪前供背景直接渲染，静态渐变与流动帧的色调同取这一份
+    // 冷启动首帧、略缩图就绪前供背景直接渲染，背景帧与底色的色调同取这一份
     internal var savedBackgroundColors: CoverBackgroundColors? by mutableStateOf(null)
         private set
     var savedBackgroundColorUri: String? by mutableStateOf(null)
@@ -1446,7 +1446,7 @@ class MusicPlaybackState(
         if (track != null && track.audioUri == savedBackgroundColorUri) savedBackgroundColors else null
 
     // 把已持久化的取色结果交给内存取色缓存：显示端与流动帧代现算命中后即视为「已取色」，
-    // 静态渐变与流动帧的色调直接复用，不再从封面边缘重算
+    // 背景帧与底色的色调直接复用，不再从封面边缘重算
     private fun adoptSavedBackgroundColors() {
         val uri = savedBackgroundColorUri ?: return
         val colors = savedBackgroundColors ?: return
