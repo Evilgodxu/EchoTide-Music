@@ -38,6 +38,8 @@ fun ensureAllFilesAccess(context: Context): Boolean {
     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     runCatching { context.startActivity(direct) }
         .onFailure { runCatching { context.startActivity(fallback) } }
+    // 系统不会在授权后自动送回本应用：跳过去之后跟着授权状态，一授予就把任务带回来
+    PermissionReturnMonitor.watch(context, PermissionType.MANAGE_EXTERNAL_STORAGE)
     return false
 }
 
@@ -58,4 +60,5 @@ fun requestNotificationPolicyAccessIfNeeded(context: Context) {
     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     runCatching { context.startActivity(policyPage) }
         .onFailure { runCatching { context.startActivity(fallback) } }
+    PermissionReturnMonitor.watch(context, PermissionType.NOTIFICATION_POLICY)
 }

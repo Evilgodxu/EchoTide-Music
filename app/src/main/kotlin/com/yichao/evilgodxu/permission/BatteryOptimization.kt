@@ -32,4 +32,6 @@ fun requestIgnoreBatteryOptimizations(context: Context, activity: Activity?) {
     }
     runCatching { target.startActivity(grantedIntent) }
         .onFailure { runCatching { target.startActivity(settingsIntent) } }
+    // 授权页不会自动关闭：跟着白名单状态，用户一旦勾选就把任务带回本应用
+    PermissionReturnMonitor.watch(context, PermissionType.BATTERY_OPTIMIZATION)
 }

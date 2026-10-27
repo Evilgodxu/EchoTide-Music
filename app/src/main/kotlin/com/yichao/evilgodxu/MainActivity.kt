@@ -26,6 +26,7 @@ import com.yichao.evilgodxu.data.music.proxy.ProxyParseResult
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
 import com.yichao.evilgodxu.data.settings.AppLanguage
 import com.yichao.evilgodxu.data.settings.readBootLanguage
+import com.yichao.evilgodxu.permission.PermissionReturnMonitor
 import com.yichao.evilgodxu.theme.SystemBarAppearance
 import com.yichao.evilgodxu.windowsize.ProvideWindowSizeClass
 import com.yichao.evilgodxu.floatingwindow.MiniPlayerController
@@ -147,6 +148,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         scheduleSystemBars()
         startSystemBarsAutoHide()
+        // 已回到前台：跳系统设置后的授权跟随到此为止，不必再在后台轮询
+        PermissionReturnMonitor.stop()
     }
 
     override fun onPause() {
