@@ -83,9 +83,9 @@ Portrait or landscape, immersion is the only goal.
 │       │   ├── localization/            # In-app language management
 │       │   ├── log/                     # CrashLogManager
 │       │   ├── navigation/              # Navigation3 type-safe routes & navigation host
-│       │   ├── permission/              # Permissions, overlay grant, battery-optimization whitelist & foreground-state monitoring
+│       │   ├── permission/              # Permission checks, settings-page round trips & return-to-foreground
 │       │   ├── screens/                 # Screens (home / settings / storage / typography / spectrum / metadata)
-│       │   │   ├── home/                #   Home player + permission flow + playlists (incl. artist pages) + online search
+│       │   │   ├── home/                #   Home player + startup permission chain + playlists (incl. artist pages) + online search
 │       │   │   │   ├── compact/         #     Portrait assembly (compact/player: portrait player)
 │       │   │   │   ├── expanded/        #     Landscape assembly (expanded/player: landscape player)
 │       │   │   │   └── component/       #     analysis / audioinfo / bar / dialog / panel / permission / player / playlist (incl. playlist/expanded) / queue / search / shell / swipe
@@ -125,7 +125,7 @@ The interface spec for custom proxy sources lives in [忆潮代理音源规范](
 | Permission | Purpose |
 | --- | --- |
 | Display over other apps | Mini player during background playback, and the playlist it expands into |
-| All files access | Import and manage local music files |
+| All files access | Writing tags back to audio files, exporting cover art |
 | Music access (`READ_MEDIA_AUDIO`) | Read the device library and play from it |
 | Images (`READ_MEDIA_IMAGES`, `READ_MEDIA_VISUAL_USER_SELECTED`) | Embedded cover art and local cover candidates; Android 14's partial "selected photos" grant counts as granted |
 | Bluetooth (`BLUETOOTH_CONNECT`) | Read the name, address and negotiated codec of the current Bluetooth output device (audio info) |
@@ -139,7 +139,7 @@ The interface spec for custom proxy sources lives in [忆潮代理音源规范](
 | Install packages (`REQUEST_INSTALL_PACKAGES`) | Launches the system installer for an in-app update |
 | Write settings (`WRITE_SETTINGS`) | Sets a track as the default incoming-call ringtone / alarm ringtone |
 
-Permissions are requested one at a time by the onboarding dialog: the three library permissions are required, while notifications and the battery-optimization whitelist are optional and listed only when missing. Android 14's partial "selected photos" grant is treated the same as the full image permission — the query still returns the images the user has selected, which is enough to pick a cover. The Bluetooth permission is not part of onboarding: it is requested on the spot, and only when the audio-info panel finds the current output to be a Bluetooth device, so anyone who never opens that panel is never asked for it.
+Permissions are requested where they are used, not up front. Entering the home screen asks for music access only, then immediately for notifications and the battery-optimization whitelist — each at most once per launch, and a refusal is not asked again in the same launch. Everything else is requested at the moment it matters: all-files access and images when the metadata editor opens, Bluetooth when the audio-info panel opens, Do Not Disturb when USB direct output is switched on, and write-settings when a track is set as the default ringtone. System authorization pages open in the same task as the app, so returning is just the normal back gesture. Android 14's partial "selected photos" grant is treated the same as the full image permission — the query still returns the images the user has selected, which is enough to pick a cover.
 
 ## Getting Started
 
