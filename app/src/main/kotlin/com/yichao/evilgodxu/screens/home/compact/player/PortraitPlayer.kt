@@ -81,6 +81,9 @@ import com.yichao.evilgodxu.data.music.panel.searchLyricsCandidates
 import com.yichao.evilgodxu.data.music.panel.TranslateOutcome
 import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.permission.ensureAllFilesAccess
+import com.yichao.evilgodxu.permission.hasImageAccess
+import com.yichao.evilgodxu.permission.mediaImagePermission
 import com.yichao.evilgodxu.screens.home.component.dialog.ArtistPickerDialog
 import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
 import com.yichao.evilgodxu.screens.home.component.player.HomeImmersiveCover
@@ -231,6 +234,12 @@ internal fun PortraitPlayer(
             }
         }
     }
+    // 本地封面候选取自系统图片库：缺图片访问时先申请，授权后直接重载候选
+    val localCoverPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) scope.launch { playbackState.setLocalCoverCandidates(loadRecentCovers(context)) }
+    }
     var showRename by remember { mutableStateOf(false) }
     var renameIsTitle by remember { mutableStateOf(true) }
     var renameInitValue by remember { mutableStateOf("") }
@@ -322,7 +331,11 @@ internal fun PortraitPlayer(
                         coverTargetId = playbackState.currentTrack?.id
                         selectedLocalCover = null
                         showLocalCover = true
-                        scope.launch { playbackState.setLocalCoverCandidates(loadRecentCovers(context)) }
+                        if (hasImageAccess(context)) {
+                            scope.launch { playbackState.setLocalCoverCandidates(loadRecentCovers(context)) }
+                        } else {
+                            localCoverPermissionLauncher.launch(mediaImagePermission())
+                        }
                     },
                     // 保存内嵌封面原图到系统相册：不改动曲目元数据，故无目标校验；
                     // 无内嵌封面时以提示告知，写入失败仍复用封面错误横幅
@@ -712,6 +725,7 @@ internal fun PortraitPlayer(
                     playbackState.renameTrackMetadata(updated)
                     // 手动重命名标题/艺术家后写入音频文件元数据
                     scope.launch {
+                        if (!ensureAllFilesAccess(context)) return@launch
                         MusicMetadataWriter.writeTitleArtist(context, track, updated.title, updated.artist)
                     }
                 }

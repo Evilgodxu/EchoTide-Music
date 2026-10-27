@@ -18,6 +18,7 @@ import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalMusicPanelStateHolder
 import com.yichao.evilgodxu.LocalPlaylistRefresher
 import com.yichao.evilgodxu.screens.home.compact.CompactAssembly
+import com.yichao.evilgodxu.screens.home.component.permission.StartupPermissionChain
 import com.yichao.evilgodxu.screens.home.component.panel.HomePage
 import com.yichao.evilgodxu.screens.home.component.panel.rememberHomePanelState
 import com.yichao.evilgodxu.screens.home.expanded.ExpandedAssembly
@@ -53,6 +54,12 @@ fun HomeScreen(
     )
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // 启动期三段授权：音频 → 通知 → 省电策略，串行推进，每轮各问一次
+    StartupPermissionChain(
+        mediaAudioGranted = uiState.mediaAudioGranted,
+        onAudioGranted = viewModel::refreshPermissions,
+        markRequested = viewModel::markPermissionRequested,
+    )
     // 冷启动恢复持久化的播放列表，并定位当前曲目
     LaunchedEffect(Unit) {
         val state = stateHolder.state
@@ -150,9 +157,6 @@ fun HomeScreen(
             onOpenSpectrum = onOpenSpectrum,
             onOpenMetadata = onOpenMetadata,
             onToggleLandscape = onToggleLandscape,
-            onRefreshPermissions = viewModel::refreshPermissions,
-            onStartPermissionMonitor = viewModel::startPermissionMonitor,
-            onStopPermissionMonitor = viewModel::stopPermissionMonitor,
         )
     } else {
         CompactAssembly(
@@ -162,9 +166,6 @@ fun HomeScreen(
             onOpenSpectrum = onOpenSpectrum,
             onOpenMetadata = onOpenMetadata,
             onToggleLandscape = onToggleLandscape,
-            onRefreshPermissions = viewModel::refreshPermissions,
-            onStartPermissionMonitor = viewModel::startPermissionMonitor,
-            onStopPermissionMonitor = viewModel::stopPermissionMonitor,
         )
     }
 }

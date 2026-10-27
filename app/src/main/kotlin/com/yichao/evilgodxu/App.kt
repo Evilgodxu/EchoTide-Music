@@ -74,13 +74,22 @@ class App : Application() {
         enableStrictModeInDebugBuild()
         // 最先初始化崩溃日志，捕获启动阶段异常
         CrashLogManager.init(this)
+        // 上下文先于内容绑定：首启动没有任何可预置的内容，但后续落盘路径仍要取用上下文
+        val playbackState = stateHolder.state
+        playbackState.attachContext(this)
         // 首帧前同步预置上次播放状态（见 seedFromBootMirror），使首页首帧即是完整内容而非空态；
-        // 这是启动关键路径上的刻意读盘，异步化会把空窗推回首帧之后
-        stateHolder.state.seedFromBootMirror(applicationContext)
+        // 这是启动关键路径上的刻意读盘，异步化会把空窗推回首帧之后。
+        // 首启动没有镜像可读，跳过这段同步读盘——首帧本就是空态，没有内容可预置
+        if (playbackState.hasBootMirror(this)) {
+            playbackState.seedFromBootMirror(this)
+        }
         // 冷启动尽早恢复持久化播放列表：恢复任务由首个调用方触发（见 restoreSavedState），
-        // 此处预触发使首帧渲染时歌单与当前曲目已就绪，避免首页先以空态展示再等待首帧后的恢复
-        appScope.launch {
-            runCatching { stateHolder.state.restoreSavedState(applicationContext) }
+        // 此处预触发使首帧渲染时歌单与当前曲目已就绪。
+        // 首启动没有歌单缓存，预触发只会空跑一轮读盘，故跳过
+        if (playbackState.hasLibraryCache(this)) {
+            appScope.launch {
+                runCatching { playbackState.restoreSavedState(applicationContext) }
+            }
         }
         // 预热设置 DataStore，并把启动语言写入轻量镜像：
         // 下次冷启动 attachBaseContext 即可同步命中镜像，无需等待 DataStore 首次读取

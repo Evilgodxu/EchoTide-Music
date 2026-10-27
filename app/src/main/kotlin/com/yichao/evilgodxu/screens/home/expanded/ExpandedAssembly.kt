@@ -1,6 +1,5 @@
 package com.yichao.evilgodxu.screens.home.expanded
 
-import android.app.Activity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -28,7 +27,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
-import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.screens.home.component.bar.HomeTopBar
 import com.yichao.evilgodxu.screens.home.component.dialog.ArtistPickerDialog
 import com.yichao.evilgodxu.screens.home.component.dialog.HomeDialogs
@@ -51,9 +49,6 @@ internal fun ExpandedAssembly(
     onOpenSpectrum: (Long) -> Unit,
     onOpenMetadata: (Long) -> Unit,
     onToggleLandscape: () -> Unit,
-    onRefreshPermissions: () -> Unit,
-    onStartPermissionMonitor: (PermissionType, Activity) -> Unit,
-    onStopPermissionMonitor: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val playbackState = panelState.playbackState.state
@@ -192,12 +187,6 @@ internal fun ExpandedAssembly(
             },
             onDismiss = { artistPicker = emptyList() },
         )
-        HomeDialogs(
-            panelState = panelState,
-            uiState = uiState,
-            onRefreshPermissions = onRefreshPermissions,
-            onStartPermissionMonitor = onStartPermissionMonitor,
-            onStopPermissionMonitor = onStopPermissionMonitor,
-        )
+        HomeDialogs(panelState = panelState)
     }
 }

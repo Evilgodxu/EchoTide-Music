@@ -36,6 +36,8 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
             }
             if (!started) return@withLock
             try {
+                // 签名先于扫描取：扫描期间新入库的曲目会让下次签名不同，从而在下一轮补上
+                val scannedSignature = MusicScanner.signature(context)
                 val tracks = MusicScanner.scan(context)
                 // 合并去重、缓存索引与排序同放 IO：数千首的库在刷新期间会持续占用主线程，
                 // 其中的内嵌标签补全还要读文件，更不能留在主线程
@@ -104,6 +106,10 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
                     }
                     state.persistPlaylist()
                     if (restoreCurrent) restoreCurrentTrack(state)
+                }
+                // 签名随本轮结果落盘：冷启动据此判定曲库是否变过，未变则跳过整轮扫描
+                scannedSignature?.let { signature ->
+                    withContext(Dispatchers.IO) { state.writeLibrarySignature(context, signature) }
                 }
                 afterMerge()
             } finally {

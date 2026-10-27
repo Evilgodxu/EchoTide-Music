@@ -1,25 +1,10 @@
 package com.yichao.evilgodxu.screens.home
 
 data class HomeUiState(
-    val isLoading: Boolean = false,
-    val allFilesGranted: Boolean = false,
+    // 首启动唯一的权限前置：缺它读不到任何曲目，其余权限都在各自触发点按需申请
     val mediaAudioGranted: Boolean = false,
-    val mediaImageGranted: Boolean = false,
-    val notificationGranted: Boolean = false,
-    val batteryWhitelistGranted: Boolean = false,
-    // 免打扰访问：仅 USB 直出时用得到，故不计入 allPermissionsSatisfied——它的权限行只在直出开关
-    // 开启时列出，计入会让对话框在无行可显示的情况下被这条权限一直挂住
-    val notificationPolicyGranted: Boolean = false,
 ) {
-    // 阻塞式核心权限：缺失时首页无法工作，权限对话框因此不可关闭
+    // 音频访问缺失时首页无法工作，权限提示因此不可关闭
     val blockingPermissionsGranted: Boolean
-        get() = allFilesGranted && mediaAudioGranted && mediaImageGranted
-
-    // 任一权限缺失都要以对话框形式呈现，启动时不直接弹系统权限窗。
-    // 通知与电池优化白名单只影响局部能力（通知展示、熄屏后台播放），
-    // 不计入 blockingPermissionsGranted：用户拒绝其一时对话框仍可关闭，否则首页会被永久占用。
-    // 蓝牙不属首启范围：它只供音频信息面板读取蓝牙输出设备的名称与编解码器，
-    // 由该面板在当前输出为蓝牙时就地申请，故此处不参与
-    val allPermissionsSatisfied: Boolean
-        get() = blockingPermissionsGranted && notificationGranted && batteryWhitelistGranted
+        get() = mediaAudioGranted
 }

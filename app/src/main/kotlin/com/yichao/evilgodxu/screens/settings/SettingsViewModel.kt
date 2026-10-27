@@ -32,6 +32,7 @@ import com.yichao.evilgodxu.data.settings.usbDirectOutputModeFlow
 import com.yichao.evilgodxu.data.settings.wordByWordRenderingFlow
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.permission.requestNotificationPolicyAccessIfNeeded
 import com.yichao.evilgodxu.localization.LocalizationManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asStateFlow
@@ -175,6 +176,9 @@ class SettingsViewModel(
             // 面板的设备能力按描述符给（支持采样率、支持编码都取自这里），读描述符要 USB 授权。
             // 开关打开是用户明确表示"要走这台解码器"的时刻，此时要授权有上下文，也不会打断日常听歌
             UsbAccessRequest.requestIfNeeded(context)
+            // 直出期间要把系统置为「仅闹钟」：免打扰访问权在这里随开关一并申请，
+            // 它只服务于这条输出路径，不参与启动流程
+            requestNotificationPolicyAccessIfNeeded(context)
         }
         viewModelScope.launch {
             context.saveUsbDirectOutputMode(enabled)

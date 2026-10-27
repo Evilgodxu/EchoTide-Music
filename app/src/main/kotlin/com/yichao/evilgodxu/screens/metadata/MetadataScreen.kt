@@ -12,6 +12,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.yichao.evilgodxu.LocalApplication
 import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.screens.metadata.component.MetadataPermissionRequest
 import com.yichao.evilgodxu.screens.metadata.compact.CompactAssembly
 import com.yichao.evilgodxu.screens.metadata.expanded.ExpandedAssembly
 import com.yichao.evilgodxu.theme.StatusBarStyleEffect
@@ -46,6 +47,9 @@ fun MetadataScreen(
     // 每次进入页面都重读一次标签：ViewModel 会被导航栈缓存复用，只靠 init 会把上次的快照当作当前值。
     // 以组合是否处于前台为触发条件，从本页离开再回来、或从别处改过曲目后回来都能拿到磁盘上的最新内容
     LaunchedEffect(Unit) { viewModel.reload() }
+
+    // 打开页面即申请本页所需的两项权限，不等改到一半才发现写不进去
+    MetadataPermissionRequest()
 
     // 离开页面时立刻落盘尚未到点的改动：自动保存有停顿等待窗口，
     // 用户在窗口内退出不应丢掉最后一次输入

@@ -83,12 +83,10 @@ object MusicScanner {
                 MediaStore.Audio.Media.DATE_MODIFIED,
                 MediaStore.Audio.Media.IS_MUSIC,
             )
-            val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND " +
-                    "${MediaStore.Audio.Media.DURATION} >= 30000"
             contentResolver.query(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                 projection,
-                selection,
+                MUSIC_SELECTION,
                 null,
                 "${MediaStore.Audio.Media.TITLE} ASC"
             )?.use { cursor ->
@@ -143,7 +141,37 @@ object MusicScanner {
         }
         tracks
     }
+
+    /**
+     * 曲库签名：曲目数与最近修改时间的组合。
+     *
+     * 冷启动据此判断曲库有没有变过：只投影一列、第二次查询按修改时间倒序，比拉到全字段的
+     * 扫描便宜一个量级。任一查询失败返回 null，调用方按「无法判定」处理并退回完整扫描。
+     */
+    suspend fun signature(context: Context): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val count = context.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Audio.Media._ID),
+                MUSIC_SELECTION,
+                null,
+                null,
+            )?.use { it.count } ?: return@runCatching null
+            val latestModified = context.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Audio.Media.DATE_MODIFIED),
+                MUSIC_SELECTION,
+                null,
+                "${MediaStore.Audio.Media.DATE_MODIFIED} DESC",
+            )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 0L } ?: 0L
+            "$count:$latestModified"
+        }.getOrNull()
+    }
 }
+
+// 曲库口径：扫描与签名同源，两者判定不一致会让冷启动反复重扫或漏扫
+private val MUSIC_SELECTION =
+    "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DURATION} >= 30000"
 
 // 音频文件路径片段标记：命中即视为应用程序资源/解压包音频（如游戏资源包音效）
 private val NON_MUSIC_PATH_MARKERS = listOf(

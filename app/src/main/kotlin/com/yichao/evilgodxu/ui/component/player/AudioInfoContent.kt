@@ -91,8 +91,8 @@ internal fun AudioInfoContent(
 ) {
     val snapshot by rememberAudioInfoSnapshot(playbackState)
     val latency by rememberOutputLatencyReading(playbackState)
-    // 蓝牙设备名与真实地址都受授权限制：当前输出是蓝牙而名称读不到时，在展示处就地申请授权
-    BluetoothConnectPermissionRequest(snapshot?.outputDevice)
+    // 蓝牙设备名、真实地址与编解码器都受授权限制：面板打开即就地申请，不等到接上蓝牙设备
+    BluetoothConnectPermissionRequest()
     Column(
         modifier = modifier.verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -648,22 +648,21 @@ private fun rememberOutputLatencyReading(
 private object ExclusiveLatencySource
 
 /**
- * 蓝牙授权补申请。
+ * 蓝牙授权：音频信息面板打开时申请。
  *
- * 远端设备名与真实地址都受 BLUETOOTH_CONNECT 保护，未授权时两者都读不到（地址还会被平台匿名化），
- * 故在当前输出是蓝牙且名称读不到时就地申请，省去用户自行去系统设置里翻找。
- * 蓝牙授权只服务于本面板，不列入首启引导，这里是它唯一的申请入口。
+ * 面板要展示的远端设备名、真实地址与编解码器都受 BLUETOOTH_CONNECT 保护，未授权时这几项只能是空。
+ * 判据不绑定「当前输出是蓝牙」——那要等用户接上设备才会发现信息缺失；在面板打开的这一刻申请，
+ * 授权一次之后换任意蓝牙设备都能直接读全。
  * 每次打开面板至多申请一次，避免反复打扰。
  *
  * 悬浮窗宿主没有 Activity（系统授权对话框会落在悬浮窗之下，用户无从操作），此处不申请，
  * 该场景下设备名与编解码器留空，用户可在主界面打开同一面板时授权。
  */
 @Composable
-private fun BluetoothConnectPermissionRequest(currentOutput: OutputDeviceInfo?) {
+private fun BluetoothConnectPermissionRequest() {
     val context = LocalContext.current
     // LocalContext 为本地化包装 context，宿主 Activity 需从注册表所有者获取
     val activity = LocalActivityResultRegistryOwner.current as? Activity ?: return
-    if (currentOutput?.kind != OutputDeviceKind.BLUETOOTH || currentOutput.name != null) return
     val permissionMonitor = remember(context) { PermissionMonitor(context) }
     if (permissionMonitor.isBluetoothConnectGranted()) return
 

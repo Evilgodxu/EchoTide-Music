@@ -11,6 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -69,12 +70,22 @@ class MetadataEnricher {
         }
         bulkInFlight.addAll(plannedIds)
         try {
-            // 标签补全先行：歌词缓存以「标题 - 艺术家」为索引，若在标题落定前补歌词，
-            // 会按扫描期的占位标题写出一份索引不上的缓存，更会因找不到共享歌词而误标
-            // lyricFailed —— 该标记会被持久化并在后续刷新中沿用，使该曲目的歌词再也补不上。
-            // 两个阶段各自内部限并发，阶段之间保持先后
-            embedTagsProgressively(context, playbackState, tracks)
-            enrichLyricsProgressively(context, playbackState, tracks)
+            // 标签与歌词只有一处依赖：歌词缓存以「标题 - 艺术家」为索引，该曲目标签尚未落定时
+            // 补歌词会按占位标题写出一份对不上的缓存，还会因找不到共享歌词而误标 lyricFailed。
+            // 故按「是否需要补标签」分组：无需补标签的一组与标签阶段并行补歌词，
+            // 需要补标签的一组等标签落定后再补
+            val unknownArtist = context.getString(R.string.music_scanner_unknown_artist)
+            val (needsTags, readyForLyrics) = withContext(Dispatchers.IO) {
+                tracks.partition { EmbeddedTagBackfill.isPending(it, unknownArtist) }
+            }
+            coroutineScope {
+                val tagJob = launch { embedTagsProgressively(context, playbackState, needsTags) }
+                launch {
+                    enrichLyricsProgressively(context, playbackState, readyForLyrics, persist = false)
+                }
+                tagJob.join()
+                enrichLyricsProgressively(context, playbackState, needsTags, persist = true)
+            }
         } finally {
             bulkInFlight.removeAll(plannedIds)
         }
@@ -89,13 +100,8 @@ class MetadataEnricher {
     private suspend fun embedTagsProgressively(
         context: Context,
         playbackState: MusicPlaybackState,
-        tracks: List<MusicTrack>,
+        targets: List<MusicTrack>,
     ) {
-        val unknownArtist = context.getString(R.string.music_scanner_unknown_artist)
-        // 筛选放 IO：逐曲判定含路径解析与容器扩展名比较，数千首在主线程判定会掉帧
-        val targets = withContext(Dispatchers.IO) {
-            tracks.filter { EmbeddedTagBackfill.isPending(it, unknownArtist) }
-        }
         if (targets.isEmpty()) return
         val changed = coroutineScope {
             targets.map { track ->
@@ -185,6 +191,8 @@ class MetadataEnricher {
         context: Context,
         playbackState: MusicPlaybackState,
         tracks: List<MusicTrack>,
+        // 分批补歌词时只在最后一批落盘：每批各写一次会让整份歌单被重复重写
+        persist: Boolean = true,
     ) {
         // 当前播放曲目优先读取，保证面板歌词先于整库就绪；限并发调度器按提交顺序排队，优先级仍然生效
         val currentId = withContext(Dispatchers.Main) { playbackState.currentTrack?.id }
@@ -209,7 +217,7 @@ class MetadataEnricher {
             }.awaitAll().any { it }
         }
         // 逐首只更新内存态，本阶段收尾统一落盘一次，避免逐曲重写整份播放列表
-        if (changed) {
+        if (changed && persist) {
             withContext(Dispatchers.Main) { playbackState.persistPlaylist() }
         }
     }

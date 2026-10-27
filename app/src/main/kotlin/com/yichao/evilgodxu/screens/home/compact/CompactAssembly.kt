@@ -1,6 +1,5 @@
 package com.yichao.evilgodxu.screens.home.compact
 
-import android.app.Activity
 import android.view.View
 import android.view.WindowInsets as AndroidWindowInsets
 import androidx.compose.animation.core.animateFloatAsState
@@ -27,7 +26,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.data.music.panel.performSearch
 import com.yichao.evilgodxu.screens.home.compact.player.PortraitPlayer
 import com.yichao.evilgodxu.screens.home.component.bar.HomeTopBar
@@ -81,9 +79,6 @@ internal fun CompactAssembly(
     onOpenSpectrum: (Long) -> Unit,
     onOpenMetadata: (Long) -> Unit,
     onToggleLandscape: () -> Unit,
-    onRefreshPermissions: () -> Unit,
-    onStartPermissionMonitor: (PermissionType, Activity) -> Unit,
-    onStopPermissionMonitor: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val playbackState = panelState.playbackState.state
@@ -214,12 +209,6 @@ internal fun CompactAssembly(
                 )
             }
         }
-        HomeDialogs(
-            panelState = panelState,
-            uiState = uiState,
-            onRefreshPermissions = onRefreshPermissions,
-            onStartPermissionMonitor = onStartPermissionMonitor,
-            onStopPermissionMonitor = onStopPermissionMonitor,
-        )
+        HomeDialogs(panelState = panelState)
     }
 }

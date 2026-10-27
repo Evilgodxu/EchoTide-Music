@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.edit
 import androidx.core.net.toUri
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -50,6 +51,7 @@ import kotlin.jvm.JvmName
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -1071,63 +1073,95 @@ class MusicPlaybackState(
 
     private suspend fun doRestoreSavedState(context: Context) {
         appContext = context
-        searchHistory = withContext(Dispatchers.IO) {
-            context.getSharedPreferences(SEARCH_HISTORY_STORE.name, Context.MODE_PRIVATE)
-                .getString(searchHistoryKey, "")
-                ?.split("\n")
-                ?.filter(String::isNotBlank)
-                .orEmpty()
-        }
-        recentPlayEvents = withContext(Dispatchers.IO) {
-            context.getSharedPreferences(RECENT_PLAYED_STORE.name, Context.MODE_PRIVATE)
-                .getString(recentPlayedKey, "")
-                ?.split(",")
-                ?.mapNotNull { token ->
-                    val idx = token.lastIndexOf(':')
-                    if (idx <= 0) return@mapNotNull null
-                    val id = token.substring(0, idx).toLongOrNull() ?: return@mapNotNull null
-                    val ts = token.substring(idx + 1).toLongOrNull() ?: return@mapNotNull null
-                    PlayEvent(id, ts)
-                }
-                .orEmpty()
-        }
-        val preferences = withContext(Dispatchers.IO) {
-            context.settingsDataStore.data.first()
-        }
-        val cachedPlaylist = withContext(Dispatchers.IO) {
-            // 历史缓存可能残留同文件不同 URI 形态的重复条目，按真实文件路径去重，避免冷启动直接展示重名歌曲
-            loadCachedPlaylist(context, playlistCacheKey).distinctBy { trackIdentityKey(context, it) }
-        }
-        // 恢复上次选中的歌单来源、排序规则与默认库备份，扫描刷新后保持选中与排序
-        val (savedSource, savedSortField, savedSortDescending) = withContext(Dispatchers.IO) {
-            val prefs = context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
-            val source = prefs.getString(playlistSourceKeyPref, null)?.let { key ->
-                PlaylistSource(key, prefs.getString(playlistSourceNamePref, "") ?: "")
+        // 各段读取互不依赖：并发发起，总耗时取最慢一段而非各段之和。
+        // 排序依赖读出的缓存与排序规则，故放在并发收尾处单独执行
+        val restored = coroutineScope {
+            val searchHistoryRead = async(Dispatchers.IO) {
+                context.getSharedPreferences(SEARCH_HISTORY_STORE.name, Context.MODE_PRIVATE)
+                    .getString(searchHistoryKey, "")
+                    ?.split("\n")
+                    ?.filter(String::isNotBlank)
+                    .orEmpty()
             }
-            val field = prefs.getString(playlistSortFieldPref, null)
-                ?.let { name -> runCatching { PlaylistSortField.valueOf(name) }.getOrNull() }
-                ?: PlaylistSortField.DEFAULT
-            Triple(source, field, prefs.getBoolean(playlistSortDescPref, false))
-        }
-        // 恢复面板浏览态：未显式浏览过歌单时跟随播放队列
-        val (savedFollowsQueue, savedViewedSource) = withContext(Dispatchers.IO) {
-            val prefs = context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
-            prefs.getBoolean(viewedFollowsQueuePref, true) to
-                prefs.getString(viewedSourceKeyPref, null)?.let { key ->
-                    PlaylistSource(key, prefs.getString(viewedSourceNamePref, "") ?: "")
-                }
-        }
-        // 默认全量播放列表套用保存的排序规则；大库排序开销明显，放 IO 执行
-        val orderedCachedPlaylist = withContext(Dispatchers.IO) {
-            if (savedSource == null) {
-                sortTracks(cachedPlaylist, savedSortField, savedSortDescending)
-            } else {
-                cachedPlaylist
+            val recentPlayRead = async(Dispatchers.IO) {
+                context.getSharedPreferences(RECENT_PLAYED_STORE.name, Context.MODE_PRIVATE)
+                    .getString(recentPlayedKey, "")
+                    ?.split(",")
+                    ?.mapNotNull { token ->
+                        val idx = token.lastIndexOf(':')
+                        if (idx <= 0) return@mapNotNull null
+                        val id = token.substring(0, idx).toLongOrNull() ?: return@mapNotNull null
+                        val ts = token.substring(idx + 1).toLongOrNull() ?: return@mapNotNull null
+                        PlayEvent(id, ts)
+                    }
+                    .orEmpty()
             }
+            val preferencesRead = async(Dispatchers.IO) {
+                context.settingsDataStore.data.first()
+            }
+            val cachedPlaylistRead = async(Dispatchers.IO) {
+                // 历史缓存可能残留同文件不同 URI 形态的重复条目，按真实文件路径去重，避免冷启动直接展示重名歌曲
+                loadCachedPlaylist(context, playlistCacheKey).distinctBy { trackIdentityKey(context, it) }
+            }
+            // 恢复上次选中的歌单来源、排序规则与默认库备份，扫描刷新后保持选中与排序
+            val playlistPrefsRead = async(Dispatchers.IO) {
+                val prefs = context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
+                val source = prefs.getString(playlistSourceKeyPref, null)?.let { key ->
+                    PlaylistSource(key, prefs.getString(playlistSourceNamePref, "") ?: "")
+                }
+                val field = prefs.getString(playlistSortFieldPref, null)
+                    ?.let { name -> runCatching { PlaylistSortField.valueOf(name) }.getOrNull() }
+                    ?: PlaylistSortField.DEFAULT
+                Triple(source, field, prefs.getBoolean(playlistSortDescPref, false))
+            }
+            // 恢复面板浏览态：未显式浏览过歌单时跟随播放队列
+            val viewedPrefsRead = async(Dispatchers.IO) {
+                val prefs = context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
+                prefs.getBoolean(viewedFollowsQueuePref, true) to
+                    prefs.getString(viewedSourceKeyPref, null)?.let { key ->
+                        PlaylistSource(key, prefs.getString(viewedSourceNamePref, "") ?: "")
+                    }
+            }
+            val cachedBackupRead = async(Dispatchers.IO) {
+                loadCachedPlaylist(context, defaultPlaylistCacheKeyPref).distinctBy { trackIdentityKey(context, it) }
+            }
+
+            val cachedPlaylist = cachedPlaylistRead.await()
+            val (savedSource, savedSortField, savedSortDescending) = playlistPrefsRead.await()
+            // 默认全量播放列表套用保存的排序规则；大库排序开销明显，放 IO 执行
+            val orderedCachedPlaylist = withContext(Dispatchers.IO) {
+                if (savedSource == null) {
+                    sortTracks(cachedPlaylist, savedSortField, savedSortDescending)
+                } else {
+                    cachedPlaylist
+                }
+            }
+            val (savedFollowsQueue, savedViewedSource) = viewedPrefsRead.await()
+            RestoredStartupState(
+                searchHistory = searchHistoryRead.await(),
+                recentPlayEvents = recentPlayRead.await(),
+                preferences = preferencesRead.await(),
+                cachedPlaylist = cachedPlaylist,
+                orderedPlaylist = orderedCachedPlaylist,
+                cachedBackup = cachedBackupRead.await(),
+                savedSource = savedSource,
+                savedSortField = savedSortField,
+                savedSortDescending = savedSortDescending,
+                savedFollowsQueue = savedFollowsQueue,
+                savedViewedSource = savedViewedSource,
+            )
         }
-        val cachedBackup = withContext(Dispatchers.IO) {
-            loadCachedPlaylist(context, defaultPlaylistCacheKeyPref).distinctBy { trackIdentityKey(context, it) }
-        }
+        searchHistory = restored.searchHistory
+        recentPlayEvents = restored.recentPlayEvents
+        val preferences = restored.preferences
+        val cachedPlaylist = restored.cachedPlaylist
+        val orderedCachedPlaylist = restored.orderedPlaylist
+        val cachedBackup = restored.cachedBackup
+        val savedSource = restored.savedSource
+        val savedSortField = restored.savedSortField
+        val savedSortDescending = restored.savedSortDescending
+        val savedFollowsQueue = restored.savedFollowsQueue
+        val savedViewedSource = restored.savedViewedSource
         val savedUri = preferences[savedUriKey]
         val savedPosition = preferences[savedPositionKey] ?: 0L
         val savedMode = preferences[savedModeKey] ?: PlayMode.RepeatAll.ordinal
@@ -1181,8 +1215,6 @@ class MusicPlaybackState(
         }
         // 冷启动预读上次曲目的落盘封面：驻留内存后首帧可同步取用，不阻塞本次恢复
         savedUri?.let { uri -> playbackScope.launch { CurrentCoverCache.load(context, uri) } }
-        // 副歌片段表在启动时补齐：心动模式要在播放时零解析，就得先把全库算完落盘
-        ensureHighlightScan(context)
     }
 
     /**
@@ -1530,6 +1562,33 @@ class MusicPlaybackState(
     // 尚未开始的相邻曲目直接不再启动。数量有上界、不随切歌次数累积
     private var coverPrefetchJob: Job? = null
 
+    // 扫描后的封面预热任务：新一轮扫描先取消上一轮，避免旧库的专辑继续占用解码
+    private var artworkWarmupJob: Job? = null
+
+    /**
+     * 扫描完成后的显示预热。
+     *
+     * 封面按专辑去重取：同专辑的曲目共用一张图，逐曲取等于把同一张图解码多遍。
+     * 取色只算当前曲目——首页背景只有它在消费，全库取色没有读它的人。
+     * 与歌词补全由调用方并行发起：两者互不依赖，谁先就绪谁先可见。
+     */
+    fun warmUpArtwork(context: Context) {
+        val tracks = libraryTracks
+        if (tracks.isEmpty()) return
+        currentTrack?.let(::cacheCurrentCoverAndColor)
+        val currentId = currentTrack?.id
+        artworkWarmupJob?.cancel()
+        artworkWarmupJob = playbackScope.launch {
+            tracks.asSequence()
+                .filter { it.id != currentId }
+                .distinctBy { if (it.albumId > 0L) "album:${it.albumId}" else "track:${it.id}" }
+                .forEach { representative ->
+                    if (!isActive) return@launch
+                    MusicCoverLoader.prefetch(context, representative, CurrentCoverCache.THUMBNAIL_SIZE)
+                }
+        }
+    }
+
     // 队列中的当前曲、下一曲、上一曲：按播放队列顺序取相邻项。
     // 预取是串行的（解码很重），顺序即优先级：当前曲先保证高清呈现，其次下一曲提前预热，
     // 最后才是上一曲 —— 顺序播放的用户绝大多数时候只往一个方向走。
@@ -1587,6 +1646,45 @@ class MusicPlaybackState(
     // 与语言镜像同理：异步落盘在进程被杀时会让镜像滞后一次启动。
     private val bootMirrorKey = "playback_snapshot"
 
+    // 曲库签名落点：扫描完成时写入，冷启动据此判断要不要重扫
+    private val librarySignaturePref = "music_library_signature"
+
+    /**
+     * 绑定应用上下文。
+     *
+     * 与镜像、缓存无关，因此独立于两条启动路径：首启动没有任何可预置的内容，
+     * 但后续的落盘路径仍要取用上下文。
+     */
+    fun attachContext(context: Context) {
+        appContext = context.applicationContext
+    }
+
+    /** 是否存在可预置的启动镜像：首启动没有，据此跳过首帧前的同步读盘 */
+    fun hasBootMirror(context: Context): Boolean = runCatching {
+        context.getSharedPreferences(BOOT_MIRROR_STORE.name, Context.MODE_PRIVATE)
+            .contains(bootMirrorKey)
+    }.getOrDefault(false)
+
+    /** 是否有已落盘的曲库缓存：首启动没有，恢复与差分都无从谈起 */
+    fun hasLibraryCache(context: Context): Boolean = runCatching {
+        context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
+            .contains(playlistCacheKey)
+    }.getOrDefault(false)
+
+    /** 落盘本轮扫描所用的曲库签名，供下次冷启动比对 */
+    fun writeLibrarySignature(context: Context, signature: String) {
+        runCatching {
+            context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
+                .edit(commit = true) { putString(librarySignaturePref, signature) }
+        }
+    }
+
+    /** 上次扫描时的曲库签名：为空表示从未扫完过，需按首启动处理 */
+    fun readLibrarySignature(context: Context): String? = runCatching {
+        context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
+            .getString(librarySignaturePref, null)
+    }.getOrNull()
+
     /**
      * 同步读取启动镜像并预置首帧状态：曲目、进度、背景取色、封面位图与歌词内容一并就位。
      *
@@ -1594,7 +1692,7 @@ class MusicPlaybackState(
      * 与一份歌词缓存文件，换取首帧即是完整界面、启动不出现空态与占位符。
      */
     fun seedFromBootMirror(context: Context) {
-        appContext = context.applicationContext
+        attachContext(context)
         val json = runCatching {
             context.getSharedPreferences(BOOT_MIRROR_STORE.name, Context.MODE_PRIVATE)
                 .getString(bootMirrorKey, null)
@@ -2278,4 +2376,19 @@ private data class SavedPlaybackState(
     val audioUri: String,
     val position: Long,
     val mode: Int,
+)
+
+// 恢复阶段并发读出的各段结果：无依赖的读取同时发起，此处只做汇总
+private data class RestoredStartupState(
+    val searchHistory: List<String>,
+    val recentPlayEvents: List<PlayEvent>,
+    val preferences: Preferences,
+    val cachedPlaylist: List<MusicTrack>,
+    val orderedPlaylist: List<MusicTrack>,
+    val cachedBackup: List<MusicTrack>,
+    val savedSource: PlaylistSource?,
+    val savedSortField: PlaylistSortField,
+    val savedSortDescending: Boolean,
+    val savedFollowsQueue: Boolean,
+    val savedViewedSource: PlaylistSource?,
 )
