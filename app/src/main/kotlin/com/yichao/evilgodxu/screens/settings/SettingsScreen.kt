@@ -16,6 +16,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.yichao.evilgodxu.LocalApplication
+import com.yichao.evilgodxu.permission.notificationPolicyAccessIntent
 import com.yichao.evilgodxu.LocalLocalizationManager
 import com.yichao.evilgodxu.LocalSettingsRepository
 import com.yichao.evilgodxu.screens.settings.compact.CompactAssembly
@@ -58,6 +59,19 @@ fun SettingsScreen(
         ActivityResultContracts.StartActivityForResult()
     ) {
         viewModel.onOverlaySettingsReturned()
+    }
+
+    // 免打扰访问页：与悬浮窗同一套——同任务内打开，返回时对账；勾选后由跟随把应用带回前台
+    val notificationPolicyLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        viewModel.onNotificationPolicySettingsReturned()
+    }
+    LaunchedEffect(uiState.notificationPolicyPermissionPending) {
+        if (uiState.notificationPolicyPermissionPending) {
+            runCatching { notificationPolicyLauncher.launch(notificationPolicyAccessIntent()) }
+                .onFailure { viewModel.onNotificationPolicySettingsReturned() }
+        }
     }
 
     // 需要悬浮窗授权时跳转系统设置（仅由迷你播放器开关触发）

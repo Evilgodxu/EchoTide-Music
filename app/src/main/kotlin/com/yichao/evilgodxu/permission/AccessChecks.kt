@@ -35,24 +35,13 @@ fun allFilesAccessIntent(context: Context): Intent = Intent(
 )
 
 /**
- * 免打扰访问权：USB 直出期间要把系统置为「仅闹钟」，缺它就只能挡不住通知与铃声。
+ * 免打扰访问权是否已授予。
  *
- * 只在打开直出开关时申请——它只服务于这一条输出路径。系统没有按应用直达页，
- * 只能打开勿扰访问列表由用户在其中勾选；该页在少数 ROM 上缺失时回退到应用详情页。
+ * 系统没有按应用直达页，缺它时由界面用 ActivityResult 打开勿扰访问列表
+ * （见 [notificationPolicyAccessIntent]），与该列表同任务往返。
  */
-fun requestNotificationPolicyAccessIfNeeded(context: Context) {
-    val manager = context.getSystemService(NotificationManager::class.java) ?: return
-    if (manager.isNotificationPolicyAccessGranted) return
-    val policyPage = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    val fallback = Intent(
-        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-        "package:${context.packageName}".toUri(),
-    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    runCatching { context.startActivity(policyPage) }
-        .onFailure { runCatching { context.startActivity(fallback) } }
-    PermissionReturnMonitor.watch(context, PermissionType.NOTIFICATION_POLICY)
-}
+fun isNotificationPolicyGranted(context: Context): Boolean =
+    context.getSystemService(NotificationManager::class.java)?.isNotificationPolicyAccessGranted == true
 
 /** 免打扰访问权的授权页：供界面以 ActivityResult 发起 */
 fun notificationPolicyAccessIntent(): Intent =

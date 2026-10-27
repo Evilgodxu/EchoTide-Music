@@ -13,6 +13,9 @@ import com.yichao.evilgodxu.data.music.proxy.ProxyParseResult
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
 import com.yichao.evilgodxu.data.music.playback.usb.UsbAccessRequest
 import com.yichao.evilgodxu.permission.OverlayGrantMonitor
+import com.yichao.evilgodxu.permission.PermissionType
+import com.yichao.evilgodxu.permission.isNotificationPolicyGranted
+import com.yichao.evilgodxu.permission.PermissionReturnMonitor
 import com.yichao.evilgodxu.data.repository.SettingsRepository
 import com.yichao.evilgodxu.data.settings.AppLanguage
 import com.yichao.evilgodxu.data.settings.backgroundFlowEnabledFlow
@@ -32,7 +35,6 @@ import com.yichao.evilgodxu.data.settings.usbDirectOutputModeFlow
 import com.yichao.evilgodxu.data.settings.wordByWordRenderingFlow
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.permission.requestNotificationPolicyAccessIfNeeded
 import com.yichao.evilgodxu.localization.LocalizationManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asStateFlow
@@ -127,6 +129,19 @@ class SettingsViewModel(
         }
     }
 
+    // 申请免打扰访问权：已授予时什么都不做，未授予则置位由界面打开授权页
+    private fun requestNotificationPolicyAccess() {
+        if (isNotificationPolicyGranted(context)) return
+        PermissionReturnMonitor.watch(context, PermissionType.NOTIFICATION_POLICY)
+        _uiState.update { it.copy(notificationPolicyPermissionPending = true) }
+    }
+
+    // 用户从免打扰授权页返回（ActivityResultLauncher 回调）：授权与否都只需收尾置位，
+    // 直出本身不依赖它，缺权限只是「仅闹钟」这一效果不生效，故不回滚开关
+    fun onNotificationPolicySettingsReturned() {
+        _uiState.update { it.copy(notificationPolicyPermissionPending = false) }
+    }
+
     // 用户从系统悬浮窗设置页返回（ActivityResultLauncher 回调）
     fun onOverlaySettingsReturned() {
         _uiState.update { it.copy(overlayPermissionPending = false) }
@@ -176,9 +191,10 @@ class SettingsViewModel(
             // 面板的设备能力按描述符给（支持采样率、支持编码都取自这里），读描述符要 USB 授权。
             // 开关打开是用户明确表示"要走这台解码器"的时刻，此时要授权有上下文，也不会打断日常听歌
             UsbAccessRequest.requestIfNeeded(context)
-            // 直出期间要把系统置为「仅闹钟」：免打扰访问权在这里随开关一并申请，
-            // 它只服务于这条输出路径，不参与启动流程
-            requestNotificationPolicyAccessIfNeeded(context)
+            // 直出期间要把系统置为「仅闹钟」：免打扰访问权在这一刻申请。
+            // 与悬浮窗授权同一套——授权页由界面在同任务内打开，这里只负责置位与跟随：
+            // 该页在用户勾选后不会自己关闭，得靠跟随把应用带回前台
+            requestNotificationPolicyAccess()
         }
         viewModelScope.launch {
             context.saveUsbDirectOutputMode(enabled)

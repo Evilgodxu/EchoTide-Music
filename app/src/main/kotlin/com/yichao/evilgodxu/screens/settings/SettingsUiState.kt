@@ -10,6 +10,8 @@ data class SettingsUiState(
     val miniPlayerEnabled: Boolean = false,
     // 迷你播放器开关已打开但悬浮窗权限尚未授予，正在等待用户从系统设置页返回
     val overlayPermissionPending: Boolean = false,
+    // 已打开 USB 直出但免打扰访问权尚未授予，正在等待用户从免打扰授权页返回
+    val notificationPolicyPermissionPending: Boolean = false,
     val wordByWordRendering: Boolean = true,
     val swipeToChangeTrack: Boolean = true,
     // 背景流动：开启后首页封面衍生背景按固定默认值缓慢流动，关闭时只渲染一帧
