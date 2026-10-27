@@ -14,6 +14,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.yichao.evilgodxu.permission.PermissionReturnMonitor
+import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.permission.allFilesAccessIntent
 import com.yichao.evilgodxu.permission.hasAllFilesAccess
 import com.yichao.evilgodxu.permission.hasImageAccess
@@ -60,6 +62,10 @@ internal fun MetadataPermissionRequest() {
         if (!allFilesReady) {
             if (!allFilesPrompted) {
                 allFilesPrompted = true
+                // 跳转同时开始跟随：这个系统页在用户拨开开关后不会自己关闭，
+                // 只靠 ActivityResult 只能覆盖「用户手动返回」那一半，
+                // 另一半要靠跟随到授权后把应用带回前台（与设置页悬浮窗那条路一致）
+                PermissionReturnMonitor.watch(context, PermissionType.MANAGE_EXTERNAL_STORAGE)
                 runCatching { allFilesLauncher.launch(allFilesAccessIntent(context)) }
             }
             return@LaunchedEffect

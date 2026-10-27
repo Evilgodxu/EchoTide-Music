@@ -719,14 +719,19 @@ internal fun PortraitPlayer(
             onConfirm = { newValue ->
                 showRename = false
                 val track = playbackState.currentTrack
-                if (track != null && track.id == renameTargetId) {
-                    val updated = if (renameIsTitle) track.copy(title = newValue)
-                    else track.copy(artist = newValue)
-                    playbackState.renameTrackMetadata(updated)
-                    // 手动重命名标题/艺术家后写入音频文件元数据
-                    scope.launch {
-                        if (!hasAllFilesAccess()) return@launch
-                        MusicMetadataWriter.writeTitleArtist(context, track, updated.title, updated.artist)
+                when {
+                    track == null || track.id != renameTargetId -> Unit
+                    // 没有写文件的权限就转到元数据编辑页：那一页打开时申请全部文件访问，
+                    // 比在这里静默写失败更清楚，也不必在首页弹系统设置
+                    !hasAllFilesAccess() -> onOpenMetadata(track.id)
+                    else -> {
+                        val updated = if (renameIsTitle) track.copy(title = newValue)
+                        else track.copy(artist = newValue)
+                        playbackState.renameTrackMetadata(updated)
+                        // 手动重命名标题/艺术家后写入音频文件元数据
+                        scope.launch {
+                            MusicMetadataWriter.writeTitleArtist(context, track, updated.title, updated.artist)
+                        }
                     }
                 }
             },

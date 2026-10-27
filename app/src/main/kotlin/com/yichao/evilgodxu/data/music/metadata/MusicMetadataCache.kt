@@ -73,7 +73,6 @@ internal object MusicMetadataCache {
     private fun writeCacheFile(context: Context, dirName: String, name: String, bytes: ByteArray): String? {
         if (!hasDirectDownloadAccess()) {
             return writeViaMediaStore(context, dirName, name, bytes)
-                ?: writeToPrivateDir(context, dirName, name, bytes)
         }
         val dir = File(mediaRoot(context), dirName)
         if (!dir.isDirectory && !runCatching { dir.mkdirs() }.getOrDefault(false)) return null
@@ -132,16 +131,6 @@ internal object MusicMetadataCache {
     private fun cacheMimeType(name: String): String = when (name.substringAfterLast('.', "")) {
         "lrc" -> "text/plain"
         else -> "application/octet-stream"
-    }
-
-    // 应用专属目录兜底：MediaStore 与公共目录直写均不可用时保证缓存仍可落盘
-    private fun writeToPrivateDir(context: Context, dirName: String, name: String, bytes: ByteArray): String? {
-        val root = context.getExternalFilesDir(null) ?: return null
-        val dir = File(root, dirName)
-        if (!dir.isDirectory && !dir.mkdirs()) return null
-        val file = File(dir, name)
-        return file.absolutePath
-            .takeIf { runCatching { file.writeBytes(bytes) }.isSuccess && file.isFile }
     }
 
     fun saveLyrics(context: Context, title: String, artist: String, lines: List<LyricLine>): String? = try {
