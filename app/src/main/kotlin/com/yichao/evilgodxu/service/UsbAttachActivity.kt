@@ -8,6 +8,7 @@ import android.os.Bundle
 import com.yichao.evilgodxu.App
 import com.yichao.evilgodxu.MainActivity
 import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveDac
+import com.yichao.evilgodxu.data.music.playback.usb.notifyUsbAttachConfirmed
 import com.yichao.evilgodxu.data.settings.usbDirectOutputModeFlow
 import com.yichao.evilgodxu.data.settings.usbExclusiveOutputModeFlow
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,9 @@ import kotlinx.coroutines.withContext
  * （面板的设备能力只认描述符）。故组件由开关启停（见 [setUsbAttachEntryEnabled]），本入口再按落盘值
  * 核一次。此处只把界面带到前台、不写开关——是否启用由用户在设置里决定。界面也必须带出来：选完之后
  * 什么都不出现，用户只会当成没生效。
+ *
+ * 系统这个选择框就是一次授权，作答之后不该再问第二遍：独占路径收到接入广播时只尝试接管已授权的设备，
+ * 不申请授权；授权随选择框落定，由本入口在拉起界面后补一声通知，接管才继续。
  */
 class UsbAttachActivity : Activity() {
 
@@ -44,7 +48,12 @@ class UsbAttachActivity : Activity() {
             val entryWanted = usbExclusiveOutputModeFlow().first() || usbDirectOutputModeFlow().first()
             withContext(Dispatchers.Main) {
                 // 先起界面再结束自己：本入口没有界面，若先结束，这次启动就可能随任务的清理一起被丢掉
-                if (entryWanted) startActivity(Intent(this@UsbAttachActivity, MainActivity::class.java))
+                if (entryWanted) {
+                    startActivity(Intent(this@UsbAttachActivity, MainActivity::class.java))
+                    // 选择框的作答已经带来授权，独占路径此刻才该接管；它自己不申请授权，否则会与选择框
+                    // 叠成两个弹窗，故由这里补一声
+                    notifyUsbAttachConfirmed()
+                }
                 finish()
             }
         }

@@ -18,6 +18,9 @@ private const val LOG_TAG = "UsbExclusiveOutput"
 /** 授权结果的动作名：由本应用自建 `PendingIntent` 携带，系统在弹窗作答后回送 */
 private const val ACTION_USB_PERMISSION = "com.yichao.evilgodxu.USB_PERMISSION"
 
+/** 接入入口作答完成的动作名：系统在选择框里授予的权限不另发通知，只能由入口补一声 */
+private const val ACTION_USB_ATTACH_CONFIRMED = "com.yichao.evilgodxu.USB_ATTACH_CONFIRMED"
+
 /** 授权请求的 `PendingIntent` 请求码：同一时刻只会有一次未决请求，固定值即可 */
 private const val PERMISSION_REQUEST_CODE = 1
 
@@ -47,6 +50,10 @@ internal sealed interface UsbExclusiveState {
  * 授权的取得是交互，本类只负责发起与接收：系统的授权弹窗由 `UsbManager.requestPermission` 拉起，
  * 作答经本应用自建广播的 `PendingIntent` 回送。接管本身不申请权限（见 [UsbExclusiveDac.open]），
  * 故这里必须先把"有授权"这一步走完再谈接管。
+ *
+ * 授权只有一个入口：接入入口开启时，系统的「用哪个应用打开」选择框就是那次授权，本类收到接入广播时
+ * 不去申请，等入口作答完成的通知（见 [notifyUsbAttachConfirmed]）；选择框未参与（开关关着、或入口
+ * 拉起后仍无权限）时才由 `requestPermission` 自己弹。
  */
 internal class UsbExclusiveOutput(
     private val context: Context,
@@ -77,6 +84,7 @@ internal class UsbExclusiveOutput(
         override fun onReceive(receiverContext: Context?, intent: Intent?) {
             when (intent?.action) {
                 ACTION_USB_PERMISSION -> onPermissionResult(intent)
+                ACTION_USB_ATTACH_CONFIRMED -> onAttachConfirmed()
                 UsbManager.ACTION_USB_DEVICE_ATTACHED -> onDeviceAttached()
                 UsbManager.ACTION_USB_DEVICE_DETACHED -> onDeviceDetached(intent)
             }
@@ -111,7 +119,7 @@ internal class UsbExclusiveOutput(
             return
         }
         ensureRegistered()
-        acquire()
+        acquire(prompt = true)
     }
 
     @Synchronized
@@ -137,6 +145,7 @@ internal class UsbExclusiveOutput(
         if (registered) return
         val filter = IntentFilter().apply {
             addAction(ACTION_USB_PERMISSION)
+            addAction(ACTION_USB_ATTACH_CONFIRMED)
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         }
@@ -144,8 +153,14 @@ internal class UsbExclusiveOutput(
         registered = true
     }
 
-    /** 尝试接管当前接入的解码器；没有设备或没有授权都如实发布对应成色 */
-    private fun acquire() {
+    /**
+     * 尝试接管当前接入的解码器；没有设备或没有授权都如实发布对应成色。
+     *
+     * @param prompt 授权缺失时是否发起系统授权框。接入入口开启时，系统正在弹「用哪个应用打开」的
+     * 选择框，作答本身就授予权限；那一刻再申请会叠出第二个框，用户要连答两次。故由接入广播触发的
+     * 这一次传入 false，等入口作答完成、界面拉起后由 [notifyUsbAttachConfirmed] 的那一次补上。
+     */
+    private fun acquire(prompt: Boolean) {
         val manager = usbManager ?: run {
             publish(UsbExclusiveState.AwaitingDevice)
             return
@@ -156,7 +171,7 @@ internal class UsbExclusiveOutput(
             return
         }
         if (!manager.hasPermission(device)) {
-            requestPermission(manager, device)
+            if (prompt) requestPermission(manager, device)
             publish(UsbExclusiveState.AwaitingPermission)
             return
         }
@@ -208,7 +223,19 @@ internal class UsbExclusiveOutput(
     @Synchronized
     private fun onDeviceAttached() {
         if (!enabled || claim != null) return
-        acquire()
+        acquire(prompt = false)
+    }
+
+    /**
+     * 接入入口已完成一次「选中即授权」：系统在选择框里授予的权限不发广播，只能由入口在拉起界面后补一声。
+     *
+     * 这里允许补发授权框：正常路径下权限已随选择框落定，不会再弹；万一系统未授予，这一次就是用户
+     * 该看到的那个框，而不是在选择框还开着的时候叠一个出来。
+     */
+    @Synchronized
+    private fun onAttachConfirmed() {
+        if (!enabled || claim != null) return
+        acquire(prompt = true)
     }
 
     @Synchronized
@@ -218,7 +245,7 @@ internal class UsbExclusiveOutput(
         // 拔出的可能是另一台设备，只有手里的那台走了才作废会话
         if (current.device.deviceName != device.deviceName) return
         releaseClaim()
-        if (enabled) acquire() else publish(UsbExclusiveState.Disabled)
+        if (enabled) acquire(prompt = true) else publish(UsbExclusiveState.Disabled)
     }
 
     /**
@@ -244,4 +271,15 @@ internal class UsbExclusiveOutput(
         state = next
         onStateChanged(next)
     }
+}
+
+/**
+ * 告知独占路径：接入入口刚完成一次「选中即授权」，可以接管了。
+ *
+ * 这条通知只在入口拉起界面之后发出，即用户已经答过系统的选择框——权限那一刻已经落定，补一次尝试
+ * 不会再多出弹窗。独占路径未运行（开关关着或服务未起）时这声没有听众，那种情况下接管由开关自己的
+ * 首次尝试完成。
+ */
+internal fun Context.notifyUsbAttachConfirmed() {
+    sendBroadcast(Intent(ACTION_USB_ATTACH_CONFIRMED).setPackage(packageName))
 }
