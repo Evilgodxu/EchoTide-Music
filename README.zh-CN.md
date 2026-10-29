@@ -185,6 +185,7 @@ KEY_PASSWORD=你的别名密码
 - 网易云音乐搜索服务曾参考 [Qplayer](https://github.com/TIMER-err/qplayer)
 - 列表拖拽排序参考 [Reorderable](https://github.com/Calvin-LL/Reorderable) 等价实现，未采用依赖方式
 - 基于 [musicdl](https://github.com/CharlesPikachu/musicdl) 实现网易云音乐、酷狗、酷我、QQ 的 Kotlin 原生搜索服务
+- 应用图标由小红书作者「新建文件夹001」（[小红书主页](https://xhslink.cn/o/1dZk6ujEe8N)，ID 5282478962）设计，已获授权使用
 
 ## License
 

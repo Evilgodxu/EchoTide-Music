@@ -185,6 +185,7 @@ Echo Tide is a player for a local music library. Proxy sources only declare pers
 - The NetEase Cloud Music search service once referenced [Qplayer](https://github.com/TIMER-err/qplayer)
 - List drag-reorder references [Reorderable](https://github.com/Calvin-LL/Reorderable) through an equivalent implementation, and is not consumed as a dependency
 - The Kotlin-native search services for NetEase Cloud Music, Kugou, Kuwo and QQ are implemented based on [musicdl](https://github.com/CharlesPikachu/musicdl)
+- App icon designed by 「新建文件夹001」 ([Xiaohongshu profile](https://xhslink.cn/o/1dZk6ujEe8N), ID 5282478962), used with permission
 
 ## License
 
