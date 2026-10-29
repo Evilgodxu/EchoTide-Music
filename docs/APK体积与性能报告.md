@@ -1,8 +1,8 @@
-# APK 体检报告：EchoTideMusic-6.0.0-arm64-v8a.apk
+# APK 体检报告：EchoTideMusic-6.0.1-arm64-v8a.apk
 
-- 应用：`com.yichao.evilgodxu` 6.0.0
-- 体积：5.74 MiB（6018850 字节）
-- 条目：41，容器开销 36.0 KiB
+- 应用：`com.yichao.evilgodxu` 6.0.1
+- 体积：5.77 MiB（6051547 字节）
+- 条目：46，容器开销 38.3 KiB
 - 构建工具：build-tools 37.0.0
 - ZIP 对齐：通过
 - 后处理可回收：97 B
@@ -17,15 +17,15 @@
 
 | 分组 | 条目 | 原始 | 占用 | 占比 |
 | --- | ---: | ---: | ---: | ---: |
-| `classes2.dex` | 1 | 5.14 MiB | 5.14 MiB | 90.0% |
-| `lib/**/*.so` | 3 | 394.9 KiB | 394.9 KiB | 6.8% |
-| `resources.arsc` | 1 | 68.6 KiB | 68.6 KiB | 1.2% |
-| `assets/` | 3 | 141.5 KiB | 53.3 KiB | 0.9% |
+| `classes2.dex` | 1 | 5.14 MiB | 5.14 MiB | 89.6% |
+| `lib/**/*.so` | 3 | 394.9 KiB | 394.9 KiB | 6.7% |
+| `resources.arsc` | 1 | 68.9 KiB | 68.9 KiB | 1.2% |
+| `assets/` | 3 | 139.4 KiB | 51.2 KiB | 0.9% |
+| `res/` | 23 | 50.4 KiB | 48.1 KiB | 0.8% |
 | `classes.dex` | 1 | 32.1 KiB | 32.1 KiB | 0.5% |
-| `res/` | 18 | 19.2 KiB | 16.9 KiB | 0.3% |
 | `kotlin/` | 8 | 52.7 KiB | 12.1 KiB | 0.2% |
-| `AndroidManifest.xml` | 1 | 13.7 KiB | 3.3 KiB | 0.1% |
-| `META-INF/` | 5 | 186 B | 185 B | 0.0% |
+| `AndroidManifest.xml` | 1 | 13.8 KiB | 3.3 KiB | 0.1% |
+| `META-INF/` | 5 | 186 B | 184 B | 0.0% |
 
 ## 最大条目
 
@@ -33,19 +33,19 @@
 | --- | ---: | ---: | --- |
 | `classes2.dex` | 5.14 MiB | 5.14 MiB | STORED |
 | `lib/arm64-v8a/libechotide_usb_iso.so` | 375.0 KiB | 375.0 KiB | STORED |
-| `resources.arsc` | 68.6 KiB | 68.6 KiB | STORED |
+| `resources.arsc` | 68.9 KiB | 68.9 KiB | STORED |
 | `assets/PublicSuffixDatabase.list` | 129.6 KiB | 41.5 KiB | DEFLATE |
 | `classes.dex` | 32.1 KiB | 32.1 KiB | STORED |
-| `assets/dexopt/baseline.prof` | 10.5 KiB | 10.5 KiB | STORED |
 | `lib/arm64-v8a/libdatastore_shared_counter.so` | 10.1 KiB | 10.1 KiB | STORED |
 | `lib/arm64-v8a/libandroidx.graphics.path.so` | 9.9 KiB | 9.9 KiB | STORED |
+| `assets/dexopt/baseline.prof` | 8.4 KiB | 8.4 KiB | STORED |
+| `res/sK.webp` | 7.9 KiB | 7.9 KiB | STORED |
+| `res/-6.webp` | 7.6 KiB | 7.6 KiB | STORED |
+| `res/Sn.webp` | 5.7 KiB | 5.7 KiB | STORED |
+| `res/j_.webp` | 5.6 KiB | 5.6 KiB | STORED |
 | `kotlin/kotlin.kotlin_builtins` | 30.8 KiB | 5.4 KiB | DEFLATE |
-| `res/sK.webp` | 4.3 KiB | 4.3 KiB | STORED |
-| `AndroidManifest.xml` | 13.7 KiB | 3.3 KiB | DEFLATE |
-| `res/Sn.webp` | 3.0 KiB | 3.0 KiB | STORED |
-| `res/20.png` | 2.6 KiB | 2.6 KiB | STORED |
-| `res/qs.webp` | 1.9 KiB | 1.9 KiB | STORED |
-| `kotlin/collections/collections.kotlin_builtins` | 8.4 KiB | 1.8 KiB | DEFLATE |
+| `res/qs.webp` | 3.6 KiB | 3.6 KiB | STORED |
+| `res/u5.webp` | 3.5 KiB | 3.5 KiB | STORED |
 
 ## 存储方式偏差
 
