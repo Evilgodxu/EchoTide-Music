@@ -105,6 +105,41 @@ KTX 迁移的对应写法：`.edit().putX().commit()` → `.edit(commit = true) 
 `.edit().putX().apply()` → `.edit { putX() }`（`edit {}` 默认即 `apply`）。
 相关文件中的「同步写盘」注释是设计说明，迁移后须保持其结论仍然成立。
 
+## 组件归属
+
+- 跨页面复用的组件上提至 `ui/component/`。
+- 无跨页面复用的组件下沉到所属页面的 `component/`。
+
+## 页面根包
+
+- 页面根包只允许存放骨架文件，其余业务文件一律进入子目录收敛。
+- 骨架白名单：`XxxScreen.kt`、`XxxUiState.kt`、`XxxViewModel.kt`。
+- 其余文件进入 `component/`、`compact/`、`expanded/` 等子目录，或按业务语义新建子目录。
+
+## 布局组装
+
+- 布局由组装器组装页面 `component/` 或 `ui/component/` 下的组件得出，不在同一文件内硬编码多种布局。
+- 不同形态各由对应组装器承担，共用组件经由组装器参数注入，组装器本身不承载业务逻辑。
+
+## 页面模块目录示例
+
+```text
+screens/home/
+├── compact/                       # 竖屏组装(必须)
+│   ├── CompactAssembly.kt         # 竖屏组装器
+│   └── …/                         # 专属组件(按需)
+│       └── ….kt
+├── expanded/                      # 横屏组装(按需)
+│   └── ExpandedAssembly.kt        # 横屏组装器
+├── component/                     # 页面组件(必须)
+│   ├── …/
+│   │   └── ….kt
+│   └── …/
+├── HomeScreen.kt                  # 骨架(必须)
+├── HomeUiState.kt                 # 骨架(必须)
+└── HomeViewModel.kt               # 骨架(必须)
+```
+
 ## 依赖库资源的覆盖
 
 覆盖依赖库资源（图标、主题、字符串）时：
