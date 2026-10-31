@@ -47,10 +47,10 @@ import android.graphics.Rect
 import android.view.ViewTreeObserver
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 底部搜索框在列表末尾占用的区域高度：最后一项底缘进入该区域即判定为滚到底部
+// 底部搜索框自身的占位高度（框体 44dp + 底边距 10dp）：列表底缘渐隐按它决定整段隐去的高度
 internal val SEARCH_BAR_REGION_DP = 54.dp
 
-// 搜索框上方悬浮操作区与搜索框的间距：调用方计算底部遮挡区域高度时需一并计入
+// 搜索框上方悬浮操作区与搜索框的间距
 internal val SEARCH_ACTION_GAP_DP = 6.dp
 
 // 搜索条底色与描边的透明度：歌手/专辑分组列表与在线搜索共用同一档，两处观感因此一致
@@ -60,11 +60,11 @@ internal const val SEARCH_BAR_BORDER_ALPHA = 0.22f
 // 判定软键盘可见的高度差比例：可见区域较根视图缩减超过该比例即视为键盘弹出
 private const val KEYBOARD_VISIBLE_RATIO = 0.15f
 
-// 悬浮在列表底部的搜索输入框：列表滚动中或滚到底部时隐藏，避免遮挡末尾条目；输入/聚焦期间常驻。
-// actions 为输入框右上方的悬浮操作区，与输入框同处一个显隐容器，显隐动画由结构保证同步
+// 常驻在列表底部的搜索输入框：框体不再随滚动收起，列表底部须留出与底缘渐隐带同高的空白
+// （见 fadeUnderBottomSearchBar），末项因此不会被框体压住。
+// actions 为输入框右上方的悬浮操作区，与输入框同处一列，间距由 SEARCH_ACTION_GAP_DP 给出
 @Composable
 internal fun BoxScope.BottomSearchBarOverlay(
-    hidden: Boolean,
     placeholder: String,
     query: String,
     onQueryChange: (String) -> Unit,
@@ -77,49 +77,42 @@ internal fun BoxScope.BottomSearchBarOverlay(
     // 搜索框聚焦进入输入态时隐藏操作按钮，释放按钮占用的高度空间
     actionsVisible: Boolean = true,
 ) {
-    AnimatedVisibility(
-        visible = !hidden,
+    Column(
         modifier = Modifier
             .align(Alignment.BottomCenter)
             .fillMaxWidth()
             .padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
-        enter = fadeIn(animationSpec = tween(160)) +
-            slideInVertically(animationSpec = tween(160)) { it },
-        exit = fadeOut(animationSpec = tween(160)) +
-            slideOutVertically(animationSpec = tween(160)) { it },
     ) {
-        Column {
-            if (actions != null) {
-                // 操作区右对齐，与输入框右缘对齐；聚焦进入输入态时整组隐藏，释放占位高度
-                AnimatedVisibility(
-                    visible = actionsVisible,
-                    enter = fadeIn(animationSpec = tween(120)) +
-                        slideInVertically(animationSpec = tween(120)) { it },
-                    exit = fadeOut(animationSpec = tween(120)) +
-                        slideOutVertically(animationSpec = tween(120)) { it },
+        if (actions != null) {
+            // 操作区右对齐，与输入框右缘对齐；聚焦进入输入态时整组隐藏，释放占位高度
+            AnimatedVisibility(
+                visible = actionsVisible,
+                enter = fadeIn(animationSpec = tween(120)) +
+                    slideInVertically(animationSpec = tween(120)) { it },
+                exit = fadeOut(animationSpec = tween(120)) +
+                    slideOutVertically(animationSpec = tween(120)) { it },
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = SEARCH_ACTION_GAP_DP),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = SEARCH_ACTION_GAP_DP),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        actions()
-                    }
+                    actions()
                 }
             }
-            SearchInputBar(
-                placeholder = placeholder,
-                query = query,
-                onQueryChange = onQueryChange,
-                onFocusChanged = onFocusChanged,
-                fillColor = fillColor,
-                borderColor = borderColor,
-                textColor = textColor,
-                hintColor = hintColor,
-            )
         }
+        SearchInputBar(
+            placeholder = placeholder,
+            query = query,
+            onQueryChange = onQueryChange,
+            onFocusChanged = onFocusChanged,
+            fillColor = fillColor,
+            borderColor = borderColor,
+            textColor = textColor,
+            hintColor = hintColor,
+        )
     }
 }
 
