@@ -75,8 +75,9 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
 import com.yichao.evilgodxu.ui.component.SEARCH_BAR_BORDER_ALPHA
-import com.yichao.evilgodxu.ui.component.SEARCH_BAR_EDGE_FADE_DP
 import com.yichao.evilgodxu.ui.component.SEARCH_BAR_FILL_ALPHA
+import com.yichao.evilgodxu.ui.component.SEARCH_BAR_LIST_FADE_FEATHER_DP
+import com.yichao.evilgodxu.ui.component.SEARCH_BAR_REGION_DP
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -145,9 +146,9 @@ internal fun PlaylistGroupsPage(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 12.dp)
-                        .fadeUnderBottomSearchBar(),
-                    // 底部留白与渐隐带同高：末项停在渐隐带上方，不会被框体压住或被渐隐抹掉
-                    contentPadding = PaddingValues(bottom = SEARCH_BAR_EDGE_FADE_DP),
+                        .fadeUnderBottomSearchBar(SEARCH_BAR_LIST_FADE_FEATHER_DP),
+                    // 底部留白只取搜索框自身的占高：框体上方没有其它控件，留白不替过渡段垫高度
+                    contentPadding = PaddingValues(bottom = SEARCH_BAR_REGION_DP),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(visibleGroups, key = { it.key }) { group ->
