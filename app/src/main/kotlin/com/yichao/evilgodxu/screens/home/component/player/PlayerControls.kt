@@ -50,11 +50,15 @@ internal fun PlayerControls(
     onPlayPauseSwipeUp: (() -> Unit)? = null,
     // 从播放列表按钮向上滑动：打开播放列表面板；为 null 时该按钮保持普通点击行为
     onPlaylistSwipeUp: (() -> Unit)? = null,
+    // 音量调节进行态：起手至松手期间为 true，供宿主在调节期间暂缓自身的自动收起
+    onVolumeAdjustingChange: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // 播放/暂停按钮上的左右滑动：调节音量，浮层跟随手指横向位置
     val volumeSwipe = rememberVolumeSwipeState(playbackState)
+    // 手势协程只建立一次，进行态回调以最新值读取
+    val currentOnVolumeAdjusting = rememberUpdatedState(onVolumeAdjustingChange)
     Box(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -107,10 +111,16 @@ internal fun PlayerControls(
                     enabled = playbackState.playlist.isNotEmpty(),
                     onClick = { togglePlayPause(playbackState) },
                     onSwipeUp = onPlayPauseSwipeUp,
-                    // 左右滑动调音量
-                    onVolumeSwipeStart = volumeSwipe::begin,
+                    // 左右滑动调音量：起手与松手同时向宿主报告进行态
+                    onVolumeSwipeStart = {
+                        volumeSwipe.begin()
+                        currentOnVolumeAdjusting.value(true)
+                    },
                     onVolumeSwipe = volumeSwipe::drag,
-                    onVolumeSwipeEnd = volumeSwipe::end,
+                    onVolumeSwipeEnd = {
+                        volumeSwipe.end()
+                        currentOnVolumeAdjusting.value(false)
+                    },
                 )
                 PlayerControlButton(
                     icon = AppIcons.SkipNext,

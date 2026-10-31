@@ -72,6 +72,8 @@ fun LandscapePlayer(
     coverCarouselVisible: Boolean,
     onCoverCarouselVisibilityChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    // 音量调节进行态：起手至松手期间为 true，供首页层暂停标题栏与控制栏的自动收起
+    onVolumeAdjustingChange: (Boolean) -> Unit = {},
     // 播放列表高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
     onOpenSpectrum: (Long) -> Unit = {},
     // 播放列表高级菜单的「编辑元数据」：跳转元数据编辑页，只传曲目标识
@@ -180,6 +182,7 @@ fun LandscapePlayer(
                     onPlaylistClick = { onPlaylistVisibilityChange(true) },
                     // 播放列表按钮上滑同样打开面板：与竖屏控制栏手势一致
                     onPlaylistSwipeUp = { onPlaylistVisibilityChange(true) },
+                    onVolumeAdjustingChange = onVolumeAdjustingChange,
                 )
             }
         }
