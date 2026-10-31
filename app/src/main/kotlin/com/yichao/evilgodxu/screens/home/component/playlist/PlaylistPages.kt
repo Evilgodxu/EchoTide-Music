@@ -71,6 +71,7 @@ import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.DialogCard
+import com.yichao.evilgodxu.ui.component.fadeUnderBottomSearchBar
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
@@ -162,7 +163,9 @@ internal fun PlaylistGroupsPage(
                     state = listState,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 12.dp),
+                        .padding(horizontal = 12.dp)
+                        // 底部搜索框可见时列表底缘渐隐进框后，与框体显隐同步
+                        .fadeUnderBottomSearchBar(visible = !searchHidden),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(visibleGroups, key = { it.key }) { group ->

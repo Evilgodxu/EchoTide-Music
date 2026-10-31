@@ -86,6 +86,7 @@ import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.ExpandDirection
 import com.yichao.evilgodxu.ui.component.ExpandPicker
+import com.yichao.evilgodxu.ui.component.fadeUnderBottomSearchBar
 import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
 import com.yichao.evilgodxu.ui.component.player.PlaylistRow
 import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
@@ -486,7 +487,9 @@ internal fun PlaylistSheet(
                                 state = listState,
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .nestedScroll(dismissNestedScroll),
+                                    .nestedScroll(dismissNestedScroll)
+                                    // 底部搜索框可见时列表底缘渐隐进框后，与框体显隐同步
+                                    .fadeUnderBottomSearchBar(visible = !searchHidden),
                                 verticalArrangement = Arrangement.spacedBy(2.dp),
                             ) {
                                 itemsIndexed(
