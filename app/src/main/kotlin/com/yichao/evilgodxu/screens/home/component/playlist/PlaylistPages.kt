@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
@@ -32,6 +31,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -76,7 +77,6 @@ import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
 import com.yichao.evilgodxu.ui.component.SEARCH_BAR_BORDER_ALPHA
 import com.yichao.evilgodxu.ui.component.SEARCH_BAR_FILL_ALPHA
-import com.yichao.evilgodxu.ui.component.SEARCH_BAR_LIST_FADE_FEATHER_DP
 import com.yichao.evilgodxu.ui.component.SEARCH_BAR_REGION_DP
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 import kotlinx.coroutines.CoroutineScope
@@ -104,6 +104,8 @@ internal fun PlaylistGroupsPage(
     val icon: ImageVector = if (type == SmartPlaylistType.ALBUM) AppIcons.Album else AppIcons.Person
     // 列表内搜索关键词：仅过滤展示，不改变曲库
     var searchQuery by remember { mutableStateOf("") }
+    // 搜索框聚焦状态：输入期间常驻显示，不随列表滚动隐去
+    var searchFocused by remember { mutableStateOf(false) }
     // 按条目名称过滤：关键字命中歌手名/专辑名即保留
     val visibleGroups = remember(groups, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -121,6 +123,22 @@ internal fun PlaylistGroupsPage(
         CoverPrefetch(listState) { index ->
             visibleGroups.getOrNull(index)?.trackIds?.firstOrNull()?.let { libraryById[it] }
         }
+        // 列表滚动中隐藏搜索框，滚动停止自动恢复
+        val isScrolling by remember { derivedStateOf { listState.isScrollInProgress } }
+        val density = LocalDensity.current
+        // 搜索框在列表底部占用的高度：最后一项底缘进入该区域即视为滚到底部
+        val searchBarRegionPx = with(density) { SEARCH_BAR_REGION_DP.toPx() }
+        // 滚到底部判定：最后一项已到达列表底部（底缘进入搜索框遮挡区）；
+        // 列表不足一屏时最后一项不会触底，搜索框保持常驻
+        val atBottom by remember {
+            derivedStateOf {
+                val layout = listState.layoutInfo
+                val last = layout.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf false
+                last.index == layout.totalItemsCount - 1 &&
+                    last.offset + last.size >= layout.viewportEndOffset - searchBarRegionPx
+            }
+        }
+        val searchHidden = (isScrolling || atBottom) && !searchFocused
         // 底部收紧：键盘展开时压缩列表，搜索框保持在键盘上方；键盘收起时让出系统导航栏高度
         // （首页全沉浸隐藏了两条系统栏，正常路径下该值为 0，保留是为了导航栏被外部显示出来时搜索框与末项不被压住）。
         // 两者取并集而非叠加：键盘高度已含导航栏区域
@@ -146,9 +164,8 @@ internal fun PlaylistGroupsPage(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 12.dp)
-                        .fadeUnderBottomSearchBar(SEARCH_BAR_LIST_FADE_FEATHER_DP),
-                    // 底部留白只取搜索框自身的占高：框体上方没有其它控件，留白不替过渡段垫高度
-                    contentPadding = PaddingValues(bottom = SEARCH_BAR_REGION_DP),
+                        // 底部搜索框可见时列表底缘渐隐进框后，与框体显隐同步
+                        .fadeUnderBottomSearchBar(visible = !searchHidden),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(visibleGroups, key = { it.key }) { group ->
@@ -165,16 +182,17 @@ internal fun PlaylistGroupsPage(
                     }
                 }
             }
-            // 底部搜索框常驻：列表底部已按渐隐带高度留白，框体不再压住末项。
+            // 底部搜索框：滚到底部或滚动中隐藏，避免遮挡末尾条目；输入中常驻。
             // 本面板为深色沉浸背景，底色与前景统一走白色系，与在线搜索输入框同款
             BottomSearchBarOverlay(
+                hidden = searchHidden,
                 placeholder = stringResource(
                     if (type == SmartPlaylistType.ALBUM) R.string.playlist_search_album_placeholder
                     else R.string.playlist_search_artist_placeholder
                 ),
                 query = searchQuery,
                 onQueryChange = { searchQuery = it },
-                onFocusChanged = {},
+                onFocusChanged = { searchFocused = it },
                 fillColor = Color.White.copy(alpha = SEARCH_BAR_FILL_ALPHA),
                 borderColor = Color.White.copy(alpha = SEARCH_BAR_BORDER_ALPHA),
                 textColor = Color.White,
