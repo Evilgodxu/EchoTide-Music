@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
@@ -91,7 +92,7 @@ import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
 import com.yichao.evilgodxu.ui.component.player.PlaylistRow
 import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
 import com.yichao.evilgodxu.ui.component.SEARCH_ACTION_GAP_DP
-import com.yichao.evilgodxu.ui.component.SEARCH_BAR_REGION_DP
+import com.yichao.evilgodxu.ui.component.SEARCH_BAR_EDGE_FADE_DP
 import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 import com.yichao.evilgodxu.ui.component.scrollPlaylistTo
 import kotlinx.coroutines.delay
@@ -399,8 +400,6 @@ internal fun PlaylistSheet(
                     }
                 } else {
                     val listState = rememberLazyListState()
-                    // 列表滚动中隐藏悬浮控件，滚动停止自动恢复
-                    val isScrolling by remember { derivedStateOf { listState.isScrollInProgress } }
                     // 列表内搜索关键词：仅过滤展示，不改变播放队列
                     var searchQuery by remember { mutableStateOf("") }
                     // 搜索框聚焦状态：键盘展开期间用拦截层接住列表点击，仅收起键盘避免误触播放
@@ -423,24 +422,6 @@ internal fun PlaylistSheet(
                     // 滚动到顶部后继续下拉：累计下拉距离超过阈值即收起面板
                     val density = LocalDensity.current
                     val dismissOverscrollPx = with(density) { PLAYLIST_DISMISS_OVERSCROLL_DP.toPx() }
-                    // 底部悬浮区占用高度：搜索框及其上方操作按钮组共同遮挡列表末端，
-                    // 判定滚到底部需把按钮组高度一并计入，否则末项会被按钮压住
-                    val searchBarRegionPx = with(density) {
-                        (SEARCH_BAR_REGION_DP + SEARCH_ACTION_BUTTON_DP + SEARCH_ACTION_GAP_DP).toPx()
-                    }
-                    // 滚到底部判定：最后一项已到达列表底部（底缘进入搜索框遮挡区）；
-                    // 列表不足一屏时最后一项不会触底，搜索框保持常驻
-                    val atBottom by remember {
-                        derivedStateOf {
-                            val layout = listState.layoutInfo
-                            val last = layout.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf false
-                            last.index == layout.totalItemsCount - 1 &&
-                                last.offset + last.size >= layout.viewportEndOffset - searchBarRegionPx
-                        }
-                    }
-                    // 搜索框显隐：列表滚动中或滚到底部时隐藏，避免遮挡底部曲目；
-                    // 输入/聚焦期间常驻（即使已有搜索词，滚动到底部仍应隐藏），切歌触发的自动滚动不中断输入
-                    val searchHidden = (isScrolling || atBottom) && !searchFocused
                     // 列表已在顶部时「滚动至顶」无效果，按钮置灰
                     val atListTop by remember {
                         derivedStateOf {
@@ -488,8 +469,10 @@ internal fun PlaylistSheet(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .nestedScroll(dismissNestedScroll)
-                                    // 底部搜索框可见时列表底缘渐隐进框后，与框体显隐同步
-                                    .fadeUnderBottomSearchBar(visible = !searchHidden),
+                                    .fadeUnderBottomSearchBar(),
+                                // 底部留白与整条渐隐带同高：过渡段落在框体上方的操作按钮区域内，
+                                // 末项停在按钮上方，不会被框体压住或被渐隐抹掉
+                                contentPadding = PaddingValues(bottom = SEARCH_BAR_EDGE_FADE_DP),
                                 verticalArrangement = Arrangement.spacedBy(2.dp),
                             ) {
                                 itemsIndexed(
@@ -592,10 +575,9 @@ internal fun PlaylistSheet(
                                     }
                             )
                         }
-                        // 底部搜索框：滚到底部或滚动中隐藏，避免遮挡底部曲目；输入中常驻。
-                        // 右上角两个操作按钮与搜索框同容器，显隐随之同步
+                        // 底部搜索框常驻：列表底部已按渐隐带高度留白，框体不再压住末项。
+                        // 右上角两个操作按钮与搜索框同容器
                         BottomSearchBarOverlay(
-                            hidden = searchHidden,
                             placeholder = stringResource(R.string.playlist_search_placeholder),
                             query = searchQuery,
                             onQueryChange = { searchQuery = it },
