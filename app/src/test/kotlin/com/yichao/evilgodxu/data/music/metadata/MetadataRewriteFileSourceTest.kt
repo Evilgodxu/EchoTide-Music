@@ -24,6 +24,18 @@ import org.junit.Test
 class MetadataRewriteFileSourceTest {
 
     @Test
+    fun shortRangeCopyIsRejectedInsteadOfSilentlyAccepted() {
+        // 源在采样长度后被截短时，区间搬运必须失败：短读被当作成功会把残缺躯干提交上去
+        val source = ByteArrayTagSource(ByteArray(2))
+        try {
+            source.copyRange(0, 100, ByteArrayOutputStream())
+            org.junit.Assert.fail("短读区间不应被当作完整搬运")
+        } catch (_: IllegalStateException) {
+            // 预期失败
+        }
+    }
+
+    @Test
     fun fileSourceRewriteMatchesByteEntryAcrossContainers() {
         FIXTURES.forEach { name ->
             val original = File(FIXTURE_DIR + name).readBytes()

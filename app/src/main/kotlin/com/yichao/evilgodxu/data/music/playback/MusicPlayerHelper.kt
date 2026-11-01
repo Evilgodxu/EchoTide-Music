@@ -368,6 +368,63 @@ private fun withoutShuffle(controller: MediaController, block: () -> Unit) {
 }
 
 /**
+ * 把播放器队列中属于 [track] 的项就地替换为最新元数据/音频源。
+ *
+ * 用于非当前项的源迁移与元数据刷新：只改匹配到的项，不重建时间线、不触碰当前播放项。
+ * 返回 true 表示队列里已没有仍指向旧信息的项（未装载也算已完成）。
+ */
+internal suspend fun replaceLoadedTrackSource(state: MusicPlaybackState, track: MusicTrack): Boolean =
+    withContext(Dispatchers.Main) {
+        val controller = state.mediaController ?: return@withContext true
+        var currentStillOld = false
+        for (index in 0 until controller.mediaItemCount) {
+            val loaded = controller.getMediaItemAt(index)
+            if (loaded.mediaId != track.id.toString()) continue
+            if (index == controller.currentMediaItemIndex) {
+                // 当前项由调用方按播放进度专门换源，这里不动它
+                currentStillOld = true
+                continue
+            }
+            controller.replaceMediaItem(index, toMediaItem(track, clipFor(state, track)))
+        }
+        state.cachedMediaItems = null
+        !currentStillOld
+    }
+
+/**
+ * 元数据变更后刷新播放器队列中的同名项（含当前项）：系统通知与蓝牙读的是 MediaItem，
+ * 只改状态层列表不会让它们看到新标题/歌手/专辑。
+ *
+ * 当前项替换后按原位置续播；随机模式下先关随机，避免替换当前项时跳到别的曲目。
+ */
+internal suspend fun refreshLoadedTrackMetadata(state: MusicPlaybackState, track: MusicTrack) =
+    withContext(Dispatchers.Main) {
+        val controller = state.mediaController ?: return@withContext
+        for (index in 0 until controller.mediaItemCount) {
+            val loaded = controller.getMediaItemAt(index)
+            if (loaded.mediaId != track.id.toString()) continue
+            val desired = toMediaItem(track, clipFor(state, track))
+            if (loaded.mediaMetadata.title == desired.mediaMetadata.title &&
+                loaded.mediaMetadata.artist == desired.mediaMetadata.artist &&
+                loaded.mediaMetadata.albumTitle == desired.mediaMetadata.albumTitle
+            ) {
+                continue
+            }
+            if (index == controller.currentMediaItemIndex) {
+                val wasPlaying = controller.isPlaying
+                val position = controller.currentPosition.coerceAtLeast(0L)
+                withoutShuffle(controller) { controller.replaceMediaItem(index, desired) }
+                if (position > 0L) controller.seekTo(position)
+                if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
+                if (wasPlaying) controller.play() else controller.pause()
+            } else {
+                controller.replaceMediaItem(index, desired)
+            }
+        }
+        state.cachedMediaItems = null
+    }
+
+/**
  * 无损升级完成后把当前播放项就地换成指向新无损文件的 MediaItem，按原进度继续播放。
  *
  * 用 replaceMediaItem 而非重建时间线：媒体 ID 未变，播放器不会离开当前项，

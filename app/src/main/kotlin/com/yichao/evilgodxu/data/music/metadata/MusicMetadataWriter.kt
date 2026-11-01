@@ -17,9 +17,16 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 internal object MusicMetadataWriter {
+
+    // 同一文件的读改写事务互斥：封面、歌词、改名等入口各自完成一次整文件重写，
+    // 并发进入会以「最后写完的版本」覆盖先完成的那一份。元数据写入次数少且每次都要搬运音频躯干，
+    // 全局串行不会让不同文件的写入互相等待成瓶颈，却能让同一音频的多路写入不再互相吞改。
+    private val writeMutex = Mutex()
 
     // 元数据写入结果：Full 为整曲重建；HeadAndTail 仅重建头部标签，
     // 音频躯干按 audioStart 偏移从源复制，降低大文件写入的峰值内存。
@@ -144,7 +151,10 @@ internal object MusicMetadataWriter {
         track: MusicTrack,
         plan: (TagSource) -> RewritePlan?,
     ): Boolean = withContext(Dispatchers.IO) {
-        if (track.path.isNotBlank()) write(context, track.path, plan) else rewriteByUri(context, track.audioUri, plan)
+        writeMutex.withLock {
+            if (track.path.isNotBlank()) write(context, track.path, plan)
+            else rewriteByUri(context, track.audioUri, plan)
+        }
     }
 
     // 写本地文件：同目录中转文件 + 原子替换，音频躯干在写出过程中按区间搬运
@@ -178,8 +188,9 @@ internal object MusicMetadataWriter {
         }
     }
 
-    // 就地重写 content URI 音频文件：content URI 无寻址写能力，先按方案把结果流式落到缓存中转文件，
+    // 就地重写 content URI 音频文件：content URI 无寻址写能力，先按方案把结果流式落到应用私有中转文件，
     // 再整体回写目标，全程不把文件读进堆；非 content 协议不可写时返回 false。
+    // 中转文件放在 filesDir 而非 cacheDir：清理缓存会把 cacheDir 整目录删掉，正好删到正在回写的中转文件。
     private fun rewriteByUri(context: Context, uriString: String, plan: (TagSource) -> RewritePlan?): Boolean {
         if (uriString.isBlank()) return false
         val uri = uriString.toUri()
@@ -194,16 +205,31 @@ internal object MusicMetadataWriter {
                 )
                 return false
             }
-            val temporary = File.createTempFile(METADATA_TEMP_PREFIX, ".tmp", context.cacheDir)
+            val temporary = createMetadataTemp(context)
+            var keepOnFailure = false
             try {
                 FileOutputStream(temporary).use { output -> writeRewrite(rewrite, source, output) }
-                val target = context.contentResolver.openOutputStream(uri, "wt") ?: run {
+                val target = context.contentResolver.openOutputStream(uri, "wt")
+                if (target == null) {
                     CrashLogManager.logException("MusicMetadataWriter", "经 content URI 写入元数据失败: 无法打开输出流, uri=$uriString")
                     return false
                 }
-                target.use { output -> temporary.inputStream().use { it.copyTo(output, STREAM_BUFFER_SIZE) } }
+                try {
+                    target.use { output -> temporary.inputStream().use { it.copyTo(output, STREAM_BUFFER_SIZE) } }
+                } catch (e: Throwable) {
+                    // 目标以 wt 打开时已被截断，完整的新内容只剩这份副本：保留它并写清位置，
+                    // 否则失败一次就同时失去原文件与恢复来源
+                    keepOnFailure = true
+                    CrashLogManager.logException(
+                        "MusicMetadataWriter",
+                        "经 content URI 回写被中断，恢复副本保留于 ${temporary.absolutePath}, uri=$uriString",
+                        e,
+                    )
+                    return false
+                }
             } finally {
-                temporary.delete()
+                // 目标未被截断或回写成功时删除中转；目标已截断的失败路径保留副本
+                if (!keepOnFailure && temporary.exists()) temporary.delete()
             }
             true
         } catch (e: Throwable) {
@@ -211,6 +237,10 @@ internal object MusicMetadataWriter {
             false
         }
     }
+
+    // 元数据中转文件落在应用私有目录：缓存清理不覆盖这里，失败时也能作为恢复副本保留
+    private fun createMetadataTemp(context: Context): File =
+        File.createTempFile(METADATA_TEMP_PREFIX, ".tmp", context.filesDir)
 
     // 方案落盘：头部字面字节 → 音频躯干区间搬运 → 尾部字面字节
     private fun writeRewrite(rewrite: RewritePlan, source: TagSource, out: OutputStream) {
@@ -412,8 +442,11 @@ internal object MusicMetadataWriter {
         val beforeBytes = before.sumOf { it.size }
         val afterBytes = after.sumOf { it.size }
         val streamAfter = afterBytes >= beforeBytes
-        // 搬运区间在 moov 之后时样本随之移动，chunk 偏移须按尺寸差修正；在其之前时样本未动
-        if (sizeDelta != 0 && streamAfter) parsed.adjustChunkOffsets(sizeDelta)
+        // 重建后的 moov 始终落在原 moov 起点，只有位于它之后的样本会随尺寸差整体平移；
+        // 位于 moov 之前的样本按原偏移字面复制，不能一起改
+        if (sizeDelta != 0 &&
+            !parsed.adjustChunkOffsets(sizeDelta, moov.offset + moov.size)
+        ) return null
         val rebuiltMoov = parsed.build()
 
         val head = ByteArrayOutputStream()
@@ -665,7 +698,9 @@ internal object MusicMetadataWriter {
                 vendor = original.copyOfRange(4, 4 + vendorLength)
                 var p = 8 + vendorLength
                 val count = intLE(original, 4 + vendorLength)
-                repeat(count.coerceAtLeast(0)) {
+                // 字段数来自文件，实际可用字节才是上限：每个字段至少 4 字节长度头，
+                // 按剩余字节收缩循环次数，损坏文件不能据此拖着解析器空转
+                repeat(count.coerceAtLeast(0).coerceAtMost((original.size - p).coerceAtLeast(0) / 4)) {
                     if (p + 4 > original.size) return@repeat
                     val length = intLE(original, p); p += 4
                     if (length >= 0 && p + length <= original.size) {
@@ -739,7 +774,8 @@ internal object MusicMetadataWriter {
             p += 4 + vendorLength
             if (p + 4 <= original.size) {
                 val count = intLE(original, p); p += 4
-                repeat(count.coerceAtLeast(0)) {
+                // 同上：字段数不得越过剩余字节能承载的上限
+                repeat(count.coerceAtLeast(0).coerceAtMost((original.size - p).coerceAtLeast(0) / 4)) {
                     if (p + 4 > original.size) return@repeat
                     val length = intLE(original, p); p += 4
                     if (length >= 0 && p + length <= original.size) {
@@ -800,29 +836,55 @@ internal object MusicMetadataWriter {
             return this
         }
 
-        fun adjustChunkOffsets(delta: Int) {
-            if (type == "stco" && data.size >= 8) {
+        /**
+         * 平移位于 [minOffset, 文件末尾) 的 chunk 偏移；返回 false 表示整张表无法在不越界的前提下完成修正。
+         *
+         * stco 的 32 位偏移按无符号解释，越过 0x7FFFFFFF 的合法值不能先变成负数。
+         * 先算完整张表再落笔：任何一项越界都整体放弃，避免表里一半是新地址、一半是旧地址。
+         */
+        fun adjustChunkOffsets(delta: Int, minOffset: Long): Boolean {
+            if (type == "stco") {
+                if (data.size < 8) return false
                 val count = int32(data, 4)
-                if (count >= 0 && 8 + count * 4 <= data.size) {
+                if (count < 0 || 8L + count.toLong() * 4L > data.size.toLong()) return false
+                run {
+                    val adjusted = LongArray(count)
                     for (index in 0 until count) {
-                        val position = 8 + index * 4
-                        val offset = int32(data, position).toLong() + delta
-                        if (offset !in 0..0xffffffffL) return
-                        writeInt32(data, position, offset.toInt())
+                        val raw = int32(data, 8 + index * 4).toLong() and 0xffffffffL
+                        if (raw < minOffset) {
+                            adjusted[index] = raw
+                            continue
+                        }
+                        val next = raw + delta
+                        if (next !in 0..0xffffffffL) return false
+                        adjusted[index] = next
+                    }
+                    for (index in 0 until count) {
+                        writeInt32(data, 8 + index * 4, adjusted[index].toInt())
                     }
                 }
-            } else if (type == "co64" && data.size >= 8) {
+            } else if (type == "co64") {
+                if (data.size < 8) return false
                 val count = int32(data, 4)
-                if (count >= 0 && 8L + count * 8L <= data.size) {
+                if (count < 0 || 8L + count.toLong() * 8L > data.size.toLong()) return false
+                run {
+                    val adjusted = LongArray(count)
                     for (index in 0 until count) {
-                        val position = 8 + index * 8
-                        val offset = long64(data, position) + delta
-                        if (offset < 0) return
-                        writeLong64(data, position, offset)
+                        val raw = long64(data, 8 + index * 8)
+                        if (raw < minOffset) {
+                            adjusted[index] = raw
+                            continue
+                        }
+                        val next = raw + delta
+                        if (next < 0) return false
+                        adjusted[index] = next
+                    }
+                    for (index in 0 until count) {
+                        writeLong64(data, 8 + index * 8, adjusted[index])
                     }
                 }
             }
-            children?.forEach { it.adjustChunkOffsets(delta) }
+            return children?.all { it.adjustChunkOffsets(delta, minOffset) } ?: true
         }
 
         // ©lyr 为歌词原子；此处不把它列入解析时的容器类型，避免历史文件中格式异常的
@@ -929,7 +991,9 @@ internal object MusicMetadataWriter {
                 mutableListOf(
                     Mp4Atom("mean", intBytes(0) + MP4_FREEFORM_MEAN.toByteArray(StandardCharsets.UTF_8), null),
                     Mp4Atom("name", intBytes(0) + name.toByteArray(StandardCharsets.UTF_8), null),
-                    dataAtom("data", value.toByteArray(StandardCharsets.UTF_8)),
+                    // data 子原子本身只承载 type + locale + 值，不能再包一层 dataAtom：
+                    // 多套一层会让读取端按标准载荷取到多出的八个控制字节
+                    Mp4Atom("data", intBytes(1) + byteArrayOf(0, 0, 0, 0) + value.toByteArray(StandardCharsets.UTF_8), null),
                 ),
             )
 

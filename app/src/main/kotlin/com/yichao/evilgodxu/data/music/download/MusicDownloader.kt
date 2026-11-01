@@ -11,9 +11,13 @@ import androidx.core.net.toUri
 import com.yichao.evilgodxu.data.music.api.LOSSLESS_TIERS
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
+import com.yichao.evilgodxu.data.music.metadata.CoverUpdate
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
+import com.yichao.evilgodxu.data.music.metadata.MusicMetadataEditor
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
+import com.yichao.evilgodxu.data.music.metadata.TagField
+import com.yichao.evilgodxu.data.music.metadata.TrackTagFields
 import com.yichao.evilgodxu.data.music.metadata.SystemThumbnailCache
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
@@ -22,6 +26,7 @@ import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.panel.resolvePlayUrlByQuality
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
+import com.yichao.evilgodxu.data.music.playback.replaceLoadedTrackSource
 import com.yichao.evilgodxu.data.music.playback.swapCurrentSourceToUri
 import com.yichao.evilgodxu.data.persistence.StoragePaths
 import com.yichao.evilgodxu.log.CrashLogManager
@@ -49,15 +54,15 @@ internal suspend fun cacheToDownloads(
     coverDeferred: Deferred<ByteArray?>? = null,
     lyricDeferred: Deferred<String?>? = null,
 ) {
-    // 缓存进行中的曲目切歌后仍保留在播放列表，等待下载完成将索引指向本地文件
-    playbackState.cacheInProgressIds.add(trackId)
+    // 缓存进行中的曲目切歌后仍保留在播放列表，等待下载完成将索引指向本地文件。
+    // 去重由调用方在启动前完成：同一曲目只允许一个缓存任务占用该标记
     try {
         // 按实际 URL 后缀推断格式，避免高音质文件误存为 mp3
         val extension = url.substringBefore('?')
             .substringAfterLast('.', "")
             .lowercase()
             .takeIf { it in AUDIO_EXTENSIONS } ?: "mp3"
-        val fileName = "${sanitizeFileName(result.title)} - ${sanitizeFileName(result.artist)}.$extension"
+        val fileName = audioFileName(result, extension)
 
         val existingUri = findExistingDownload(context, fileName)
         if (existingUri != null) {
@@ -91,19 +96,33 @@ internal suspend fun cacheToDownloads(
             // 试听片段（≤30 秒）不缓存，保持在线播放
             if (isTrialAudioFile(tempFile)) return
 
-            // 下载集合用 Downloads + RELATIVE_PATH 写入公共下载目录，无写权限时 insert 直接失败，维持在线播放
+            // 下载集合用 Downloads + RELATIVE_PATH 写入公共下载目录，无写权限时 insert 直接失败，维持在线播放。
+            // 写入期间标为 pending：复制中断留下的半截条目不会被后续请求当作可用缓存命中
             val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
             val contentValues = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, fileName)
                 put(MediaStore.Downloads.MIME_TYPE, audioMimeType(extension))
                 put(MediaStore.Downloads.RELATIVE_PATH, audioCachedRelativePath())
+                put(MediaStore.Downloads.IS_PENDING, 1)
             }
             val uri = context.contentResolver.insert(collection, contentValues)
             if (uri != null) {
-                context.contentResolver.openOutputStream(uri)?.use { os ->
-                    tempFile.inputStream().use { input -> input.copyTo(os, STREAM_BUFFER_SIZE) }
+                try {
+                    context.contentResolver.openOutputStream(uri)?.use { os ->
+                        tempFile.inputStream().use { input -> input.copyTo(os, STREAM_BUFFER_SIZE) }
+                    } ?: throw IllegalStateException("无法打开下载条目输出流: $uri")
+                    // 完整写入后才发布：发布前的条目对查询不可见，失败回收也不会留下空缓存
+                    context.contentResolver.update(
+                        uri,
+                        ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) },
+                        null,
+                        null,
+                    )
+                    audioUri = uri.toString()
+                } catch (e: Exception) {
+                    runCatching { context.contentResolver.delete(uri, null, null) }
+                    throw e
                 }
-                audioUri = uri.toString()
             }
         } finally {
             tempFile.delete()
@@ -120,8 +139,6 @@ internal suspend fun cacheToDownloads(
         registerCachedFileAsLocal(context, playbackState, trackId, audioUri, playlistRefresher)
     } catch (e: Exception) {
         CrashLogManager.logException("MusicDownloader", "缓存下载文件失败", e)
-    } finally {
-        playbackState.cacheInProgressIds.remove(trackId)
     }
 }
 
@@ -162,6 +179,12 @@ internal fun sanitizeFileName(name: String): String {
         .take(80)
         .trim()
 }
+
+// 缓存落点带平台与稳定曲目 ID：同名/同歌手的 A/B 与 A:B 清洗后会得到同一文件名，
+// 仅凭标题与歌手无法区分实际曲目，复用到的可能完全是另一首
+private fun audioFileName(result: NeteaseSongSearchResult, extension: String): String =
+    "${sanitizeFileName(result.title)} - ${sanitizeFileName(result.artist)}" +
+        " [${result.source.key}_${result.id}].$extension"
 
 // 在线歌曲缓存的下载集合相对路径：目录名取自缓存元数据与台账，与统计端共用同一份事实
 private fun audioCachedRelativePath(): String =
@@ -261,8 +284,10 @@ internal suspend fun findExistingDownload(
     try {
         val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
         val projection = arrayOf(MediaStore.Downloads._ID)
+        // 只认已发布的条目：写入中断留下的 pending 条目内容不完整，不能当作缓存
         val selection = "${MediaStore.Downloads.DISPLAY_NAME} = ? AND " +
-                "${MediaStore.Downloads.RELATIVE_PATH} = ?"
+                "${MediaStore.Downloads.RELATIVE_PATH} = ? AND " +
+                "${MediaStore.Downloads.IS_PENDING} = 0"
         val args = arrayOf(fileName, Environment.DIRECTORY_DOWNLOADS + "/YiChao/Audio/")
         context.contentResolver.query(collection, projection, selection, args, null)?.use { cursor ->
             if (cursor.moveToFirst()) {
@@ -332,15 +357,20 @@ internal suspend fun upgradeTrackToLossless(
     candidate: NeteaseSongSearchResult,
 ): Boolean {
     if (!track.isLocalAudioSource) return false
-    // 无损档内先试 Hi-Res，其次普通无损；两者都不可得即判定升级失败，不降级到有损
-    val url = LOSSLESS_TIERS.firstNotNullOfOrNull { resolvePlayUrlByQuality(context, candidate, it) }
-        ?: return false
-    val newUri = downloadLosslessToDownloads(context, candidate, url) ?: return false
+    // 无损档内先试 Hi-Res，其次普通无损：回退必须覆盖「下载并验证出有效无损文件」，
+    // 只判断 URL 是否解析成功时，Hi-Res 返回坏直链会让本可用的普通无损也轮不到
+    var newUri: String? = null
+    for (tier in LOSSLESS_TIERS) {
+        val candidateUrl = resolvePlayUrlByQuality(context, candidate, tier) ?: continue
+        newUri = downloadLosslessToDownloads(context, candidate, candidateUrl)
+        if (newUri != null) break
+    }
+    val downloadedUri = newUri ?: return false
     // 无损升级只换音频文件、封面不变：先承接旧文件的系统略缩图与背景取色结果到新 URI，
     // 避免 audioUri 切换后封面闪占位符、背景回落默认色（新文件系统略缩图需等媒体扫描就绪）
-    SystemThumbnailCache.remap(track.audioUri, newUri)
-    playbackState.remapBackgroundColorUri(track.audioUri, newUri)
-    val newPath = queryMediaPath(context, newUri.toUri()).orEmpty()
+    SystemThumbnailCache.remap(track.audioUri, downloadedUri)
+    playbackState.remapBackgroundColorUri(track.audioUri, downloadedUri)
+    val newPath = queryMediaPath(context, downloadedUri.toUri()).orEmpty()
     // 升级前的播放进度：新文件起播时还原到同一位置
     val resumePosition = withContext(Dispatchers.Main) {
         playbackState.mediaController?.currentPosition?.coerceAtLeast(0L) ?: 0L
@@ -349,7 +379,7 @@ internal suspend fun upgradeTrackToLossless(
     val upgradedIndex = withContext(Dispatchers.Main) {
         val idx = playbackState.playlist.indexOfFirst { it.id == track.id }
         if (idx < 0) return@withContext -1
-        val updated = playbackState.playlist[idx].copy(audioUri = newUri, path = newPath)
+        val updated = playbackState.playlist[idx].copy(audioUri = downloadedUri, path = newPath)
         val list = playbackState.playlist.toMutableList()
         list[idx] = updated
         playbackState.playlist = list
@@ -362,10 +392,20 @@ internal suspend fun upgradeTrackToLossless(
     // 写入标题/艺术家；封面沿用旧文件内嵌原图。
     // 先写元数据再起播：避免新文件在播放中被重写导致无声与进度回退
     embedUpgradeMetadata(context, playbackState, track, candidate)
-    // 替换后按原进度直接续播：换源不重建播放队列，避免起播被中断
-    withContext(Dispatchers.Main) {
-        if (upgradedIndex >= 0 && playbackState.currentTrack?.id == track.id) {
-            swapCurrentSourceToUri(playbackState, upgradedIndex, resumePosition)
+    // 替换后按原进度直接续播。用户已切到别的曲目时，目标项仍可能留在播放器队列里，
+    // 也必须把那一项的 URI 一并换掉，否则后续自然播放仍指向即将删除的旧文件
+    val updatedTrack = withContext(Dispatchers.Main) {
+        playbackState.playlist.firstOrNull { it.id == track.id }
+    }
+    val sourceReplaced = withContext(Dispatchers.Main) {
+        val currentMediaId = playbackState.mediaController?.currentMediaItem?.mediaId
+        val target = updatedTrack ?: track.copy(audioUri = downloadedUri, path = newPath)
+        when {
+            upgradedIndex >= 0 && currentMediaId == track.id.toString() ->
+                swapCurrentSourceToUri(playbackState, upgradedIndex, resumePosition)
+            // 状态层已没有该曲目时，播放器队列里仍可能留着它：交给同一替换入口处理，
+            // 当前项若仍指向旧源会返回 false，随后保留旧文件
+            else -> replaceLoadedTrackSource(playbackState, target)
         }
     }
     // 立即持久化新 URI 与续播位置：换源不经过切歌回调，若等周期性存储（3 秒节流）写入，
@@ -376,17 +416,42 @@ internal suspend fun upgradeTrackToLossless(
     withContext(Dispatchers.Main) {
         playbackState.refreshIdleTrackFormatInfo(context)
     }
-    // 播放源已切到新文件，旧文件不再需要，直接删除
-    deleteOldAudioFile(context, track, newUri)
-    // 触发媒体扫描：新文件入库，旧文件条目同步移除
-    if (newPath.isNotBlank()) {
-        MediaScannerConnection.scanFile(context, arrayOf(newPath), null, null)
+    // 只有播放器里的相关引用都换成新文件后才删旧文件；换源失败时旧源仍被引用，删掉就会让队列指向空地址
+    if (sourceReplaced) {
+        deleteOldAudioFile(context, track, downloadedUri)
+        // 触发媒体扫描：新文件入库，旧文件条目同步移除
+        if (newPath.isNotBlank()) scanAndAwait(context, newPath)
+        // 新文件的 MediaStore ID 与旧 ID 不同：把收藏、自定义歌单等用户关联迁到新 ID，
+        // 否则删旧条目后这些关联会随旧 ID 一起失忆
+        if (newPath.isNotBlank()) {
+            findAudioMediaId(context, newPath)?.takeIf { it != track.id }?.let { newId ->
+                playbackState.migrateTrackId(context, track.id, newId)
+            }
+        }
+    } else {
+        CrashLogManager.logException(
+            "MusicDownloader",
+            "无损升级未完成播放源替换，保留旧文件: 歌曲=${track.title}, 旧URI=${track.audioUri}",
+        )
     }
     return true
 }
 
-// 写入升级后新文件的标题/艺术家：封面沿用旧文件内嵌的原图，
-// 旧文件无内嵌封面时不主动下载，留空交由占位符显示
+// 按真实路径查 MediaStore 音频条目 ID：升级写入下载集合后，扫描会另建一条音频库记录
+private fun findAudioMediaId(context: Context, path: String): Long? =
+    runCatching {
+        context.contentResolver.query(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.Audio.Media._ID),
+            "${MediaStore.Audio.Media.DATA}=?",
+            arrayOf(path),
+            null,
+        )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else null }
+    }.getOrNull()
+
+// 写入升级后新文件的标签：以旧文件既有标签为底，仅用在线候选覆盖标题与艺术家，
+// 用户手填的歌词、专辑、编号、作曲、ReplayGain 等随新文件保留；
+// 封面沿用旧文件内嵌原图，旧文件无内嵌封面时不主动下载，交由占位符显示
 private suspend fun embedUpgradeMetadata(
     context: Context,
     playbackState: MusicPlaybackState,
@@ -394,31 +459,18 @@ private suspend fun embedUpgradeMetadata(
     candidate: NeteaseSongSearchResult,
 ) {
     val updated = playbackState.playlist.firstOrNull { it.id == track.id } ?: track
-    val coverBytes = extractEmbeddedCover(context, track)
     try {
-        MusicMetadataWriter.writeMetadataToSource(context, updated, candidate.title, candidate.artist, coverBytes)
+        val oldTags = withContext(Dispatchers.IO) { MusicMetadataEditor.read(context, track) }
+        val coverBytes = MusicMetadataEditor.readCover(context, track)
+        val fields = TrackTagFields.overlay(oldTags.fields) {
+            put(TagField.TITLE, candidate.title)
+            put(TagField.ARTIST, candidate.artist)
+            oldTags.lyrics?.takeIf { it.isNotBlank() }?.let { put(TagField.LYRICS, it) }
+        }
+        val coverUpdate = coverBytes?.let { CoverUpdate.Set(it) } ?: CoverUpdate.Keep
+        MusicMetadataWriter.writeFields(context, updated, fields, coverUpdate)
     } catch (e: Exception) {
         CrashLogManager.logException("MusicDownloader", "内嵌无损升级元数据失败: 歌曲=${candidate.title}", e)
-    }
-}
-
-// 提取旧本地文件内嵌的封面原图字节：文件路径优先，其次本地 content/file URI；无内嵌或读取失败返回 null
-private suspend fun extractEmbeddedCover(context: Context, track: MusicTrack): ByteArray? = withContext(Dispatchers.IO) {
-    val retriever = MediaMetadataRetriever()
-    try {
-        if (track.path.isNotBlank()) {
-            retriever.setDataSource(track.path)
-        } else {
-            val uri = track.audioUri.toUri()
-            if (uri.scheme != "content" && uri.scheme != "file") return@withContext null
-            retriever.setDataSource(context, uri)
-        }
-        retriever.embeddedPicture
-    } catch (e: Exception) {
-        CrashLogManager.logException("MusicDownloader", "提取旧文件内嵌封面失败: 歌曲=${track.title}", e)
-        null
-    } finally {
-        runCatching { retriever.release() }
     }
 }
 
@@ -434,7 +486,7 @@ private suspend fun downloadLosslessToDownloads(
             .substringAfterLast('.', "")
             .lowercase()
             .takeIf { it in AUDIO_EXTENSIONS } ?: "flac"
-        val fileName = "${sanitizeFileName(result.title)} - ${sanitizeFileName(result.artist)}.$extension"
+        val fileName = audioFileName(result, extension)
         cleanupStaleTempFiles(context)
         val tempFile = File.createTempFile("upgrade", ".$extension", context.cacheDir)
         try {
@@ -454,11 +506,24 @@ private suspend fun downloadLosslessToDownloads(
                 put(MediaStore.Downloads.DISPLAY_NAME, fileName)
                 put(MediaStore.Downloads.MIME_TYPE, audioMimeType(extension))
                 put(MediaStore.Downloads.RELATIVE_PATH, audioCachedRelativePath())
+                put(MediaStore.Downloads.IS_PENDING, 1)
             }
             val uri = context.contentResolver.insert(collection, contentValues)
-            if (uri == null) return@withContext null
-            context.contentResolver.openOutputStream(uri)?.use { os ->
-                tempFile.inputStream().use { input -> input.copyTo(os, STREAM_BUFFER_SIZE) }
+                ?: return@withContext null
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { os ->
+                    tempFile.inputStream().use { input -> input.copyTo(os, STREAM_BUFFER_SIZE) }
+                } ?: throw IllegalStateException("无法打开无损下载条目输出流: $uri")
+                // 完整写入后才发布；失败时回收新条目，绝不把半截文件当作升级结果
+                context.contentResolver.update(
+                    uri,
+                    ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) },
+                    null,
+                    null,
+                )
+            } catch (e: Exception) {
+                runCatching { context.contentResolver.delete(uri, null, null) }
+                throw e
             }
             uri.toString()
         } finally {

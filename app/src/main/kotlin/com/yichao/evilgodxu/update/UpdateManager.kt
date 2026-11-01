@@ -46,6 +46,7 @@ object UpdateManager {
     private const val KEY_PENDING_VERSION = "pending_version"
     private const val KEY_PENDING_URL = "pending_url"
     private const val KEY_PENDING_CHANGELOG = "pending_changelog"
+    private const val KEY_PENDING_SHA256 = "pending_sha256"
     private const val KEY_IGNORED_VERSION = "ignored_version"
     private const val TAG = "UpdateManager"
 
@@ -125,6 +126,7 @@ object UpdateManager {
                         putString(KEY_PENDING_VERSION, latest)
                         putString(KEY_PENDING_URL, downloadUrl)
                         putString(KEY_PENDING_CHANGELOG, release.body)
+                        putString(KEY_PENDING_SHA256, sha256)
                     }
                 }
 
@@ -341,8 +343,26 @@ object UpdateManager {
                 remove(KEY_PENDING_VERSION)
                 remove(KEY_PENDING_URL)
                 remove(KEY_PENDING_CHANGELOG)
+                remove(KEY_PENDING_SHA256)
             }
         }
+    }
+
+    /**
+     * 读取待更新信息：进程在提示出现后被回收时，同一天重开不再自动检查，
+     * 只能从这里恢复尚未处理的更新提示。
+     */
+    fun readPendingUpdate(context: Context): UpdateInfo? {
+        val prefs = prefs(context)
+        val version = prefs.getString(KEY_PENDING_VERSION, null)?.trim().orEmpty()
+        val url = prefs.getString(KEY_PENDING_URL, null)?.trim().orEmpty()
+        if (version.isBlank() || url.isBlank()) return null
+        return UpdateInfo(
+            latestVersion = version,
+            downloadUrl = url,
+            changelog = prefs.getString(KEY_PENDING_CHANGELOG, null).orEmpty(),
+            sha256 = prefs.getString(KEY_PENDING_SHA256, null).orEmpty(),
+        )
     }
 
     suspend fun ignoreVersion(context: Context, version: String) {
@@ -352,6 +372,7 @@ object UpdateManager {
                 remove(KEY_PENDING_VERSION)
                 remove(KEY_PENDING_URL)
                 remove(KEY_PENDING_CHANGELOG)
+                remove(KEY_PENDING_SHA256)
             }
         }
     }

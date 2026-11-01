@@ -2,8 +2,10 @@ package com.yichao.evilgodxu.data.music.highlight
 
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.LyricWord
+import com.yichao.evilgodxu.data.music.model.MusicTrack
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -53,6 +55,26 @@ class HighlightLocatorTest {
         val first = HighlightLocator.candidates(lines, 100_000L)
         val second = HighlightLocator.candidates(lines, 100_000L)
         assertEquals("同一份歌词与时长必须得到同一组候选", first, second)
+    }
+
+    @Test
+    fun fingerprintChangesWhenLyricBodyChangesWithSameTimeline() {
+        // 行数与首末时间相同、正文全换：旧指纹会完全相同，导致 NoChorus 结论一直压住新歌词
+        fun track(text: (Int) -> String): MusicTrack = MusicTrack(
+            id = 1L,
+            path = "",
+            audioUri = "",
+            title = "曲目",
+            artist = "歌手",
+            albumId = 0L,
+            duration = 120_000L,
+            lyricLines = (0 until 20).map { index ->
+                LyricLine(timeMs = 5_000L + index * 4_000L, text = text(index))
+            },
+        )
+        val old = HighlightStore.fingerprintOf(track { "旧词$it" })
+        val new = HighlightStore.fingerprintOf(track { "新词$it" })
+        assertNotEquals("正文改变后指纹必须改变", old, new)
     }
 
     @Test

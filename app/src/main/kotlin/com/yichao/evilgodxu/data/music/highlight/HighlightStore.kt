@@ -46,7 +46,7 @@ internal object HighlightStore {
     private const val CURRENT_VERSION = 1
 
     // 定位算法版本：参与指纹，算法改动后旧结果自动作废重算
-    private const val ALGORITHM_VERSION = "v4"
+    private const val ALGORITHM_VERSION = "v5"
 
     private const val KIND_SEGMENT = "segment"
     private const val KIND_UNRESOLVED = "unresolved"
@@ -70,16 +70,17 @@ internal object HighlightStore {
     private val writeMutex = Mutex()
 
     /**
-     * 歌词与曲目属性指纹：行数、首末时间戳与时长足以识别歌词或时间轴是否被替换。
+     * 歌词与曲目属性指纹：行数、首末时间戳、全部行内容与时长。
      *
-     * 时长参与指纹是因为片段边界以它为上限：时长先缺后补时，片段区间可能随之变化，须重算。
+     * 副歌识别依赖歌词正文，只看行数与首末时间会让「行数相同、正文全换」的两份歌词得到同一指纹，
+     * 旧的 NoChorus 结论会一直压住新歌词。时长参与指纹是因为片段边界以它为上限。
      */
     fun fingerprintOf(track: MusicTrack): String {
         val lines = track.lyricLines
         val base = if (lines.isEmpty()) {
             "none:${track.lyricCachePath}"
         } else {
-            "${lines.size}:${lines.first().timeMs}:${lines.last().timeMs}"
+            "${lines.size}:${lines.first().timeMs}:${lines.last().timeMs}:${lines.hashCode()}"
         }
         return "$ALGORITHM_VERSION:${track.duration}:$base"
     }

@@ -80,7 +80,8 @@ internal object CacheInventory {
      * 系统缓存作用域不覆盖的应用专属外部产出（运行日志、更新安装包）在此手动删除。
      */
     suspend fun clearSystemCache(context: Context) {
-        // 整清 cacheDir：登记在此的产出（封面落盘缓存、中转文件等）无需逐条驱动，一并回收
+        // 整清 cacheDir：登记在此的产出（封面落盘缓存、下载临时文件等）无需逐条驱动，一并回收。
+        // 元数据回写的中转文件在 filesDir，不在这里，故不会清到正在回写的音频副本
         context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
         // 系统缓存作用域外、应用专属外部的产出（运行日志、更新安装包），系统 API 覆盖不到，手动删除
         StorageRegistry.logFiles(context).forEach { deleteQuietly(it) }

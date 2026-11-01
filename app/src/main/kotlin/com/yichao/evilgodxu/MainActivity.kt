@@ -33,6 +33,8 @@ import com.yichao.evilgodxu.floatingwindow.MiniPlayerController
 import com.yichao.evilgodxu.localization.LocalizationManager
 import com.yichao.evilgodxu.localization.ProvideLocalizedContext
 import com.yichao.evilgodxu.localization.toLocale
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,6 +46,9 @@ class MainActivity : ComponentActivity() {
     private companion object {
         // 系统栏被外部显示后，由本应用主动压回隐藏的最大延迟
         const val SYSTEM_BARS_AUTO_HIDE_DELAY_MS = 2000L
+        // 外部文本导入上限：代理音源配置是结构化小文件，超出即按读取失败处理，
+        // 不能让任意外部流把内存先吃掉再判断内容
+        const val MAX_PROXY_SOURCE_BYTES = 8 * 1024 * 1024
     }
 
     // 同一帧内的多次系统栏请求合并为一次下发
@@ -184,7 +189,7 @@ class MainActivity : ComponentActivity() {
                 intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
             else -> null
         } ?: return
-        if (isAudioUri(uri)) {
+        if (isAudioUri(uri, intent.type)) {
             miniPlayerController.playExternalInBackground(uri)
             moveTaskToBack(true)
         } else {
@@ -192,16 +197,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun isAudioUri(uri: Uri): Boolean =
-        contentResolver.getType(uri)?.startsWith("audio/") == true
+    // 分享方已在 Intent 里声明类型时以它为准：部分提供者对 getType 返回 null 或通用 MIME，
+    // 只看提供者会把明确标为 audio/* 的音频当代理文本导入
+    private fun isAudioUri(uri: Uri, declaredType: String?): Boolean =
+        declaredType?.startsWith("audio/") == true ||
+            contentResolver.getType(uri)?.startsWith("audio/") == true
 
     // 读取分享/打开的文本文件并按代理音源解析导入，结果以 Toast 提示；
     // 文件读取与同步写盘均为阻塞操作，移到 IO 线程避免阻塞主线程
     private fun importProxySource(uri: Uri) {
         lifecycleScope.launch(Dispatchers.IO) {
             val text = runCatching {
-                contentResolver.openInputStream(uri)
-                    ?.use { it.readBytes().toString(Charsets.UTF_8) }
+                contentResolver.openInputStream(uri)?.use { input ->
+                    readTextWithLimit(input, MAX_PROXY_SOURCE_BYTES)
+                }
             }.getOrNull()
             val message = when {
                 text.isNullOrBlank() -> getString(R.string.settings_proxy_source_import_read_error)
@@ -218,6 +227,21 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    // 带上限的文本读取：累计超过 limit 即中止，不把整份未知长度的流读进内存
+    private fun readTextWithLimit(input: InputStream, limit: Int): String {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        var total = 0
+        while (true) {
+            val read = input.read(buffer)
+            if (read <= 0) break
+            total += read
+            if (total > limit) throw IllegalStateException("外部文本超过读取上限: $limit 字节")
+            output.write(buffer, 0, read)
+        }
+        return output.toString("UTF-8")
     }
 
     private fun setupSystemBars() {

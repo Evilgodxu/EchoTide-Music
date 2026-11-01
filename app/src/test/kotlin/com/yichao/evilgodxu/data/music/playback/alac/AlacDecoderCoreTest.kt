@@ -49,6 +49,19 @@ class AlacDecoderCoreTest {
     }
 
     @Test
+    fun magicCookieRejectsOversizedFrameAllocation() {
+        // 24 字节配置就能声明一帧上亿样本；解码器会按帧长 × 声道立刻预分配缓冲，
+        // 必须在解析阶段按内存预算拒绝，而不是等构造解码器时 OOM
+        val huge = COOKIE.copyOf().also { cookie ->
+            cookie[0] = 0x05
+            cookie[1] = 0xF5.toByte()
+            cookie[2] = 0xE1.toByte()
+            cookie[3] = 0x00
+        }
+        assertNull("超出单帧样本预算的帧长应判为不支持", AlacSpecificConfig.parse(huge))
+    }
+
+    @Test
     fun magicCookieRejectsUnsupportedParameters() {
         assertNull("长度不足应判为不支持", AlacSpecificConfig.parse(COOKIE.copyOf(20)))
 

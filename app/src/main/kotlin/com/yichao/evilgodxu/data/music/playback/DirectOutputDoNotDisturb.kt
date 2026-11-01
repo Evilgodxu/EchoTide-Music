@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.data.music.playback
 
 import android.app.NotificationManager
+import android.os.Build
 import com.yichao.evilgodxu.log.CrashLogManager
 
 // 异常日志的类名前缀：免打扰的读写只有出错时才记（进出决策不写日志）
@@ -19,9 +20,9 @@ private const val LOG_TAG = "DirectOutputDoNotDisturb"
  * 仅闹钟只压 SYSTEM、NOTIFICATION、RING，通知与铃声不再响而媒体照常。更进一步的「连闹钟也静音但保留
  * 媒体」平台没有对应的公开档位，需自定义免打扰规则，本类不涉足。
  *
- * 只还原「由本类发起」的改动：进入前通知若已被静音（系统处于仅闹钟或完全静音），目标状态本就满足，
- * 此时不改动也不标记，退出时才不会替用户改掉他自己的设置。系统处于允许全部打扰或仅限优先项时正常接管，
- * 退出时按 [restoreFilter] 原样还原。
+ * 只动「由本类发起」的改动：进入前通知若已被静音（系统处于仅闹钟或完全静音），目标状态本就满足，
+ * 此时不改动也不标记，退出时才不会替用户改掉他自己的设置。系统处于允许全部打扰或仅限优先项时正常接管；
+ * 退出时 Android 15+ 用 UNKNOWN 停用本应用自己的隐式规则，更早版本按 [restoreFilter] 还原全局档位。
  *
  * 三个读写口经构造注入而非直接持有 [NotificationManager]：进出逻辑承载的是「何时还原、能否接手」这类
  * 判断，注入后可在 JVM 上直接验证，无需真机。系统免打扰的读写本身是 binder 调用、不限线程，但
@@ -35,7 +36,12 @@ class DirectOutputDoNotDisturb(
     private val readFilter: () -> Int,
     /** 写入系统免打扰档位 */
     private val writeFilter: (Int) -> Unit,
+    /** 系统版本：Android 15 起 targetSdk 35+ 的写入只作用于应用自己的隐式规则 */
+    private val sdkInt: Int = Build.VERSION.SDK_INT,
 ) {
+
+    /** Android 15+ 的写入语义：读的是全局合成档位，写的是应用自己的隐式 AutomaticZenRule */
+    private val managesOwnRule = sdkInt >= Build.VERSION_CODES.VANILLA_ICE_CREAM
 
     /** 是否已由本类置为完全静音；为真才在退出时还原 */
     private var holding = false
@@ -55,7 +61,14 @@ class DirectOutputDoNotDisturb(
 
     /** 无条件还原并解除接管；直出释放时兜底调用，避免服务销毁后手机停在静音 */
     fun release() {
-        exitSilence()
+        if (!managesOwnRule) {
+            exitSilence()
+            return
+        }
+        // Android 15+ 只需停用本应用自己的规则；即使本次没有 holding，也兜底清掉上一次进程
+        // 遗留的规则（进程被杀时来不及走正常退出），UNKNOWN 不触碰用户自己的规则
+        holding = false
+        setFilter(NotificationManager.INTERRUPTION_FILTER_UNKNOWN)
     }
 
     private fun enterSilence() {
@@ -78,7 +91,10 @@ class DirectOutputDoNotDisturb(
         // 先落状态再写系统：写失败也视为已放弃接管，避免残留标记让下次还原写在错误的档位上
         val filter = restoreFilter
         holding = false
-        setFilter(filter)
+        // Android 15+ 把非 UNKNOWN 的值理解为「启用/更新自己的规则」，写回旧全局档位
+        // 并不会停用规则，退出后应用自己的免打扰仍可能生效；UNKNOWN 才是停用隐式规则的取值。
+        // 更早版本仍是全局写入，按接管前档位还原
+        setFilter(if (managesOwnRule) NotificationManager.INTERRUPTION_FILTER_UNKNOWN else filter)
     }
 
     private fun currentFilter(): Int? = runCatching { readFilter() }

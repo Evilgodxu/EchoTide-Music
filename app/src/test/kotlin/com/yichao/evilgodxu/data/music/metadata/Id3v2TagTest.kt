@@ -317,6 +317,51 @@ class Id3v2TagTest {
         assertEquals("改标题", Id3v2Tag.readTextFrame(dropped, 0, "TIT2"))
     }
 
+    @Test
+    fun v4ExtendedHeaderSizeIncludesItsOwnLengthField() {
+        // v2.4 扩展头长度已包含自身的 4 字节；按 v2.3 的「4 + 长度」跳会落进首帧内容，
+        // 只改标题时原有 TALB 会被当作解析失败而整段丢掉
+        val album = frames { Id3v2Tag.textFrame(this, "TALB", "必须保留", 4) }
+        val extended = byteArrayOf(0, 0, 0, 6, 1, 0)
+        val content = extended + album
+        val tag = ByteArray(10 + content.size).also { out ->
+            "ID3".toByteArray(StandardCharsets.US_ASCII).copyInto(out)
+            out[3] = 4
+            out[5] = 0x40
+            Id3v2Tag.syncsafeBytes(content.size).copyInto(out, 6)
+            content.copyInto(out, 10)
+        }
+
+        val rewritten = Id3v2Tag.buildTag(
+            Id3v2Tag.replaceFrames(tag, title = "新标题", artist = null, album = null, cover = null, lyrics = null, version = 4)!!,
+            4,
+        )
+        assertEquals("新标题", Id3v2Tag.readTextFrame(rewritten, 0, "TIT2"))
+        assertEquals("必须保留", Id3v2Tag.readTextFrame(rewritten, 0, "TALB"))
+    }
+
+    @Test
+    fun v3GlobalUnsynchronisationIsReversedBeforeRewriting() {
+        // v2.3 的 0x00 是在帧构造完成后插入的，帧长度不含它们；不先还原就按声明长度遍历，
+        // 未编辑的 PRIV 帧会被错位截断
+        val original = byteArrayOf(0x12, 0xFF.toByte(), 0xE0.toByte(), 0x34)
+        val frame = frames { Id3v2Tag.frame(this, "PRIV", original, 3) }
+        val stuffed = ByteArrayOutputStream().also { out ->
+            frame.forEachIndexed { index, value ->
+                out.write(value.toInt())
+                if (value == 0xFF.toByte() && index + 1 < frame.size) out.write(0)
+            }
+        }.toByteArray()
+        val tag = Id3v2Tag.buildTag(stuffed, 3, flags = 0x80)
+        val rewritten = Id3v2Tag.buildTag(
+            Id3v2Tag.replaceFrames(tag, title = "新标题", artist = null, album = null, cover = null, lyrics = null, version = 3)!!,
+            3,
+        )
+        assertEquals("新标题", Id3v2Tag.readTextFrame(rewritten, 0, "TIT2"))
+        val keptPriv = walkV3Frames(rewritten).first { it.first == "PRIV" }.second
+        assertArrayEquals(original, keptPriv)
+    }
+
     // -----------------------------------------------------------------------
 
     private fun frames(block: ByteArrayOutputStream.() -> Unit): ByteArray =
@@ -336,6 +381,25 @@ class Id3v2TagTest {
             if (!id.all { it in 'A'..'Z' || it in '0'..'9' }) break
             val length = declaredSizeAt(tag, p + 4)
             if (p + 10 + length > end) break
+            result += id to tag.copyOfRange(p + 10, p + 10 + length)
+            p += 10 + length
+        }
+        return result
+    }
+
+    // v2.3 帧长度是 32 位大端，与 v2.4 的同步安全整数不同
+    private fun walkV3Frames(tag: ByteArray): List<Pair<String, ByteArray>> {
+        val end = (10 + declaredSize(tag)).coerceAtMost(tag.size)
+        val result = mutableListOf<Pair<String, ByteArray>>()
+        var p = 10
+        while (p + 10 <= end) {
+            val id = String(tag, p, 4, StandardCharsets.ISO_8859_1)
+            if (!id.all { it in 'A'..'Z' || it in '0'..'9' }) break
+            val length = ((tag[p + 4].toInt() and 0xFF) shl 24) or
+                ((tag[p + 5].toInt() and 0xFF) shl 16) or
+                ((tag[p + 6].toInt() and 0xFF) shl 8) or
+                (tag[p + 7].toInt() and 0xFF)
+            if (length < 0 || p + 10 + length > end) break
             result += id to tag.copyOfRange(p + 10, p + 10 + length)
             p += 10 + length
         }

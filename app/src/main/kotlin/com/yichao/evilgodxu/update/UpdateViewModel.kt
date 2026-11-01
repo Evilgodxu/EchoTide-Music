@@ -33,6 +33,19 @@ class UpdateViewModel(
     private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.Idle)
     val downloadState: StateFlow<DownloadState> = _downloadState.asStateFlow()
 
+    init {
+        // 提示出现后进程被回收、同一天重开不会再自动检查，故冷启动先恢复尚未处理的待更新信息
+        viewModelScope.launch {
+            val pending = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                UpdateManager.readPendingUpdate(context)
+            }
+            if (pending != null && _updateInfo.value == null) {
+                _updateInfo.value = pending
+                _showUpdateDialog.value = true
+            }
+        }
+    }
+
     // 手动检查结果的一次性提示：无回放，自动检查静默、仅手动检查反馈
     private val _messages = MutableSharedFlow<CheckFeedback>(extraBufferCapacity = 1)
     val messages: Flow<CheckFeedback> = _messages.asSharedFlow()
@@ -67,12 +80,25 @@ class UpdateViewModel(
             val localizedContext = localizationManager.createLocalizedContext(
                 localizationManager.resolveLanguage(language),
             )
-            val success = UpdateManager.downloadAndInstall(localizedContext, info) { progress ->
-                _downloadState.value = if (progress < 0f) {
-                    DownloadState.Failed("download_failed")
-                } else {
-                    DownloadState.Downloading(progress)
+            val success = try {
+                UpdateManager.downloadAndInstall(localizedContext, info) { progress ->
+                    _downloadState.value = if (progress < 0f) {
+                        DownloadState.Failed("download_failed")
+                    } else {
+                        DownloadState.Downloading(progress)
+                    }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 下载管理器、安装器启动等异常都转成失败状态：不捕获会直接逸出协程，
+                // 界面停在下载中而进程先退场
+                com.yichao.evilgodxu.log.CrashLogManager.logException(
+                    "UpdateViewModel",
+                    "更新包下载或安装启动失败: 版本=${info.latestVersion}",
+                    e,
+                )
+                false
             }
             if (success) {
                 _downloadState.value = DownloadState.Success

@@ -65,6 +65,8 @@ class MetadataViewModel(
 
     // 待落盘的字段改动：同一字段的连续输入只保留最后一次，避免排队重写多遍文件
     private var pending: MutableMap<TagField, String>? = null
+    // 正在写入的那一批值：用户在其间改回快照原值时，仍要据此判断最新期望值是否已写入
+    private var inFlight: Map<TagField, String>? = null
     private var saveJob: Job? = null
     // 单行补译的进行中任务：重新读盘会作废它，避免结果落到已刷新的歌词列表上
     private var translateJob: Job? = null
@@ -510,9 +512,17 @@ class MetadataViewModel(
     // 等于快照原值时把该字段从待写入集移除 —— 否则「改回原值」会残留上一轮的旧值，
     // 停顿时仍按旧值重写文件，出现「内容没变也写入」
     private fun scheduleFieldSave(field: TagField, value: String) {
-        val newValue = value.trim().takeIf { it != snapshot[field].orEmpty() }
+        val current = value.trim()
+        val newValue = current.takeIf { it != snapshot[field].orEmpty() }
         if (newValue == null) {
-            pending?.remove(field)
+            // 写盘开始后又改回快照原值：正在写的不是这个值，快照随后会变成写入值，
+            // 仅按快照比较会把这次「改回」丢掉，界面显示原值而文件停在中间值
+            val writing = inFlight?.get(field)
+            if (writing != null && writing != current) {
+                (pending ?: mutableMapOf<TagField, String>().also { pending = it })[field] = current
+            } else {
+                pending?.remove(field)
+            }
         } else {
             (pending ?: mutableMapOf<TagField, String>().also { pending = it })[field] = newValue
         }
@@ -528,12 +538,19 @@ class MetadataViewModel(
      */
     private fun scheduleLyricsSave(lines: List<LyricLine>) {
         val normalized = lines.map { it.copy(translation = it.translation?.trim()?.takeIf(String::isNotEmpty)) }
+        val encoded = MusicMetadataCache.encodeLyrics(normalized)
         val newValue = normalized.takeIf { it != snapshotLyrics() }
         if (newValue == null) {
-            pending?.remove(TagField.LYRICS)
+            // 与字段同理：在途歌词不是当前期望内容时，这次改回原歌词仍须补写
+            val writing = inFlight?.get(TagField.LYRICS)
+            if (writing != null && writing != encoded) {
+                (pending ?: mutableMapOf<TagField, String>().also { pending = it })[TagField.LYRICS] = encoded
+            } else {
+                pending?.remove(TagField.LYRICS)
+            }
         } else {
             (pending ?: mutableMapOf<TagField, String>().also { pending = it })[TagField.LYRICS] =
-                MusicMetadataCache.encodeLyrics(newValue)
+                encoded
         }
         if (pending.isNullOrEmpty() && pendingCover is CoverUpdate.Keep) return
         scheduleSave()
@@ -601,7 +618,8 @@ class MetadataViewModel(
             val coverEdit = pendingCover
             if (changes.isNullOrEmpty() && coverEdit is CoverUpdate.Keep) return
             pending = null
-            val target = findTrack() ?: return
+            inFlight = changes
+            val target = findTrack() ?: run { inFlight = null; return }
             val fields = TrackTagFields.build { changes?.forEach { (field, value) -> put(field, value) } }
             _uiState.update { it.copy(saving = true, message = null, messageIsError = false) }
             val success = TrackMetadataEditor.save(
@@ -613,6 +631,7 @@ class MetadataViewModel(
             if (!success) {
                 // 失败时把改动退回待写入集：用户仍停留在编辑态，下一次输入或离开页面时再试
                 requeue(changes, coverEdit)
+                inFlight = null
                 _uiState.update {
                     it.copy(saving = false, messageIsError = true, message = message(R.string.metadata_save_failed))
                 }
@@ -627,6 +646,7 @@ class MetadataViewModel(
             // 写入成功后以本批内容为新基准：此后不再有未落盘改动。
             // 快照按批推进而非取当前界面值 —— 界面可能已被用户继续改过，那是下一轮要写的
             snapshot = TrackTagFields.overlay(snapshot) { fields.entries().forEach { (field, value) -> put(field, value) } }
+            inFlight = null
             if (coverEdit !is CoverUpdate.Keep) pendingCover = CoverUpdate.Keep
             _uiState.update { state ->
                 state.copy(

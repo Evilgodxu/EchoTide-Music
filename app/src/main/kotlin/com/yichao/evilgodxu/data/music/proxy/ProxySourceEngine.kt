@@ -201,14 +201,30 @@ internal object ProxySourceEngine {
         }
     }
 
-    private fun buildUrl(action: ProxyActionSpec, values: Map<String, String>): String {
-        val base = render(action.url, values)
+    internal fun buildUrl(action: ProxyActionSpec, values: Map<String, String>): String {
+        // 模板里的动态值同样按 URL 组件编码：歌名里的 & 与 # 不能改变请求结构
+        val base = renderUrlTemplate(action.url, values)
         val queryValues = if (action.isPost) action.query else action.params
         if (queryValues.isEmpty()) return base
         val query = queryValues.entries.joinToString("&") { (key, value) ->
             "${encode(key)}=${encode(render(value, values))}"
         }
-        return base + if (base.contains("?")) "&" else "?" + query
+        val separator = when {
+            base.endsWith("?") || base.endsWith("&") -> ""
+            base.contains("?") -> "&"
+            else -> "?"
+        }
+        return base + separator + query
+    }
+
+    // URL 模板渲染：占位符值按 URI 组件编码，避免 &/# 等字符把值拆成额外参数或片段
+    private fun renderUrlTemplate(template: String, values: Map<String, String>): String {
+        var result = template
+        values.forEach { (key, value) ->
+            // URLEncoder 以 + 表示空格，放进 URL 路径/查询前换回 %20
+            result = result.replace("{$key}", URLEncoder.encode(value, "UTF-8").replace("+", "%20"))
+        }
+        return result
     }
 
     private fun render(template: String, values: Map<String, String>): String {

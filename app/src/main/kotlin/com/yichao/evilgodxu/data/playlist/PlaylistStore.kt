@@ -109,6 +109,17 @@ class PlaylistStore {
         persist(context)
     }
 
+    // 曲目换 MediaStore ID 后把用户歌单里的引用迁到新 ID：保留原位置与顺序
+    fun replaceTrackId(context: Context, oldId: Long, newId: Long) {
+        ensureLoaded(context)
+        if (oldId == newId) return
+        playlists = playlists.map { playlist ->
+            if (oldId !in playlist.trackIds) return@map playlist
+            playlist.copy(trackIds = playlist.trackIds.map { if (it == oldId) newId else it }.distinct())
+        }
+        persist(context)
+    }
+
     // 歌曲被彻底删除后，从所有自定义歌单中清除残留引用
     fun removeTrackFromAll(context: Context, trackId: Long) {
         ensureLoaded(context)

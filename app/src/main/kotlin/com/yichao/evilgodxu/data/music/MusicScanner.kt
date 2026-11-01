@@ -143,28 +143,34 @@ object MusicScanner {
     }
 
     /**
-     * 曲库签名：曲目数与最近修改时间的组合。
+     * 曲库签名：实际会入库的曲目数 + MediaStore 代次。
      *
-     * 冷启动据此判断曲库有没有变过：只投影一列、第二次查询按修改时间倒序，比拉到全字段的
-     * 扫描便宜一个量级。任一查询失败返回 null，调用方按「无法判定」处理并退回完整扫描。
+     * 代次由平台维护，任何条目新增、修改或删除都会推进；只看数量与最大修改时间会漏掉
+     * 「数量不变、中间某首被改」的情况。计数按与 [scan] 相同的过滤口径统计，
+     * 否则签名与入库数量天然对不上，冷启动会次次判定需要全扫。
      */
     suspend fun signature(context: Context): String? = withContext(Dispatchers.IO) {
         runCatching {
             val count = context.contentResolver.query(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                arrayOf(MediaStore.Audio.Media._ID),
+                arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.DATA),
                 MUSIC_SELECTION,
                 null,
                 null,
-            )?.use { it.count } ?: return@runCatching null
-            val latestModified = context.contentResolver.query(
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                arrayOf(MediaStore.Audio.Media.DATE_MODIFIED),
-                MUSIC_SELECTION,
-                null,
-                "${MediaStore.Audio.Media.DATE_MODIFIED} DESC",
-            )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 0L } ?: 0L
-            "$count:$latestModified"
+            )?.use { cursor ->
+                val dataIdx = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
+                var accepted = 0
+                while (cursor.moveToNext()) {
+                    val path = if (dataIdx >= 0) cursor.getString(dataIdx).orEmpty() else ""
+                    if (isNonMusicPath(path) || !hasSupportedAudioExtension(path)) continue
+                    accepted++
+                }
+                accepted
+            } ?: return@runCatching null
+            // 所有外部卷的代次之和：曲目可能位于 SD 卡，单看主卷会漏掉那边的增删改
+            val generation = MediaStore.getExternalVolumeNames(context)
+                .sumOf { volume -> MediaStore.getGeneration(context, volume) }
+            "$count:$generation"
         }.getOrNull()
     }
 }

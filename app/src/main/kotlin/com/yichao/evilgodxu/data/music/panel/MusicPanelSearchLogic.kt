@@ -482,6 +482,22 @@ internal suspend fun downloadAndPlay(
     withContext(Dispatchers.Main) {
         val existingIndex = playbackState.playlist.indexOfFirst { it.id == trackId }
         val targetIndex = if (existingIndex >= 0) {
+            // 同一在线曲目换音质重播：新解析出的直链必须写回既有条目，
+            // 否则下面取 currentTrack 时又拿到旧列表项，新 URL 在起播前就被丢掉
+            val previous = playbackState.playlist[existingIndex]
+            val refreshed = previous.copy(
+                audioUri = url,
+                path = "",
+                duration = result.duration,
+                isOnlinePlay = true,
+                neteaseCoverUrl = result.coverUrl.orEmpty(),
+            )
+            val list = playbackState.playlist.toMutableList()
+            list[existingIndex] = refreshed
+            playbackState.playlist = list
+            if (playbackState.currentTrack?.id == trackId) {
+                playbackState.currentTrack = refreshed
+            }
             existingIndex
         } else {
             playbackState.playlist = playbackState.playlist + track
@@ -541,10 +557,20 @@ internal suspend fun downloadAndPlay(
     }
 
     playbackState.playbackScope.launch(Dispatchers.IO) {
-        cacheToDownloads(
-            context, result, url, trackId, playbackState,
-            metadataEnricher, playlistRefresher, coverJob, lyricsJob,
-        )
+        // 同一曲目的缓存任务按 ID 去重：add 的返回值才是「本次是否抢到任务」，
+        // 重复起播不应再下载一遍，也不能让先完成者移除另一个任务的进行中标记
+        val started = synchronized(playbackState.cacheInProgressIds) {
+            playbackState.cacheInProgressIds.add(trackId)
+        }
+        if (!started) return@launch
+        try {
+            cacheToDownloads(
+                context, result, url, trackId, playbackState,
+                metadataEnricher, playlistRefresher, coverJob, lyricsJob,
+            )
+        } finally {
+            playbackState.cacheInProgressIds.remove(trackId)
+        }
     }
 }
 

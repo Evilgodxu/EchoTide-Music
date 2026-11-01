@@ -22,7 +22,12 @@ internal interface TagSource {
     /** 读取 [offset, offset + length) 区间；区间不可读返回 null，短读按实际读到的字节返回 */
     fun readAt(offset: Long, length: Int): ByteArray?
 
-    /** 把 [start, end) 区间逐块搬运到 [out]，不整体驻留内存 */
+    /**
+     * 把 [start, end) 区间逐块搬运到 [out]，不整体驻留内存。
+     *
+     * 区间长度已知时短读视为失败并抛出：源在采样长度后被截短或提供者提前 EOF 时，
+     * 静默接受短读会把残缺躯干连同新标签一起提交，原文件仍会被替换。
+     */
     fun copyRange(start: Long, end: Long, out: OutputStream)
 
     /** 长度不可知：以文件末尾为界的定位（块表、尾部标签）在此值下无从成立 */
@@ -45,7 +50,7 @@ internal class FileTagSource(private val file: File) : TagSource {
     override fun copyRange(start: Long, end: Long, out: OutputStream) {
         FileInputStream(file).use { input ->
             check(skipFully(input, start)) { "音频躯干定位失败: offset=$start" }
-            copyUpTo(input, end - start, out)
+            requireRangeComplete(start, end, copyUpTo(input, end - start, out))
         }
     }
 }
@@ -67,7 +72,7 @@ internal class ContentUriTagSource(private val context: Context, private val uri
     override fun copyRange(start: Long, end: Long, out: OutputStream) {
         context.contentResolver.openInputStream(uri)?.use { input ->
             check(skipFully(input, start)) { "音频躯干定位失败: offset=$start" }
-            copyUpTo(input, end - start, out)
+            requireRangeComplete(start, end, copyUpTo(input, end - start, out))
         } ?: throw IllegalStateException("无法打开音频输入流: uri=$uri")
     }
 }
@@ -86,6 +91,7 @@ internal class ByteArrayTagSource(private val bytes: ByteArray) : TagSource {
         val from = start.coerceIn(0L, size).toInt()
         val to = end.coerceIn(from.toLong(), size).toInt()
         if (to > from) out.write(bytes, from, to - from)
+        requireRangeComplete(start, end, (to - from).toLong())
     }
 }
 
@@ -121,14 +127,25 @@ internal fun readUpTo(input: InputStream, size: Int): ByteArray {
     return buffer.copyOf(read)
 }
 
-// 按块搬运至多 length 字节（length 为 Long.MAX_VALUE 时搬到 EOF），不整体驻留内存
-internal fun copyUpTo(input: InputStream, length: Long, output: OutputStream) {
+// 按块搬运至多 length 字节（length 为 Long.MAX_VALUE 时搬到 EOF），返回实际搬运字节数
+internal fun copyUpTo(input: InputStream, length: Long, output: OutputStream): Long {
     val buffer = ByteArray(STREAM_BUFFER_SIZE)
     var remaining = length
+    var copied = 0L
     while (remaining > 0) {
         val step = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-        if (step <= 0) return
+        if (step <= 0) return copied
         output.write(buffer, 0, step)
+        copied += step
         remaining -= step
+    }
+    return copied
+}
+
+// 长度已知的区间必须完整搬运；UNKNOWN_SIZE 表示以 EOF 为界，无从核对
+private fun requireRangeComplete(start: Long, end: Long, copied: Long) {
+    if (end == TagSource.UNKNOWN_SIZE) return
+    check(copied == end - start) {
+        "音频躯干复制不完整: offset=$start, 期望=${end - start}, 实际=$copied"
     }
 }

@@ -438,10 +438,13 @@ class MusicPlaybackState(
         get() = currentPosition + highlightPositionOffsetMs
 
     private val _playlist = mutableStateOf<List<MusicTrack>>(emptyList())
+    // 列表内容版本：后台排序回来时据此判断快照是否仍代表当前列表，过期结果直接丢弃
+    private var playlistRevision = 0
     var playlist: List<MusicTrack>
         get() = _playlist.value
         set(value) {
             _playlist.value = value
+            playlistRevision++
             cachedMediaItems = null
         }
     /** 缓存 playlist 对应的 MediaItem 列表，避免切歌时重复构建 */
@@ -685,9 +688,19 @@ class MusicPlaybackState(
     suspend fun deleteSongPermanently(context: Context, track: MusicTrack) {
         // 删除前先按剩余曲目算好引用集；引用集不全时拿到 null，本次跳过清理而非按「无引用」误删
         val references = lyricCacheReferences(excludeTrackId = track.id)
-        withContext(Dispatchers.IO) {
-            deleteAudioSource(context, track)
-            references?.let { MusicMetadataCache.cleanupOrphanedMetadata(context, it) }
+        val deleted = withContext(Dispatchers.IO) {
+            val ok = deleteAudioSource(context, track)
+            if (ok) references?.let { MusicMetadataCache.cleanupOrphanedMetadata(context, it) }
+            ok
+        }
+        // 源文件没删掉时不能把收藏/歌单当成功删除处理：下次扫描会把歌重新带回来，
+        // 用户整理过的关联却已经先丢了
+        if (!deleted) {
+            CrashLogManager.logException(
+                "MusicPlaybackState",
+                "彻底删除音频源失败，保留用户关联: 歌曲=${track.title}, uri=${track.audioUri}, 路径=${track.path}",
+            )
+            return
         }
         defaultPlaylistBackup = defaultPlaylistBackup?.filterNot { it.id == track.id }
         removeTrack(track.id, advanceToNext = true)
@@ -698,25 +711,26 @@ class MusicPlaybackState(
         playlistStore.removeTrackFromAll(context, track.id)
     }
 
-    // 删除音频源文件：先经 MediaStore 删除（同时清理媒体条目），失败则直接删本地路径并通知媒体库同步
-    private fun deleteAudioSource(context: Context, track: MusicTrack) {
+    // 删除音频源文件：返回 false 表示两种删除方式都没能删掉文件
+    private fun deleteAudioSource(context: Context, track: MusicTrack): Boolean =
         deleteAudioSourceByRef(context, track.audioUri, track.path)
-    }
 
     // 按 URI 与本地路径删除音频源文件：先经 MediaStore 删除（同时清理媒体条目），
     // 失败则直接删本地路径并通知媒体库同步
-    private fun deleteAudioSourceByRef(context: Context, audioUri: String, path: String?) {
+    private fun deleteAudioSourceByRef(context: Context, audioUri: String, path: String?): Boolean {
         val uri = audioUri.takeIf { it.isNotBlank() }?.toUri()
         // 纯在线流曲目无本地文件，无需文件级删除
-        if (uri?.scheme == "http" || uri?.scheme == "https") return
+        if (uri?.scheme == "http" || uri?.scheme == "https") return true
         val deletedViaResolver = uri != null &&
             runCatching { context.contentResolver.delete(uri, null, null) }.getOrDefault(0) > 0
-        if (!deletedViaResolver && path?.isNotBlank() == true) {
-            if (runCatching { File(path).delete() }.getOrDefault(false)) {
-                // 直删文件后触发媒体扫描，使 MediaStore 中该文件的条目失效，避免歌曲重新出现
-                MediaScannerConnection.scanFile(context, arrayOf(path), null, null)
-            }
+        if (deletedViaResolver) return true
+        if (path.isNullOrBlank()) return false
+        val deletedFile = runCatching { File(path).delete() }.getOrDefault(false)
+        if (deletedFile) {
+            // 直删文件后触发媒体扫描，使 MediaStore 中该文件的条目失效，避免歌曲重新出现
+            MediaScannerConnection.scanFile(context, arrayOf(path), null, null)
         }
+        return deletedFile
     }
 
     var audioSignalPathFormat by mutableStateOf<AudioSignalPathFormat?>(null)
@@ -1948,8 +1962,19 @@ class MusicPlaybackState(
         playlistSortDescending = descending
         if (playlistSource == null) {
             val snapshot = playlist
+            val revision = playlistRevision
+            val source = playlistSource
             playbackScope.launch {
                 val ordered = withContext(Dispatchers.Default) { sortTracks(snapshot, field, descending) }
+                // 排序期间列表内容、歌单来源或排序规则已变：这份结果只代表旧快照，
+                // 应用它会把新增/删除/改名的曲目一起回滚
+                if (playlistRevision != revision ||
+                    playlistSource != source ||
+                    playlistSortField != field ||
+                    playlistSortDescending != descending
+                ) {
+                    return@launch
+                }
                 applySortedPlaylist(ordered)
                 persistPlaylist()
             }
@@ -1991,6 +2016,32 @@ class MusicPlaybackState(
         playlist = replace(playlist)
         currentTrack = currentTrack?.let { if (it.id == updated.id) updated else it }
         defaultPlaylistBackup = defaultPlaylistBackup?.let(replace)
+        persistPlaylist()
+        // 通知栏与蓝牙读的是播放器里的 MediaItem：只改状态层列表不会刷新当前项，
+        // 故把正在播放的同名项替换为最新标题/歌手/专辑；非当前项随下次装载自然更新
+        if (currentTrack?.id == updated.id) {
+            val snapshot = updated
+            playbackScope.launch { refreshLoadedTrackMetadata(this@MusicPlaybackState, snapshot) }
+        }
+    }
+
+    /**
+     * 无损升级换 MediaStore ID 后迁移用户关联：收藏、最近播放与自定义歌单都按曲目 ID 记录，
+     * 只更新音频 URI 而保留旧 ID，会在删旧条目后把这些关联一起丢掉。
+     */
+    suspend fun migrateTrackId(context: Context, oldId: Long, newId: Long) {
+        if (oldId == newId) return
+        if (oldId in likedIds) likedIds = (likedIds - oldId) + newId
+        if (recentPlayEvents.any { it.trackId == oldId }) {
+            recentPlayEvents = recentPlayEvents.map {
+                if (it.trackId == oldId) it.copy(trackId = newId) else it
+            }
+            persistRecentPlayed()
+        }
+        withContext(Dispatchers.IO) {
+            playlistStore.awaitLoaded(context)
+            playlistStore.replaceTrackId(context, oldId, newId)
+        }
         persistPlaylist()
     }
 

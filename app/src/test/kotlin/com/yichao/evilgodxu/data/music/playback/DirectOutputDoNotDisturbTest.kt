@@ -24,13 +24,14 @@ class DirectOutputDoNotDisturbTest {
     private var granted = true
     private val writes = mutableListOf<Int>()
 
-    private fun controller(): DirectOutputDoNotDisturb = DirectOutputDoNotDisturb(
+    private fun controller(sdkInt: Int = 0): DirectOutputDoNotDisturb = DirectOutputDoNotDisturb(
         isAccessGranted = { granted },
         readFilter = { filter },
         writeFilter = {
             writes += it
             filter = it
         },
+        sdkInt = sdkInt,
     )
 
     @Test
@@ -113,6 +114,24 @@ class DirectOutputDoNotDisturbTest {
         controller.onModeChanged(AudioOutputMode.MIXER)
 
         assertTrue(writes.isEmpty())
+    }
+
+    // Android 15+：写回旧全局档位只是「启用自己的规则」，必须以 UNKNOWN 停用隐式规则
+    @Test
+    fun modernPlatformDeactivatesOwnRuleOnExit() {
+        filter = priority
+        val controller = controller(sdkInt = 35)
+
+        controller.onModeChanged(AudioOutputMode.FORMAT_LOCKED)
+        assertEquals(alarms, filter)
+
+        controller.release()
+        assertEquals(
+            "退出应停用应用自己的规则，而不是把全局档位写成自己的规则",
+            NotificationManager.INTERRUPTION_FILTER_UNKNOWN,
+            filter,
+        )
+        assertEquals(listOf(alarms, NotificationManager.INTERRUPTION_FILTER_UNKNOWN), writes)
     }
 
     // 服务销毁兜底：持有时无条件还原，未持有时不动

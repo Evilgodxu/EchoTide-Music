@@ -46,6 +46,10 @@ internal class AlacSpecificConfig(
         private const val MIN_KB = 1
         private const val MAX_KB = 31
 
+        // 单帧样本总量上限：解码器按帧长 × 声道预分配多组 Int 缓冲，
+        // 只看「帧长 > 0」会让 24 字节配置申请与文件体积不成比例的巨型数组
+        private const val MAX_SAMPLES_PER_FRAME = 1 shl 20
+
         /**
          * 解析 magic cookie；含本实现不支持的内容时返回 null。
          *
@@ -70,6 +74,7 @@ internal class AlacSpecificConfig(
 
             val valid = compatibleVersion <= SUPPORTED_VERSION &&
                 frameLength >= 1 &&
+                frameLength.toLong() * channelCount <= MAX_SAMPLES_PER_FRAME.toLong() &&
                 bitDepth in SUPPORTED_BIT_DEPTHS &&
                 channelCount in 1..MAX_CHANNELS &&
                 kb in MIN_KB..MAX_KB &&

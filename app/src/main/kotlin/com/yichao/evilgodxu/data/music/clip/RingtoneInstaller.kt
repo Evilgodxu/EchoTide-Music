@@ -71,7 +71,6 @@ private fun publishForSystem(context: Context, source: Uri, title: String, usage
     val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
     val displayName = "${sanitizeName(title)}${usage.nameSuffix()}.$extension"
     val relativePath = usage.relativePath()
-    deleteExistingEntry(resolver, collection, displayName, relativePath)
 
     val values = ContentValues().apply {
         put(MediaStore.Audio.Media.DISPLAY_NAME, displayName)
@@ -95,15 +94,19 @@ private fun publishForSystem(context: Context, source: Uri, title: String, usage
         runCatching { resolver.delete(uri, null, null) }
         return null
     }
+    // 新文件完整写入后再清旧产物：复制失败时旧铃声仍在，不会出现两个都没有的空档。
+    // 只回收本应用目录内的同名条目，用户自己放在公共铃声目录的同名文件不受影响
+    deleteExistingEntry(resolver, collection, displayName, relativePath, keepUri = uri)
     return uri
 }
 
-// 清掉同目录下的同名旧条目：同一首歌反复设置只保留最后一次结果，避免铃声列表堆积
+// 清掉本应用目录下的同名旧条目：同一首歌反复设置只保留最后一次结果，避免铃声列表堆积
 private fun deleteExistingEntry(
     resolver: ContentResolver,
     collection: Uri,
     displayName: String,
     relativePath: String,
+    keepUri: Uri,
 ) {
     resolver.query(
         collection,
@@ -115,8 +118,10 @@ private fun deleteExistingEntry(
         val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
         val pathColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.RELATIVE_PATH)
         while (cursor.moveToNext()) {
-            // 公共目录里可能有用户自己的同名文件，只在同目录内回收
+            // 目标目录是本应用专属子目录，同名条目只可能由本应用产出
             if (cursor.getString(pathColumn)?.trimEnd('/') != relativePath.trimEnd('/')) continue
+            val existing = collection.buildUpon().appendPath(cursor.getLong(idColumn).toString()).build()
+            if (existing == keepUri) continue
             runCatching {
                 resolver.delete(
                     collection.buildUpon().appendPath(cursor.getLong(idColumn).toString()).build(),
@@ -131,8 +136,10 @@ private fun deleteExistingEntry(
 private fun RingtoneUsage.systemType(): Int =
     if (this == RingtoneUsage.RINGTONE) RingtoneManager.TYPE_RINGTONE else RingtoneManager.TYPE_ALARM
 
+// 产出落在应用专属子目录：同名清理只在自家目录内进行，公共铃声目录下用户自己的文件不会被波及
 private fun RingtoneUsage.relativePath(): String =
-    if (this == RingtoneUsage.RINGTONE) Environment.DIRECTORY_RINGTONES else Environment.DIRECTORY_ALARMS
+    if (this == RingtoneUsage.RINGTONE) "${Environment.DIRECTORY_RINGTONES}/EchoTide"
+    else "${Environment.DIRECTORY_ALARMS}/EchoTide"
 
 // 同名音频按用途分别追加后缀，避免同一首歌的铃声与闹钟产物互相覆盖
 private fun RingtoneUsage.nameSuffix(): String =

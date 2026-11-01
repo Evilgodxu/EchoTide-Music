@@ -126,6 +126,10 @@ internal object LosslessContainerTags {
         val keptBefore = chunks.take(dataIndex).filter { it.id !in WAV_TAG_CHUNK_IDS && it !== infoChunk }
         val bodiesBefore = keptBefore.map { readChunkBody(source, it.payloadStart, it.size.toLong()) ?: return null }
         val keptAfter = chunks.drop(dataIndex + 1).filter { it.id !in WAV_TAG_CHUNK_IDS && it !== infoChunk }
+        // data 之后的块按字面驻留内存，故与标签区共用驻留上限：超出即放弃本次重写，
+        // 不能为了保留一个异常大的尾部 JUNK 把整个应用推到 OOM
+        val keptAfterBytes = keptAfter.sumOf { minOf(it.paddedEnd, fileSize) - it.headerStart }
+        if (keptAfterBytes > TARGET_RESIDENT_LIMIT_BYTES) return null
         val head = ByteArrayOutputStream()
         head.write(RIFF_MAGIC.toByteArray(StandardCharsets.US_ASCII))
         head.write(ByteArray(4)) // RIFF 尺寸占位，最后回填
@@ -560,6 +564,8 @@ internal object LosslessContainerTags {
 
     // 块体与标签区的读取上限：标签含封面时可达数 MB，上限用于挡住异常容器把音频体当标签读进堆
     private const val TAG_BODY_READ_LIMIT_BYTES = 32L * 1024 * 1024
+    // data 之后保留块的驻留上限：与标签区共用同一量级，超出即放弃重写
+    private const val TARGET_RESIDENT_LIMIT_BYTES = 32L * 1024 * 1024
 
     // WAV（RIFF）块结构：容器头 12 字节（"RIFF" + 尺寸 + "WAVE"），块头 8 字节（标识 + 小端长度）
     private const val RIFF_MAGIC = "RIFF"

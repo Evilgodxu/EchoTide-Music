@@ -105,6 +105,10 @@ private:
     void reapLoop();
     Urb* findSlot(usbdevfs_urb* urb);
     void fillAndSubmit(usbdevfs_urb* urb);
+    /** 只提交已填好的槽；失败时按非致命/致命分路，非致命保留待补交 */
+    bool submitUrb(Urb* slot);
+    /** 回收线程每轮先补交上一次提交失败的槽，不重新从环形缓冲取数据 */
+    void retryPendingSlots();
     void submitFeedback();
     void discardAll();
     uint32_t nextPacketFrames();
@@ -122,6 +126,10 @@ private:
         std::atomic<bool> inFlight{false};
         /** 本批中包含的真实音频字节数：回收时据此计入"已送出"，静音填充的部分不算 */
         size_t realBytes = 0;
+        /** 已填好但提交失败，等待回收线程补交；补交不得再取环形缓冲，否则会丢掉已取出的数据 */
+        std::atomic<bool> pendingSubmit{false};
+        /** 连续非致命提交失败次数：达到上限即按设备不可用终止，避免写侧无限等待 */
+        int submitAttempts = 0;
     };
 
     struct FeedbackUrb {

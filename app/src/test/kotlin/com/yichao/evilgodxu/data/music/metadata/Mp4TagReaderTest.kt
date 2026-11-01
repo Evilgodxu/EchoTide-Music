@@ -54,6 +54,19 @@ class Mp4TagReaderTest {
     }
 
     @Test
+    fun freeformValueWrittenByWriterReadsBackWithoutControlBytes() {
+        // 自由格式原子的 data 子原子只该有一层；多套一层 data 会让读取端把 type/locale
+        // 当成值的一部分，ReplayGain 等字段读回时多出八个字节
+        val source = java.io.File("src/test/resources/audio/sample.m4a").readBytes()
+        val fields = TrackTagFields.build { put(TagField.REPLAY_GAIN_TRACK_GAIN, "-7.2 dB") }
+        val rewritten = MusicMetadataWriter.writeMetadataBytes(source, fields, null)!!
+        val read = Mp4TagReader.readFields(rewritten.size.toLong()) { offset, count ->
+            rewritten.copyOfRange(offset.toInt(), (offset + count).toInt())
+        }
+        assertEquals("-7.2 dB", read?.get(TagField.REPLAY_GAIN_TRACK_GAIN))
+    }
+
+    @Test
     fun nonStandardAtomNamesAreIgnored() {
         // 认不出的原子名不给推断值：猜出来的名字比没有更糟
         val source = MemorySource(

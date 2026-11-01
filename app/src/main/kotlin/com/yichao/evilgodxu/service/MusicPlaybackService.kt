@@ -87,25 +87,34 @@ class MusicPlaybackService : MediaSessionService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     /** 焦点丢失前是否正在播放：恢复焦点后据此自动续播 */
     private var resumeAfterFocusLoss = false
+    /** 当前是否处于一轮临时失焦中：连续多次失焦不得用后来的暂停态覆盖最初的播放意图 */
+    private var focusLossActive = false
     private val audioFocusHandler = Handler(Looper.getMainLooper())
 
     /** 其他应用抢占焦点时的响应：一律暂停，恢复后按需续播，避免压低音量后不恢复导致的静音 */
     private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
             AudioManager.AUDIOFOCUS_GAIN -> {
+                focusLossActive = false
                 if (resumeAfterFocusLoss) {
                     resumeAfterFocusLoss = false
                     player.setPlayWhenReady(true)
                 }
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
+                focusLossActive = false
                 resumeAfterFocusLoss = false
                 player.pause()
                 abandonAudioFocus()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                resumeAfterFocusLoss = player.isPlaying
+                // 只在一轮失焦的第一次记下播放意图：此时可能已被前一次失焦暂停，
+                // 用当前的 isPlaying 覆盖会把「等会儿续播」改成「不续播」
+                if (!focusLossActive) {
+                    resumeAfterFocusLoss = player.isPlaying
+                    focusLossActive = true
+                }
                 player.pause()
             }
         }
@@ -283,8 +292,12 @@ class MusicPlaybackService : MediaSessionService() {
         stateHolder.state.exclusiveVolumeStep = { exclusiveVolume.currentStep }
         stateHolder.state.setExclusiveVolumeStep = { step -> exclusiveVolumePlayer.setStepFromUi(step) }
         player.addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (isPlaying) requestAudioFocus()
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // 在起播意图成立的时刻申请焦点，而不是等音频已经开始播：被拒时立即收回播放意图。
+                // 播放器内置焦点处理已关闭（见 setAudioAttributes 的 false），这里不处理就没有第二道保障
+                if (playWhenReady && !requestAudioFocus()) {
+                    player.pause()
+                }
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -402,11 +415,8 @@ class MusicPlaybackService : MediaSessionService() {
                 }
             }
 
-            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
-                if (mediaItem != null) {
-                    player.playWhenReady = true
-                }
-            }
+            // 起播意图由操作入口决定，过渡回调不再强制 playWhenReady=true：
+            // 否则暂停状态下 seek 到另一项、或内部换列表都会被这里拉起来自动播放
         })
         // 记录平台实际使用的解码器实现名，供音频信息展示。
         // 解码器可跨曲复用，复用时不重复回调，故该值始终对应当前渲染器正在使用的解码器
@@ -587,7 +597,7 @@ class MusicPlaybackService : MediaSessionService() {
         }
     }
 
-    private fun requestAudioFocus() {
+    private fun requestAudioFocus(): Boolean {
         val request = audioFocusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(
                 android.media.AudioAttributes.Builder()
@@ -601,7 +611,7 @@ class MusicPlaybackService : MediaSessionService() {
             .setOnAudioFocusChangeListener(audioFocusListener, audioFocusHandler)
             .build()
             .also { audioFocusRequest = it }
-        audioManager.requestAudioFocus(request)
+        return audioManager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
     }
 
     private fun abandonAudioFocus() {
@@ -629,8 +639,9 @@ class MusicPlaybackService : MediaSessionService() {
         player.playWhenReady || player.playbackState == Player.STATE_BUFFERING
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // 与 media3 默认语义一致：后台播放进行中保留服务，否则释放播放资源并停止
-        if (!isPlaybackOngoing || !player.isPlaying) {
+        // 与通知路径同一口径：playWhenReady 或 BUFFERING 都表示会话仍在推进。
+        // 只用 isPlaying 会把「网络缓冲中、仍准备续播」误判为已停止，划掉任务时停掉后台播放
+        if (!isPlaybackOngoing || !isPlaybackInProgress()) {
             stopPlayback()
         }
     }

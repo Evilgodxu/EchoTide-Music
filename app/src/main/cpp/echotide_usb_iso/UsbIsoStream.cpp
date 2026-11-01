@@ -29,6 +29,15 @@ constexpr int kReapWaitMs = 5;
 constexpr int kDrainTimeoutMs = 200;
 
 /**
+ * 非致命提交失败的重试上限。
+ *
+ * 提交失败的 URB 不会有完成事件，只靠完成回调补交的路径下这只槽就永远空着；全部槽落进该分支时
+ * 环形缓冲会写满、播放线程一直等待。这里保留已填好的数据并补交，连续失败到上限后按设备不可用终止，
+ * 让写侧拿到明确失败而不是无限期阻塞。
+ */
+constexpr int kMaxSubmitRetries = 8;
+
+/**
  * 回收线程的调度优先级：音频类的 -19（平台侧等价常量 ANDROID_PRIORITY_URGENT_AUDIO）。
  *
  * 本线程的截止期是**一个服务间隔**（高速下 1ms）：每回收一个 URB 就要立刻补一个上去，否则在飞段一旦
@@ -258,6 +267,9 @@ void UsbIsoStream::reapLoop() {
             }
         }
 
+        // 先补交上一轮非致命提交失败的槽：它们没有完成事件，不在这里补就永远不会回到内核手里
+        retryPendingSlots();
+
         usbdevfs_urb* completed = nullptr;
         // 非阻塞回收 + 等完成事件：usbfs 在有待回收 URB 时置 POLLOUT，故这是"等"而非"轮询"。
         // 不用阻塞式 REAPURB 的原因在停机：那时若恰好没有在飞 URB（提交全部失败等情形），
@@ -390,7 +402,11 @@ void UsbIsoStream::fillAndSubmit(usbdevfs_urb* urb) {
     urb->signr = 0;
     urb->usercontext = nullptr;
 
-    if (ioctl(fd_, USBDEVFS_SUBMITURB, urb) < 0) {
+    submitUrb(slot);
+}
+
+bool UsbIsoStream::submitUrb(Urb* slot) {
+    if (ioctl(fd_, USBDEVFS_SUBMITURB, slot->urb) < 0) {
         const int code = errno;
         ++transferErrors_;
         slot->inFlight = false;
@@ -401,11 +417,33 @@ void UsbIsoStream::fillAndSubmit(usbdevfs_urb* urb) {
             running_ = false;
             // 反向的一次唤醒：本线程是回收线程，而等在环上的是播放线程。终止后写不进去，等下去没有意义
             ringCv_.notify_all();
+            return false;
         }
-        return;
+        // 非致命失败没有完成事件可等，留下的空槽只能靠这里补交；连续失败到上限按不可用终止
+        slot->submitAttempts++;
+        if (slot->submitAttempts >= kMaxSubmitRetries) {
+            disconnected_ = true;
+            running_ = false;
+            ringCv_.notify_all();
+            return false;
+        }
+        slot->pendingSubmit = true;
+        return false;
     }
+    slot->pendingSubmit = false;
+    slot->submitAttempts = 0;
     slot->inFlight = true;
     inFlightCount_.fetch_add(1);
+    return true;
+}
+
+void UsbIsoStream::retryPendingSlots() {
+    if (!running_.load()) return;
+    for (auto& slot : urbs_) {
+        if (!slot->pendingSubmit.load()) continue;
+        if (slot->inFlight.load()) continue;
+        submitUrb(slot.get());
+    }
 }
 
 void UsbIsoStream::submitFeedback() {

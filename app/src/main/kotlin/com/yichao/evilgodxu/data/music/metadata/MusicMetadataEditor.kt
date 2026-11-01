@@ -298,7 +298,9 @@ internal object MusicMetadataEditor {
         val count = intLE(data, p)
         p += 4
         val fields = mutableListOf<String>()
-        repeat(count.coerceAtLeast(0)) {
+        // 字段数来自文件，剩余字节能承载的字段数才是上限：每个字段至少有 4 字节长度头，
+        // 否则损坏文件声明的几十亿条注释会让这里空转
+        repeat(count.coerceAtLeast(0).coerceAtMost((end - p).coerceAtLeast(0) / 4)) {
             if (p + 4 > end) return@repeat
             val valueLength = intLE(data, p)
             p += 4

@@ -127,8 +127,8 @@ internal object Id3v2Tag {
         // 已被新值顶替的帧标识：同名帧只在首次出现处写新值，其后原样保留
         val replaced = mutableSetOf<String>()
         if (existing != null) {
-            forEachFrame(existing, 0) { frameStart, id, bodyStart, length ->
-                val raw = existing.copyOfRange(frameStart, bodyStart + length)
+            forEachFrame(existing, 0) { source, frameStart, id, bodyStart, length ->
+                val raw = source.copyOfRange(frameStart, bodyStart + length)
                 when {
                     // 封面独立处理：删除时首个 APIC 帧整帧丢弃（不写新帧即等于删掉），其余重复帧按同一状态处理
                     id == COVER_FRAME_ID -> {
@@ -140,7 +140,7 @@ internal object Id3v2Tag {
                     }
                     id == TXXX_FRAME_ID -> {
                         // TXXX 以描述符区分具体项：只有描述符命中待写入项时才替换
-                        val descriptor = decodeTxxxDescription(existing, bodyStart, length)
+                        val descriptor = decodeTxxxDescription(source, bodyStart, length)
                         val replacement = descriptor?.let { pendingTxxx[it] }
                         if (replacement != null && replaced.add("$TXXX_FRAME_ID:$descriptor")) {
                             frames.write(replacement)
@@ -195,9 +195,9 @@ internal object Id3v2Tag {
     // 描述字段的结尾宽度随编码变化（UTF-16 为双 0），MIME 恒为单字节编码
     fun readApic(bytes: ByteArray, at: Int): ByteArray? {
         var result: ByteArray? = null
-        forEachFrame(bytes, at) { _, id, bodyStart, length ->
+        forEachFrame(bytes, at) { source, _, id, bodyStart, length ->
             if (id == COVER_FRAME_ID) {
-                result = decodeApic(bytes, bodyStart, length)
+                result = decodeApic(source, bodyStart, length)
                 return@forEachFrame true
             }
             false
@@ -223,9 +223,9 @@ internal object Id3v2Tag {
     // 取标签内指定文本帧的文本，供标题(TIT2)/艺术家(TPE1)/专辑(TALB)等单帧字段读取
     fun readTextFrame(bytes: ByteArray, at: Int, id: String): String? {
         var result: String? = null
-        forEachFrame(bytes, at) { _, frameId, bodyStart, length ->
+        forEachFrame(bytes, at) { source, _, frameId, bodyStart, length ->
             if (frameId == id) {
-                result = decodeTextFrame(bytes, bodyStart, length)
+                result = decodeTextFrame(source, bodyStart, length)
                 return@forEachFrame true
             }
             false
@@ -247,9 +247,9 @@ internal object Id3v2Tag {
     // 取标签内首个 USLT（非同步歌词）帧的歌词文本
     fun readUslt(bytes: ByteArray, at: Int): String? {
         var result: String? = null
-        forEachFrame(bytes, at) { _, id, bodyStart, length ->
+        forEachFrame(bytes, at) { source, _, id, bodyStart, length ->
             if (id == LYRICS_FRAME_ID) {
-                result = decodeUslt(bytes, bodyStart, length)
+                result = decodeUslt(source, bodyStart, length)
                 return@forEachFrame true
             }
             false
@@ -271,9 +271,9 @@ internal object Id3v2Tag {
     // 带描述符的 COMM 属第三方工具的附加信息，不属于本字段
     fun readComment(bytes: ByteArray, at: Int): String? {
         var result: String? = null
-        forEachFrame(bytes, at) { _, id, bodyStart, length ->
+        forEachFrame(bytes, at) { source, _, id, bodyStart, length ->
             if (id == COMMENT_FRAME_ID) {
-                val decoded = decodeComment(bytes, bodyStart, length)
+                val decoded = decodeComment(source, bodyStart, length)
                 if (decoded != null) {
                     result = decoded
                     return@forEachFrame true
@@ -302,14 +302,14 @@ internal object Id3v2Tag {
     // 无 POPM 或评分为 0（未打分）时返回 null
     fun readRating(bytes: ByteArray, at: Int): String? {
         var result: String? = null
-        forEachFrame(bytes, at) { _, id, bodyStart, length ->
+        forEachFrame(bytes, at) { source, _, id, bodyStart, length ->
             if (id == RATING_FRAME_ID && length >= 1) {
-                val end = (bodyStart + length).coerceAtMost(bytes.size)
+                val end = (bodyStart + length).coerceAtMost(source.size)
                 var p = bodyStart
-                while (p < end && bytes[p] != 0.toByte()) p++
+                while (p < end && source[p] != 0.toByte()) p++
                 p++
                 if (p < end) {
-                    val raw = bytes[p].toInt() and 0xFF
+                    val raw = source[p].toInt() and 0xFF
                     if (raw > 0) {
                         // 反算星级：0..255 线性刻度回到 1..5
                         val stars = (raw * RATING_STARS + RATING_MAX / 2) / RATING_MAX
@@ -326,11 +326,11 @@ internal object Id3v2Tag {
     // 取指定描述符的 TXXX（自定义文本）帧的值；描述符比较不区分大小写
     fun readTxxx(bytes: ByteArray, at: Int, descriptor: String): String? {
         var result: String? = null
-        forEachFrame(bytes, at) { _, id, bodyStart, length ->
+        forEachFrame(bytes, at) { source, _, id, bodyStart, length ->
             if (id == TXXX_FRAME_ID) {
-                val description = decodeTxxxDescription(bytes, bodyStart, length)
+                val description = decodeTxxxDescription(source, bodyStart, length)
                 if (description != null && description.equals(descriptor, ignoreCase = true)) {
-                    result = decodeTxxxValue(bytes, bodyStart, length)
+                    result = decodeTxxxValue(source, bodyStart, length)
                     return@forEachFrame true
                 }
             }
@@ -512,31 +512,68 @@ internal object Id3v2Tag {
         byteArrayOf((v shr 21 and 0x7f).toByte(), (v shr 14 and 0x7f).toByte(), (v shr 7 and 0x7f).toByte(), (v and 0x7f).toByte())
 
     // 遍历标签内的帧；标签头不合法或帧结构不成立即终止。
-    // block 返回 true 表示提前结束遍历；frameStart 为帧头起点，bodyStart/length 为帧体区间
+    // block 返回 true 表示提前结束遍历；source 为实际参与解析的字节（v2.3 全局去同步已在此还原），
+    // frameStart 为帧头起点，bodyStart/length 为帧体区间。
     private inline fun forEachFrame(
         bytes: ByteArray,
         at: Int,
-        block: (frameStart: Int, id: String, bodyStart: Int, length: Int) -> Boolean,
+        block: (source: ByteArray, frameStart: Int, id: String, bodyStart: Int, length: Int) -> Boolean,
     ) {
-        if (at + 10 > bytes.size || !bytes.startsWithAscii("ID3", at)) return
-        val version = bytes[at + 3].toInt() and 0xFF
+        val normalized = normalizeUnsynchronisedTag(bytes, at)
+        val source = normalized ?: bytes
+        val base = if (normalized != null) 0 else at
+        if (base + 10 > source.size || !source.startsWithAscii("ID3", base)) return
+        val version = source[base + 3].toInt() and 0xFF
         if (version !in 3..4) return
         // footer 不计入头部声明的长度，故声明长度即帧区上界
-        val tagEnd = (at + 10 + syncsafe(bytes, at + 6)).coerceAtMost(bytes.size)
-        val flags = bytes[at + 5].toInt() and 0xFF
-        var p = at + 10
+        val tagEnd = (base + 10 + syncsafe(source, base + 6)).coerceAtMost(source.size)
+        val flags = source[base + 5].toInt() and 0xFF
+        var p = base + 10
         if (flags and 0x40 != 0 && p + 4 <= tagEnd) {
-            val extSize = if (version >= 4) syncsafe(bytes, p) else beInt(bytes, p)
-            p += 4 + extSize
+            // v2.3 的扩展头长度不含自身的 4 字节；v2.4 的同步安全长度已包含自身，
+            // 再补 4 字节会落进首帧内容，后续帧遍历随即失败并丢掉整个既有标签
+            val extSize = if (version >= 4) syncsafe(source, p) else beInt(source, p)
+            p += if (version >= 4) extSize else 4 + extSize
+            if (p > tagEnd) return
         }
         while (p + 10 <= tagEnd) {
-            val id = String(bytes, p, 4, StandardCharsets.ISO_8859_1)
+            val id = String(source, p, 4, StandardCharsets.ISO_8859_1)
             if (!isFrameId(id)) break
-            val length = if (version >= 4) syncsafe(bytes, p + 4) else beInt(bytes, p + 4)
+            val length = if (version >= 4) syncsafe(source, p + 4) else beInt(source, p + 4)
             if (length < 0 || p + 10 + length > tagEnd) break
-            if (block(p, id, p + 10, length)) return
+            if (block(source, p, id, p + 10, length)) return
             p += 10 + length
         }
+    }
+
+    /**
+     * ID3v2.3 全局去同步的逆运算：返回去掉插入 0x00 的完整标签，无需还原时返回 null。
+     *
+     * 规范在帧构造完成后才插入 0x00，帧长度字段并不包含这些插入字节；不先还原就按声明长度
+     * 遍历，未编辑的帧也会被错位切分。还原后头部改写真实帧区长度并清掉去同步标记，
+     * 重建时才能按正常帧结构写出。
+     */
+    private fun normalizeUnsynchronisedTag(bytes: ByteArray, at: Int): ByteArray? {
+        if (at + 10 > bytes.size || !bytes.startsWithAscii("ID3", at)) return null
+        if ((bytes[at + 3].toInt() and 0xFF) != 3) return null
+        if (bytes[at + 5].toInt() and 0x80 == 0) return null
+        val tagEnd = (at + 10 + syncsafe(bytes, at + 6)).coerceAtMost(bytes.size)
+        val decoded = ByteArrayOutputStream(tagEnd - at - 10)
+        var index = at + 10
+        while (index < tagEnd) {
+            val value = bytes[index]
+            if (value == 0.toByte() && index > at + 10 && bytes[index - 1] == 0xFF.toByte()) {
+                index++
+                continue
+            }
+            decoded.write(value.toInt())
+            index++
+        }
+        val frames = decoded.toByteArray()
+        val header = bytes.copyOfRange(at, at + 10)
+        header[5] = (header[5].toInt() and 0x7F).toByte()
+        syncsafeBytes(frames.size).copyInto(header, 6)
+        return header + frames
     }
 
     private fun isFrameId(id: String): Boolean =
