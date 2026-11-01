@@ -91,6 +91,11 @@ android {
     }
 
     packaging {
+        dex {
+            // minSdk ≥ 28 时 AGP 默认以 stored 打包未压缩 DEX（装得快但 APK 更大）；
+            // 这里启用 legacy 的 deflate 压缩
+            useLegacyPackaging = true
+        }
         resources {
             excludes += setOf(
                 // Kotlin 模块元数据文件（每个 Kotlin 库都会生成，必然重复）
