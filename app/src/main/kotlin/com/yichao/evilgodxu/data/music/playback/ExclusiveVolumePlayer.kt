@@ -18,8 +18,8 @@ import com.google.common.util.concurrent.ListenableFuture
  * `DeviceInfo.playbackType` 报远端即装上提供者，且该判定在运行期反复读取，故能随路由进出随时切换。
  * 本类就是那个自报设备音量的播放器，设备音量的档位即 [ExclusiveVolume] 的档位。
  *
- * 只在独占承接写出期间报远端：退回平台路径时音量正该由系统掌管（那条链路的音量就是系统音量），
- * 报本地即把音量键交还系统，与独占之前的行为一致。
+ * 只在设备被接管期间报远端：接管一成立，该解码器就已退出系统音频，媒体档位此后够不到它；归还设备时
+ * 音量正该由系统掌管（那条链路的音量就是系统音量），报本地即把音量键交还系统，与独占之前的行为一致。
  *
  * 包装的播放器仍由会话原样使用，本类只替换设备音量这一项状态与它的三个写入入口。
  */
@@ -34,7 +34,7 @@ internal class ExclusiveVolumePlayer(
     private var remote = false
 
     /**
-     * 路由进出：独占期间报远端（音量键归应用），退回平台路径报本地（交还系统）。
+     * 接管进出：设备被接管期间报远端（音量键归应用），归还后报本地（交还系统）。
      *
      * 必须在播放器所属线程（主线程）上调用：状态刷新与会话播报都发生在那条线上。
      */
@@ -47,6 +47,16 @@ internal class ExclusiveVolumePlayer(
     /** 读盘恢复的档位：写回后让会话播报新档位；不经 [onStepChanged]，避免刚读回来又写回去 */
     fun restoreStep(step: Int) {
         if (volume.setStep(step)) invalidateState()
+    }
+
+    /**
+     * 界面音量手势的写入入口。
+     *
+     * 与音量键走同一条路（[applyStep]）：同样落盘、同样让会话播报新档位，系统音量面板因此跟着滑动。
+     * 必须在播放器线程（主线程）上调用。
+     */
+    fun setStepFromUi(step: Int) {
+        applyStep(step)
     }
 
     override fun getState(): SimpleBasePlayer.State {

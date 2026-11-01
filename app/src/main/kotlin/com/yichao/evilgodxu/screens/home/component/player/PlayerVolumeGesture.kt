@@ -219,6 +219,8 @@ internal fun minVolumeLevel(maxLevel: Int): Int =
  *
  * 独占路由绕开系统混音器，系统媒体音量对那条流不生效；此时音量档位由应用经媒体会话的
  * 远端音量通道持有，故改为读写会话的设备音量（档位上限见 [EXCLUSIVE_VOLUME_STEPS]）。
+ * 判据取「设备是否已被接管」而不是「独占是否正在承接写出」：接管一旦成立，设备就已退出系统音频，
+ * 媒体档位此后够不到它，而路由要等真正写出时才成立——等路由会把接管到起播之间的这段时间漏给媒体音量。
  * 其余路径仍是系统媒体流音量，音量键与系统音量面板看到的是同一个值。
  */
 internal class OutputVolumeController(
@@ -228,24 +230,21 @@ internal class OutputVolumeController(
     private val audioManager = context.getSystemService(AudioManager::class.java)
 
     fun current(): OutputVolume {
-        if (playbackState.usbExclusiveRoute) {
-            playbackState.mediaController?.let { controller ->
-                val max = controller.deviceInfo.maxVolume.takeIf { it > 0 } ?: EXCLUSIVE_VOLUME_STEPS
-                return OutputVolume(controller.deviceVolume.coerceIn(0, max), max)
-            }
+        if (playbackState.usbExclusiveClaimed) {
+            val step = playbackState.exclusiveVolumeStep?.invoke()
+                ?: return OutputVolume(EXCLUSIVE_VOLUME_STEPS, EXCLUSIVE_VOLUME_STEPS)
+            return OutputVolume(step.coerceIn(0, EXCLUSIVE_VOLUME_STEPS), EXCLUSIVE_VOLUME_STEPS)
         }
         val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         return OutputVolume(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).coerceIn(0, max), max)
     }
 
     fun set(level: Int) {
-        if (playbackState.usbExclusiveRoute) {
-            playbackState.mediaController?.let { controller ->
-                // 带标志位的设置命令即会话远端音量的写入入口；路由切换瞬间命令尚未就绪时为空操作，
-                // 不会落到系统媒体档位上——独占期间那个值不作用于当前输出
-                controller.setDeviceVolume(level.coerceIn(0, EXCLUSIVE_VOLUME_STEPS), 0)
-                return
-            }
+        if (playbackState.usbExclusiveClaimed) {
+            // 写回应用自持档位；入口未就绪（服务尚未装配）时不落系统媒体音量——
+            // 独占期间那个值不作用于已接管的设备，改了也只会让人以为"调了没反应"
+            playbackState.setExclusiveVolumeStep?.invoke(level.coerceIn(0, EXCLUSIVE_VOLUME_STEPS))
+            return
         }
         // 系统档位上限可能随路由变化，写入前按当前上限收口，避免越界
         val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)

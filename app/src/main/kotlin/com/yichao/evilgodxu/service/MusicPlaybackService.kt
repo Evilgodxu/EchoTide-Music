@@ -40,6 +40,7 @@ import com.yichao.evilgodxu.data.music.playback.alac.AlacAudioRenderer
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveAudioSink
 import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveOutput
+import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveState
 import com.yichao.evilgodxu.data.music.playback.usb.UsbOutputSink
 import com.yichao.evilgodxu.data.settings.exclusiveVolumeStepFlow
 import com.yichao.evilgodxu.data.settings.saveExclusiveVolumeStep
@@ -206,10 +207,6 @@ class MusicPlaybackService : MediaSessionService() {
                 if (exclusive && ::usbExclusiveOutput.isInitialized) {
                     stateHolder.state.usbExclusiveDevice = usbExclusiveOutput.deviceInfo()
                 }
-                // 独占承接写出期间把会话切到远端音量：音量键归应用，系统媒体音量一个数都不动；
-                // 退回平台路径即交还系统。回调来自播放线程（渲染器重配点），而播放器状态只能在
-                // 它自己的线程上刷新，故投递一次
-                serviceScope.launch { exclusiveVolumePlayer.setRemote(exclusive) }
             },
             onDecodedFormatChanged = reportDecodedFormat,
             onVariantChanged = reportOutputVariant,
@@ -277,11 +274,14 @@ class MusicPlaybackService : MediaSessionService() {
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
             .build()
-        // 会话侧的设备音量自报：独占成立期间才报远端（音量键归应用），退回平台路径即交还系统。
-        // 播放器一建好就装配，独占路由的回报（渲染器重配点）多半晚于此处
+        // 会话侧的设备音量自报：接管期间报远端（音量键归应用），归还设备即交还系统。
+        // 播放器一建好就装配，独占接管的回报（设备接入侧）多半晚于此处
         exclusiveVolumePlayer = ExclusiveVolumePlayer(player, exclusiveVolume) { step ->
             persistExclusiveVolume(step)
         }
+        // 界面音量手势的读写入口：档位与音量键同源，写回也走同一条路（含落盘与会话播报）
+        stateHolder.state.exclusiveVolumeStep = { exclusiveVolume.currentStep }
+        stateHolder.state.setExclusiveVolumeStep = { step -> exclusiveVolumePlayer.setStepFromUi(step) }
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) requestAudioFocus()
@@ -457,10 +457,16 @@ class MusicPlaybackService : MediaSessionService() {
         }
         // 独占同样在会话建立后装配。它自己订阅 USB 的接入/拔出与授权结果，故只需喂开关与成色出口；
         // 成色不由开关代替——开关开着而设备没接入、没授权、接管失败时，播放仍走平台路径
-        usbExclusiveOutput = UsbExclusiveOutput(context = this) {
+        usbExclusiveOutput = UsbExclusiveOutput(context = this) { state ->
+            val claimed = state is UsbExclusiveState.Active
             // 设备信息随接管与归还同步：接管期间该设备已从系统音频里消失，面板只能由此取，
             // 交还后随之清空，以免面板继续展示一台已不在手里的设备
             stateHolder.state.usbExclusiveDevice = usbExclusiveOutput.deviceInfo()
+            stateHolder.state.usbExclusiveClaimed = claimed
+            // 接管即把会话切到远端音量，不等路由成立：设备一旦被接管就已退出系统音频，
+            // 系统媒体音量此后不作用于它，此时仍让音量键去改媒体档位只会"按了没反应"。
+            // 回调来自主线程或播放线程（链路失效），而会话状态只能在播放器线程上刷新，故一律投递
+            serviceScope.launch { exclusiveVolumePlayer.setRemote(claimed) }
         }
         // 独占开关只在此处喂给接管方：接管是否成立由它自己订阅的设备接入与授权结果决定，
         // 开关开着不等于接管成功，成色另由 UsbOutputSink 按实际路由上报
@@ -643,6 +649,9 @@ class MusicPlaybackService : MediaSessionService() {
         usbDirectOutput.release()
         // 独占必须显式归还：接口不还，内核的音频驱动就一直是解绑状态，该解码器在系统音频里始终不出现
         if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.close()
+        // 音量入口指向本服务实例，随服务一起失效；留着会让界面读到一个已释放的播放器
+        stateHolder.state.exclusiveVolumeStep = null
+        stateHolder.state.setExclusiveVolumeStep = null
         // 服务销毁时成色回调已无从投递（作用域已取消），免打扰在此直接兜底还原
         directOutputDoNotDisturb.release()
         mediaSession?.release()

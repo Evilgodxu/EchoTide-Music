@@ -808,6 +808,25 @@ class MusicPlaybackState(
     var usbExclusiveDevice by mutableStateOf<UsbExclusiveDeviceInfo?>(null)
 
     /**
+     * 独占模式是否已接管设备（开关开启且设备接入并授权）。
+     *
+     * 与 [usbExclusiveRoute] 的区别在时机：路由要到独占真正承接写出时才成立，而接管在设备接入那一刻
+     * 就已发生——设备已被内核解绑，系统媒体音量此后不再作用于它。因此音量归属（应用自持档位还是
+     * 系统媒体流）以本标志为准，不能等路由成立。
+     */
+    var usbExclusiveClaimed by mutableStateOf(false)
+
+    /**
+     * 独占音量的读写入口，由播放服务装配；服务不在时为空。
+     *
+     * 界面侧的音量手势直接落在这里，而不是经媒体会话的远端通道转一手：档位的事实由播放服务持有，
+     * 会话只是它对系统音量键与音量面板的出口。会话尚未连上时界面同样能读写，接管与起播之间的
+     * 那段时间因此不会落到系统媒体音量上。
+     */
+    var exclusiveVolumeStep: (() -> Int)? = null
+    var setExclusiveVolumeStep: ((Int) -> Unit)? = null
+
+    /**
      * 两个 USB 输出开关的启用状态，由播放服务从设置订阅后写入。
      *
      * 心动模式的准入直接看这两个开关，而不是看输出成色：两条路的成色都要等设备接入、属性和格式被受理
