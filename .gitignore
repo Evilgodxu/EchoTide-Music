@@ -18,6 +18,13 @@
 
 jh.keystore
 recollection
-tools
 Material Symbols
 YiChaoTmp
+
+# Python 生成物（tools/ 下的脚本工具）
+__pycache__/
+*.py[cod]
+
+# 仅 apk-optimizer 对外开源，其余为仓库自用脚本
+/tools/check_unused_imports.py
+/tools/make_promo_hero.py

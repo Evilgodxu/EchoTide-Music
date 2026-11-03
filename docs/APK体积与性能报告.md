@@ -11,8 +11,7 @@
 
 - **后处理已无空间**：可回收 97 B，产物已按最优形式打包，重写只会更换签名块而不带来收益。
 - **运行性能无法由后处理提升**：R8 在编译期完成代码优化、DEX 布局与 Baseline Profile 生成，改写其产物会导致优化失效甚至性能回退。
-- **构建期缺口 1 项**：
-  - 原生库打包方式（未启用）：useLegacyPackaging = true 会在安装时解压原生库，占用双份存储且无法 mmap
+- 构建期检查未发现缺口。
 
 ## 体积构成
 
@@ -69,7 +68,7 @@
 | R8 完整模式 | 已启用 | 未显式关闭，R8 使用完整优化集合 | [官方文档](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization) |
 | 资源限定符裁剪 | 已启用 | 已声明语言限定符，未支持语言的库资源不会进入包内 | [官方文档](https://developer.android.com/topic/performance/reduce-apk-size) |
 | ABI 维度收敛 | 已启用 | 已限定 ABI，避免多套原生库同时入包 | [官方文档](https://developer.android.com/topic/performance/reduce-apk-size) |
-| 原生库打包方式 | 未启用 | useLegacyPackaging = true 会在安装时解压原生库，占用双份存储且无法 mmap | [官方文档](https://developer.android.com/guide/practices/page-sizes) |
+| 原生库打包方式 | 已启用 | 原生库保持未压缩，安装时无需解压即可 mmap 加载 | [官方文档](https://developer.android.com/guide/practices/page-sizes) |
 | 16 KiB 页对齐 | 已启用 | 未压缩条目已按 4 字节与 16 KiB 页双重要求对齐，兼容 4 KiB 与 16 KiB 页设备 | [官方文档](https://developer.android.com/tools/zipalign) |
 | Baseline Profile | 已启用 | 包内含 assets/dexopt/baseline.prof，ART 会在安装期预编译热点路径 | [官方文档](https://developer.android.com/topic/performance/baselineprofiles/overview) |
 | Startup Profile / DEX 布局优化 | 已启用 | 已生成启动配置，R8 会把启动路径的类集中到首个 DEX，减少缺页 | [官方文档](https://developer.android.com/topic/performance/startupprofiles/dex-layout-optimizations) |

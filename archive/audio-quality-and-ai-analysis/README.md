@@ -3,10 +3,27 @@
 本目录保存从项目中移除的两项识别算法及其全部配套代码，供日后查阅或回退。
 
 - 归档日期：2026-10-08
+- 取证脚本移入日期：2026-11-03
 - 来源仓库：C:/Android/YiChaoMusic
 - 归档目录结构：
   - `removed/`：已从工程删除的文件，按原仓库相对路径存放（字节原样保留）。
   - `modified-originals/`：改动前保留引用这两项算法的文件原始版本，按原仓库相对路径存放。
+  - `probes/`：为这两项识别算法取证而写的 Python 脚本，从仓库 `tools/` 移入（字节原样保留）。
+
+## 取证脚本（probes/）
+
+均依赖 `numpy` 与 `soundfile`，用法为 `python <脚本> <音频文件>`。
+
+| 脚本 | 用途 |
+| --- | --- |
+| `ai_detect_probe.py` | 复现三征象判据并输出频谱形态诊断 |
+| `ai_feature_probe.py` | 细结构周期性、M/S 相关、谐噪比代理 |
+| `deadzone_probe.py` | 判定高频死区是数字静默还是转码噪底 |
+| `deadzone_calibration.py` | 有损转码与数字带限的死区对比标定 |
+| `final_probe.py` | 分带 L/R 相关、时域动态、起音规律、全曲谱 |
+| `fingerprint_probe.py` | 调制域帧率周期性、能量簇、网格纹波 |
+| `flac_meta_probe.py` | 枚举 FLAC 元数据并匹配生成器署名 |
+| `tag_probe_verify.py` | 用构造容器断言 `AiSourceTagProbe` 的分级匹配 |
 
 ## 被移除的功能
 
