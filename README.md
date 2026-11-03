@@ -10,7 +10,7 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-6.1.0-informational)
+![Version](https://img.shields.io/badge/version-6.1.1-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.2-blue)
@@ -112,6 +112,8 @@ Portrait or landscape, immersion is the only goal.
 │   ├── libs.versions.toml               # Version catalog (dependency management)
 │   └── wrapper/
 ├── docs/                                # Proxy source spec, UI screenshots, notes & APK report
+├── tools/
+│   └── apk-optimizer/                   # APK size attribution, 16 KiB alignment, re-signing & build-config audit
 ├── LICENSE
 ├── build.gradle.kts
 ├── settings.gradle.kts
@@ -119,6 +121,7 @@ Portrait or landscape, immersion is the only goal.
 ```
 
 The interface spec for custom proxy sources lives in [忆潮代理音源规范](docs/忆潮代理音源规范.md).
+The post-processing toolkit for APK size, alignment and signing lives in [tools/apk-optimizer](tools/apk-optimizer/README.md).
 
 ## Permissions
 

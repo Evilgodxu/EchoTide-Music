@@ -10,7 +10,7 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-6.1.0-informational)
+![Version](https://img.shields.io/badge/version-6.1.1-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.2-blue)
@@ -112,6 +112,8 @@
 │   ├── libs.versions.toml               # 版本目录(依赖管理)
 │   └── wrapper/
 ├── docs/                                # 代理音源规范、界面截图、注意事项与 APK 报告
+├── tools/
+│   └── apk-optimizer/                   # APK 体积归因、16 KiB 对齐、重签名与构建期配置体检
 ├── LICENSE
 ├── build.gradle.kts
 ├── settings.gradle.kts
@@ -119,6 +121,7 @@
 ```
 
 自定义代理音源的接口规范见 [忆潮代理音源规范](docs/忆潮代理音源规范.md)。
+APK 体积、对齐与签名的后处理工具见 [tools/apk-optimizer](tools/apk-optimizer/README.md)。
 
 ## 权限
 
