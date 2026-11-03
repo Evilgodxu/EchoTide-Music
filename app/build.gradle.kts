@@ -91,13 +91,13 @@ android {
     }
 
     packaging {
-        dex {
-            // 定向压缩 DEX，减小分发体积
-            useLegacyPackaging = true
-        }
         jniLibs {
             // 不压缩原生库，确保可以 mmap 加载，安装后体积最小
             useLegacyPackaging = false
+        }
+        dex {
+            // 定向压缩 DEX，减小分发体积
+            useLegacyPackaging = true
         }
         resources {
             excludes += setOf(
