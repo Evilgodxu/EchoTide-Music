@@ -1,8 +1,8 @@
-# APK 体检报告：EchoTideMusic-6.0.1-arm64-v8a.apk
+# APK 体检报告：EchoTideMusic-6.1.0-arm64-v8a.apk
 
-- 应用：`com.yichao.evilgodxu` 6.0.1
-- 体积：5.77 MiB（6051547 字节）
-- 条目：46，容器开销 38.3 KiB
+- 应用：`com.yichao.evilgodxu` 6.1.0
+- 体积：3.35 MiB（3512659 字节）
+- 条目：46，容器开销 40.8 KiB
 - 构建工具：build-tools 37.0.0
 - ZIP 对齐：通过
 - 后处理可回收：97 B
@@ -11,34 +11,35 @@
 
 - **后处理已无空间**：可回收 97 B，产物已按最优形式打包，重写只会更换签名块而不带来收益。
 - **运行性能无法由后处理提升**：R8 在编译期完成代码优化、DEX 布局与 Baseline Profile 生成，改写其产物会导致优化失效甚至性能回退。
-- 构建期检查未发现缺口。
+- **构建期缺口 1 项**：
+  - 原生库打包方式（未启用）：useLegacyPackaging = true 会在安装时解压原生库，占用双份存储且无法 mmap
 
 ## 体积构成
 
 | 分组 | 条目 | 原始 | 占用 | 占比 |
 | --- | ---: | ---: | ---: | ---: |
-| `classes2.dex` | 1 | 5.14 MiB | 5.14 MiB | 89.6% |
-| `lib/**/*.so` | 3 | 394.9 KiB | 394.9 KiB | 6.7% |
-| `resources.arsc` | 1 | 68.9 KiB | 68.9 KiB | 1.2% |
-| `assets/` | 3 | 139.4 KiB | 51.2 KiB | 0.9% |
-| `res/` | 23 | 50.4 KiB | 48.1 KiB | 0.8% |
-| `classes.dex` | 1 | 32.1 KiB | 32.1 KiB | 0.5% |
-| `kotlin/` | 8 | 52.7 KiB | 12.1 KiB | 0.2% |
+| `classes2.dex` | 1 | 5.15 MiB | 2.73 MiB | 82.4% |
+| `lib/**/*.so` | 3 | 395.6 KiB | 395.6 KiB | 11.7% |
+| `resources.arsc` | 1 | 68.9 KiB | 68.9 KiB | 2.0% |
+| `assets/` | 3 | 141.5 KiB | 53.3 KiB | 1.6% |
+| `res/` | 23 | 50.4 KiB | 48.1 KiB | 1.4% |
+| `classes.dex` | 1 | 32.4 KiB | 16.0 KiB | 0.5% |
+| `kotlin/` | 8 | 52.7 KiB | 12.1 KiB | 0.4% |
 | `AndroidManifest.xml` | 1 | 13.8 KiB | 3.3 KiB | 0.1% |
-| `META-INF/` | 5 | 186 B | 184 B | 0.0% |
+| `META-INF/` | 5 | 186 B | 185 B | 0.0% |
 
 ## 最大条目
 
 | 条目 | 原始 | 占用 | 方式 |
 | --- | ---: | ---: | --- |
-| `classes2.dex` | 5.14 MiB | 5.14 MiB | STORED |
-| `lib/arm64-v8a/libechotide_usb_iso.so` | 375.0 KiB | 375.0 KiB | STORED |
+| `classes2.dex` | 5.15 MiB | 2.73 MiB | DEFLATE |
+| `lib/arm64-v8a/libechotide_usb_iso.so` | 375.6 KiB | 375.6 KiB | STORED |
 | `resources.arsc` | 68.9 KiB | 68.9 KiB | STORED |
 | `assets/PublicSuffixDatabase.list` | 129.6 KiB | 41.5 KiB | DEFLATE |
-| `classes.dex` | 32.1 KiB | 32.1 KiB | STORED |
+| `classes.dex` | 32.4 KiB | 16.0 KiB | DEFLATE |
+| `assets/dexopt/baseline.prof` | 10.6 KiB | 10.6 KiB | STORED |
 | `lib/arm64-v8a/libdatastore_shared_counter.so` | 10.1 KiB | 10.1 KiB | STORED |
 | `lib/arm64-v8a/libandroidx.graphics.path.so` | 9.9 KiB | 9.9 KiB | STORED |
-| `assets/dexopt/baseline.prof` | 8.4 KiB | 8.4 KiB | STORED |
 | `res/sK.webp` | 7.9 KiB | 7.9 KiB | STORED |
 | `res/-6.webp` | 7.6 KiB | 7.6 KiB | STORED |
 | `res/Sn.webp` | 5.7 KiB | 5.7 KiB | STORED |
@@ -52,8 +53,8 @@
 | 条目 | 体积变化 | 原因 |
 | --- | ---: | --- |
 | `assets/PublicSuffixDatabase.list` | -28 B | 已 deflate，压缩级别提升至 9 |
-| `META-INF/services/cy2` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
-| `META-INF/services/qa0` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
+| `META-INF/services/gy2` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
+| `META-INF/services/sa0` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
 | `META-INF/services/v7` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
 | `kotlin/collections/collections.kotlin_builtins` | -18 B | 已 deflate，压缩级别提升至 9 |
 | `kotlin/kotlin.kotlin_builtins` | -36 B | 已 deflate，压缩级别提升至 9 |
@@ -68,7 +69,7 @@
 | R8 完整模式 | 已启用 | 未显式关闭，R8 使用完整优化集合 | [官方文档](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization) |
 | 资源限定符裁剪 | 已启用 | 已声明语言限定符，未支持语言的库资源不会进入包内 | [官方文档](https://developer.android.com/topic/performance/reduce-apk-size) |
 | ABI 维度收敛 | 已启用 | 已限定 ABI，避免多套原生库同时入包 | [官方文档](https://developer.android.com/topic/performance/reduce-apk-size) |
-| 原生库打包方式 | 已启用 | 原生库保持未压缩，安装时无需解压即可 mmap 加载 | [官方文档](https://developer.android.com/guide/practices/page-sizes) |
+| 原生库打包方式 | 未启用 | useLegacyPackaging = true 会在安装时解压原生库，占用双份存储且无法 mmap | [官方文档](https://developer.android.com/guide/practices/page-sizes) |
 | 16 KiB 页对齐 | 已启用 | 未压缩条目已按 4 字节与 16 KiB 页双重要求对齐，兼容 4 KiB 与 16 KiB 页设备 | [官方文档](https://developer.android.com/tools/zipalign) |
 | Baseline Profile | 已启用 | 包内含 assets/dexopt/baseline.prof，ART 会在安装期预编译热点路径 | [官方文档](https://developer.android.com/topic/performance/baselineprofiles/overview) |
 | Startup Profile / DEX 布局优化 | 已启用 | 已生成启动配置，R8 会把启动路径的类集中到首个 DEX，减少缺页 | [官方文档](https://developer.android.com/topic/performance/startupprofiles/dex-layout-optimizations) |

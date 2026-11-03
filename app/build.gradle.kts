@@ -24,8 +24,8 @@ android {
         applicationId = "com.yichao.evilgodxu"
         minSdk = 34
         targetSdk = 37
-        versionCode = 101
-        versionName = "6.1.0"
+        versionCode = 102
+        versionName = "6.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -92,9 +92,12 @@ android {
 
     packaging {
         dex {
-            // minSdk ≥ 28 时 AGP 默认以 stored 打包未压缩 DEX（装得快但 APK 更大）；
-            // 这里启用 legacy 的 deflate 压缩
+            // 定向压缩 DEX，减小分发体积
             useLegacyPackaging = true
+        }
+        jniLibs {
+            // 不压缩原生库，确保可以 mmap 加载，安装后体积最小
+            useLegacyPackaging = false
         }
         resources {
             excludes += setOf(
