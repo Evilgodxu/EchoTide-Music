@@ -1,8 +1,8 @@
-# APK 体检报告：EchoTideMusic-6.1.0-arm64-v8a.apk
+# APK 体检报告：EchoTideMusic-6.1.1-arm64-v8a.apk
 
-- 应用：`com.yichao.evilgodxu` 6.1.0
-- 体积：3.35 MiB（3512659 字节）
-- 条目：46，容器开销 40.8 KiB
+- 应用：`com.yichao.evilgodxu` 6.1.1
+- 体积：3.33 MiB（3496271 字节）
+- 条目：46，容器开销 45.1 KiB
 - 构建工具：build-tools 37.0.0
 - ZIP 对齐：通过
 - 后处理可回收：97 B
@@ -18,7 +18,7 @@
 
 | 分组 | 条目 | 原始 | 占用 | 占比 |
 | --- | ---: | ---: | ---: | ---: |
-| `classes2.dex` | 1 | 5.15 MiB | 2.73 MiB | 82.4% |
+| `classes2.dex` | 1 | 5.11 MiB | 2.71 MiB | 82.3% |
 | `lib/**/*.so` | 3 | 395.6 KiB | 395.6 KiB | 11.7% |
 | `resources.arsc` | 1 | 68.9 KiB | 68.9 KiB | 2.0% |
 | `assets/` | 3 | 141.5 KiB | 53.3 KiB | 1.6% |
@@ -26,13 +26,13 @@
 | `classes.dex` | 1 | 32.4 KiB | 16.0 KiB | 0.5% |
 | `kotlin/` | 8 | 52.7 KiB | 12.1 KiB | 0.4% |
 | `AndroidManifest.xml` | 1 | 13.8 KiB | 3.3 KiB | 0.1% |
-| `META-INF/` | 5 | 186 B | 185 B | 0.0% |
+| `META-INF/` | 5 | 186 B | 186 B | 0.0% |
 
 ## 最大条目
 
 | 条目 | 原始 | 占用 | 方式 |
 | --- | ---: | ---: | --- |
-| `classes2.dex` | 5.15 MiB | 2.73 MiB | DEFLATE |
+| `classes2.dex` | 5.11 MiB | 2.71 MiB | DEFLATE |
 | `lib/arm64-v8a/libechotide_usb_iso.so` | 375.6 KiB | 375.6 KiB | STORED |
 | `resources.arsc` | 68.9 KiB | 68.9 KiB | STORED |
 | `assets/PublicSuffixDatabase.list` | 129.6 KiB | 41.5 KiB | DEFLATE |
@@ -53,8 +53,8 @@
 | 条目 | 体积变化 | 原因 |
 | --- | ---: | --- |
 | `assets/PublicSuffixDatabase.list` | -28 B | 已 deflate，压缩级别提升至 9 |
-| `META-INF/services/gy2` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
-| `META-INF/services/sa0` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
+| `META-INF/services/ay2` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
+| `META-INF/services/qa0` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
 | `META-INF/services/v7` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
 | `kotlin/collections/collections.kotlin_builtins` | -18 B | 已 deflate，压缩级别提升至 9 |
 | `kotlin/kotlin.kotlin_builtins` | -36 B | 已 deflate，压缩级别提升至 9 |
