@@ -12,10 +12,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.edit
 import androidx.core.net.toUri
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.longPreferencesKey
-import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import com.yichao.evilgodxu.data.music.metadata.CoverBackgroundColors
@@ -37,7 +33,6 @@ import com.yichao.evilgodxu.data.music.highlight.HighlightStore
 import com.yichao.evilgodxu.data.persistence.PersistedData
 import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
-import com.yichao.evilgodxu.data.settings.settingsDataStore
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.R
 import java.io.File
@@ -98,15 +93,6 @@ class MusicPlaybackState(
     // 上次持久化播放状态的时刻，用于播放期间节流写入
     private var lastStatePersistAt = 0L
 
-    private val savedUriKey = stringPreferencesKey("music_saved_uri")
-    private val savedPositionKey = longPreferencesKey("music_saved_position")
-    private val savedModeKey = intPreferencesKey("music_saved_mode")
-    // 待落盘的播放状态快照：每次调用覆盖为最新值，写入任务按需消费，合并连续写入
-    private var pendingStateSnapshot: SavedPlaybackState? = null
-    // 播放状态写入任务：在途时新调用只更新快照，由在途循环以最新快照收尾，
-    // 避免取消旧任务产生"旧任务已取消、新任务未启动"的写入间隙
-    private var stateWriteJob: Job? = null
-    private val persistenceMutex = Mutex()
     // 冷启动恢复任务去重：并发调用方共享同一恢复任务并等待完成，
     // 避免界面、悬浮窗与授权扫描各自触发重复的读盘与解析
     private val restoreMutex = Mutex()
@@ -518,18 +504,9 @@ class MusicPlaybackState(
                 isPrepared = false
                 currentPosition = 0L
                 duration = 0L
-                clearSavedState(context)
+                playbackStateStore.clear(context)
             }
             persistPlaylist()
-        }
-    }
-
-    private suspend fun clearSavedState(context: Context) {
-        withContext(Dispatchers.IO) {
-            context.settingsDataStore.edit { preferences ->
-                preferences.remove(savedUriKey)
-                preferences.remove(savedPositionKey)
-            }
         }
     }
 
@@ -994,9 +971,10 @@ class MusicPlaybackState(
         val savedSortDescending = restored.savedSortDescending
         val savedFollowsQueue = restored.savedFollowsQueue
         val savedViewedSource = restored.savedViewedSource
-        val savedUri = preferences[savedUriKey]
-        val savedPosition = preferences[savedPositionKey] ?: 0L
-        val savedMode = preferences[savedModeKey] ?: PlayMode.RepeatAll.ordinal
+        val savedState = playbackStateStore.read(preferences)
+        val savedUri = savedState.audioUri
+        val savedPosition = savedState.position
+        val savedMode = savedState.modeOrdinal
         withContext(Dispatchers.Main) {
             // 无保存来源时处于全量播放列表
             playlistSource = savedSource
@@ -1113,31 +1091,17 @@ class MusicPlaybackState(
     internal var resumeAnchorTrackId: Long = -1L
 
     fun persistState() {
-        val context = appContext ?: return
         val track = currentTrack ?: return
-        // 调用时刻立即快照：release/softRelease 随后会清空播放状态，异步写入不能再回读内存态。
         // 位置取整曲的绝对位置：心动模式下控制器回报的是片段内进度，直接落盘会让恢复时对不上
-        pendingStateSnapshot = SavedPlaybackState(track.audioUri, persistablePositionMs, playMode.ordinal)
+        playbackStateStore.persist(track.audioUri, persistablePositionMs, playMode.ordinal)
         persistBootMirror()
-        // 写入在途时仅更新快照，由在途任务以最新快照收尾，不再取消旧任务
-        if (stateWriteJob?.isActive == true) return
-        stateWriteJob = playbackScope.launch {
-            persistenceMutex.withLock {
-                while (true) {
-                    val snapshot = pendingStateSnapshot ?: break
-                    pendingStateSnapshot = null
-                    withContext(Dispatchers.IO) {
-                        context.settingsDataStore.edit { preferences ->
-                            preferences[savedUriKey] = snapshot.audioUri
-                            preferences[savedPositionKey] = snapshot.position
-                            preferences[savedModeKey] = snapshot.mode
-                        }
-                    }
-                }
-            }
-        }
     }
 
+    // 播放状态快照的落盘与读回由 PlaybackStateStore 承担
+    private val playbackStateStore = PlaybackStateStore(
+        scope = { playbackScope },
+        context = { appContext },
+    )
     // ===== 播放启动镜像 =====
     //
     // 单键轻量副本只服务首帧；完整语义与写入点见 BootMirrorStore。
@@ -1294,7 +1258,7 @@ class MusicPlaybackState(
         release()
         playbackScope.launch {
             // 退出会终止进程：先把续播目标落盘，再请求退出
-            stateWriteJob?.join()
+            playbackStateStore.inFlightWrite?.join()
             bootMirrorStore.inFlightWrite?.join()
             onSleepTimerFinished?.invoke()
         }
@@ -1825,10 +1789,3 @@ enum class HighlightExitReason {
  */
 internal fun isImmersiveOutput(usbDirectOutputEnabled: Boolean, usbExclusiveEnabled: Boolean): Boolean =
     usbDirectOutputEnabled || usbExclusiveEnabled
-
-// 播放状态持久化快照：调用时刻即采集，避免写入协程回读时状态已被后续流程（如 release）清空
-private data class SavedPlaybackState(
-    val audioUri: String,
-    val position: Long,
-    val mode: Int,
-)
