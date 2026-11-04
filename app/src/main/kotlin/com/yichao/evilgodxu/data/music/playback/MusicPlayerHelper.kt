@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -115,23 +116,11 @@ suspend fun playTrackAt(
     }
 }
 
-private fun toMediaItem(track: MusicTrack, clip: Highlight? = null): MediaItem {
-    val metadata = androidx.media3.common.MediaMetadata.Builder()
-        .setTitle(track.title)
-        .setArtist(track.artist)
-    // 专辑与时长是蓝牙车机侧仅有的两个可补充字段：分别对应平台会话的 ALBUM 与 DURATION，
-    // 后者即 AVRCP GetElementAttributes 的 PLAYING_TIME。两项缺失时车机分别落到空串与 0，
-    // 时长未知时不填 0，交给播放器自身的时长承担进度展示
-    track.albumName.takeIf { it.isNotBlank() }?.let { metadata.setAlbumTitle(it) }
-    track.duration.takeIf { it > 0 }?.let { metadata.setDurationMs(it) }
-    // 系统媒体面板（通知栏/锁屏/Android Auto）的封面：本地曲目给系统封面 URI（MediaProvider
-    // 的专辑封面缓存，列表略缩图读的是同一份）；在线曲目给在线封面地址，由 media3 的
-    // BitmapLoader 异步下载并在就绪后自动刷新通知，应用侧不自行下载、不落盘
-    panelArtworkUri(track)?.let { metadata.setArtworkUri(it) }
-    return MediaItem.Builder()
+private fun toMediaItem(track: MusicTrack, clip: Highlight? = null): MediaItem =
+    MediaItem.Builder()
         .setMediaId(track.id.toString())
         .setUri(track.audioUri.toUri())
-        .setMediaMetadata(metadata.build())
+        .setMediaMetadata(mediaMetadataFor(track))
         // 心动模式只在片段区间内播放：裁剪交给播放器，进度、时长与 seek 边界随之都落在片段内
         .apply {
             if (clip != null) {
@@ -144,6 +133,22 @@ private fun toMediaItem(track: MusicTrack, clip: Highlight? = null): MediaItem {
             }
         }
         .build()
+
+// 播放器项上的展示元数据：标题/歌手/专辑/时长与系统媒体面板封面
+private fun mediaMetadataFor(track: MusicTrack): MediaMetadata {
+    val metadata = MediaMetadata.Builder()
+        .setTitle(track.title)
+        .setArtist(track.artist)
+    // 专辑与时长是蓝牙车机侧仅有的两个可补充字段：分别对应平台会话的 ALBUM 与 DURATION，
+    // 后者即 AVRCP GetElementAttributes 的 PLAYING_TIME。两项缺失时车机分别落到空串与 0，
+    // 时长未知时不填 0，交给播放器自身的时长承担进度展示
+    track.albumName.takeIf { it.isNotBlank() }?.let { metadata.setAlbumTitle(it) }
+    track.duration.takeIf { it > 0 }?.let { metadata.setDurationMs(it) }
+    // 系统媒体面板（通知栏/锁屏/Android Auto）的封面：本地曲目给系统封面 URI（MediaProvider
+    // 的专辑封面缓存，列表略缩图读的是同一份）；在线曲目给在线封面地址，由 media3 的
+    // BitmapLoader 异步下载并在就绪后自动刷新通知，应用侧不自行下载、不落盘
+    panelArtworkUri(track)?.let { metadata.setArtworkUri(it) }
+    return metadata.build()
 }
 
 /**
@@ -395,31 +400,19 @@ internal suspend fun replaceLoadedTrackSource(state: MusicPlaybackState, track: 
  * 元数据变更后刷新播放器队列中的同名项（含当前项）：系统通知与蓝牙读的是 MediaItem，
  * 只改状态层列表不会让它们看到新标题/歌手/专辑。
  *
- * 当前项替换后按原位置续播；随机模式下先关随机，避免替换当前项时跳到别的曲目。
+ * 只换 MediaMetadata，其余配置沿用已装载项：LocalConfiguration 与裁剪区间不变时，
+ * 媒体 3 走「就地更新媒体源」分支，不重建媒体源、不改播放位置与播放意图。
+ * 整项重建（或随后补一次 seek）会让当前曲目重新装载，听感上就是一次中断。
  */
 internal suspend fun refreshLoadedTrackMetadata(state: MusicPlaybackState, track: MusicTrack) =
     withContext(Dispatchers.Main) {
         val controller = state.mediaController ?: return@withContext
+        val metadata = mediaMetadataFor(track)
         for (index in 0 until controller.mediaItemCount) {
             val loaded = controller.getMediaItemAt(index)
             if (loaded.mediaId != track.id.toString()) continue
-            val desired = toMediaItem(track, clipFor(state, track))
-            if (loaded.mediaMetadata.title == desired.mediaMetadata.title &&
-                loaded.mediaMetadata.artist == desired.mediaMetadata.artist &&
-                loaded.mediaMetadata.albumTitle == desired.mediaMetadata.albumTitle
-            ) {
-                continue
-            }
-            if (index == controller.currentMediaItemIndex) {
-                val wasPlaying = controller.isPlaying
-                val position = controller.currentPosition.coerceAtLeast(0L)
-                withoutShuffle(controller) { controller.replaceMediaItem(index, desired) }
-                if (position > 0L) controller.seekTo(position)
-                if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
-                if (wasPlaying) controller.play() else controller.pause()
-            } else {
-                controller.replaceMediaItem(index, desired)
-            }
+            if (loaded.mediaMetadata == metadata) continue
+            controller.replaceMediaItem(index, loaded.buildUpon().setMediaMetadata(metadata).build())
         }
         state.cachedMediaItems = null
     }
