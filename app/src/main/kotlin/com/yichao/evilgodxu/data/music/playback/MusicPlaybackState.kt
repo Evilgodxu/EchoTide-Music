@@ -27,8 +27,6 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.model.PlayMode
 import com.yichao.evilgodxu.data.music.model.RecentCover
-import com.yichao.evilgodxu.data.music.highlight.HighlightScanner
-import com.yichao.evilgodxu.data.music.highlight.HighlightStore
 import com.yichao.evilgodxu.data.persistence.PersistedData
 import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
@@ -40,7 +38,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -58,8 +55,6 @@ class MusicPlaybackState(
         const val TIMER_STEP_MINUTES = 5
         const val TIMER_MIN_MINUTES = 5
         const val TIMER_MAX_MINUTES = 999
-        // 片段首尾的音量斜坡时长：淡入与淡出各占一段，靠降低音量掩掉硬切
-        private const val HIGHLIGHT_FADE_MS = 800L
 
         // 播放器持久化的四份落盘落点：名字即持久化标识，读写与存储页统计共用这些声明
         internal val PLAYLIST_CACHE_STORE =
@@ -368,13 +363,7 @@ class MusicPlaybackState(
     var coverRefreshSource by searchPanel::coverRefreshSource
 
     // ===== 心动模式 =====
-    // 连续跳过计数：整队列都无可定位副歌时防止回绕空转
-    private var highlightSkipStreak = 0
-    // 心动模式自行退出的一次性原因，由界面消费后清空。退出有多种缘由（定位不到副歌、进入直出），
-    // 界面据此说明模式为何自己变了 —— 否则用户会当成失灵
-    var highlightExitNotice by mutableStateOf<HighlightExitReason?>(null)
-    // 全库片段扫描任务：同一时刻只跑一个，重复触发直接返回
-    private var highlightScanJob: Job? = null
+    // 心动模式的自有状态、扫描与跳过策略由 HighlightModeController 持有
 
     private fun hasUriAccess(context: Context, audioUri: String): Boolean {
         val uri = audioUri.toUri()
@@ -650,17 +639,45 @@ class MusicPlaybackState(
         libraryTracks = { libraryTracks },
         onColorsReady = { uri, colors -> backgroundColors.saveFor(uri, colors) },
     )
+    private val highlight = HighlightModeController(
+        scope = { playbackScope },
+        context = { appContext },
+        playMode = { playMode },
+        currentTrack = { currentTrack },
+        playlist = { playlist },
+        currentIndex = { currentIndex },
+        libraryTracks = { libraryTracks },
+        mediaController = { mediaController },
+        nextIndex = { nextIndex() },
+        playAt = { context, index ->
+            playbackScope.launch {
+                playTrackAt(
+                    context,
+                    this@MusicPlaybackState,
+                    index,
+                    clearQueue = false,
+                    switchKind = TrackSwitchKind.Next,
+                )
+            }
+        },
+        exitToNormal = { setPlayMode(PlayMode.RepeatAll) },
+        onClipsUpdated = { applyNewClipsToLoadedQueue(this@MusicPlaybackState) },
+        immersiveOutputActive = { immersiveOutputActive },
+    )
+    // 心动模式自行退出的一次性原因，由界面消费后清空
+    var highlightExitNotice by highlight::exitNotice
+
     private val progress = PlaybackProgressTracker(
         scope = { playbackScope },
         controller = { mediaController },
         currentTrack = { currentTrack },
         isPrepared = { isPrepared },
         isPlaying = { isPlaying },
-        isHighlightClipActive = { isHighlightClipActive },
+        isHighlightClipActive = { highlight.isClipActive() },
         onPlayingChanged = { isPlaying = it },
         onPeriodicPersist = { persistState() },
         onPlaybackCompleted = { recordPlayed(it) },
-        onTick = { syncHighlightFadeVolume() },
+        onTick = { highlight.syncFadeVolume() },
     )
 
     // 单曲循环回卷检测、进度单调与周期持久化节流由 PlaybackProgressTracker 持有
@@ -761,38 +778,6 @@ class MusicPlaybackState(
 
     fun stopPositionTicker() {
         progress.stopTicker()
-    }
-
-    // 当前播放项是否为心动模式的裁剪片段：只有它有「首尾」，因而才需要音量淡入淡出
-    private val isHighlightClipActive: Boolean
-        get() = playMode == PlayMode.Highlight &&
-            currentTrack?.let { HighlightStore.segmentOf(it.id) } != null
-
-    /**
-     * 把片段首尾的音量斜坡写进播放器音量。
-     *
-     * 片段是靠裁剪切开的，首尾都是硬切；这里在片段开头把音量由 0 升到 1、在结尾前由 1 降到 0，
-     * 用降低音量做出淡入淡出，进出不再是突兀的一下。
-     *
-     * 位置与时长都取控制器对**当前项**的回报：裁剪生效后它们本就以片段为原点，正是斜坡要的坐标系。
-     * 仅对确有片段的曲目生效 —— 心动模式下没有片段的曲目照常整曲播放，不该被从头淡入到尾。
-     */
-    private fun syncHighlightFadeVolume() {
-        val controller = mediaController ?: return
-        val target = if (isHighlightClipActive) {
-            val duration = controller.duration
-            val position = controller.currentPosition
-            if (duration <= 0L || position < 0L) {
-                1f
-            } else {
-                val fadeIn = position.toFloat() / HIGHLIGHT_FADE_MS
-                val fadeOut = (duration - position).toFloat() / HIGHLIGHT_FADE_MS
-                minOf(fadeIn, fadeOut).coerceIn(0f, 1f)
-            }
-        } else {
-            1f
-        }
-        if (controller.volume != target) controller.volume = target
     }
 
     // ===== 歌词进度时间轴 =====
@@ -1384,12 +1369,12 @@ class MusicPlaybackState(
         if (playMode == mode) return
         // 沉浸式输出期间不接受心动模式：界面据此说明缘由而不是静默不响应
         if (mode == PlayMode.Highlight && immersiveOutputActive) {
-            highlightExitNotice = HighlightExitReason.ImmersiveOutput
+            highlight.notifyImmersiveBlocked()
             return
         }
         val previous = playMode
         playMode = mode
-        highlightSkipStreak = 0
+        highlight.onModeChanged()
         // 只有跨越心动模式边界的切换才改变队列项：进入时整队列补上裁剪区间，退出时整队列去掉。
         // 非心动各模式互切不动队列（repeatMode/shuffleMode 由调用方同步），此时不得重建 ——
         // 重建会被判成「队列已变」而重载整条时间线，表现为切模式时当前曲目卡顿
@@ -1403,58 +1388,16 @@ class MusicPlaybackState(
         // 当前曲目一并生效：进入自片段起点起播，退出还原到整曲的绝对位置
         applyHighlightModeChange(context, this)
         // 表可能尚未扫完（首次启用、曲库刚变化）：后台补齐，已扫到的先按现有结果播放
-        if (mode == PlayMode.Highlight) ensureHighlightScan(context)
+        if (mode == PlayMode.Highlight) highlight.ensureScan(context)
     }
 
-    /**
-     * 输出成色变化的收尾：成立直出即退出心动模式。
-     *
-     * 直出与片段播放的取向相斥：直出为整曲保真聆听服务，无需把每首裁成 30–45 秒的片段。
-     * （片段的音量淡入淡出在本应用采用的源格式直出档下是生效的——该档按常规链路处理音轨音量——
-     * 故互斥的判据是取向，不是淡入淡出能否实施。）
-     *
-     * 成色回调来自播放线程与主线程两处，故统一切到主线程再改播放模式。
-     */
-    /**
-     * USB 输出开关变化：一经启用即退出心动模式。
-     *
-     * 开关可以在曲中才被拨动，此时模式不能就这么留在片段播放上——片段首尾的音量淡入淡出在沉浸链路上
-     * 无从实施，队列项也仍是裁过的那些。调用方须先写好开关状态再调本方法：判据读的是当前状态。
-     */
     fun onImmersiveOutputChanged() {
-        if (!immersiveOutputActive || playMode != PlayMode.Highlight) return
-        playbackScope.launch {
-            if (playMode != PlayMode.Highlight) return@launch
-            highlightExitNotice = HighlightExitReason.ImmersiveOutput
-            setPlayMode(PlayMode.RepeatAll)
-        }
+        highlight.onImmersiveOutputChanged()
     }
 
-    /**
-     * 后台扫描全库副歌片段并落盘。
-     *
-     * 播放路径只查表：扫描在这里一次做完，切模式与切歌都不再解析，既不卡顿也不重复计算。
-     * 只处理未扫过或歌词已变的曲目，重复调用无代价。启动恢复完成、曲库变化、启用心动模式三处触发。
-     *
-     * 定位为纯歌词分析（不解码音频），故扫描与当前模式无关：无论是否处于心动模式都只读歌词。
-     */
+    // 后台扫描全库副歌片段由 HighlightModeController 承担，详见其实现说明
     fun ensureHighlightScan(context: Context) {
-        if (highlightScanJob?.isActive == true) return
-        val tracks = libraryTracks
-        if (tracks.isEmpty()) return
-        highlightScanJob = playbackScope.launch {
-            try {
-                val updated = HighlightScanner.scan(context, tracks)
-                // 表变了就把新片段补进已装载的队列：队列可能先于扫描装载，那一版还是整曲项
-                if (updated && playMode == PlayMode.Highlight) {
-                    applyNewClipsToLoadedQueue(this@MusicPlaybackState)
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                CrashLogManager.logException("MusicPlaybackState", "扫描副歌片段失败", e)
-            }
-        }
+        highlight.ensureScan(context)
     }
     @JvmName("updateSearchMode")
     fun setSearchMode(enabled: Boolean) { isSearchMode = enabled }
@@ -1491,63 +1434,16 @@ class MusicPlaybackState(
         invalidateLyricTimeline()
     }
 
-    // 上次补扫副歌片段所依据的曲库签名：批量下载会逐首触发曲库变更，据此去重，不为每首各扫一遍
-    private var scannedLibrary: Set<Long> = emptySet()
-
-    /**
-     * 本地曲库变化（缓存 / 下载入库）后同步派生数据。
-     *
-     * 新入库的歌还没有副歌片段，补一次扫描（只处理指纹过期的曲目）。
-     */
+    // 本地曲库变化后的补扫策略由 HighlightModeController 承担
     internal fun onLibraryChanged() {
-        if (librarySignature() == scannedLibrary) return
-        scannedLibrary = librarySignature()
-        val context = appContext ?: return
-        ensureHighlightScan(context)
+        highlight.onLibraryChanged()
     }
 
-    /** 本地曲库的身份快照：曲目增删都会改变它 */
-    private fun librarySignature(): Set<Long> = libraryTracks.mapTo(HashSet()) { it.id }
-
     /**
-     * 心动模式下曲目落定后的收尾：不可定位副歌的曲目直接跳过。
-     *
-     * 跳过带回绕保护：整队列都定位不到时（纯音乐歌单、歌词全无），连续跳过会绕回原点空转，
-     * 故连续跳过数超过队列长度即退出该模式交回普通播放，并置一次性提示供界面说明原因。
-     *
-     * 只有「已扫描、有歌词、且判定无副歌」才跳过。歌词尚未就绪不等于没有副歌 ——
-     * 据此跳过会在冷启动时把整库都跳过，故未就绪时照常整曲播放，等扫描补齐后即是片段。
+     * 心动模式下曲目落定后的收尾由 HighlightModeController 承担。
      */
     private fun settleHighlightOnTrackChange() {
-        if (playMode != PlayMode.Highlight) {
-            highlightSkipStreak = 0
-            return
-        }
-        val context = appContext ?: return
-        val track = currentTrack ?: return
-        if (!isKnownHighlightMiss(track)) {
-            highlightSkipStreak = 0
-            return
-        }
-        if (highlightSkipStreak >= playlist.size) {
-            highlightSkipStreak = 0
-            highlightExitNotice = HighlightExitReason.NoChorus
-            setPlayMode(PlayMode.RepeatAll)
-            return
-        }
-        highlightSkipStreak++
-        val next = nextIndex()
-        if (next in playlist.indices && next != currentIndex) {
-            playbackScope.launch {
-                playTrackAt(
-                    context,
-                    this@MusicPlaybackState,
-                    next,
-                    clearQueue = false,
-                    switchKind = TrackSwitchKind.Next,
-                )
-            }
-        }
+        highlight.onTrackSettled()
     }
 }
 
