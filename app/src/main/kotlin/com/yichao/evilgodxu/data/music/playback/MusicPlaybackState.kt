@@ -63,7 +63,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
 import org.json.JSONObject
 
 class MusicPlaybackState(
@@ -1134,7 +1133,7 @@ class MusicPlaybackState(
             }
             val cachedPlaylistRead = async(Dispatchers.IO) {
                 // 历史缓存可能残留同文件不同 URI 形态的重复条目，按真实文件路径去重，避免冷启动直接展示重名歌曲
-                loadCachedPlaylist(context, playlistCacheKey).distinctBy { trackIdentityKey(context, it) }
+                PlaylistCodec.load(context, playlistCacheKey).distinctBy { trackIdentityKey(context, it) }
             }
             // 恢复上次选中的歌单来源、排序规则与默认库备份，扫描刷新后保持选中与排序
             val playlistPrefsRead = async(Dispatchers.IO) {
@@ -1156,7 +1155,7 @@ class MusicPlaybackState(
                     }
             }
             val cachedBackupRead = async(Dispatchers.IO) {
-                loadCachedPlaylist(context, defaultPlaylistCacheKeyPref).distinctBy { trackIdentityKey(context, it) }
+                PlaylistCodec.load(context, defaultPlaylistCacheKeyPref).distinctBy { trackIdentityKey(context, it) }
             }
 
             val cachedPlaylist = cachedPlaylistRead.await()
@@ -1347,7 +1346,7 @@ class MusicPlaybackState(
                 val followsQueue = viewedFollowsQueue
                 val viewed = viewedSource
                 context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE).edit(commit = true) {
-                    putString(playlistCacheKey, encodePlaylist(playlist))
+                    putString(playlistCacheKey, PlaylistCodec.encode(playlist))
                     putString(playlistSourceKeyPref, source?.key)
                     putString(playlistSourceNamePref, source?.name)
                     putBoolean(viewedFollowsQueuePref, followsQueue)
@@ -1356,7 +1355,7 @@ class MusicPlaybackState(
                     putString(playlistSortFieldPref, playlistSortField.name)
                     putBoolean(playlistSortDescPref, playlistSortDescending)
                     if (backup != null) {
-                        putString(defaultPlaylistCacheKeyPref, encodePlaylist(backup))
+                        putString(defaultPlaylistCacheKeyPref, PlaylistCodec.encode(backup))
                     } else {
                         remove(defaultPlaylistCacheKeyPref)
                     }
@@ -1391,75 +1390,6 @@ class MusicPlaybackState(
                     putString(searchHistoryKey, searchHistory.joinToString("\n"))
                 }
         }
-    }
-
-    private fun loadCachedPlaylist(context: Context, cacheKey: String): List<MusicTrack> {
-        val json = context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
-            .getString(cacheKey, null) ?: return emptyList()
-        return decodePlaylist(context, json)
-    }
-
-    // 曲目列表 JSON 反序列化：播放列表缓存与启动镜像共用同一份字段口径，避免两处各写一份解析
-    private fun decodePlaylist(context: Context, json: String): List<MusicTrack> {
-        return try {
-            val array = JSONArray(json)
-            List(array.length()) { index ->
-                val item = array.getJSONObject(index)
-                val savedLyricPath = item.optString("lyricCachePath", "")
-                val lyricOffset = item.optLong("lyricOffsetMs", 0L)
-                // 歌词内容延迟到显示时按需从缓存文件读取（含偏移），
-                // 冷启动不逐首解析歌词，避免大歌单的数百次文件读取拖慢所有界面首帧
-                val lyricCachePath = savedLyricPath.takeIf { MusicMetadataCache.isValid(context, it) }.orEmpty()
-                MusicTrack(
-                    id = item.getLong("id"),
-                    path = item.getString("path"),
-                    audioUri = item.getString("audioUri"),
-                    title = item.getString("title"),
-                    artist = item.getString("artist"),
-                    duration = item.getLong("duration"),
-                    albumId = item.getLong("albumId"),
-                    albumName = item.optString("albumName", ""),
-                    neteaseId = item.optLong("neteaseId", 0L),
-                    neteaseCoverUrl = item.optString("neteaseCoverUrl", ""),
-                    isFavorite = item.optBoolean("isFavorite", false),
-                    isOnlinePlay = item.optBoolean("isOnlinePlay", false),
-                    lyricCachePath = lyricCachePath,
-                    lyricLines = emptyList(),
-                    lyricOffsetMs = lyricOffset,
-                    lyricFailed = item.optBoolean("lyricFailed", false),
-                    fileModifiedMs = item.optLong("fileModifiedMs", 0L),
-                )
-            }
-        } catch (e: Exception) {
-            CrashLogManager.logException("MusicPlaybackState", "读取缓存的播放列表失败", e)
-            emptyList()
-        }
-    }
-
-    // 曲目列表序列化为 JSON 文本，交由调用方与其它键合并到同一次落盘
-    private fun encodePlaylist(tracks: List<MusicTrack>): String {
-        val array = JSONArray()
-        tracks.forEach { track ->
-            array.put(JSONObject().apply {
-                put("id", track.id)
-                put("path", track.path)
-                put("audioUri", track.audioUri)
-                put("title", track.title)
-                put("artist", track.artist)
-                put("duration", track.duration)
-                put("albumId", track.albumId)
-                put("albumName", track.albumName)
-                put("neteaseId", track.neteaseId)
-                put("neteaseCoverUrl", track.neteaseCoverUrl)
-                put("lyricCachePath", track.lyricCachePath)
-                put("isOnlinePlay", track.isOnlinePlay)
-                put("isFavorite", track.isFavorite)
-                put("lyricOffsetMs", track.lyricOffsetMs)
-                put("lyricFailed", track.lyricFailed)
-                put("fileModifiedMs", track.fileModifiedMs)
-            })
-        }
-        return array.toString()
     }
 
     var pendingSavedUri: String? = null
@@ -1731,7 +1661,7 @@ class MusicPlaybackState(
                 .getString(bootMirrorKey, null)
         }.getOrNull() ?: return
         val snapshot = runCatching { JSONObject(json) }.getOrNull() ?: return
-        val track = runCatching { decodePlaylist(context, snapshot.optString("track", "")) }
+        val track = runCatching { PlaylistCodec.decode(context, snapshot.optString("track", "")) }
             .getOrNull()?.firstOrNull() ?: return
         // 歌词内容随首帧一并读出：歌词区不再经历「空白 → 内容」。
         // 缓存文件保存的始终是原始时间戳，需与补全路径一致地应用手动偏移，否则首帧歌词会错位
@@ -1793,7 +1723,7 @@ class MusicPlaybackState(
         bootMirrorJob = playbackScope.launch(Dispatchers.IO) {
             runCatching {
                 val snapshot = JSONObject()
-                    .put("track", encodePlaylist(listOf(track)))
+                    .put("track", PlaylistCodec.encode(listOf(track)))
                     .put("position", position)
                     .put("mode", mode)
                     .put("coverGradientUri", colorUri)
