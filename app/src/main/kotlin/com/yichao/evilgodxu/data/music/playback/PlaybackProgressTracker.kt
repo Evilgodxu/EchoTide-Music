@@ -27,7 +27,6 @@ internal class PlaybackProgressTracker(
     private val currentTrack: () -> MusicTrack?,
     private val isPrepared: () -> Boolean,
     private val isPlaying: () -> Boolean,
-    private val onPlayingChanged: (Boolean) -> Unit,
     private val onPeriodicPersist: () -> Unit,
     private val highlight: HighlightFadeController,
     private val recentPlayedStore: RecentPlayedStore,
@@ -158,7 +157,6 @@ internal class PlaybackProgressTracker(
                 if (!isPrepared() && currentPosition > 0L &&
                     raw < currentPosition - MONO_REBASELINE_JUMP_MS
                 ) {
-                    onPlayingChanged(controller.isPlaying)
                     return
                 }
                 // 换项(mediaId 变化)或位置大幅回退（如切换歌单重载同 ID 曲目未触发切歌回调）时复位单调基准；
@@ -176,7 +174,6 @@ internal class PlaybackProgressTracker(
                 }
             }
         }
-        onPlayingChanged(controller.isPlaying)
     }
 
     // 拖动进度后为真实跳变：复位回卷判定与单调基准，允许进度回落

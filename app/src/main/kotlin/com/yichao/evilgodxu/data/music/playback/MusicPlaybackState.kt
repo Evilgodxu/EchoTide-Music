@@ -326,7 +326,6 @@ class MusicPlaybackState(
         currentTrack = { currentTrack },
         isPrepared = { isPrepared },
         isPlaying = { isPlaying },
-        onPlayingChanged = { isPlaying = it },
         onPeriodicPersist = { persistState() },
         highlight = highlightFade,
         recentPlayedStore = recentPlayedStore,
@@ -772,6 +771,8 @@ class MusicPlaybackState(
             currentTrack = playlist[index]
         }
         progress.syncFromController(isActive)
+        // 播放意图只由播放器事件与同步入口维护：进度轮询不重复写回
+        isPlaying = controller.isPlaying
     }
 
     internal fun calculateIndex(direction: Int, repeatOne: Boolean, from: Int = currentIndex): Int {
