@@ -31,7 +31,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 class MusicPlaybackState(
     private val metadataEnricher: MetadataEnricher,
@@ -254,7 +253,7 @@ class MusicPlaybackState(
         scope = { playbackScope },
         context = { appContext },
     )
-    private val searchHistoryStore = SearchHistoryStore(
+    internal val searchHistoryStore = SearchHistoryStore(
         scope = { playbackScope },
         context = { appContext },
     )
@@ -262,12 +261,14 @@ class MusicPlaybackState(
         scope = { playbackScope },
         context = { appContext },
     )
-    private val startupStateLoader = StartupStateLoader(
+    internal val startupStateLoader = StartupStateLoader(
         searchHistoryStore = searchHistoryStore,
         recentPlayedStore = recentPlayedStore,
         playlistPersistence = playlistPersistence,
     )
-    private val backgroundColors = BackgroundColorMemory(
+    // 冷启动恢复的应用编排由 PlaybackRestorer 承担
+    private val restorer by lazy { PlaybackRestorer(this) }
+    internal val backgroundColors = BackgroundColorMemory(
         scope = { playbackScope },
         context = { appContext },
         currentTrackUri = { currentTrack?.audioUri },
@@ -352,6 +353,12 @@ class MusicPlaybackState(
         viewedFollowsQueue = false
         viewedSource = source
         persistPlaylist()
+    }
+
+    // 恢复路径写入面板浏览态：跟随播放队列时忽略来源
+    internal fun applyRestoredViewedState(followsQueue: Boolean, source: PlaylistSource?) {
+        viewedFollowsQueue = followsQueue
+        viewedSource = if (followsQueue) null else source
     }
 
     fun followPlaybackQueue() {
@@ -462,56 +469,8 @@ class MusicPlaybackState(
     }
 
     private suspend fun doRestoreSavedState(context: Context) {
-        appContext = context
-        // 读取侧（并发读盘与排序）由 StartupStateLoader 承担，这里只负责把结果应用到播放状态
-        val restored = startupStateLoader.load(context)
-        searchHistoryStore.replaceAll(restored.searchHistory)
-        recentPlayedStore.replaceAll(restored.recentPlayEvents)
-        val preferences = restored.preferences
-        val cachedPlaylist = restored.cachedPlaylist
-        val orderedCachedPlaylist = restored.orderedPlaylist
-        val cachedBackup = restored.cachedBackup
-        val savedSource = restored.savedSource
-        val savedSortField = restored.savedSortField
-        val savedSortDescending = restored.savedSortDescending
-        val savedFollowsQueue = restored.savedFollowsQueue
-        val savedViewedSource = restored.savedViewedSource
-        val savedState = playbackStateStore.read(preferences)
-        val savedUri = savedState.audioUri
-        val savedPosition = savedState.position
-        val savedMode = savedState.modeOrdinal
-        withContext(Dispatchers.Main) {
-            // 无保存来源时处于全量播放列表
-            playlistSource = savedSource
-            viewedFollowsQueue = savedFollowsQueue
-            viewedSource = if (savedFollowsQueue) null else savedViewedSource
-            playlistSortField = savedSortField
-            playlistSortDescending = savedSortDescending
-            defaultPlaylistBackup = cachedBackup.takeIf { it.isNotEmpty() }
-            // 收藏合并自当前歌单与默认库备份，避免切歌单后库内收藏丢失
-            likedIds = (cachedPlaylist + cachedBackup)
-                .filter { it.isFavorite }
-                .map { it.id }
-                .toSet()
-            if (playlist.isEmpty() && cachedPlaylist.isNotEmpty()) {
-                playlist = orderedCachedPlaylist.map { it.copy(isFavorite = likedIds.contains(it.id)) }
-            }
-            // 列表就绪即让首帧预置的当前曲目归位并补齐下标，此后界面不再需要二次定位
-            adoptSeededCurrentTrack()
-            // 播放列表缓存缺失时（如首次安装、缓存被清）首帧预置的曲目无从校验，可能已不在库中：
-            // 撤下交由随后的扫描恢复路径按保存的 URI 重新定位，避免显示一首无法播放的曲目
-            if (playlist.isEmpty()) currentTrack = null
-            pendingSavedUri = savedUri
-            pendingResumePosition = savedPosition
-            // 启动镜像已为同一曲目预置取色时不覆盖，比较与采纳由 BackgroundColorMemory 承担
-            backgroundColors.restoreFrom(preferences)
-            if (currentTrack == null) {
-                currentPosition = savedPosition
-            }
-            playMode = PlayMode.entries.getOrElse(savedMode) { PlayMode.RepeatAll }
-        }
-        // 冷启动预读上次曲目的落盘封面：驻留内存后首帧可同步取用，不阻塞本次恢复
-        savedUri?.let { uri -> playbackScope.launch { CurrentCoverCache.load(context, uri) } }
+        // 读取与状态应用由 PlaybackRestorer 承担
+        restorer.restore(context)
     }
 
     // 源格式预读与归属判定由 AudioSignalPathState 承担，详见其实现说明
@@ -659,7 +618,7 @@ class MusicPlaybackState(
             .orEmpty()
         // 封面位图同步驻留：封面不再经历「占位符 → 图片」
         CurrentCoverCache.loadBlocking(context, track.audioUri)
-        // 首帧时播放列表尚未恢复，下标先置 -1，由 adoptSeededCurrentTrack 在列表就绪后补齐
+        // 首帧时播放列表尚未恢复，下标先置 -1，由 PlaybackRestorer 在列表就绪后补齐
         currentIndex = -1
         currentTrack = track.copy(lyricLines = lines)
         currentPosition = snapshot.position
@@ -668,24 +627,6 @@ class MusicPlaybackState(
         snapshot.colorUri?.let { backgroundColors.adopt(it, snapshot.colors) }
         pendingSavedUri = track.audioUri
         pendingResumePosition = currentPosition
-    }
-
-    // 启动镜像预置的当前曲目在播放列表就绪后归位：以列表实例为准并补齐下标（首帧时列表为空，无从定位），
-    // 同时保留首帧已同步读出的歌词内容，避免镜像副本与列表实例长期并存
-    private fun adoptSeededCurrentTrack() {
-        if (playlist.isEmpty()) return
-        val seeded = currentTrack
-        val index = when {
-            seeded != null -> playlist.indexOfFirst { it.id == seeded.id }
-            else -> pendingSavedUri?.let { uri -> playlist.indexOfFirst { it.audioUri == uri } } ?: -1
-        }.takeIf { it >= 0 } ?: 0
-        currentIndex = index
-        val target = playlist[index]
-        currentTrack = if (seeded != null && seeded.id == target.id && seeded.lyricLines.isNotEmpty()) {
-            target.copy(lyricLines = seeded.lyricLines)
-        } else {
-            target
-        }
     }
 
     // 同步落盘启动镜像：写入当前曲目、进度、播放模式与背景取色，供下次冷启动首帧同步取用
