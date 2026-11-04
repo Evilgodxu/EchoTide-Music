@@ -107,9 +107,8 @@ class MusicPlaybackState(
             }
             // 插队队列：仅自然切换时消费队列；队列播完后接续原播放位置
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
-                if (playNextQueue.isNotEmpty()) {
-                    val queued = playNextQueue.first()
-                    playNextQueue = playNextQueue.drop(1)
+                if (playNext.tracks.isNotEmpty()) {
+                    val queued = playNext.consumeFirst() ?: return
                     val queuedIndex = playlist.indexOfFirst { it.id == queued.id }
                     if (queuedIndex >= 0) {
                         playbackScope.launch {
@@ -123,22 +122,23 @@ class MusicPlaybackState(
                         }
                         return
                     }
-                } else if (queueResumeTrackId != null) {
-                    val resumeTrackId = queueResumeTrackId
-                    queueResumeTrackId = null
-                    val resumeIndex = playlist.indexOfFirst { it.id == resumeTrackId }
-                    val next = calculateIndex(direction = 1, repeatOne = true, from = resumeIndex)
-                    if (next in playlist.indices && next != currentIndex) {
-                        playbackScope.launch {
-                            playTrackAt(
-                                appContext ?: return@launch,
-                                this@MusicPlaybackState,
-                                next,
-                                clearQueue = false,
-                                switchKind = TrackSwitchKind.Next,
-                            )
+                } else {
+                    val resumeTrackId = playNext.takeResumeTrackId()
+                    if (resumeTrackId != null) {
+                        val resumeIndex = playlist.indexOfFirst { it.id == resumeTrackId }
+                        val next = calculateIndex(direction = 1, repeatOne = true, from = resumeIndex)
+                        if (next in playlist.indices && next != currentIndex) {
+                            playbackScope.launch {
+                                playTrackAt(
+                                    appContext ?: return@launch,
+                                    this@MusicPlaybackState,
+                                    next,
+                                    clearQueue = false,
+                                    switchKind = TrackSwitchKind.Next,
+                                )
+                            }
+                            return
                         }
-                        return
                     }
                 }
             }
@@ -486,8 +486,7 @@ class MusicPlaybackState(
             playlist.getOrNull((oldIndex + 1) % playlist.size)?.takeIf { it.id != trackId }
         } else null
         playlist = playlist.filterNot { it.id == trackId }
-        playNextQueue = playNextQueue.filterNot { it.id == trackId }
-        if (queueResumeTrackId == trackId) queueResumeTrackId = null
+        playNext.remove(trackId)
         if (removedCurrent) {
             val nextIndex = nextTrack?.let { playlist.indexOfFirst { t -> t.id == it.id } } ?: -1
             if (advanceToNext && nextIndex >= 0) {
@@ -732,35 +731,24 @@ class MusicPlaybackState(
         recentPlayedStore.remove(trackId)
     }
 
-    // 下一首播放插队队列：自然播完后依次播放队列曲目，再接续原播放位置
-    var playNextQueue by mutableStateOf<List<MusicTrack>>(emptyList())
-    // 建立队列时记录的当前曲目 ID，队列播完后据此接续原播放位置
-    private var queueResumeTrackId: Long? by mutableStateOf(null)
+    // 下一首播放插队队列由 PlayNextQueue 持有；此处按原属性/方法名转发
+    private val playNext = PlayNextQueue(currentTrackId = { currentTrack?.id })
+    var playNextQueue by playNext::tracks
     // 待接入队列的起播位置（null = 无待接入队列）：切换歌单时正在播放的曲目仍出声，
     // 新队列暂不装载以免打断播放，待该曲目播完（或用户手动切歌）后从这个位置接入播放器
     internal var pendingQueueStartIndex: Int? = null
 
     // 曲目是否已在下一首播放队列中
-    fun isInPlayNext(trackId: Long): Boolean = playNextQueue.any { it.id == trackId }
+    fun isInPlayNext(trackId: Long): Boolean = playNext.isIn(trackId)
 
     // 切换下一首播放：已在队列则取消插队，否则加入
     fun togglePlayNext(track: MusicTrack) {
-        if (isInPlayNext(track.id)) {
-            playNextQueue = playNextQueue.filterNot { it.id == track.id }
-            // 队列清空后无需再接续原播放位置
-            if (playNextQueue.isEmpty()) queueResumeTrackId = null
-        } else {
-            if (playNextQueue.isEmpty() && queueResumeTrackId == null) {
-                queueResumeTrackId = currentTrack?.id
-            }
-            playNextQueue = playNextQueue + track
-        }
+        playNext.toggle(track)
     }
 
     // 手动切歌时清空插队队列
     fun clearPlayNextQueue() {
-        playNextQueue = emptyList()
-        queueResumeTrackId = null
+        playNext.clear()
     }
 
     /**
