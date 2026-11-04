@@ -170,9 +170,9 @@ class MusicPlaybackState(
             ) {
                 currentTrack?.id?.let { recordPlayed(it) }
             }
-            if (stopAfterCurrentTrack && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+            if (sleepTimer.stopAfterCurrentTrack && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                 // 定时关闭：当前曲目自然结束 → 停止播放
-                completeSleepTimer(songFinished = true)
+                sleepTimer.complete(songFinished = true)
                 return
             }
             // 插队队列：仅自然切换时消费队列；队列播完后接续原播放位置
@@ -324,9 +324,9 @@ class MusicPlaybackState(
                         suppressAutoNext = false
                         return
                     }
-                    if (stopAfterCurrentTrack) {
+                    if (sleepTimer.stopAfterCurrentTrack) {
                         // 定时关闭：曲目播毕停止播放
-                        completeSleepTimer(songFinished = true)
+                        sleepTimer.complete(songFinished = true)
                         return
                     }
                     val next = autoNextIndex()
@@ -867,16 +867,16 @@ class MusicPlaybackState(
         lastSwitchKind = kind
     }
 
-    // 定时关闭相关状态（后台计时）
-    var timerMinutes by mutableIntStateOf(10)
-    var timerRemaining by mutableIntStateOf(0)
-    // 定时关闭收尾完成后的退出请求：结束应用属应用外壳职责，此处只发起请求，由外壳接管退出编排
-    var onSleepTimerFinished: (() -> Unit)? = null
-
-    private val timerJob = SupervisorJob()
-    private val timerScope = CoroutineScope(timerJob + Dispatchers.Main)
-    private var countdownJob: Job? = null
-    private var stopAfterCurrentTrack = false
+    // 定时关闭的倒计时与布防由 SleepTimerController 持有；此处按原属性名转发
+    private val sleepTimer = SleepTimerController(
+        isPlaying = { isPlaying },
+        playMode = { playMode },
+        mediaController = { mediaController },
+        onCountdownFinished = ::onSleepTimerCountdownFinished,
+    )
+    var timerMinutes by sleepTimer::timerMinutes
+    var timerRemaining by sleepTimer::timerRemaining
+    var onSleepTimerFinished by sleepTimer::onSleepTimerFinished
 
     // 播放控制协程作用域（用于曲目结束自动下一首）
     private val playbackJob = SupervisorJob()
@@ -1594,8 +1594,7 @@ class MusicPlaybackState(
     // 定时关闭到点收尾：停止播放并请求结束应用。
     // songFinished 表示当前曲目已完整播完，此时「当前曲目」要落到它的下一首——
     // 播完的这一首已不属于待播内容，留作当前曲目会让下次启动点击播放时重播它
-    private fun completeSleepTimer(songFinished: Boolean) {
-        stopAfterCurrentTrack = false
+    private fun onSleepTimerCountdownFinished(songFinished: Boolean) {
         if (songFinished) adoptNextTrackAfterFinish()
         release()
         playbackScope.launch {
@@ -1622,41 +1621,11 @@ class MusicPlaybackState(
 
     // 启动定时关闭（分钟）：到点后播完当前整曲即停止播放并退出应用
     fun startTimer(minutes: Int) {
-        val target = minutes.coerceIn(TIMER_MIN_MINUTES, TIMER_MAX_MINUTES)
-        stopTimer()
-        timerMinutes = target
-        timerRemaining = target
-        countdownJob = timerScope.launch {
-            while (timerRemaining > 0) {
-                delay(60_000L)
-                timerRemaining--
-            }
-            // 计时结束：当前歌曲播放完成后停止并退出；未在播放则直接收尾（曲目未播完，保留当前位置供下次续播）
-            if (isPlaying) {
-                stopAfterCurrentTrack = true
-                withContext(Dispatchers.Main) {
-                    mediaController?.let { controller ->
-                        // 关掉循环与随机，当前曲目播毕即让播放器停止续播，交由收尾流程退出应用
-                        controller.repeatMode = Player.REPEAT_MODE_OFF
-                        controller.shuffleModeEnabled = false
-                    }
-                }
-            } else {
-                completeSleepTimer(songFinished = false)
-            }
-        }
+        sleepTimer.start(minutes)
     }
 
     fun stopTimer() {
-        val wasArmed = stopAfterCurrentTrack
-        stopAfterCurrentTrack = false
-        countdownJob?.cancel()
-        countdownJob = null
-        timerRemaining = 0
-        // 已到点并改写过播放器循环/随机模式时还原用户设定，避免取消后播放模式与界面显示不一致
-        if (wasArmed) {
-            mediaController?.let { applyPlaybackMode(it, playMode) }
-        }
+        sleepTimer.stop()
     }
 
     // 排序规则的纯计算部分（收藏回填 + 默认顺序）：不触碰状态，
@@ -2063,7 +2032,7 @@ class MusicPlaybackState(
     fun setErrorMsg(message: String?) { errorMsg = message }
     @JvmName("updateTimerMinutes")
     fun setTimerMinutes(minutes: Int) {
-        timerMinutes = minutes.coerceIn(TIMER_MIN_MINUTES, TIMER_MAX_MINUTES)
+        sleepTimer.setMinutes(minutes)
     }
     @JvmName("updateCurrentPosition")
     fun setCurrentPosition(position: Long) {
