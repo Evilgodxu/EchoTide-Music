@@ -92,7 +92,7 @@ internal object MusicEmbeddedLyricReader {
         Mp4TagReader.forEachAtom(fileSize, readAt) { atom ->
             val lyrics = when (atom.type) {
                 LYRICS_ATOM, BARE_LYRICS_ATOM -> decodeDataAtom(atom.payload, 0, atom.payload.size)
-                MusicMetadataWriter.FREE_FORM_ATOM ->
+                Mp4TagSchema.FREE_FORM_ATOM ->
                     decodeFreeformLyrics(atom.payload, 0, atom.payload.size)
                 else -> null
             }

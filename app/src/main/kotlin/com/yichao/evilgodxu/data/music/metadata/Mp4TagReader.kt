@@ -43,7 +43,7 @@ internal object Mp4TagReader {
     // 需要取值的原子类型：普通文本原子（含 ©lyr）、自由格式原子（----，其键名在子原子中），
     // 以及非 © 前缀的歌词原子 lyr
     private val INTERESTING_TYPES: Set<String> =
-        (MusicMetadataWriter.MP4_ATOMS.values + MusicMetadataWriter.FREE_FORM_ATOM + "lyr").toSet()
+        (Mp4TagSchema.ATOMS.values + Mp4TagSchema.FREE_FORM_ATOM + "lyr").toSet()
 
     /** ilst 下的一个标签原子：类型与载荷（不含盒子头） */
     class Atom(val type: String, val payload: ByteArray)
@@ -57,11 +57,11 @@ internal object Mp4TagReader {
         val freeform = LinkedHashMap<String, String>()
         forEachAtom(fileSize, readAt) { atom ->
             when (atom.type) {
-                MusicMetadataWriter.FREE_FORM_ATOM ->
+                Mp4TagSchema.FREE_FORM_ATOM ->
                     readFreeform(atom.payload, 0, atom.payload.size)
                         ?.let { (key, value) -> freeform[key] = value }
 
-                else -> MusicMetadataWriter.MP4_ATOMS.entries
+                else -> Mp4TagSchema.ATOMS.entries
                     .firstOrNull { it.value == atom.type }
                     ?.let { entry ->
                         readTextValue(entry.key, atom.payload)
@@ -70,7 +70,7 @@ internal object Mp4TagReader {
             }
             true
         }
-        MusicMetadataWriter.MP4_FREEFORM_KEYS.forEach { (field, key) ->
+        Mp4TagSchema.FREEFORM_KEYS.forEach { (field, key) ->
             freeform[key]?.let { if (field !in result) result[field] = it }
         }
         return result.takeIf { it.isNotEmpty() }?.let { TrackTagFields.build { it.forEach { (f, v) -> put(f, v) } } }
