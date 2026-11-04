@@ -38,7 +38,6 @@ import com.yichao.evilgodxu.data.music.model.PlayMode
 import com.yichao.evilgodxu.data.music.model.RecentCover
 import com.yichao.evilgodxu.data.music.highlight.HighlightScanner
 import com.yichao.evilgodxu.data.music.highlight.HighlightStore
-import com.yichao.evilgodxu.data.music.trackIdentityKey
 import com.yichao.evilgodxu.data.persistence.PersistedData
 import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
@@ -121,17 +120,6 @@ class MusicPlaybackState(
     private val savedBackgroundColorKey = intPreferencesKey("music_saved_gradient_edge")
     private val savedBackgroundTopKey = intPreferencesKey("music_saved_gradient_top")
     private val savedBackgroundBottomKey = intPreferencesKey("music_saved_gradient_bottom")
-    private val playlistCacheKey = "music_playlist_cache"
-    // 当前歌单来源与默认库备份持久化键，重启后恢复选中状态
-    private val playlistSourceKeyPref = "music_playlist_source_key"
-    private val playlistSourceNamePref = "music_playlist_source_name"
-    private val defaultPlaylistCacheKeyPref = "music_default_playlist_cache"
-    // 播放列表面板浏览态持久化键：与播放队列解耦，重启后保持上次浏览的歌单
-    private val viewedFollowsQueuePref = "music_viewed_follows_queue"
-    private val viewedSourceKeyPref = "music_viewed_source_key"
-    private val viewedSourceNamePref = "music_viewed_source_name"
-    private val playlistSortFieldPref = "music_playlist_sort_field"
-    private val playlistSortDescPref = "music_playlist_sort_descending"
     // 待落盘的播放状态快照：每次调用覆盖为最新值，写入任务按需消费，合并连续写入
     private var pendingStateSnapshot: SavedPlaybackState? = null
     // 播放状态写入任务：在途时新调用只更新快照，由在途循环以最新快照收尾，
@@ -140,7 +128,6 @@ class MusicPlaybackState(
     // 启动镜像写入任务：定时关闭的退出要等它与播放状态一并落盘后再终止进程，
     // 否则镜像会停在已播完的那一首，下次启动点击播放就重播它
     private var bootMirrorJob: Job? = null
-    private var playlistPersistJob: Job? = null
     private val persistenceMutex = Mutex()
     // 冷启动恢复任务去重：并发调用方共享同一恢复任务并等待完成，
     // 避免界面、悬浮窗与授权扫描各自触发重复的读盘与解析
@@ -770,6 +757,10 @@ class MusicPlaybackState(
         scope = { playbackScope },
         context = { appContext },
     )
+    private val playlistPersistence = PlaylistPersistence(
+        scope = { playbackScope },
+        context = { appContext },
+    )
 
     // 单曲循环回卷检测状态：追踪上次 tick 的播放位置，位置大幅回退即一次完整播放
     private var lastTickTrackId: Long? = null
@@ -1006,30 +997,18 @@ class MusicPlaybackState(
                 context.settingsDataStore.data.first()
             }
             val cachedPlaylistRead = async(Dispatchers.IO) {
-                // 历史缓存可能残留同文件不同 URI 形态的重复条目，按真实文件路径去重，避免冷启动直接展示重名歌曲
-                PlaylistCodec.load(context, playlistCacheKey).distinctBy { trackIdentityKey(context, it) }
+                playlistPersistence.readCachedPlaylist(context)
             }
             // 恢复上次选中的歌单来源、排序规则与默认库备份，扫描刷新后保持选中与排序
             val playlistPrefsRead = async(Dispatchers.IO) {
-                val prefs = context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
-                val source = prefs.getString(playlistSourceKeyPref, null)?.let { key ->
-                    PlaylistSource(key, prefs.getString(playlistSourceNamePref, "") ?: "")
-                }
-                val field = prefs.getString(playlistSortFieldPref, null)
-                    ?.let { name -> runCatching { PlaylistSortField.valueOf(name) }.getOrNull() }
-                    ?: PlaylistSortField.DEFAULT
-                Triple(source, field, prefs.getBoolean(playlistSortDescPref, false))
+                playlistPersistence.readSourceSettings(context)
             }
             // 恢复面板浏览态：未显式浏览过歌单时跟随播放队列
             val viewedPrefsRead = async(Dispatchers.IO) {
-                val prefs = context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
-                prefs.getBoolean(viewedFollowsQueuePref, true) to
-                    prefs.getString(viewedSourceKeyPref, null)?.let { key ->
-                        PlaylistSource(key, prefs.getString(viewedSourceNamePref, "") ?: "")
-                    }
+                playlistPersistence.readViewedSettings(context)
             }
             val cachedBackupRead = async(Dispatchers.IO) {
-                PlaylistCodec.load(context, defaultPlaylistCacheKeyPref).distinctBy { trackIdentityKey(context, it) }
+                playlistPersistence.readCachedBackup(context)
             }
 
             val cachedPlaylist = cachedPlaylistRead.await()
@@ -1145,35 +1124,18 @@ class MusicPlaybackState(
         get() = audioSignal.isCurrentForCurrentTrack
 
     fun persistPlaylist() {
-        val context = appContext ?: return
-        // 合并连续写入：取消未开始的上一次任务，仅保留最后一次持久化
-        playlistPersistJob?.cancel()
-        playlistPersistJob = playbackScope.launch {
-            withContext(Dispatchers.IO) {
-                // 单次 Editor 一次落盘：当前列表、歌单来源、默认库备份同属一份 XML，
-                // 拆成三次 commit 会把整份文件重写三遍，且中途进程被杀会留下
-                // 「列表已更新、来源或备份未更新」的不一致状态
-                val source = playlistSource
-                val backup = defaultPlaylistBackup
-                val followsQueue = viewedFollowsQueue
-                val viewed = viewedSource
-                context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE).edit(commit = true) {
-                    putString(playlistCacheKey, PlaylistCodec.encode(playlist))
-                    putString(playlistSourceKeyPref, source?.key)
-                    putString(playlistSourceNamePref, source?.name)
-                    putBoolean(viewedFollowsQueuePref, followsQueue)
-                    putString(viewedSourceKeyPref, viewed?.key)
-                    putString(viewedSourceNamePref, viewed?.name)
-                    putString(playlistSortFieldPref, playlistSortField.name)
-                    putBoolean(playlistSortDescPref, playlistSortDescending)
-                    if (backup != null) {
-                        putString(defaultPlaylistCacheKeyPref, PlaylistCodec.encode(backup))
-                    } else {
-                        remove(defaultPlaylistCacheKeyPref)
-                    }
-                }
-            }
-        }
+        // 列表、来源、浏览态、排序与默认库备份同属一份偏好文件，由 PlaylistPersistence 合并为一次落盘
+        playlistPersistence.persist(
+            PlaylistPersistence.Snapshot(
+                tracks = playlist,
+                source = playlistSource,
+                backup = defaultPlaylistBackup,
+                followsQueue = viewedFollowsQueue,
+                viewedSource = viewedSource,
+                sortField = playlistSortField,
+                sortDescending = playlistSortDescending,
+            )
+        )
     }
 
     fun addSearchHistory(query: String) {
@@ -1405,9 +1367,6 @@ class MusicPlaybackState(
     // 与语言镜像同理：异步落盘在进程被杀时会让镜像滞后一次启动。
     private val bootMirrorKey = "playback_snapshot"
 
-    // 曲库签名落点：扫描完成时写入，冷启动据此判断要不要重扫
-    private val librarySignaturePref = "music_library_signature"
-
     /**
      * 绑定应用上下文。
      *
@@ -1425,24 +1384,16 @@ class MusicPlaybackState(
     }.getOrDefault(false)
 
     /** 是否有已落盘的曲库缓存：首启动没有，恢复与差分都无从谈起 */
-    fun hasLibraryCache(context: Context): Boolean = runCatching {
-        context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
-            .contains(playlistCacheKey)
-    }.getOrDefault(false)
+    fun hasLibraryCache(context: Context): Boolean = playlistPersistence.hasLibraryCache(context)
 
     /** 落盘本轮扫描所用的曲库签名，供下次冷启动比对 */
     fun writeLibrarySignature(context: Context, signature: String) {
-        runCatching {
-            context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
-                .edit(commit = true) { putString(librarySignaturePref, signature) }
-        }
+        playlistPersistence.writeLibrarySignature(context, signature)
     }
 
     /** 上次扫描时的曲库签名：为空表示从未扫完过，需按首启动处理 */
-    fun readLibrarySignature(context: Context): String? = runCatching {
-        context.getSharedPreferences(PLAYLIST_CACHE_STORE.name, Context.MODE_PRIVATE)
-            .getString(librarySignaturePref, null)
-    }.getOrNull()
+    fun readLibrarySignature(context: Context): String? =
+        playlistPersistence.readLibrarySignature(context)
 
     /**
      * 同步读取启动镜像并预置首帧状态：曲目、进度、背景取色、封面位图与歌词内容一并就位。
