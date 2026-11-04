@@ -1,18 +1,27 @@
 package com.yichao.evilgodxu.data.music.playback
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import com.yichao.evilgodxu.data.music.metadata.CoverBackgroundColors
 import com.yichao.evilgodxu.data.music.metadata.CoverColorCache
+import com.yichao.evilgodxu.data.music.metadata.CoverSkipRegistry
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
+import com.yichao.evilgodxu.data.music.metadata.EmbeddedCoverCache
 import com.yichao.evilgodxu.data.music.metadata.LargeCoverStore
 import com.yichao.evilgodxu.data.music.metadata.MusicCoverLoader
+import com.yichao.evilgodxu.data.music.metadata.SystemThumbnailCache
 import com.yichao.evilgodxu.data.music.metadata.extractCoverBackgroundColors
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 封面缓存预热：切歌后的缩略图落盘与背景取色，以及扫描完成后的封面预热。
@@ -27,6 +36,7 @@ internal class ArtworkCacheController(
     private val playlist: () -> List<MusicTrack>,
     private val libraryTracks: () -> List<MusicTrack>,
     private val onColorsReady: (uri: String, colors: CoverBackgroundColors) -> Unit,
+    private val onInvalidatePersistedColors: () -> Unit,
 ) {
 
     private companion object {
@@ -35,6 +45,9 @@ internal class ArtworkCacheController(
         // 快速切歌期间等于完全不预取。窗口取宽一些更稳健 —— 代价只是正常听歌时预热晚 2 秒开始
         const val COVER_PREFETCH_SETTLE_MS = 2_000L
     }
+
+    // 封面写入成功后自增，通知封面组件强制重载最新封面
+    var coverRevision by mutableIntStateOf(0)
 
     // 切歌预取的高清封面任务：每次切歌先取消上一轮，再等稳定期后开始。
     //
@@ -114,5 +127,33 @@ internal class ArtworkCacheController(
         val index = queue.indexOfFirst { it.id == track.id }
         if (index < 0) return listOf(track)
         return listOfNotNull(queue.getOrNull(index), queue.getOrNull(index + 1), queue.getOrNull(index - 1))
+    }
+
+    /**
+     * 封面写入成功后的整体作废：旧图、旧色调与旧结论均已失效。
+     *
+     * 作废索引曲目的系统略缩图缓存、非索引曲目的内嵌封面缓存、首页大封面缓存、背景取色缓存与
+     * 落盘的背景取色结果、当前曲目的落盘封面，并解除「无封面可取」的跳过标记。
+     *
+     * 全部作废完成后才自增版本号：显示端的重新取图由版本号驱动，若把落盘档的清除丢到后台与版本号并发，
+     * 重新取图会命中尚未删净的旧档（大封面的内存驻留被逐出后正好回落到这一档），封面停在旧图不再刷新。
+     * 整段置于 NonCancellable：作废是「新封面已写入」的必然结论，不随调用方是否还在而取舍。
+     */
+    suspend fun bumpCoverRevision() {
+        SystemThumbnailCache.clear()
+        EmbeddedCoverCache.clear()
+        CoverSkipRegistry.clear()
+        CoverColorCache.clear()
+        // 持久化的取色结果同样出自被重写的封面：一并作废，避免冷启动仍按旧色调铺底；
+        // 新色调由显示端或切歌预取重取后重新落盘
+        onInvalidatePersistedColors()
+        withContext(NonCancellable) {
+            // 落盘封面同样是旧图：一并作废，避免冷启动拿旧封面顶出（新封面由下次切歌重新落盘）
+            context()?.let { context ->
+                CurrentCoverCache.clear(context)
+                LargeCoverStore.clear(context)
+            }
+        }
+        coverRevision++
     }
 }

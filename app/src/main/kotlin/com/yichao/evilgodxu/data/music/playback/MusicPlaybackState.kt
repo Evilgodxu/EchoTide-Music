@@ -11,14 +11,9 @@ import androidx.core.content.edit
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import com.yichao.evilgodxu.data.music.metadata.CoverBackgroundColors
-import com.yichao.evilgodxu.data.music.metadata.CoverColorCache
-import com.yichao.evilgodxu.data.music.metadata.CoverSkipRegistry
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
-import com.yichao.evilgodxu.data.music.metadata.EmbeddedCoverCache
-import com.yichao.evilgodxu.data.music.metadata.LargeCoverStore
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
-import com.yichao.evilgodxu.data.music.metadata.SystemThumbnailCache
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
@@ -33,7 +28,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -176,9 +170,6 @@ class MusicPlaybackState(
     var coverCandidates by searchPanel::coverCandidates
     var isCoverSearching by searchPanel::isCoverSearching
     var localCoverCandidates by searchPanel::localCoverCandidates
-    // 封面写入成功后自增：封面写进音频文件后其 URI 不变而系统略缩图已变，
-    // 通知封面组件重新取系统略缩图
-    var coverRevision by mutableIntStateOf(0)
     var lyricsCandidates by searchPanel::lyricsCandidates
     var isLyricsSearching by searchPanel::isLyricsSearching
     var isLyricsRefreshing by searchPanel::isLyricsRefreshing
@@ -289,7 +280,10 @@ class MusicPlaybackState(
         playlist = { playlist },
         libraryTracks = { libraryTracks },
         onColorsReady = { uri, colors -> backgroundColors.saveFor(uri, colors) },
+        onInvalidatePersistedColors = { backgroundColors.clear() },
     )
+    // 封面写入成功后自增，通知封面组件强制重载最新封面
+    var coverRevision by artworkCache::coverRevision
     private val highlight = HighlightModeController(
         scope = { playbackScope },
         context = { appContext },
@@ -826,29 +820,8 @@ class MusicPlaybackState(
         playlistEditor.migrateTrackId(context, oldId, newId)
     }
 
-    // 封面写入成功后自增，通知封面组件强制重载最新封面；
-    // 同时作废索引曲目的系统略缩图缓存、非索引曲目的内嵌封面缓存、首页大封面缓存、背景取色缓存与
-    // 落盘的背景取色结果、当前曲目的落盘封面，并解除「无封面可取」的跳过标记：旧图、旧色调与旧结论均已失效。
-    //
-    // 全部作废完成后才自增版本号：显示端的重新取图由版本号驱动，若把落盘档的清除丢到后台与版本号并发，
-    // 重新取图会命中尚未删净的旧档（大封面的内存驻留被逐出后正好回落到这一档），封面停在旧图不再刷新。
-    // 整段置于 NonCancellable：作废是「新封面已写入」的必然结论，不随调用方是否还在而取舍
     suspend fun bumpCoverRevision() {
-        SystemThumbnailCache.clear()
-        EmbeddedCoverCache.clear()
-        CoverSkipRegistry.clear()
-        CoverColorCache.clear()
-        // 持久化的取色结果同样出自被重写的封面：一并作废，避免冷启动仍按旧色调铺底；
-        // 新色调由显示端或切歌预取重取后重新落盘
-        backgroundColors.clear()
-        withContext(NonCancellable) {
-            // 落盘封面同样是旧图：一并作废，避免冷启动拿旧封面顶出（新封面由下次切歌重新落盘）
-            appContext?.let { context ->
-                CurrentCoverCache.clear(context)
-                LargeCoverStore.clear(context)
-            }
-        }
-        coverRevision++
+        artworkCache.bumpCoverRevision()
     }
 
     fun batchUpdateTracks(updates: List<MusicTrack>, persist: Boolean = true) {
