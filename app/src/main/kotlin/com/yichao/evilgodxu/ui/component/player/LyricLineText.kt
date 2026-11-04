@@ -36,7 +36,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.TextUnit
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.LyricWord
-import kotlin.math.min
+import kotlin.math.roundToLong
 
 // 歌词行动画缩放：普通行微缩，当前行高亮放大至 max；分行按预留上限 max 计算宽度
 internal const val LYRIC_ROW_SCALE_BASE = 0.98f
@@ -67,7 +67,7 @@ internal fun LineFillLyricText(
     val lineDuration = (nextTimeMs - line.timeMs).coerceAtLeast(1L)
     val totalLen = line.text.length.coerceAtLeast(1)
     // 提前量恒小于行时长，按字均分后仍有正的每字时长
-    val perCharMs = (lineDuration - lyricEndLeadMs(lineDuration)) / totalLen.toFloat()
+    val perCharMs = (lineDuration - lyricEndLeadMs(line, nextTimeMs)) / totalLen.toFloat()
 
     // 当前正在演唱的字下标：仅当前行且已开唱才计算，唱完时停在末字
     val currentCharIdx = if (isCurrent && positionMs > line.timeMs) {
@@ -248,16 +248,47 @@ internal fun wrapLyricText(
     return rows
 }
 
-// 行尾提前量上限：行时长足够长时按此值预留，短行按行时长比例缩小，
-// 保证切行前都能留出一段完整点亮的时间
-private const val LYRIC_END_LEAD_MAX_MS = 400L
+// 滚动过渡时长：下一行起点一到，当前行即停止居中并滚动退场（与歌词面板的跟随动画同源）。
+// 点亮须在滚动开始前完成，否则会看到半亮的末字被滚走
+internal const val LYRIC_SCROLL_TRANSITION_MS = 400
+
+// 末字时长系数：歌词只给字起点、不给时长时，末字按平均字时长的该倍数估出收尾时刻，
+// 略微留出尾音余量，而不是一路拉到下一行起点
+private const val LYRIC_LAST_UNIT_DURATION_FACTOR = 1.2f
 
 // 行尾提前量：整行（或逐字末词）点亮在切到下一行前完成的余量。
-// 歌词行的点亮时长都取自到下一行起点为止的行区间，不预留余量时最后一段文字要到切行那一刻
-// 才刚点亮，而逐字填充还有补间延迟追不上目标值，末字实际从未亮满；各处歌词渲染共用本函数，
-// 使整行与逐字两种口径、迷你条与完整播放器的末尾行为一致
-internal fun lyricEndLeadMs(lineDurationMs: Long): Long =
-    min(LYRIC_END_LEAD_MAX_MS, lineDurationMs / 5)
+//
+// 点亮终点取「末字自然收尾」与「下一行起点 − 滚动过渡时长」的较小者：
+// 前者由末字起点加上平均字时长乘系数估得，让末字按自己的节奏完整亮起；
+// 后者保证滚动开始时整行已经亮满。下一行起点是硬边界，终点绝不越过它。
+// 各处歌词渲染共用本函数，使整行与逐字两种口径、迷你条与完整播放器的末尾行为一致
+internal fun lyricEndLeadMs(line: LyricLine, nextTimeMs: Long): Long {
+    val lineDuration = (nextTimeMs - line.timeMs).coerceAtLeast(1L)
+    // 行短于两倍过渡时长时余量至多占半行，避免把整行点亮压成一瞬
+    val scrollLeadMs = minOf(LYRIC_SCROLL_TRANSITION_MS.toLong(), lineDuration / 2)
+    val fillEndMs = minOf(lyricNaturalEndMs(line, nextTimeMs), nextTimeMs - scrollLeadMs)
+    // 提前量恒小于行时长，按字/按词均分后仍有正的点亮时长
+    return (nextTimeMs - fillEndMs).coerceIn(0L, lineDuration - 1L)
+}
+
+// 末字自然收尾时刻：有时长按源给的终点；只有字起点时按末词之前各字的平均字时长估出末字时长，
+// 不再把它拉长到下一行起点。无逐字时序时按字均分整行，末字正好唱到行尾
+private fun lyricNaturalEndMs(line: LyricLine, nextTimeMs: Long): Long {
+    val words = line.words
+    if (words.isEmpty()) return nextTimeMs
+    val lastWord = words.last()
+    if (lastWord.durationMs > 0L) return lastWord.startMs + lastWord.durationMs
+    val lastChars = lastWord.text.length.coerceAtLeast(1)
+    val leadingChars = words.sumOf { it.text.length } - lastChars
+    val avgCharMs = if (leadingChars > 0) {
+        (lastWord.startMs - line.timeMs).toFloat() / leadingChars
+    } else {
+        // 整行只有一个词时没有更早的字可参照，按整行均分
+        (nextTimeMs - line.timeMs).toFloat() / lastChars
+    }
+    return lastWord.startMs +
+        (lastChars * avgCharMs * LYRIC_LAST_UNIT_DURATION_FACTOR).roundToLong()
+}
 
 // 词终点：优先取词自身的时长；增强 LRC 只提供起点（duration 为 0）时用下一个词的起点兜底，
 // 末词用下一行起点兜底，保证每个词都有可用的起止区间。
@@ -332,8 +363,7 @@ internal fun WordSplitLyricText(
 ) {
     // 词终点与迷你条歌词共用同一套换算，两处点亮时序一致
     val wordEnds = remember(line.words, nextTimeMs, line.timeMs) {
-        val lineDuration = (nextTimeMs - line.timeMs).coerceAtLeast(1L)
-        lyricWordEnds(line.words, nextTimeMs, tailLeadMs = lyricEndLeadMs(lineDuration))
+        lyricWordEnds(line.words, nextTimeMs, tailLeadMs = lyricEndLeadMs(line, nextTimeMs))
     }
 
     // 词独立渲染无法借助 Text 软换行，按传入的可用宽度将整行词分成多行：英文词保持完整不截断

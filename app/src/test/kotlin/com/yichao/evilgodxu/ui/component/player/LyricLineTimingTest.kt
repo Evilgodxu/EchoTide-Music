@@ -1,5 +1,6 @@
 package com.yichao.evilgodxu.ui.component.player
 
+import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.LyricWord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -114,33 +115,74 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun endLeadIsCappedOnLongLinesAndScaledOnShortLines() {
-        assertEquals(400L, lyricEndLeadMs(5_000L))
-        assertEquals(400L, lyricEndLeadMs(2_000L))
-        // 短行按五分之一缩小，行时长不足 5ms 时没有可留的余量
-        assertEquals(200L, lyricEndLeadMs(1_000L))
-        assertEquals(1L, lyricEndLeadMs(5L))
-        assertEquals(0L, lyricEndLeadMs(4L))
+    fun endLeadLeavesRoomForTheScrollTransition() {
+        val plainLine = LyricLine(timeMs = 0L, text = "歌词")
+        // 行不短于两倍过渡时长：整行在滚动开始前一个过渡时长完成点亮
+        assertEquals(400L, lyricEndLeadMs(plainLine, 5_000L))
+        assertEquals(400L, lyricEndLeadMs(plainLine, 2_000L))
+        assertEquals(400L, lyricEndLeadMs(plainLine, 1_000L))
+        // 短于两倍过渡时长：余量至多占半行，整行仍有完整的点亮时间
+        assertEquals(250L, lyricEndLeadMs(plainLine, 500L))
+        // 行短到没有余量可言时不预留
+        assertEquals(0L, lyricEndLeadMs(plainLine, 1L))
     }
 
     @Test
     fun endLeadAlwaysLeavesPositiveFillTime() {
         // 按字/按词均分都要除以「行时长 − 提前量」：提前量必须严格小于行时长
+        val line = LyricLine(timeMs = 0L, text = "歌词")
         for (duration in 1L..10_000L) {
-            assertTrue("行时长 $duration ms 的提前量吃光了点亮时长", lyricEndLeadMs(duration) < duration)
+            assertTrue("行时长 $duration ms 的提前量吃光了点亮时长", lyricEndLeadMs(line, duration) < duration)
         }
     }
 
     @Test
     fun lineEndLeadAlsoShortensTheLastWord() {
         // 各处歌词渲染同一口径：行级提前量直接喂给逐字末词
+        val line = LyricLine(timeMs = 0L, text = "你好世", words = tailReachingWords)
         val ends = lyricWordEnds(
             tailReachingWords,
             TAIL_LINE_END_MS,
-            tailLeadMs = lyricEndLeadMs(TAIL_LINE_END_MS),
+            tailLeadMs = lyricEndLeadMs(line, TAIL_LINE_END_MS),
         )
         assertEquals(TAIL_LINE_END_MS - 400L, ends.last())
         assertEquals(1f, lyricWordFillFraction(tailReachingWords, ends, TAIL_LINE_END_MS - 400L), EPS)
+    }
+
+    @Test
+    fun startOnlyLastWordKeepsItsOwnPaceInsteadOfTheLineEnd() {
+        // 增强 LRC 只给字起点：末字按前面各字的平均字时长估出收尾，不再被拉长到行尾
+        val words = listOf(
+            LyricWord(startMs = 0L, durationMs = 0L, text = "你"),
+            LyricWord(startMs = 1_000L, durationMs = 0L, text = "好"),
+            LyricWord(startMs = 2_000L, durationMs = 0L, text = "世"),
+            LyricWord(startMs = 3_000L, durationMs = 0L, text = "界"),
+        )
+        val line = LyricLine(timeMs = 0L, text = "你好世界", words = words)
+        val ends = lyricWordEnds(
+            words,
+            NEXT_LINE_MS,
+            tailLeadMs = lyricEndLeadMs(line, NEXT_LINE_MS),
+        )
+        // 平均字时长 1s、系数 1.2：末字在 3s 起唱后 1.2s 收尾，远早于 9s 的下一行起点
+        assertEquals(4_200L, ends.last())
+        assertEquals(listOf(1_000L, 2_000L, 3_000L, 4_200L), ends)
+    }
+
+    @Test
+    fun explicitLastWordEndIsKeptWhenItPrecedesTheDeadline() {
+        // 末词自身时长已给出且早于滚动余量：保持原终点，不向行尾拉长也不提前截断
+        val words = listOf(
+            LyricWord(startMs = 0L, durationMs = 1_000L, text = "你"),
+            LyricWord(startMs = 1_000L, durationMs = 1_000L, text = "好"),
+        )
+        val line = LyricLine(timeMs = 0L, text = "你好", words = words)
+        val ends = lyricWordEnds(
+            words,
+            NEXT_LINE_MS,
+            tailLeadMs = lyricEndLeadMs(line, NEXT_LINE_MS),
+        )
+        assertEquals(listOf(1_000L, 2_000L), ends)
     }
 
     @Test

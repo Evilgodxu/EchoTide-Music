@@ -393,7 +393,7 @@ internal fun MiniPlayerBar(
                             val lineDuration = (lineEndMs - lyricLine.timeMs).coerceAtLeast(1L)
                             // 行尾提前量：整行与逐字两种渲染共用同一口径，使末词与整行都在切到下一行前
                             // 完成点亮，而不是卡在切行那一刻才刚好点亮
-                            val endLeadMs = lyricEndLeadMs(lineDuration)
+                            val endLeadMs = lyricEndLeadMs(lyricLine, lineEndMs)
                             // 点亮比例：逐字歌词按每个词自身的起止时间推进，与完整播放器同一套时序，
                             // 词间空隙不点亮，末词终点另按行尾提前量收窄；普通歌词没有词时序，退化为按行时长
                             // 均分，填充时长同样略短于行时长，留出余量让行尾文字在切到下一行前完整揭示。

@@ -225,7 +225,7 @@ internal fun LyricsPanel(
             animate(
                 initialValue = start,
                 targetValue = target,
-                animationSpec = tween(LYRIC_SCROLL_DURATION_MS, easing = FastOutSlowInEasing),
+                animationSpec = tween(LYRIC_SCROLL_TRANSITION_MS, easing = FastOutSlowInEasing),
             ) { value, _ -> scrollPosition = value }
         } else {
             scrollPosition = target
@@ -779,8 +779,8 @@ private const val LYRIC_SWITCH_FADE_MS = 260
 // 两者在同一坐标系整体平移，因此只会连续上移，不会出现边缘闪现或整块替换
 private const val LYRIC_WINDOW_BUFFER = 2
 
-// 换行滚动：时长与缓动参照自然滚动（先快后慢）；跨度大于该行数（拖动进度/切歌）直接定位
-private const val LYRIC_SCROLL_DURATION_MS = 400
+// 换行滚动：间隙大于该行数（拖动进度/切歌）直接定位，不逐行长滚。
+// 时长与缓动参照自然滚动（先快后慢），时长与行尾提前量共用 LYRIC_SCROLL_TRANSITION_MS
 private const val LYRIC_SCROLL_MAX_STEP = 2
 
 // 非当前行不透明度：弱化视觉存在感，随高亮进度平滑过渡
