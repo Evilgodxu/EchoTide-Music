@@ -134,10 +134,8 @@ internal fun PortraitCoverSection(
             },
             onDismiss = { showCoverMenu = false },
         )
-        // 纵向切歌预览：滑动未松手时显示于封面底部，提醒将播放的曲目方向。
-        // 显式限定到顶层重载：此处同时处于 Column 与 Box 两个作用域，不加限定会解析到
-        // ColumnScope 版本，而该版本无法在本层（Box 内）用隐式接收者调用
-        androidx.compose.animation.AnimatedVisibility(
+        // 纵向切歌预览：滑动未松手时显示于封面底部，提醒将播放的曲目方向
+        AnimatedVisibility(
             visible = swipePreviewText != null,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = fadeIn(animationSpec = tween(150)) +
