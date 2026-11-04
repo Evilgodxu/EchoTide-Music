@@ -56,6 +56,9 @@ internal fun PortraitLyricsSection(
     onVerticalFling: ((next: Boolean) -> Unit)?,
     onLongPress: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    // 歌词菜单由上层持有状态，但必须挂在此区域内部：菜单 Popup 以调用处布局节点为锚点，
+    // 移出本区域会按整屏定位而失去「贴着歌词区底部向内展开」的位置
+    menuContent: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
     val homePortraitLayout by context.homePortraitLyricLayoutFlow()
@@ -200,6 +203,7 @@ internal fun PortraitLyricsSection(
                     )
                 }
             }
+            menuContent()
         }
         // 歌词与歌曲信息间距（下限）
         Spacer(Modifier.height(8.dp))

@@ -194,8 +194,8 @@ internal fun PortraitPlayer(
                     lyricsMenuPositionMs = positionMs
                     showLyricsMenu = true
                 },
-            )
-            LyricsContextMenu(
+                menuContent = {
+                    LyricsContextMenu(
                 visible = showLyricsMenu,
                 // 编辑本行与自动补译都以「有歌词行」为前提，无歌词时均不展示
                 lyricsAvailable = playbackState.currentTrack?.lyricLines?.isNotEmpty() == true,
@@ -262,6 +262,8 @@ internal fun PortraitPlayer(
                     lyricsImportLauncher.launch("*/*")
                 },
                 onDismiss = { showLyricsMenu = false },
+            )
+                },
             )
 
             // 歌曲信息、进度条与控制栏：作为最后一组贴底排列，底部留出固定避让间距
