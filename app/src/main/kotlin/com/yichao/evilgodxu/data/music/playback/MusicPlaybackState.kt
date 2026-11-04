@@ -46,7 +46,7 @@ import kotlinx.coroutines.withContext
 
 class MusicPlaybackState(
     private val metadataEnricher: MetadataEnricher,
-    private val playlistStore: PlaylistStore,
+    internal val playlistStore: PlaylistStore,
 ) {
 
     companion object {
@@ -124,7 +124,7 @@ class MusicPlaybackState(
 
     private val _playlist = mutableStateOf<List<MusicTrack>>(emptyList())
     // 列表内容版本：后台排序回来时据此判断快照是否仍代表当前列表，过期结果直接丢弃
-    private var playlistRevision = 0
+    internal var playlistRevision = 0
     var playlist: List<MusicTrack>
         get() = _playlist.value
         set(value) {
@@ -437,7 +437,7 @@ class MusicPlaybackState(
 
     var likedIds by mutableStateOf<Set<Long>>(emptySet())
 
-    private val recentPlayedStore = RecentPlayedStore(
+    internal val recentPlayedStore = RecentPlayedStore(
         scope = { playbackScope },
         context = { appContext },
     )
@@ -558,6 +558,8 @@ class MusicPlaybackState(
     // 下一首播放插队队列由 PlayNextQueue 持有；此处按原属性/方法名转发
     internal val playNext = PlayNextQueue(currentTrackId = { currentTrack?.id })
     var playNextQueue by playNext::tracks
+    // 队列编辑操作由 PlaylistEditor 承担；此处按原方法名转发
+    internal val playlistEditor by lazy { PlaylistEditor(this) }
     // 待接入队列的起播位置（null = 无待接入队列）：切换歌单时正在播放的曲目仍出声，
     // 新队列暂不装载以免打断播放，待该曲目播完（或用户手动切歌）后从这个位置接入播放器
     internal var pendingQueueStartIndex: Int? = null
@@ -969,111 +971,35 @@ class MusicPlaybackState(
         sleepTimer.stop()
     }
 
-    // 排序规则的纯计算部分（收藏回填 + 默认顺序）：不触碰状态，
-    // 供调用方在 IO 线程算好后回主线程赋值，避免大库排序占用主线程
+    // 排序、收藏、重排、元数据替换与 ID 迁移由 PlaylistEditor 承担；此处按原方法名转发
     fun sortPlaylistForDefaultOrder(tracks: List<MusicTrack>): List<MusicTrack> =
-        sortTracks(
-            tracks.map { it.copy(isFavorite = it.id in likedIds) },
-            PlaylistSortField.DEFAULT,
-            descending = false,
-        )
+        playlistEditor.sortForDefaultOrder(tracks)
 
-    // 按当前排序规则重排给定列表；规则为默认正序时原样返回，避免重复排序
-    fun sortByActiveRule(tracks: List<MusicTrack>): List<MusicTrack> {
-        if (playlistSortField == PlaylistSortField.DEFAULT && !playlistSortDescending) return tracks
-        return sortTracks(tracks, playlistSortField, playlistSortDescending)
-    }
+    fun sortByActiveRule(tracks: List<MusicTrack>): List<MusicTrack> =
+        playlistEditor.sortByActiveRule(tracks)
 
-    // 应用已排好序的播放列表，并保留当前曲目索引
     fun applySortedPlaylist(sorted: List<MusicTrack>) {
-        val currentId = currentTrack?.id
-        playlist = sorted
-        currentIndex = sorted.indexOfFirst { it.id == currentId }.coerceAtLeast(-1)
+        playlistEditor.applySorted(sorted)
     }
 
-    // 设置排序规则：仅默认全量播放列表套用重排（自定义/智能歌单保持自身顺序）；
-    // 重排放后台线程执行，避免大库拼音排序占用主线程
     fun setPlaylistSort(field: PlaylistSortField, descending: Boolean) {
-        playlistSortField = field
-        playlistSortDescending = descending
-        if (playlistSource == null) {
-            val snapshot = playlist
-            val revision = playlistRevision
-            val source = playlistSource
-            playbackScope.launch {
-                val ordered = withContext(Dispatchers.Default) { sortTracks(snapshot, field, descending) }
-                // 排序期间列表内容、歌单来源或排序规则已变：这份结果只代表旧快照，
-                // 应用它会把新增/删除/改名的曲目一起回滚
-                if (playlistRevision != revision ||
-                    playlistSource != source ||
-                    playlistSortField != field ||
-                    playlistSortDescending != descending
-                ) {
-                    return@launch
-                }
-                applySortedPlaylist(ordered)
-                persistPlaylist()
-            }
-        } else {
-            persistPlaylist()
-        }
+        playlistEditor.setSort(field, descending)
     }
 
-    // 切换指定曲目的收藏状态：仅就地更新收藏标记，不改变列表顺序。
-    // 全量库备份须一并更新：面板浏览非播放队列的歌单时曲目取自备份，只改队列会让收藏图标不刷新。
     fun toggleFavorite(trackId: Long) {
-        val newLiked = if (likedIds.contains(trackId)) likedIds - trackId else likedIds + trackId
-        likedIds = newLiked
-        val replace: (List<MusicTrack>) -> List<MusicTrack> = { list ->
-            list.map { if (it.id == trackId) it.copy(isFavorite = trackId in newLiked) else it }
-        }
-        playlist = replace(playlist)
-        defaultPlaylistBackup = defaultPlaylistBackup?.let(replace)
-        persistPlaylist()
+        playlistEditor.toggleFavorite(trackId)
     }
 
-    // 按新顺序重排当前播放队列，保持当前曲目与播放索引同步
     fun reorderPlaylist(ordered: List<MusicTrack>) {
-        if (ordered.isEmpty()) return
-        val currentId = currentTrack?.id
-        val tracks = ordered.map { it.copy(isFavorite = likedIds.contains(it.id)) }
-        playlist = tracks
-        currentIndex = tracks.indexOfFirst { it.id == currentId }
-        persistPlaylist()
+        playlistEditor.reorder(ordered)
     }
 
-    // 更新播放列表中指定曲目的元数据并持久化（列表、当前曲目与全量库备份同步替换）。
-    // 备份必须一并替换：扫描刷新的缓存复用索引取自 libraryTracks（getter 优先返回备份），
-    // 备份落后会在下次刷新时把旧字段（歌词等）搬回列表，抹掉刚写入的结果
     fun updateTrack(updated: MusicTrack) {
-        val replace: (List<MusicTrack>) -> List<MusicTrack> = { list ->
-            list.map { if (it.id == updated.id) updated.copy(isFavorite = likedIds.contains(it.id)) else it }
-        }
-        playlist = replace(playlist)
-        currentTrack = currentTrack?.let { if (it.id == updated.id) updated else it }
-        defaultPlaylistBackup = defaultPlaylistBackup?.let(replace)
-        persistPlaylist()
-        // 通知栏与蓝牙读的是播放器里的 MediaItem：只改状态层列表不会刷新当前项，
-        // 故把正在播放的同名项替换为最新标题/歌手/专辑；非当前项随下次装载自然更新
-        if (currentTrack?.id == updated.id) {
-            val snapshot = updated
-            playbackScope.launch { refreshLoadedTrackMetadata(this@MusicPlaybackState, snapshot) }
-        }
+        playlistEditor.updateTrack(updated)
     }
 
-    /**
-     * 无损升级换 MediaStore ID 后迁移用户关联：收藏、最近播放与自定义歌单都按曲目 ID 记录，
-     * 只更新音频 URI 而保留旧 ID，会在删旧条目后把这些关联一起丢掉。
-     */
     suspend fun migrateTrackId(context: Context, oldId: Long, newId: Long) {
-        if (oldId == newId) return
-        if (oldId in likedIds) likedIds = (likedIds - oldId) + newId
-        recentPlayedStore.migrateTrackId(oldId, newId)
-        withContext(Dispatchers.IO) {
-            playlistStore.awaitLoaded(context)
-            playlistStore.replaceTrackId(context, oldId, newId)
-        }
-        persistPlaylist()
+        playlistEditor.migrateTrackId(context, oldId, newId)
     }
 
     // 封面写入成功后自增，通知封面组件强制重载最新封面；
@@ -1101,22 +1027,8 @@ class MusicPlaybackState(
         coverRevision++
     }
 
-    // 批量更新曲目元数据（封面等），一次触发重组；
-    // 同时回写全量库备份，保证切歌单后其他歌单的歌曲引用到最新封面。
-    // persist=false 时只更新内存态，由调用方按节流策略统一落盘（渐进补全用，
-    // 使列表能逐条刷新而不必为每条回写整份播放列表）
     fun batchUpdateTracks(updates: List<MusicTrack>, persist: Boolean = true) {
-        if (updates.isEmpty()) return
-        val updateMap = updates.associateBy { it.id }
-        val applyUpdates: (List<MusicTrack>) -> List<MusicTrack> = { list ->
-            list.map { orig ->
-                updateMap[orig.id]?.let { it.copy(isFavorite = likedIds.contains(it.id)) } ?: orig
-            }
-        }
-        playlist = applyUpdates(playlist)
-        currentTrack = currentTrack?.let { updateMap[it.id] ?: it }
-        defaultPlaylistBackup = defaultPlaylistBackup?.let(applyUpdates)
-        if (persist) persistPlaylist()
+        playlistEditor.batchUpdate(updates, persist)
     }
 
     // 按需补全单曲封面/歌词（懒加载）：幂等，由 UI 可见项触发，
