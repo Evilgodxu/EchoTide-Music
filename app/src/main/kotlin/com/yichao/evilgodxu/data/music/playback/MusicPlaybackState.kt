@@ -10,7 +10,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.datastore.preferences.core.Preferences
@@ -59,7 +58,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 
 class MusicPlaybackState(
     private val metadataEnricher: MetadataEnricher,
@@ -111,9 +109,6 @@ class MusicPlaybackState(
     // 播放状态写入任务：在途时新调用只更新快照，由在途循环以最新快照收尾，
     // 避免取消旧任务产生"旧任务已取消、新任务未启动"的写入间隙
     private var stateWriteJob: Job? = null
-    // 启动镜像写入任务：定时关闭的退出要等它与播放状态一并落盘后再终止进程，
-    // 否则镜像会停在已播完的那一首，下次启动点击播放就重播它
-    private var bootMirrorJob: Job? = null
     private val persistenceMutex = Mutex()
     // 冷启动恢复任务去重：并发调用方共享同一恢复任务并等待完成，
     // 避免界面、悬浮窗与授权扫描各自触发重复的读盘与解析
@@ -1193,14 +1188,11 @@ class MusicPlaybackState(
 
     // ===== 播放启动镜像 =====
     //
-    // 冷启动首帧必须在主线程同步拿到上次播放的曲目、进度与背景取色：完整恢复要先读 DataStore，
-    // 再解析整份播放列表 JSON 并排序，放在首帧关键路径上就是一段可见的空窗
-    // （首页表现为歌词区先空态、封面先占位）。
-    // 因此另存一份单键轻量副本，只服务首帧；DataStore 与播放列表缓存仍是唯一事实源，
-    // 异步恢复完成后再以它们为准覆盖校正（见 doRestoreSavedState 与 adoptSeededCurrentTrack）。
-    // 写入点为「切歌与周期进度保存」（persistState）与「背景取色落盘」两处，写入时同步 commit，
-    // 与语言镜像同理：异步落盘在进程被杀时会让镜像滞后一次启动。
-    private val bootMirrorKey = "playback_snapshot"
+    // 单键轻量副本只服务首帧；完整语义与写入点见 BootMirrorStore。
+    private val bootMirrorStore = BootMirrorStore(
+        scope = { playbackScope },
+        context = { appContext },
+    )
 
     /**
      * 绑定应用上下文。
@@ -1213,10 +1205,7 @@ class MusicPlaybackState(
     }
 
     /** 是否存在可预置的启动镜像：首启动没有，据此跳过首帧前的同步读盘 */
-    fun hasBootMirror(context: Context): Boolean = runCatching {
-        context.getSharedPreferences(BOOT_MIRROR_STORE.name, Context.MODE_PRIVATE)
-            .contains(bootMirrorKey)
-    }.getOrDefault(false)
+    fun hasBootMirror(context: Context): Boolean = bootMirrorStore.has(context)
 
     /** 是否有已落盘的曲库缓存：首启动没有，恢复与差分都无从谈起 */
     fun hasLibraryCache(context: Context): Boolean = playlistPersistence.hasLibraryCache(context)
@@ -1238,13 +1227,8 @@ class MusicPlaybackState(
      */
     fun seedFromBootMirror(context: Context) {
         attachContext(context)
-        val json = runCatching {
-            context.getSharedPreferences(BOOT_MIRROR_STORE.name, Context.MODE_PRIVATE)
-                .getString(bootMirrorKey, null)
-        }.getOrNull() ?: return
-        val snapshot = runCatching { JSONObject(json) }.getOrNull() ?: return
-        val track = runCatching { PlaylistCodec.decode(context, snapshot.optString("track", "")) }
-            .getOrNull()?.firstOrNull() ?: return
+        val snapshot = bootMirrorStore.read(context) ?: return
+        val track = snapshot.track
         // 歌词内容随首帧一并读出：歌词区不再经历「空白 → 内容」。
         // 缓存文件保存的始终是原始时间戳，需与补全路径一致地应用手动偏移，否则首帧歌词会错位
         val lines = track.lyricCachePath
@@ -1257,21 +1241,10 @@ class MusicPlaybackState(
         // 首帧时播放列表尚未恢复，下标先置 -1，由 adoptSeededCurrentTrack 在列表就绪后补齐
         currentIndex = -1
         currentTrack = track.copy(lyricLines = lines)
-        currentPosition = snapshot.optLong("position", 0L)
+        currentPosition = snapshot.position
         duration = track.duration
-        playMode = PlayMode.entries.getOrElse(snapshot.optInt("mode", -1)) { PlayMode.RepeatAll }
-        // 背景取色：封面边缘三段色，历史镜像只记录代表色（coverGradientEdge），读回时按单色展开
-        val colorUri = snapshot.optString("coverGradientUri", "")
-        if (colorUri.isNotBlank()) {
-            val edge = snapshot.optInt("coverGradientEdge")
-            val colors = BackgroundColorMemory.fromPersisted(
-                uri = colorUri,
-                edge = edge,
-                top = snapshot.optInt("coverGradientTop", edge),
-                bottom = snapshot.optInt("coverGradientBottom", edge),
-            )
-            backgroundColors.adopt(colorUri, colors)
-        }
+        playMode = PlayMode.entries.getOrElse(snapshot.modeOrdinal) { PlayMode.RepeatAll }
+        snapshot.colorUri?.let { backgroundColors.adopt(it, snapshot.colors) }
         pendingSavedUri = track.audioUri
         pendingResumePosition = currentPosition
     }
@@ -1296,30 +1269,14 @@ class MusicPlaybackState(
 
     // 同步落盘启动镜像：写入当前曲目、进度、播放模式与背景取色，供下次冷启动首帧同步取用
     private fun persistBootMirror() {
-        val context = appContext ?: return
         val track = currentTrack ?: return
-        val position = persistablePositionMs
-        val mode = playMode.ordinal
-        val colorUri = backgroundColors.uri.orEmpty()
-        val colors = backgroundColors.colors
-        bootMirrorJob = playbackScope.launch(Dispatchers.IO) {
-            runCatching {
-                val snapshot = JSONObject()
-                    .put("track", PlaylistCodec.encode(listOf(track)))
-                    .put("position", position)
-                    .put("mode", mode)
-                    .put("coverGradientUri", colorUri)
-                    .put("coverGradientEdge", colors?.representative?.toArgb() ?: 0)
-                    .put("coverGradientTop", colors?.top?.toArgb() ?: 0)
-                    .put("coverGradientBottom", colors?.bottom?.toArgb() ?: 0)
-                context.getSharedPreferences(BOOT_MIRROR_STORE.name, Context.MODE_PRIVATE)
-                    .edit(commit = true) {
-                        putString(bootMirrorKey, snapshot.toString())
-                    }
-            }.onFailure {
-                CrashLogManager.logException("MusicPlaybackState", "写入播放启动镜像失败", it)
-            }
-        }
+        bootMirrorStore.write(
+            track = track,
+            position = persistablePositionMs,
+            modeOrdinal = playMode.ordinal,
+            colorUri = backgroundColors.uri.orEmpty(),
+            colors = backgroundColors.colors,
+        )
     }
 
     fun softRelease() {
@@ -1386,7 +1343,7 @@ class MusicPlaybackState(
         playbackScope.launch {
             // 退出会终止进程：先把续播目标落盘，再请求退出
             stateWriteJob?.join()
-            bootMirrorJob?.join()
+            bootMirrorStore.inFlightWrite?.join()
             onSleepTimerFinished?.invoke()
         }
     }

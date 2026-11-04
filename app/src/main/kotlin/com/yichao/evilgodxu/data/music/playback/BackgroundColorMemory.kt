@@ -149,16 +149,4 @@ internal class BackgroundColorMemory(
             }
         }
     }
-
-    /** 仅供恢复路径构造三段色：历史数据只有代表色时按单色展开。 */
-    companion object {
-        fun fromPersisted(uri: String?, edge: Int?, top: Int?, bottom: Int?): CoverBackgroundColors? {
-            if (uri == null || edge == null) return null
-            return CoverBackgroundColors(
-                top = Color(top ?: edge),
-                middle = Color(edge),
-                bottom = Color(bottom ?: edge),
-            )
-        }
-    }
 }
