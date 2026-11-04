@@ -412,7 +412,6 @@ class MetadataViewModel(
     private suspend fun loadSameAlbumCovers(target: MusicTrack): List<ByteArray> = withContext(Dispatchers.IO) {
         val album = target.albumName.trim()
         if (album.isEmpty()) return@withContext emptyList()
-        val playbackState = playbackState
         val candidates = (playbackState.playlist + playbackState.libraryTracks)
             .filter { it.id != target.id && it.isLocalAudioSource && it.albumName.trim().equals(album, ignoreCase = true) }
             .distinctBy { it.id }
@@ -432,7 +431,6 @@ class MetadataViewModel(
 
     fun onCoverRefreshOpen() {
         val target = findTrack() ?: return
-        val playbackState = playbackState
         _uiState.update { it.copy(coverRefreshVisible = true, coverRefreshSelectedId = null, message = null) }
         viewModelScope.launch {
             searchCoverCandidates(getApplication(), playbackState, target, playbackState.coverRefreshSource)
@@ -441,7 +439,6 @@ class MetadataViewModel(
 
     fun onCoverRefreshSourceSelected(source: MusicSearchSource) {
         val target = findTrack() ?: return
-        val playbackState = playbackState
         if (source == playbackState.coverRefreshSource) return
         playbackState.setCoverRefreshSource(source)
         _uiState.update { it.copy(coverRefreshSelectedId = null) }
@@ -450,7 +447,6 @@ class MetadataViewModel(
 
     fun onCoverRefreshReload() {
         val target = findTrack() ?: return
-        val playbackState = playbackState
         _uiState.update { it.copy(coverRefreshSelectedId = null) }
         viewModelScope.launch {
             searchCoverCandidates(getApplication(), playbackState, target, playbackState.coverRefreshSource)
@@ -472,7 +468,6 @@ class MetadataViewModel(
         if (state.coverRefreshSaving) return
         val candidate = playbackState.coverCandidates.firstOrNull { it.id == state.coverRefreshSelectedId } ?: return
         val target = findTrack() ?: return
-        val playbackState = playbackState
         _uiState.update { it.copy(coverRefreshSaving = true) }
         viewModelScope.launch {
             val success = applyCoverCandidate(getApplication(), playbackState, target, candidate)
