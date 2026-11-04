@@ -12,7 +12,7 @@
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
 ![Version](https://img.shields.io/badge/version-6.2.0-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
-![AGP](https://img.shields.io/badge/AGP-9.4.1-blue)
+![AGP](https://img.shields.io/badge/AGP-9.5.0-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.2-blue)
 ![Compose BOM](https://img.shields.io/badge/Compose%20BOM-2026.09.00-blue)
 ![minSdk](https://img.shields.io/badge/minSdk-34-orange)
