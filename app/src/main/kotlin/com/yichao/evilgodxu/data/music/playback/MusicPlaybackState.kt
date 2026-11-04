@@ -6,7 +6,6 @@ import android.media.AudioTrack
 import android.media.MediaScannerConnection
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
@@ -40,9 +39,7 @@ import kotlin.jvm.JvmName
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
@@ -61,23 +58,8 @@ class MusicPlaybackState(
         const val TIMER_STEP_MINUTES = 5
         const val TIMER_MIN_MINUTES = 5
         const val TIMER_MAX_MINUTES = 999
-        // 播放期间周期性持久化间隔：保证冷启动/异常退出也能恢复当前曲目与进度
-        private const val STATE_PERSIST_INTERVAL_MS = 3000L
-        // 常规进度轮询周期：位置只喂进度条与持久化，200ms 足够
-        private const val POSITION_TICK_MS = 200L
-        // 片段播放期间的进度轮询周期：首尾的音量淡入淡出要逐格推进，
-        // 沿用 200ms 的台阶会让斜坡听成几次跳变
-        private const val HIGHLIGHT_TICK_MS = 40L
         // 片段首尾的音量斜坡时长：淡入与淡出各占一段，靠降低音量掩掉硬切
         private const val HIGHLIGHT_FADE_MS = 800L
-        // 单曲循环回卷判定：位置回退超过该值且曾越过曲目中部，视为一次完整播放
-        private const val LOOP_RESTART_MIN_JUMP_MS = 3000L
-        // 回卷检测与过渡回调记录的去重冷却：同一次循环只计入一次完整播放
-        private const val AUTO_COUNT_COOLDOWN_MS = 2000L
-        // 进度单调复位兜底：未触发切歌/拖动回调但位置大幅回退（如切换歌单重载同 ID 曲目）时视为重置；
-        // 小幅回退仍按流媒体回锚处理，保持进度单调
-        private const val MONO_REBASELINE_JUMP_MS = 3000L
-        // 切歌预取内嵌封面前的稳定期由 ArtworkCacheController 承担
 
         // 播放器持久化的四份落盘落点：名字即持久化标识，读写与存储页统计共用这些声明
         internal val PLAYLIST_CACHE_STORE =
@@ -89,9 +71,6 @@ class MusicPlaybackState(
         internal val BOOT_MIRROR_STORE =
             PersistedData("music_boot_mirror_preferences", PersistedFileKind.SHARED_PREFS)
     }
-
-    // 上次持久化播放状态的时刻，用于播放期间节流写入
-    private var lastStatePersistAt = 0L
 
     // 冷启动恢复任务去重：并发调用方共享同一恢复任务并等待完成，
     // 避免界面、悬浮窗与授权扫描各自触发重复的读盘与解析
@@ -206,8 +185,8 @@ class MusicPlaybackState(
                 isPrepared = false
                 currentPosition = if (resumePos > 0L) resumePos else 0L
                 duration = if (resumePos > 0L) playlist[index].duration else 0L
-                // 切歌或单曲循环重播：复位进度单调基准，允许进度回到起点
-                lastMonoMediaId = null
+                // 切歌后进度回到起点：复位进度单调基准
+                progress.resetMonotonicBaseline()
                 // 切换曲目即持久化最新 URI，确保后台自动下一首也能被冷启动恢复
                 persistState()
                 // 切歌即落盘该曲目封面与背景取色，冷启动首帧可直接出图出背景，不依赖退出时机
@@ -234,8 +213,7 @@ class MusicPlaybackState(
             // 手动拖动进度会触发 SEEK 类位置不连续：重置回卷检测基准，
             // 避免把"拖回开头"误判为单曲循环完整播放
             if (reason == Player.DISCONTINUITY_REASON_SEEK) {
-                lastTickPosition = 0L
-                lastMonoMediaId = null
+                progress.resetAfterSeek()
             }
         }
 
@@ -326,61 +304,21 @@ class MusicPlaybackState(
         get() = mediaController?.let { ctrl ->
             ctrl.isPlaying || ctrl.playbackState == Player.STATE_BUFFERING
         } ?: false
-    var duration by mutableLongStateOf(0L)
-    // 播放位置：由状态层统一维护，按控制器回报单调推进（真实跳变除外，见 syncPlaybackPosition），
-    // 供进度条使用。它是控制器回报的「峰值包络」——只在回报超过历史最大值时才前进，
-    // 故表现为一跳一跳的台阶，不适合直接驱动歌词渲染
-    var currentPosition by mutableLongStateOf(0L)
+    var duration: Long
+        get() = progress.duration
+        set(value) { progress.duration = value }
+    var currentPosition: Long
+        get() = progress.currentPosition
+        set(value) { progress.currentPosition = value }
 
-    // 即时播放位置：控制器在位时读其当前值，比按固定周期刷新的 currentPosition 更贴近此刻进度，
-    // 且连续推进（控制器按时间外推），不会出现台阶；控制器未连接/已释放或回报非法值时回退到状态值。
-    // 供歌词的跟随锚点取用：锚点用于判断「是否需要向上对齐」，用台阶值会让歌词跟着台阶一跳一跳
-    val livePositionMs: Long
-        get() = mediaController?.currentPosition?.takeIf { it >= 0L } ?: currentPosition
+    // 进度与坐标换算由 PlaybackProgressTracker 持有；此处按原属性/方法名转发
+    val livePositionMs: Long get() = progress.livePositionMs
+    val highlightPositionOffsetMs: Long get() = progress.highlightPositionOffsetMs
+    val lyricPositionMs: Long get() = progress.lyricPositionMs
 
-    /**
-     * 当前项的片段起点相对整曲的偏移（毫秒），未裁剪时恒为 0。
-     *
-     * 裁剪生效后控制器回报的进度以**片段起点**为原点，而歌词时间轴用的是曲目内的绝对时间。
-     * 二者只在这里换算一次：下游的歌词面板、悬浮窗与逐字对齐都按绝对时间工作，无需各改一处。
-     * 进度条反其道而行 —— 它要的正是片段内的相对进度，故不参与本偏移。
-     *
-     * 判据取「播放器里那一项」而非 [playMode]：切换模式的瞬间模式标志已经变了而队列还没换，
-     * 按标志判断会算错坐标系。
-     */
-    val highlightPositionOffsetMs: Long
-        get() = mediaController?.currentMediaItem?.clippingConfiguration
-            ?.startPositionMs?.takeIf { it > 0L } ?: 0L
+    fun toPlayerPosition(absoluteMs: Long): Long = progress.toPlayerPosition(absoluteMs)
 
-    /**
-     * 歌词时间轴所用的播放位置：曲目内的**绝对**时间。
-     *
-     * 心动模式下控制器回报的进度以片段起点为原点，而歌词时间轴是整曲的绝对时间。换算只在这里
-     * 做一次，歌词面板与悬浮窗都取本值 —— 它们原先直接读 [livePositionMs]，于是在心动模式下
-     * 整段歌词都落后一个片段起点，表现为「歌词没有跟随片段」。
-     *
-     * 进度条反其道而行：它要的正是片段内的相对进度（[currentPosition] / [duration]），不参与本换算。
-     */
-    val lyricPositionMs: Long
-        get() = livePositionMs + highlightPositionOffsetMs
-
-    /**
-     * 把整曲的绝对时间换算到播放器当前项的坐标系，供以歌词行为目标的跳转使用。
-     *
-     * 心动模式下 seek 的目标以片段起点为原点，而歌词行给出的是整曲绝对时间；不换算就会落到
-     * 片段之外被播放器钳到边界。落在片段之前的行一律起于片段起点。
-     */
-    fun toPlayerPosition(absoluteMs: Long): Long =
-        (absoluteMs - highlightPositionOffsetMs).coerceIn(0L, duration.coerceAtLeast(0L))
-
-    /**
-     * 可落盘的播放位置。
-     *
-     * 心动模式下控制器回报的是片段内进度，落盘须换算回整曲的绝对位置 ——
-     * 恢复时 [playTrackAt] 会按同一套换算还原到片段坐标系，两个方向对称。
-     */
-    private val persistablePositionMs: Long
-        get() = currentPosition + highlightPositionOffsetMs
+    private val persistablePositionMs: Long get() = progress.persistablePositionMs
 
     private val _playlist = mutableStateOf<List<MusicTrack>>(emptyList())
     // 列表内容版本：后台排序回来时据此判断快照是否仍代表当前列表，过期结果直接丢弃
@@ -735,17 +673,20 @@ class MusicPlaybackState(
         libraryTracks = { libraryTracks },
         onColorsReady = { uri, colors -> backgroundColors.saveFor(uri, colors) },
     )
+    private val progress = PlaybackProgressTracker(
+        scope = { playbackScope },
+        controller = { mediaController },
+        currentTrack = { currentTrack },
+        isPrepared = { isPrepared },
+        isPlaying = { isPlaying },
+        isHighlightClipActive = { isHighlightClipActive },
+        onPlayingChanged = { isPlaying = it },
+        onPeriodicPersist = { persistState() },
+        onPlaybackCompleted = { recordPlayed(it) },
+        onTick = { syncHighlightFadeVolume() },
+    )
 
-    // 单曲循环回卷检测状态：追踪上次 tick 的播放位置，位置大幅回退即一次完整播放
-    private var lastTickTrackId: Long? = null
-    private var lastTickPosition = 0L
-    // 最近一次完整播放记录时间与曲目，供回卷检测与过渡回调去重
-    private var lastAutoCountAtMs = 0L
-    private var lastAutoCountTrackId: Long? = null
-    // 进度展示单调性：连续播放期间进度与时长只增不减，规避流媒体位置回锚/时长修正导致进度条倒退；
-    // 手动拖动(SEEK)、切歌、单曲循环回卷时复位基准，允许进度回落
-    private var lastMonoMediaId: Long? = null
-    private var lastMonoPosition = 0L
+    // 单曲循环回卷检测、进度单调与周期持久化节流由 PlaybackProgressTracker 持有
 
     val recentPlayedIds: List<Long> get() = recentPlayedStore.ids
 
@@ -847,27 +788,13 @@ class MusicPlaybackState(
     private val playbackJob = SupervisorJob()
     val playbackScope = CoroutineScope(playbackJob + Dispatchers.Main)
 
-    // 全局进度刷新协程：播放期间由播放器状态驱动，避免多个 UI 各自轮询重复写状态
-    private var positionTickerJob: Job? = null
-
-    // 启动全局进度刷新，重复调用不重复创建
+    // 全局进度刷新由 PlaybackProgressTracker 承担，此处按原方法名转发
     fun ensurePositionTicker() {
-        if (positionTickerJob?.isActive == true) return
-        positionTickerJob = playbackScope.launch {
-            while (isActive) {
-                if (isPlaying) {
-                    updatePosition()
-                    syncHighlightFadeVolume()
-                }
-                // 片段播放期间步进要细：首尾的音量斜坡靠它逐格推进
-                delay(if (isHighlightClipActive) HIGHLIGHT_TICK_MS else POSITION_TICK_MS)
-            }
-        }
+        progress.ensureTicker()
     }
 
     fun stopPositionTicker() {
-        positionTickerJob?.cancel()
-        positionTickerJob = null
+        progress.stopTicker()
     }
 
     // 当前播放项是否为心动模式的裁剪片段：只有它有「首尾」，因而才需要音量淡入淡出
@@ -1193,7 +1120,7 @@ class MusicPlaybackState(
         player = null
         isPlaying = false
         // 释放播放器后复位单调基准，避免恢复播放时进度被残留基准钳到高位
-        lastMonoMediaId = null
+        progress.resetMonotonicBaseline()
     }
 
     fun release() {
@@ -1216,14 +1143,11 @@ class MusicPlaybackState(
 
         mediaController = null
         player = null
-        currentPosition = 0L
-        // 进度已归零：歌词时间轴一并作废，避免下次重建时按释放前的旧进度起步
+        // 进度归零：歌词时间轴一并作废，避免下次重建时按释放前的旧进度起步
+        progress.reset()
         invalidateLyricTimeline()
         isPlaying = false
         isPrepared = false
-        duration = 0L
-        // 释放播放器后复位单调基准，避免恢复播放时进度被残留基准钳到高位
-        lastMonoMediaId = null
         errorMsg = null
         stopTimer()
     }
@@ -1447,88 +1371,11 @@ class MusicPlaybackState(
             currentIndex = index
             currentTrack = playlist[index]
         }
-        syncPlaybackPosition(controller, isActive)
+        progress.syncFromController(isActive)
     }
 
     fun updatePosition() {
-        val controller = mediaController ?: return
-        val playbackState = controller.playbackState
-        val isActive = playbackState == Player.STATE_READY || playbackState == Player.STATE_BUFFERING
-        syncPlaybackPosition(controller, isActive)
-        // 播放期间周期性持久化当前曲目与进度，避免冷启动/异常退出后丢失播放状态
-        if (isActive && controller.isPlaying) {
-            val now = System.currentTimeMillis()
-            if (now - lastStatePersistAt >= STATE_PERSIST_INTERVAL_MS) {
-                lastStatePersistAt = now
-                persistState()
-            }
-            // 单曲循环播完回卷时计入一次完整播放（不受 onMediaItemTransition 触发与否影响）
-            detectLoopRestart()
-        }
-    }
-
-    // 单曲循环回卷检测：当前曲目播放位置从越过中部瞬间回退到开头即一次完整播放。
-    // Media3 部分配置下 REPEAT_MODE_ONE 不投递 REPEAT 过渡回调，此处作为兜底收录，
-    // 与过渡回调记录通过冷却去重，避免同一次循环计数两次
-    private fun detectLoopRestart() {
-        val track = currentTrack ?: return
-        if (duration <= 0L) return
-        // 以控制器原始位置检测回卷，避免被进度单调钳制掩盖导致单曲循环漏记
-        val cur = mediaController?.currentPosition
-            ?.coerceIn(0L, duration) ?: return
-        val trackChanged = lastTickTrackId != track.id
-        lastTickTrackId = track.id
-        // 切歌后的首个 tick 仅建立基准，不判定
-        if (trackChanged || lastTickPosition < 0L) {
-            lastTickPosition = cur
-            return
-        }
-        val prev = lastTickPosition
-        lastTickPosition = cur
-        if (prev - cur < LOOP_RESTART_MIN_JUMP_MS || prev <= duration / 2) return
-        val now = System.currentTimeMillis()
-        val deDuplicated = lastAutoCountTrackId == track.id &&
-            now - lastAutoCountAtMs < AUTO_COUNT_COOLDOWN_MS
-        if (deDuplicated) return
-        lastAutoCountTrackId = track.id
-        lastAutoCountAtMs = now
-        // 回卷复位进度单调基准，让进度条回到起点
-        lastMonoMediaId = null
-        recordPlayed(track.id)
-    }
-
-    private fun syncPlaybackPosition(controller: MediaController, isActive: Boolean) {
-        if (isActive) {
-            val mediaId = controller.currentMediaItem?.mediaId?.toLongOrNull()
-            val controllerDuration = controller.duration
-            val controllerPosition = controller.currentPosition
-            if (controllerPosition >= 0L && controllerDuration > 0L) {
-                val raw = controllerPosition.coerceIn(0L, controllerDuration)
-                // 播放器尚未 READY（冷启动续播/切歌预载阶段）时控制器可能短暂回报 0 或失真位置；
-                // 若会显著回退当前已还原的进度则保留现状，避免续播瞬间进度条从还原位置清空到 0 再回填。
-                // 真实切歌路径的 currentPosition 已被切歌回调复位到 0，不会误命中本守卫。
-                if (!isPrepared && currentPosition > 0L &&
-                    raw < currentPosition - MONO_REBASELINE_JUMP_MS
-                ) {
-                    isPlaying = controller.isPlaying
-                    return
-                }
-                // 换项(mediaId 变化)或位置大幅回退（如切换歌单重载同 ID 曲目未触发切歌回调）时复位单调基准；
-                // 小幅回退仍按流媒体回锚处理，保持进度单调，避免进度条倒退
-                val reset = mediaId != lastMonoMediaId ||
-                    raw < lastMonoPosition - MONO_REBASELINE_JUMP_MS
-                if (reset) {
-                    lastMonoMediaId = mediaId
-                    lastMonoPosition = raw
-                    duration = controllerDuration
-                    currentPosition = raw
-                } else {
-                    duration = maxOf(duration, controllerDuration)
-                    currentPosition = maxOf(lastMonoPosition, raw).also { lastMonoPosition = it }
-                }
-            }
-        }
-        isPlaying = controller.isPlaying
+        progress.updatePosition()
     }
 
     private fun calculateIndex(direction: Int, repeatOne: Boolean, from: Int = currentIndex): Int {
@@ -1673,10 +1520,8 @@ class MusicPlaybackState(
     }
     @JvmName("updateCurrentPosition")
     fun setCurrentPosition(position: Long) {
-        // 拖动进度条直接改写位置：复位单调基准，避免被钳回拖动前的位置
-        lastMonoMediaId = null
-        currentPosition = position
-        // 拖动是真实跳变：作废歌词时间轴快照，歌词不沿用拖动前的进度
+        // 拖动是真实跳变：复位单调基准并改写位置，歌词时间轴一并作废
+        progress.seekTo(position)
         invalidateLyricTimeline()
     }
 
