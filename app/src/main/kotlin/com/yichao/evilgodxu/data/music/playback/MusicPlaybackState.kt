@@ -223,23 +223,7 @@ class MusicPlaybackState(
                 Player.STATE_READY -> {
                     isPrepared = true
                     ensurePositionTicker()
-                    if (closeSearchResultsOnReady) {
-                        closeSearchResultsOnReady = false
-                        isSearchMode = false
-                        showSearchResults = false
-                        searchQuery = ""
-                        searchResults = emptyList()
-                        searchPending = emptyList()
-                        searchPendingFull = false
-                        pendingSearchResults = emptyList()
-                    }
-                    // 音质试播就绪即播放成功：关闭音质对话框并清除待确认标记
-                    if (pendingQualityPlayTrackId != null) {
-                        pendingQualityPlayTrackId = null
-                        qualityBusy = false
-                        qualityPickTrack = null
-                        qualityError = null
-                    }
+                    searchPanel.onPlaybackReady()
                     syncPlaybackState()
                 }
                 Player.STATE_ENDED -> {
@@ -280,20 +264,14 @@ class MusicPlaybackState(
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             // 音质试播失败：移除刚加入的试播曲目（不残留播放列表），保留对话框供用户换其它音质
-            val pendingId = pendingQualityPlayTrackId
-            if (pendingId != null && qualityPickTrack != null) {
-                pendingQualityPlayTrackId = null
-                qualityBusy = false
-                qualityError = appContext?.getString(R.string.music_panel_quality_failed)
-                removeTrack(pendingId)
-            }
+            searchPanel.onPlaybackFailed(appContext?.getString(R.string.music_panel_quality_failed))
+                ?.let(::removeTrack)
             // errorMsg 为可空类型，appContext 为空时置 null（播放不会发生，正常显示无错误）
             errorMsg = appContext?.getString(R.string.music_panel_play_failed)
             isPlaying = false
             isPrepared = false
             stopPositionTicker()
-            closeSearchResultsOnReady = false
-            pendingSearchResults = emptyList()
+            searchPanel.onPlaybackAborted()
             suppressAutoNext = true
             mediaController?.stop()
         }

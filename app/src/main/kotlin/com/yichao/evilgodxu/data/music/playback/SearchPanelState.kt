@@ -64,4 +64,44 @@ internal class SearchPanelState {
     // 歌词/封面刷新当前来源：按来源独立搜索，切换来源时轮换并重新搜索
     var lyricsRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
     var coverRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
+
+    // 播放就绪：搜索结果如需在起播后收起则收起；音质试播就绪即视为播放成功，关闭对话框
+    fun onPlaybackReady() {
+        if (closeSearchResultsOnReady) {
+            closeSearchResultsOnReady = false
+            isSearchMode = false
+            showSearchResults = false
+            searchQuery = ""
+            searchResults = emptyList()
+            searchPending = emptyList()
+            searchPendingFull = false
+            pendingSearchResults = emptyList()
+        }
+        if (pendingQualityPlayTrackId != null) {
+            pendingQualityPlayTrackId = null
+            qualityBusy = false
+            qualityPickTrack = null
+            qualityError = null
+        }
+    }
+
+    /**
+     * 播放失败：音质试播失败时移除刚加入的试播曲目并保留对话框，供用户换其它音质。
+     *
+     * 返回需要从播放列表移除的试播曲目 ID；非试播失败时为 null。
+     */
+    fun onPlaybackFailed(qualityFailureMessage: String?): Long? {
+        val pendingId = pendingQualityPlayTrackId
+        if (pendingId == null || qualityPickTrack == null) return null
+        pendingQualityPlayTrackId = null
+        qualityBusy = false
+        qualityError = qualityFailureMessage
+        return pendingId
+    }
+
+    // 播放中断：待起播的搜索结果不再自动收起，清掉待生效结果，避免下次就绪时误收
+    fun onPlaybackAborted() {
+        closeSearchResultsOnReady = false
+        pendingSearchResults = emptyList()
+    }
 }
