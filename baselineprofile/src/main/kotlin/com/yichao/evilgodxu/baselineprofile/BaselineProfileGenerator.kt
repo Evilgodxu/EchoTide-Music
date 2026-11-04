@@ -216,7 +216,7 @@ class BaselineProfileGenerator {
  *
  * 应用在任一权限缺失时会随冷启动弹出权限对话框，它是独立窗口：弹出期间首页控件
  * 既不在无障碍树中也不接收点击，历程会整轮落空。故这里须把会触发该对话框的权限
- * 一次性给全（全部文件、音乐、图片、蓝牙、通知、电池优化白名单），而不只是俗称的「媒体与通知」几项。
+ * 一次性给全（全部文件、音乐、图片、蓝牙、通知），而不只是俗称的「媒体与通知」几项。
  */
 private fun MacrobenchmarkScope.prepare() {
     // 运行时权限直接授予；全部文件与悬浮窗走 appops，避免历程中途弹出系统授权页
@@ -228,8 +228,6 @@ private fun MacrobenchmarkScope.prepare() {
     ).forEach { device.executeShellCommand("pm grant $TARGET_PACKAGE $it") }
     device.executeShellCommand("appops set $TARGET_PACKAGE MANAGE_EXTERNAL_STORAGE allow")
     device.executeShellCommand("appops set $TARGET_PACKAGE SYSTEM_ALERT_WINDOW allow")
-    // 电池优化白名单无 appops/pm 入口，只能加入 deviceidle 名单
-    device.executeShellCommand("cmd deviceidle whitelist +$TARGET_PACKAGE")
     device.executeShellCommand("am force-stop $TARGET_PACKAGE")
 }
 

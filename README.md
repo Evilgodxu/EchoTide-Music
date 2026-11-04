@@ -138,11 +138,10 @@ The post-processing toolkit for APK size, alignment and signing lives in [tools/
 | Audio settings (`MODIFY_AUDIO_SETTINGS`) | Audio configuration of the playback engine, including the dynamic mixer attributes USB direct output requests per the device's declaration |
 | Do Not Disturb (`ACCESS_NOTIFICATION_POLICY`) | Automatically switches to "alarms only" during USB direct output, muting notifications and ringtones (the media stream is not suppressed) |
 | Wake lock (`WAKE_LOCK`) | Keeps the playback engine running with the screen off |
-| Ignore battery optimizations (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) | Keeps background playback from being reclaimed by the system |
 | Install packages (`REQUEST_INSTALL_PACKAGES`) | Launches the system installer for an in-app update |
 | Write settings (`WRITE_SETTINGS`) | Sets a track as the default incoming-call ringtone / alarm ringtone |
 
-Permissions are requested where they are used, not up front. Entering the home screen asks for music access only, then immediately for notifications and the battery-optimization whitelist — each at most once per launch, and a refusal is not asked again in the same launch. Everything else is requested at the moment it matters: all-files access and images when the metadata editor opens, Bluetooth when the audio-info panel opens, Do Not Disturb when USB direct output is switched on, and write-settings when a track is set as the default ringtone. System authorization pages open in the same task as the app, so returning is just the normal back gesture. Android 14's partial "selected photos" grant is treated the same as the full image permission — the query still returns the images the user has selected, which is enough to pick a cover.
+Permissions are requested where they are used, not up front. Entering the home screen asks for music access, then immediately for notifications — each at most once per launch, and a refusal is not asked again in the same launch. Everything else is requested at the moment it matters: all-files access and images when the metadata editor opens, Bluetooth when the audio-info panel opens, Do Not Disturb when USB direct output is switched on, and write-settings when a track is set as the default ringtone. System authorization pages open in the same task as the app, so returning is just the normal back gesture. Android 14's partial "selected photos" grant is treated the same as the full image permission — the query still returns the images the user has selected, which is enough to pick a cover.
 
 ## Getting Started
 

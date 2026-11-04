@@ -52,7 +52,7 @@ fun HomeScreen(
         },
     )
     val uiState by viewModel.state.collectAsStateWithLifecycle()
-    // 启动期三段授权：音频 → 通知 → 省电策略，串行推进，每轮各问一次
+    // 启动期两段授权：音频 → 通知，串行推进，每轮各问一次
     StartupPermissionChain(
         mediaAudioGranted = uiState.mediaAudioGranted,
         onAudioGranted = viewModel::refreshPermissions,
