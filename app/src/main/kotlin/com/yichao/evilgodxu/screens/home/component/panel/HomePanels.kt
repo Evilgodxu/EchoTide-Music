@@ -36,7 +36,7 @@ internal fun HomePanels(
     ) { index ->
         when (HomePage.entries[index]) {
             HomePage.SEARCH -> OnlineSearchPanel(
-                playbackState = panelState.playbackState.state,
+                playbackState = panelState.playbackState,
                 menuBackgroundColor = panelState.backgroundColor,
                 modifier = Modifier
                     .fillMaxSize()
@@ -46,7 +46,7 @@ internal fun HomePanels(
             HomePage.PLAYLIST -> PlaylistPanel(
                 // 离开歌单页即视为关闭，页面内回退栈随之复位
                 visible = panelState.currentPage == HomePage.PLAYLIST,
-                playbackState = panelState.playbackState.state,
+                playbackState = panelState.playbackState,
                 menuBackgroundColor = panelState.backgroundColor,
                 // 顶部内边距交给面板自行分配：歌手页要把沉浸头图与背景铺到标题栏后方
                 topInset = topInset,

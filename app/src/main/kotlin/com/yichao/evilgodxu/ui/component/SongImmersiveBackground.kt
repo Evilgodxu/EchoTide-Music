@@ -38,7 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.core.graphics.createBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.LocalPlaybackState
 import com.yichao.evilgodxu.data.music.metadata.CoverBackgroundColors
 import com.yichao.evilgodxu.data.music.metadata.CoverColorCache
 import com.yichao.evilgodxu.data.music.metadata.CoverSkipRegistry
@@ -243,7 +243,7 @@ internal fun SongImmersiveBackground(
     onExtractedColors: ((CoverBackgroundColors) -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    val playbackState = LocalMusicPanelStateHolder.current.state
+    val playbackState = LocalPlaybackState.current
     val audioUri = track?.audioUri
     val coverRevision = playbackState.coverRevision
     // 该曲上次持久化取色的代表色：仅在曲目与持久化结果同源时非空。三段取色都取不到时按它整幅铺色，

@@ -27,13 +27,13 @@ import com.yichao.evilgodxu.App
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.analysis.formatDisplayName
-import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.playback.AudioSignalPathFormat
 import com.yichao.evilgodxu.data.music.playback.DecodedOutputFormat
 import com.yichao.evilgodxu.data.music.playback.DirectOutputDoNotDisturb
 import com.yichao.evilgodxu.data.music.playback.ExclusiveVolume
 import com.yichao.evilgodxu.data.music.playback.ExclusiveVolumePlayer
 import com.yichao.evilgodxu.data.music.playback.PerDeviceAudioSink
+import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.UsbDirectOutput
 import com.yichao.evilgodxu.data.music.playback.alac.AlacAudioRenderer
@@ -61,8 +61,8 @@ import java.util.ArrayList
 class MusicPlaybackService : MediaSessionService() {
     private lateinit var player: ExoPlayer
     // 系统创建的服务无法构造注入，经 Application 取共享单例
-    private val stateHolder: MusicPanelStateHolder
-        get() = (application as App).stateHolder
+    private val playbackState: MusicPlaybackState
+        get() = (application as App).playbackState
     private var mediaSession: MediaSession? = null
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
@@ -126,11 +126,11 @@ class MusicPlaybackService : MediaSessionService() {
         // 两条路各自的上报出口收在同一处：同一批状态不该有两个写法，路由切换时也不会互相覆盖
         // 变体切换发生在渲染器重配点，即 ExoPlayer 的播放线程，回写共享状态无需切线程
         val reportOutputVariant: (Boolean) -> Unit = { floatOutput ->
-            stateHolder.state.audioSinkFloatOutput = floatOutput
+            playbackState.audioSinkFloatOutput = floatOutput
         }
         // 音频轨的创建与释放同样在播放线程回调，口径同上
         val reportOutputEncoding: (Int?) -> Unit = { encoding ->
-            stateHolder.state.audioSinkOutputEncoding = encoding
+            playbackState.audioSinkOutputEncoding = encoding
             // 输出建成即重算一次直出路由：平台的动态混音端口查询按输出端口应答，应用没有输出时
             // 只给空表，据此判定会把直出锁在门外；输出建成后再问一次才对得上
             if (encoding != null && ::usbDirectOutput.isInitialized) {
@@ -138,14 +138,14 @@ class MusicPlaybackService : MediaSessionService() {
             }
         }
         val reportAudioTrack: (android.media.AudioTrack?) -> Unit = { track ->
-            stateHolder.state.audioTrack = track
+            playbackState.audioTrack = track
         }
         // 直出的混音器属性按解码头输出的真实 PCM 编码挑选。只有这里拿得到它：
         // 容器格式（轨道回调）对压缩源只给采样率与声道，pcmEncoding 仍是 NO_VALUE，
         // 用它挑出的条目与实际写出的编码未必一致，故改由音频输出在重配时上报
         val reportDecodedFormat: (Int, Int, Int) -> Unit = { sampleRate, channelCount, pcmEncoding ->
             // 同一处落地两份用途：直出据此挑条目，音频信息面板据此展示解码输出
-            stateHolder.state.audioSinkDecodedFormat =
+            playbackState.audioSinkDecodedFormat =
                 DecodedOutputFormat(sampleRate, channelCount, pcmEncoding)
             // 直出在播放器之后装配，尚未装配时无从下发；格式未变时内部会跳过重复下发
             if (::usbDirectOutput.isInitialized) {
@@ -179,7 +179,7 @@ class MusicPlaybackService : MediaSessionService() {
             onOutputEncodingChanged = reportOutputEncoding,
             // 轨道自报的采样率：同族倍率档下它才是真实写出速率，按源格式推算会把 88.2 说成 44.1
             onOutputStreamRateChanged = { rate ->
-                stateHolder.state.audioSinkOutputSampleRate = rate
+                playbackState.audioSinkOutputSampleRate = rate
             },
             onAudioTrackChanged = reportAudioTrack,
             onDecodedFormatChanged = reportDecodedFormat,
@@ -195,9 +195,9 @@ class MusicPlaybackService : MediaSessionService() {
             // 独占这条路上没有音频轨可供平台回填写出编码，故由写出侧直接上报；
             // 不走 reportOutputEncoding：那条出口还兼着"让直出重算路由"的职责，而独占期间直出并不参与
             onOutputEncodingChanged = { encoding ->
-                stateHolder.state.audioSinkOutputEncoding = encoding
+                playbackState.audioSinkOutputEncoding = encoding
                 // 平台侧那条轨道已不参与这条链路，留着它报过的速率只会误导面板
-                stateHolder.state.audioSinkOutputSampleRate = null
+                playbackState.audioSinkOutputSampleRate = null
             },
         )
         val audioSink = UsbOutputSink(
@@ -212,9 +212,9 @@ class MusicPlaybackService : MediaSessionService() {
             },
             // 路由成色与解码格式：独占路径没有 PerDeviceAudioSink 那一环，故由路由代它上报
             onRouteChanged = { exclusive ->
-                stateHolder.state.usbExclusiveRoute = exclusive
+                playbackState.usbExclusiveRoute = exclusive
                 if (exclusive && ::usbExclusiveOutput.isInitialized) {
-                    stateHolder.state.usbExclusiveDevice = usbExclusiveOutput.deviceInfo()
+                    playbackState.usbExclusiveDevice = usbExclusiveOutput.deviceInfo()
                 }
             },
             onDecodedFormatChanged = reportDecodedFormat,
@@ -222,9 +222,9 @@ class MusicPlaybackService : MediaSessionService() {
         )
         // 已写入音频轨的帧数随播放持续变化，故发布取值入口而非取值本身：
         // 该入口只在能给出这一读数的变体（打包整型输出）生效时返回非空
-        stateHolder.state.audioSinkWrittenFrames = perDeviceSink::writtenOutputFrames
+        playbackState.audioSinkWrittenFrames = perDeviceSink::writtenOutputFrames
         // 独占路径没有音频轨可读，延迟读数只能由写出侧按自己的缓冲算出；不在那条路上时它自行返回 null
-        stateHolder.state.usbExclusiveLatency = exclusiveSink::latencyReading
+        playbackState.usbExclusiveLatency = exclusiveSink::latencyReading
         val renderersFactory = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
                 context: android.content.Context,
@@ -289,8 +289,8 @@ class MusicPlaybackService : MediaSessionService() {
             persistExclusiveVolume(step)
         }
         // 界面音量手势的读写入口：档位与音量键同源，写回也走同一条路（含落盘与会话播报）
-        stateHolder.state.exclusiveVolumeStep = { exclusiveVolume.currentStep }
-        stateHolder.state.setExclusiveVolumeStep = { step -> exclusiveVolumePlayer.setStepFromUi(step) }
+        playbackState.exclusiveVolumeStep = { exclusiveVolume.currentStep }
+        playbackState.setExclusiveVolumeStep = { step -> exclusiveVolumePlayer.setStepFromUi(step) }
         player.addListener(object : Player.Listener {
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 // 在起播意图成立的时刻申请焦点，而不是等音频已经开始播：被拒时立即收回播放意图。
@@ -314,9 +314,9 @@ class MusicPlaybackService : MediaSessionService() {
                 // 输出已拆解（停止、释放或加载失败）：上一次的浮点写出与写出编码都不再成立，
                 // 清空以免音频信息停留在已不存在的输出链路上
                 if (playbackState == Player.STATE_IDLE) {
-                    stateHolder.state.audioSinkFloatOutput = null
-                    stateHolder.state.audioSinkOutputEncoding = null
-                    stateHolder.state.audioTrack = null
+                    this@MusicPlaybackService.playbackState.audioSinkFloatOutput = null
+                    this@MusicPlaybackService.playbackState.audioSinkOutputEncoding = null
+                    this@MusicPlaybackService.playbackState.audioTrack = null
                 }
             }
 
@@ -333,7 +333,7 @@ class MusicPlaybackService : MediaSessionService() {
                     ?.takeIf { it.length > 0 }
                     ?.getTrackFormat(selectedIndex ?: 0)
                 val format = audioFormat.takeIf { selectedIndex != null }
-                val state = stateHolder.state
+                val state = playbackState
                 // 轨道回调直接来自播放器，早于 MediaController 把曲目过渡转投到 state.currentTrack：
                 // 自动接续时按 state.currentTrack 取，会把新曲目的解码格式记到上一首名下，随后到达的
                 // 过渡回调又只按容器头补一份缺格式与采样率的预置记录，归属从此错位——信息条与音频参数
@@ -427,7 +427,7 @@ class MusicPlaybackService : MediaSessionService() {
                 initializedTimestampMs: Long,
                 initializationDurationMs: Long,
             ) {
-                stateHolder.state.audioDecoderName = decoderName
+                playbackState.audioDecoderName = decoderName
             }
         })
         mediaSession = MediaSession.Builder(this, SkipProxyPlayer(exclusiveVolumePlayer))
@@ -450,7 +450,7 @@ class MusicPlaybackService : MediaSessionService() {
         // 输出成色由直出自行判定（设备缺失、设备未提供动态混音端口、属性未被系统受理时都退回系统混音），
         // 不能以设置开关代替——开关打开而设备不支撑时播放仍走系统混音
         usbDirectOutput.onRoutingChanged = { mode ->
-            stateHolder.state.directOutputMode = mode
+            playbackState.directOutputMode = mode
             // 成色在曲中才变化时（开关打开、设备接入、重算后恢复）写出变体还没跟上，补一次重配；
             // 变体未变时该方法自行跳过，故这里无须判断成色
             perDeviceSink.syncRouting()
@@ -461,8 +461,8 @@ class MusicPlaybackService : MediaSessionService() {
             usbDirectOutputModeFlow().collect { enabled ->
                 usbDirectOutput.setEnabled(enabled)
                 // 开关的启用状态同步给播放状态：心动模式据此判断能否进入，见 isImmersiveOutput
-                stateHolder.state.usbDirectOutputEnabled = enabled
-                stateHolder.state.highlightPolicy.onImmersiveOutputChanged()
+                playbackState.usbDirectOutputEnabled = enabled
+                playbackState.highlightPolicy.onImmersiveOutputChanged()
             }
         }
         // 独占同样在会话建立后装配。它自己订阅 USB 的接入/拔出与授权结果，故只需喂开关与成色出口；
@@ -471,8 +471,8 @@ class MusicPlaybackService : MediaSessionService() {
             val claimed = state is UsbExclusiveState.Active
             // 设备信息随接管与归还同步：接管期间该设备已从系统音频里消失，面板只能由此取，
             // 交还后随之清空，以免面板继续展示一台已不在手里的设备
-            stateHolder.state.usbExclusiveDevice = usbExclusiveOutput.deviceInfo()
-            stateHolder.state.usbExclusiveClaimed = claimed
+            playbackState.usbExclusiveDevice = usbExclusiveOutput.deviceInfo()
+            playbackState.usbExclusiveClaimed = claimed
             // 接管即把会话切到远端音量，不等路由成立：设备一旦被接管就已退出系统音频，
             // 系统媒体音量此后不作用于它，此时仍让音量键去改媒体档位只会"按了没反应"。
             // 回调来自主线程或播放线程（链路失效），而会话状态只能在播放器线程上刷新，故一律投递
@@ -483,8 +483,8 @@ class MusicPlaybackService : MediaSessionService() {
         serviceScope.launch {
             usbExclusiveOutputModeFlow().collect { enabled ->
                 usbExclusiveOutput.setEnabled(enabled)
-                stateHolder.state.usbExclusiveEnabled = enabled
-                stateHolder.state.highlightPolicy.onImmersiveOutputChanged()
+                playbackState.usbExclusiveEnabled = enabled
+                playbackState.highlightPolicy.onImmersiveOutputChanged()
             }
         }
         // 上次的档位在起播前恢复：读盘与独占开关的读取走同一份设置，两者都在同一批协程里完成
@@ -561,7 +561,7 @@ class MusicPlaybackService : MediaSessionService() {
     }
 
     private fun handlePreviousTrack() {
-        val state = stateHolder.state
+        val state = playbackState
         if (state.currentTrack != null && state.playlist.isNotEmpty()) {
             val prev = state.previousIndex()
             if (prev >= 0) {
@@ -580,7 +580,7 @@ class MusicPlaybackService : MediaSessionService() {
     }
 
     private fun handleNextTrack() {
-        val state = stateHolder.state
+        val state = playbackState
         if (state.currentTrack != null && state.playlist.isNotEmpty()) {
             val next = state.nextIndex()
             if (next >= 0) {
@@ -661,8 +661,8 @@ class MusicPlaybackService : MediaSessionService() {
         // 独占必须显式归还：接口不还，内核的音频驱动就一直是解绑状态，该解码器在系统音频里始终不出现
         if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.close()
         // 音量入口指向本服务实例，随服务一起失效；留着会让界面读到一个已释放的播放器
-        stateHolder.state.exclusiveVolumeStep = null
-        stateHolder.state.setExclusiveVolumeStep = null
+        playbackState.exclusiveVolumeStep = null
+        playbackState.setExclusiveVolumeStep = null
         // 服务销毁时成色回调已无从投递（作用域已取消），免打扰在此直接兜底还原
         directOutputDoNotDisturb.release()
         mediaSession?.release()

@@ -12,7 +12,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.LocalPlaybackState
 import com.yichao.evilgodxu.data.music.metadata.CoverColorCache
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
 import com.yichao.evilgodxu.data.music.metadata.LargeCoverStore
@@ -65,7 +65,7 @@ internal data class ThumbnailState(
 internal fun rememberThumbnailState(track: MusicTrack?, sizePx: Int): ThumbnailState {
     val context = LocalContext.current
     val audioUri = track?.audioUri
-    val coverRevision = LocalMusicPanelStateHolder.current.state.coverRevision
+    val coverRevision = LocalPlaybackState.current.coverRevision
     // 初值同步取回，避免进出页面重建后先闪占位符再出图；
     // 当前曲目另有已落盘的封面（冷启动预读已驻留内存），一并同步取用，使冷启动首帧直接出图。
     // 键带 coverRevision：封面重写已作废缓存与落盘封面，避免把旧图作为初值顶出。
@@ -138,7 +138,7 @@ internal fun rememberThumbnailState(track: MusicTrack?, sizePx: Int): ThumbnailS
 @Composable
 internal fun rememberLargeCoverState(track: MusicTrack?): LargeCoverState {
     val context = LocalContext.current
-    val playbackState = LocalMusicPanelStateHolder.current.state
+    val playbackState = LocalPlaybackState.current
     val audioUri = track?.audioUri
     val coverRevision = playbackState.coverRevision
     // 底图档位与列表行一致：取到的就是列表正在用的那一张，预取过的曲目直接命中内存缓存

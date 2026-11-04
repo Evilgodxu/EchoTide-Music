@@ -118,7 +118,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.LocalPlaybackState
 
 // 竖屏播放器主体：沉浸封面 + 歌词 + 标题与艺术家 + 底部控制栏
 @Composable
@@ -146,7 +146,7 @@ internal fun PortraitPlayer(
     // 播放列表高级菜单的「编辑元数据」：跳转元数据编辑页，只传曲目标识
     onOpenMetadata: (Long) -> Unit = {},
 ) {
-    val playbackState = LocalMusicPanelStateHolder.current.state
+    val playbackState = LocalPlaybackState.current
 
     // 切歌过渡锚点：标题与艺术家随锚点整体横移，方向来自本次变更的类型
     val trackAnchor = rememberTrackSwitchAnchor(playbackState.currentTrack, playbackState.lastSwitchKind)

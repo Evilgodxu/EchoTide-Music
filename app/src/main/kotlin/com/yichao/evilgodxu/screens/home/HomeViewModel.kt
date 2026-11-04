@@ -8,7 +8,6 @@ import com.yichao.evilgodxu.data.music.MusicScanner
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.permission.PermissionMonitor
-import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,7 +16,7 @@ import kotlinx.coroutines.launch
 
 class HomeViewModel(
     application: Application,
-    private val stateHolder: MusicPanelStateHolder,
+    private val playbackState: MusicPlaybackState,
     private val playlistRefresher: PlaylistRefresher,
     private val metadataEnricher: MetadataEnricher,
 ) : AndroidViewModel(application) {
@@ -55,7 +54,7 @@ class HomeViewModel(
         libraryLoadStarted = true
         viewModelScope.launch {
             val context = getApplication<Application>()
-            val state = stateHolder.state
+            val state = playbackState
             // 先恢复持久化歌单，避免扫描覆盖已缓存的封面/歌词
             state.restoreSavedState(context)
             if (needsLibraryScan(context, state)) {

@@ -10,17 +10,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.platform.LocalContext
-import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
+import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisController
 import com.yichao.evilgodxu.theme.md_theme_dark_surface
-import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.LocalPlaybackState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 // 首页跨形态共享状态：在形态分派之上创建；旋转不重建 Activity，页面位置需跨形态保持
 @Stable
 internal class HomePanelState(
-    val playbackState: MusicPanelStateHolder,
+    val playbackState: MusicPlaybackState,
     // 曲库格式分析对话框显隐：常驻首页层，关闭仅收起展示
     val libraryAnalysis: LibraryAnalysisController,
     // 并列页面位置：页面切换统一由它驱动，页面自身不感知滑动过程
@@ -67,7 +67,7 @@ internal class HomePanelState(
 @Composable
 internal fun rememberHomePanelState(): HomePanelState {
     val context = LocalContext.current
-    val playbackState = LocalMusicPanelStateHolder.current
+    val playbackState = LocalPlaybackState.current
     val scope = rememberCoroutineScope()
     // 默认落在播放器页，两侧页面仅在滑动或主动跳转时进入
     val pagerState = rememberPagerState(initialPage = HomePage.PLAYER.ordinal) {

@@ -51,7 +51,7 @@ internal fun ExpandedAssembly(
     onToggleLandscape: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val playbackState = panelState.playbackState.state
+    val playbackState = panelState.playbackState
     val currentTrackId = playbackState.currentTrack?.id
     val isLiked = currentTrackId?.let { playbackState.likedIds.contains(it) } ?: false
     // 纵向切歌手势：挂在播放器页上，横向翻页由 Pager 承担

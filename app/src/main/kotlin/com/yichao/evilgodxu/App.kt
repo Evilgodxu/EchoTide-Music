@@ -14,7 +14,7 @@ import coil3.SingletonImageLoader
 import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
-import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
+import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.playlist.ArtistOrderStore
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.repository.SettingsRepository
@@ -55,12 +55,12 @@ class App : Application() {
     val artistOrderStore: ArtistOrderStore by lazy { ArtistOrderStore() }
     val metadataEnricher: MetadataEnricher by lazy { MetadataEnricher() }
     val playlistRefresher: PlaylistRefresher by lazy { PlaylistRefresher(playlistStore) }
-    val stateHolder: MusicPanelStateHolder by lazy {
-        MusicPanelStateHolder(metadataEnricher, playlistStore)
+    val playbackState: MusicPlaybackState by lazy {
+        MusicPlaybackState(metadataEnricher, playlistStore)
     }
     // 迷你播放器控制器单例：应用级悬浮窗生命周期，全库共享同一实例
     val miniPlayerController: MiniPlayerController by lazy {
-        MiniPlayerController(this, stateHolder, playlistRefresher, metadataEnricher)
+        MiniPlayerController(this, playbackState, playlistRefresher, metadataEnricher)
     }
     // 更新检查以单例共享，主页自动检查与设置页手动检查读写同一状态
     val updateViewModel: UpdateViewModel by lazy {
@@ -75,7 +75,6 @@ class App : Application() {
         // 最先初始化崩溃日志，捕获启动阶段异常
         CrashLogManager.init(this)
         // 上下文先于内容绑定：首启动没有任何可预置的内容，但后续落盘路径仍要取用上下文
-        val playbackState = stateHolder.state
         playbackState.attachContext(this)
         // 首帧前同步预置上次播放状态（见 seedFromBootMirror），使首页首帧即是完整内容而非空态；
         // 这是启动关键路径上的刻意读盘，异步化会把空窗推回首帧之后。
@@ -151,8 +150,8 @@ class App : Application() {
 
 // 应用级依赖的组合局部：Composable 只消费具体依赖，禁止直接引用 App。
 // 宿主（Activity 与悬浮窗 Compose 宿主）统一经 ProvideAppDependencies 提供
-val LocalMusicPanelStateHolder = staticCompositionLocalOf<MusicPanelStateHolder> {
-    error("MusicPanelStateHolder is not provided")
+val LocalPlaybackState = staticCompositionLocalOf<MusicPlaybackState> {
+    error("MusicPlaybackState is not provided")
 }
 
 val LocalPlaylistStore = staticCompositionLocalOf<PlaylistStore> {
@@ -189,7 +188,7 @@ fun ProvideAppDependencies(app: App, content: @Composable () -> Unit) {
     CompositionLocalProvider(
         LocalMiniPlayerController provides app.miniPlayerController,
         LocalUpdateViewModel provides app.updateViewModel,
-        LocalMusicPanelStateHolder provides app.stateHolder,
+        LocalPlaybackState provides app.playbackState,
         LocalPlaylistStore provides app.playlistStore,
         LocalArtistOrderStore provides app.artistOrderStore,
         LocalMetadataEnricher provides app.metadataEnricher,

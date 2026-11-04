@@ -25,7 +25,7 @@ internal fun HomeShell(
     content: @Composable BoxScope.(topInset: Dp) -> Unit,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        val playbackState = panelState.playbackState.state
+        val playbackState = panelState.playbackState
         // 首页在场即启动背景流动帧的代现算：应用退到后台后显示端的现算随组合停摆，
         // 后台切歌改由它按切歌时刻代算（见 CoverFlowFrameStore，重复调用无副作用）
         LaunchedEffect(Unit) { CoverFlowFrameStore.start(playbackState) }

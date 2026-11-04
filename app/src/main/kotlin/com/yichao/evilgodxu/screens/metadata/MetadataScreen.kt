@@ -11,7 +11,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.yichao.evilgodxu.LocalApplication
-import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.LocalPlaybackState
 import com.yichao.evilgodxu.screens.metadata.component.MetadataPermissionRequest
 import com.yichao.evilgodxu.screens.metadata.compact.CompactAssembly
 import com.yichao.evilgodxu.screens.metadata.expanded.ExpandedAssembly
@@ -26,7 +26,7 @@ fun MetadataScreen(
     modifier: Modifier = Modifier,
 ) {
     val application = LocalApplication.current
-    val stateHolder = LocalMusicPanelStateHolder.current
+    val playbackState = LocalPlaybackState.current
     val viewModel: MetadataViewModel = viewModel(
         // 按曲目区分实例：同一路由重复进入不同曲目时不复用上一次的表单状态
         key = "metadata-$trackId",
@@ -34,7 +34,7 @@ fun MetadataScreen(
             initializer {
                 MetadataViewModel(
                     application = application,
-                    stateHolder = stateHolder,
+                    playbackState = playbackState,
                     trackId = trackId,
                 )
             }

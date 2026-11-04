@@ -9,7 +9,7 @@ import com.yichao.evilgodxu.ui.component.dialog.TimerDialog
 internal fun HomeDialogs(
     panelState: HomePanelState,
 ) {
-    val playbackState = panelState.playbackState.state
+    val playbackState = panelState.playbackState
     TimerDialog(
         visible = panelState.showTimer,
         minutes = playbackState.timerMinutes,

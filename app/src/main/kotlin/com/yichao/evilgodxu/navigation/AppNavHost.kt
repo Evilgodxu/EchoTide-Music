@@ -17,7 +17,7 @@ import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.LocalPlaybackState
 import com.yichao.evilgodxu.screens.cache.CacheScreen
 import com.yichao.evilgodxu.screens.home.HomeScreen
 import com.yichao.evilgodxu.screens.metadata.MetadataScreen
@@ -34,7 +34,7 @@ fun AppNavHost(
 ) {
     val backStack = rememberNavBackStack(Home)
     val context = LocalContext.current
-    val stateHolder = LocalMusicPanelStateHolder.current
+    val playbackState = LocalPlaybackState.current
     // 首页竖屏沉浸（隐藏全部系统栏）：由栈顶目的地驱动。若等到首页组合销毁才撤销，
     // 沉浸状态会在切换动画期间残留，使目标页标题栏先按零内边距嵌入状态栏区域、再整体下移
     val isHomeOnTop = backStack.lastOrNull() is Home
@@ -53,17 +53,17 @@ fun AppNavHost(
     BackHandler(enabled = backStack.size <= 1) {
         val now = System.currentTimeMillis()
         if (now - lastHomeBackTime < DOUBLE_BACK_EXIT_MS) {
-            if (stateHolder.state.isPlayerActive) {
+            if (playbackState.isPlayerActive) {
                 // 播放中：返回桌面，保留后台播放与迷你播放器
                 activity?.moveTaskToBack(true)
             } else {
-                stateHolder.releaseIfIdle()
+                playbackState.releaseIfIdle()
                 onExit()
             }
         } else {
             lastHomeBackTime = now
             val hint =
-                if (stateHolder.state.isPlayerActive) goHomeHint else exitHint
+                if (playbackState.isPlayerActive) goHomeHint else exitHint
             Toast.makeText(context, hint, Toast.LENGTH_SHORT).show()
         }
     }

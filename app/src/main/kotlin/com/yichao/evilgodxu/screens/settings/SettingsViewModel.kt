@@ -2,7 +2,6 @@ package com.yichao.evilgodxu.screens.settings
 
 import android.app.Application
 import android.content.Context
-import android.content.Intent
 import android.content.SharedPreferences
 import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
@@ -16,6 +15,7 @@ import com.yichao.evilgodxu.permission.OverlayGrantMonitor
 import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.permission.isNotificationPolicyGranted
 import com.yichao.evilgodxu.permission.PermissionReturnMonitor
+import com.yichao.evilgodxu.permission.bringAppToFront
 import com.yichao.evilgodxu.data.repository.SettingsRepository
 import com.yichao.evilgodxu.data.settings.AppLanguage
 import com.yichao.evilgodxu.data.settings.backgroundFlowEnabledFlow
@@ -315,11 +315,3 @@ class SettingsViewModel(
     }
 }
 
-// 将应用带回前台，使用户无需手动返回本应用
-private fun bringAppToFront(context: Context) {
-    val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
-    launchIntent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or
-            Intent.FLAG_ACTIVITY_SINGLE_TOP or
-            Intent.FLAG_ACTIVITY_NEW_TASK
-    context.startActivity(launchIntent)
-}

@@ -14,11 +14,11 @@ import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
-import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.panel.TranslateLineOutcome
 import com.yichao.evilgodxu.data.music.panel.applyCoverCandidate
 import com.yichao.evilgodxu.data.music.panel.autoTranslateLyricLine
 import com.yichao.evilgodxu.data.music.panel.searchCoverCandidates
+import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,7 +50,7 @@ private const val SAME_ALBUM_SCAN_LIMIT = 60
  */
 class MetadataViewModel(
     application: Application,
-    private val stateHolder: MusicPanelStateHolder,
+    private val playbackState: MusicPlaybackState,
     private val trackId: Long,
 ) : AndroidViewModel(application) {
 
@@ -131,7 +131,7 @@ class MetadataViewModel(
 
     // 曲目可能经播放队列或曲库浏览列表进入，两处都查一遍
     private fun findTrack(): MusicTrack? {
-        val playbackState = stateHolder.state
+        val playbackState = this.playbackState
         return playbackState.playlist.firstOrNull { it.id == trackId }
             ?: playbackState.libraryTracks.firstOrNull { it.id == trackId }
     }
@@ -412,7 +412,7 @@ class MetadataViewModel(
     private suspend fun loadSameAlbumCovers(target: MusicTrack): List<ByteArray> = withContext(Dispatchers.IO) {
         val album = target.albumName.trim()
         if (album.isEmpty()) return@withContext emptyList()
-        val playbackState = stateHolder.state
+        val playbackState = playbackState
         val candidates = (playbackState.playlist + playbackState.libraryTracks)
             .filter { it.id != target.id && it.isLocalAudioSource && it.albumName.trim().equals(album, ignoreCase = true) }
             .distinctBy { it.id }
@@ -432,7 +432,7 @@ class MetadataViewModel(
 
     fun onCoverRefreshOpen() {
         val target = findTrack() ?: return
-        val playbackState = stateHolder.state
+        val playbackState = playbackState
         _uiState.update { it.copy(coverRefreshVisible = true, coverRefreshSelectedId = null, message = null) }
         viewModelScope.launch {
             searchCoverCandidates(getApplication(), playbackState, target, playbackState.coverRefreshSource)
@@ -441,7 +441,7 @@ class MetadataViewModel(
 
     fun onCoverRefreshSourceSelected(source: MusicSearchSource) {
         val target = findTrack() ?: return
-        val playbackState = stateHolder.state
+        val playbackState = playbackState
         if (source == playbackState.coverRefreshSource) return
         playbackState.setCoverRefreshSource(source)
         _uiState.update { it.copy(coverRefreshSelectedId = null) }
@@ -450,7 +450,7 @@ class MetadataViewModel(
 
     fun onCoverRefreshReload() {
         val target = findTrack() ?: return
-        val playbackState = stateHolder.state
+        val playbackState = playbackState
         _uiState.update { it.copy(coverRefreshSelectedId = null) }
         viewModelScope.launch {
             searchCoverCandidates(getApplication(), playbackState, target, playbackState.coverRefreshSource)
@@ -470,9 +470,9 @@ class MetadataViewModel(
     fun onCoverRefreshConfirm() {
         val state = _uiState.value
         if (state.coverRefreshSaving) return
-        val candidate = stateHolder.state.coverCandidates.firstOrNull { it.id == state.coverRefreshSelectedId } ?: return
+        val candidate = playbackState.coverCandidates.firstOrNull { it.id == state.coverRefreshSelectedId } ?: return
         val target = findTrack() ?: return
-        val playbackState = stateHolder.state
+        val playbackState = playbackState
         _uiState.update { it.copy(coverRefreshSaving = true) }
         viewModelScope.launch {
             val success = applyCoverCandidate(getApplication(), playbackState, target, candidate)
@@ -503,7 +503,7 @@ class MetadataViewModel(
 
     fun onCoverRefreshCancel() {
         _uiState.update { it.copy(coverRefreshVisible = false, coverRefreshSelectedId = null) }
-        stateHolder.state.setCoverCandidates(emptyList())
+        playbackState.setCoverCandidates(emptyList())
     }
 
     // ---- 落盘 ----
@@ -594,7 +594,7 @@ class MetadataViewModel(
         saveJob?.cancel()
         saveJob = null
         if (pending.isNullOrEmpty() && pendingCover is CoverUpdate.Keep) return
-        stateHolder.state.playbackScope.launch { flush() }
+        playbackState.playbackScope.launch { flush() }
     }
 
     /**
@@ -687,7 +687,7 @@ class MetadataViewModel(
         lyrics: String?,
         coverChanged: Boolean,
     ) {
-        val state = stateHolder.state
+        val state = playbackState
         var updated = target
         fields[TagField.TITLE]?.let { updated = updated.copy(title = it) }
         fields[TagField.ARTIST]?.let { updated = updated.copy(artist = it) }

@@ -614,6 +614,11 @@ class MusicPlaybackState(
         )
     }
 
+    // 播放器空闲时才释放：调用方只需表达「此刻可以回收」，是否真的回收由当前输出状态决定
+    fun releaseIfIdle() {
+        if (!isPlayerActive) softRelease()
+    }
+
     fun softRelease() {
         progress.stopTicker()
         persistState()

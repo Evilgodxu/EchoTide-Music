@@ -9,8 +9,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
-import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.playback.ExternalPlaybackLoader
+import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.settings.miniPlayerEnabledFlow
 import com.yichao.evilgodxu.permission.bringAppToFront
 import com.yichao.evilgodxu.service.MusicPlaybackService
@@ -26,7 +26,7 @@ val LocalMiniPlayerController = staticCompositionLocalOf<MiniPlayerController?> 
 // 悬浮播放条的显示与隐藏由 Activity 前后台切换驱动
 class MiniPlayerController(
     private val context: Context,
-    private val stateHolder: MusicPanelStateHolder,
+    private val playbackState: MusicPlaybackState,
     private val playlistRefresher: PlaylistRefresher,
     private val metadataEnricher: MetadataEnricher,
 ) {
@@ -38,7 +38,7 @@ class MiniPlayerController(
     // 外部音频的后台播放：会话装载与曲库监听都在其中，不在控制器里重复一份
     private val externalPlaybackLoader = ExternalPlaybackLoader(
         context = context,
-        playbackState = stateHolder.state,
+        playbackState = playbackState,
         playlistRefresher = playlistRefresher,
         metadataEnricher = metadataEnricher,
     )
@@ -58,7 +58,7 @@ class MiniPlayerController(
             }
         }
         // 定时关闭到点且当前曲目播毕后，结束整个应用
-        stateHolder.state.onSleepTimerFinished = { exitApplication() }
+        playbackState.onSleepTimerFinished = { exitApplication() }
     }
 
     // 从外部打开/分享的音频 URI 后台播放：不建立界面，经迷你播放器播放并保持后台运行
@@ -76,7 +76,7 @@ class MiniPlayerController(
         if (!Settings.canDrawOverlays(context)) return
         miniPlayerManager = MiniPlayerViewManager(
             context = context,
-            stateHolder = stateHolder,
+            playbackState = playbackState,
             onOpenApp = { openApp() },
             onSwipedDismiss = {
                 miniPlayerTemporarilyHidden = true
@@ -112,7 +112,7 @@ class MiniPlayerController(
             dismissMiniPlayer()
         }
         // 后台切歌后回到前台，校正音频信息使其与当前曲目一致
-        stateHolder.state.reconcileTrackFormatInfo(context)
+        playbackState.reconcileTrackFormatInfo(context)
     }
 
     fun release() {
@@ -133,7 +133,7 @@ class MiniPlayerController(
         externalPlaybackLoader.release()
         context.stopService(Intent(context, MusicPlaybackService::class.java))
         // 引用集在这里取好再交给清理：它是「哪些缓存还有主人」的唯一判据，须与此刻的播放状态一致
-        val lyricReferences = stateHolder.state.lyricCacheReferences()
+        val lyricReferences = playbackState.lyricCacheReferences()
         exitScope.launch {
             // 回收失败也要结束进程：退出路径不能因一次清理异常就卡住不退出
             runCatching { CacheInventory.reclaimOnExit(context, lyricReferences) }
@@ -145,7 +145,7 @@ class MiniPlayerController(
         if (appInForeground) return
         if (!miniPlayerEnabled || miniPlayerTemporarilyHidden) return
         if (miniPlayerManager != null) return
-        if (!stateHolder.state.isPlaying) return
+        if (!playbackState.isPlaying) return
         showMiniPlayer()
     }
 }

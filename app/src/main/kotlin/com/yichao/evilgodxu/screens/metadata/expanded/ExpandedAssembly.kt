@@ -8,7 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.LocalPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.metadata.TagField
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
@@ -46,7 +46,7 @@ internal fun ExpandedAssembly(
     onCoverRefreshCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val playbackState = LocalMusicPanelStateHolder.current.state
+    val playbackState = LocalPlaybackState.current
     Scaffold(
         modifier = modifier,
         topBar = {

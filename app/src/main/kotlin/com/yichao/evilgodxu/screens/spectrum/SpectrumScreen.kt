@@ -8,7 +8,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.yichao.evilgodxu.LocalApplication
-import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.LocalPlaybackState
 import com.yichao.evilgodxu.screens.spectrum.compact.CompactAssembly
 import com.yichao.evilgodxu.screens.spectrum.expanded.ExpandedAssembly
 import com.yichao.evilgodxu.theme.StatusBarStyleEffect
@@ -22,7 +22,7 @@ fun SpectrumScreen(
     modifier: Modifier = Modifier,
 ) {
     val application = LocalApplication.current
-    val stateHolder = LocalMusicPanelStateHolder.current
+    val playbackState = LocalPlaybackState.current
     val viewModel: SpectrumViewModel = viewModel(
         // 按曲目区分实例：同一路由重复进入不同曲目时不复用上一次的分析状态
         key = "spectrum-$trackId",
@@ -30,7 +30,7 @@ fun SpectrumScreen(
             initializer {
                 SpectrumViewModel(
                     application = application,
-                    stateHolder = stateHolder,
+                    playbackState = playbackState,
                     trackId = trackId,
                 )
             }

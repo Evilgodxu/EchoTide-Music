@@ -81,7 +81,7 @@ internal fun CompactAssembly(
     onToggleLandscape: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val playbackState = panelState.playbackState.state
+    val playbackState = panelState.playbackState
     val context = LocalContext.current
     // 沉浸隐藏状态栏时仍按状态栏高度预留顶部空间：标题栏与内容不嵌入状态栏区域
     val topBarWindowInsets = rememberStatusBarTopInsets()

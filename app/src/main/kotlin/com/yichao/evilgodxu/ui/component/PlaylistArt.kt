@@ -7,7 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.LocalPlaybackState
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 
 // 列表行封面的淡入时长：取 Coil crossfade 的默认档（200ms）。
@@ -27,10 +27,10 @@ private fun SystemCoverArt(
     thumbnailSize: Int,
     placeholderIconSize: Dp,
 ) {
-    val stateHolder = LocalMusicPanelStateHolder.current
+    val playbackState = LocalPlaybackState.current
     val thumb = rememberSystemThumbnail(track, thumbnailSize)
     LaunchedEffect(track?.id) {
-        track?.let { stateHolder.state.requestMetadata(it) }
+        track?.let { playbackState.requestMetadata(it) }
     }
     // 与首页大封面同一过渡（见 CoverTransition）：底层常驻 + 上层淡入。
     // 首帧即命中内存缓存时取到的是同一个位图实例，过渡被短路成「直接落图」；

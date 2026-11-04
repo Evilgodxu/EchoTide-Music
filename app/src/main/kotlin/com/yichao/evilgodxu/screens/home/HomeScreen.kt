@@ -15,7 +15,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.yichao.evilgodxu.LocalApplication
 import com.yichao.evilgodxu.LocalMetadataEnricher
-import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.LocalPlaybackState
 import com.yichao.evilgodxu.LocalPlaylistRefresher
 import com.yichao.evilgodxu.screens.home.compact.CompactAssembly
 import com.yichao.evilgodxu.screens.home.component.permission.StartupPermissionChain
@@ -37,7 +37,7 @@ fun HomeScreen(
     onOpenMetadata: (Long) -> Unit,
 ) {
     val application = LocalApplication.current
-    val stateHolder = LocalMusicPanelStateHolder.current
+    val playbackState = LocalPlaybackState.current
     val playlistRefresher = LocalPlaylistRefresher.current
     val metadataEnricher = LocalMetadataEnricher.current
     val viewModel: HomeViewModel = viewModel(
@@ -45,7 +45,7 @@ fun HomeScreen(
             initializer {
                 HomeViewModel(
                     application = application,
-                    stateHolder = stateHolder,
+                    playbackState = playbackState,
                     playlistRefresher = playlistRefresher,
                     metadataEnricher = metadataEnricher,
                 )
@@ -62,7 +62,7 @@ fun HomeScreen(
     )
     // 冷启动恢复持久化的播放列表，并定位当前曲目
     LaunchedEffect(Unit) {
-        val state = stateHolder.state
+        val state = playbackState
         state.restoreSavedState(context)
         if (state.playlist.isNotEmpty() && state.currentTrack == null) {
             val index = state.pendingSavedUri
@@ -97,7 +97,6 @@ fun HomeScreen(
 
     // 跨形态共享状态：旋转不重建 Activity，页面位置与后台分析需在形态切换间保持
     val panelState = rememberHomePanelState()
-    val playbackState = panelState.playbackState.state
     val pagerState = panelState.pagerState
 
     // 系统栏图标按「图标底下压着什么」定色：首页两条系统栏全沉浸隐藏，图标只在上滑临时唤出时可见，

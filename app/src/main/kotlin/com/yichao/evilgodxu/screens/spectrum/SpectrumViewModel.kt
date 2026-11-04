@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.yichao.evilgodxu.data.music.analysis.SpectrogramDecoder
 import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
 import com.yichao.evilgodxu.data.music.model.MusicTrack
-import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
+import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,7 +19,7 @@ import kotlinx.coroutines.withContext
 // 离开页面时随作用域取消
 class SpectrumViewModel(
     application: Application,
-    stateHolder: MusicPanelStateHolder,
+    playbackState: MusicPlaybackState,
     trackId: Long,
 ) : AndroidViewModel(application) {
 
@@ -27,8 +27,6 @@ class SpectrumViewModel(
     val uiState: StateFlow<SpectrumUiState> = _uiState.asStateFlow()
 
     init {
-        val playbackState = stateHolder.state
-        // 曲目可能经播放队列或曲库浏览列表进入，两处都查一遍
         val track = playbackState.playlist.firstOrNull { it.id == trackId }
             ?: playbackState.libraryTracks.firstOrNull { it.id == trackId }
         if (track == null || !track.isLocalAudioSource) {

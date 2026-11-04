@@ -32,7 +32,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.CoverTransition
 import com.yichao.evilgodxu.ui.component.menuEdgePositionProvider
 import com.yichao.evilgodxu.ui.component.rememberSystemThumbnail
-import com.yichao.evilgodxu.LocalMusicPanelStateHolder
+import com.yichao.evilgodxu.LocalPlaybackState
 
 // 封面显示：索引曲目取系统略缩图，非索引曲目取音频文件的内嵌封面（见 rememberSystemThumbnail）。
 // 取不到即占位块——当前曲目的一张缩略图会落盘供冷启动复用（见 CurrentCoverCache），但不回退在线封面地址：
@@ -49,11 +49,11 @@ private fun SystemCoverArt(
     placeholderIconSize: Dp,
     animated: Boolean,
 ) {
-    val stateHolder = LocalMusicPanelStateHolder.current
+    val playbackState = LocalPlaybackState.current
     val thumb = rememberSystemThumbnail(track, thumbnailSize)
     // 列表滚入视口时按需补全元数据（幂等，已具备则直接返回）：可见项优先于全量扫描
     LaunchedEffect(track?.id) {
-        track?.let { stateHolder.state.requestMetadata(it) }
+        track?.let { playbackState.requestMetadata(it) }
     }
     CoverTransition(
         bitmap = thumb,

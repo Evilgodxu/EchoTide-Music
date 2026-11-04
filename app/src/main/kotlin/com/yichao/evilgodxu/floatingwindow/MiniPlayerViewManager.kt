@@ -28,7 +28,6 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.yichao.evilgodxu.App
 import com.yichao.evilgodxu.ProvideAppDependencies
-import com.yichao.evilgodxu.data.music.panel.MusicPanelStateHolder
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.floatingwindow.miniplayer.MINI_BUTTON_COUNT
@@ -46,14 +45,13 @@ import kotlin.math.roundToInt
 
 class MiniPlayerViewManager(
     private val context: Context,
-    private val stateHolder: MusicPanelStateHolder,
+    private val playbackState: MusicPlaybackState,
     private val onOpenApp: () -> Unit,
     private val onSwipedDismiss: () -> Unit,
 ) {
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private var composeView: ComposeView? = null
     private var isDismissing = false
-    private val playbackState: MusicPlaybackState get() = stateHolder.state
 
     // 顶部偏移基准。迷你条窗口宽度固定，纵向位置随状态栏高度校正
     private var statusBarHeight = currentTopInset()
