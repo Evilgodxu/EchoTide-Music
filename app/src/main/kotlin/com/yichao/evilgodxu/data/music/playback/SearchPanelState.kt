@@ -65,16 +65,22 @@ internal class SearchPanelState {
     var lyricsRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
     var coverRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
 
+    // 搜索上下文的公共复位：退出结果、起播命中与播放就绪收尾共用同一份清理，
+    // 避免各入口各写一遍而遗漏某一项
+    fun clearSearchResults() {
+        searchQuery = ""
+        searchResults = emptyList()
+        searchPending = emptyList()
+        searchPendingFull = false
+        showSearchResults = false
+    }
+
     // 播放就绪：搜索结果如需在起播后收起则收起；音质试播就绪即视为播放成功，关闭对话框
     fun onPlaybackReady() {
         if (closeSearchResultsOnReady) {
             closeSearchResultsOnReady = false
             isSearchMode = false
-            showSearchResults = false
-            searchQuery = ""
-            searchResults = emptyList()
-            searchPending = emptyList()
-            searchPendingFull = false
+            clearSearchResults()
             pendingSearchResults = emptyList()
         }
         if (pendingQualityPlayTrackId != null) {

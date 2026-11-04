@@ -202,11 +202,7 @@ internal suspend fun tryPlayLocalMatch(
     playbackState.currentIndex = idx
     playbackState.currentTrack = playbackState.playlist[idx]
     playbackState.isSearchMode = false
-    playbackState.showSearchResults = false
-    playbackState.searchQuery = ""
-    playbackState.searchResults = emptyList()
-    playbackState.searchPending = emptyList()
-    playbackState.searchPendingFull = false
+    playbackState.searchPanel.clearSearchResults()
     playTrackAt(context, playbackState, idx)
     return true
 }

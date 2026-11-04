@@ -8,7 +8,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -53,34 +52,13 @@ fun HomeScreen(
         },
     )
     val uiState by viewModel.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
     // 启动期三段授权：音频 → 通知 → 省电策略，串行推进，每轮各问一次
     StartupPermissionChain(
         mediaAudioGranted = uiState.mediaAudioGranted,
         onAudioGranted = viewModel::refreshPermissions,
         markRequested = viewModel::markPermissionRequested,
     )
-    // 冷启动恢复持久化的播放列表，并定位当前曲目
-    LaunchedEffect(Unit) {
-        val state = playbackState
-        state.restoreSavedState(context)
-        if (state.playlist.isNotEmpty() && state.currentTrack == null) {
-            val index = state.pendingSavedUri
-                ?.let { uri -> state.playlist.indexOfFirst { it.audioUri == uri } }
-                ?.takeIf { it >= 0 }
-                ?: 0
-            state.currentIndex = index
-            state.currentTrack = state.playlist[index]
-        }
-        // 冷启动阶段尚无控制器时长，用缓存曲目时长补全，使进度条能按已还原的位置展示进度（伴随过渡动画）
-        if (state.duration <= 0L) {
-            state.currentTrack?.let { state.duration = it.duration }
-        }
-        // 后台预读当前曲目歌词：不阻塞首帧，歌词页打开时已就绪
-        state.requestMetadata(state.currentTrack)
-        // 未播放时也预读当前曲目格式信息，重启后音频信息条仍能展示
-        state.refreshIdleTrackFormatInfo(context)
-    }
+    // 冷启动恢复与曲目预读由 PlaybackRestorer 编排，界面不再重复触发
 
     val activity = LocalActivityResultRegistryOwner.current as? Activity
     // 朝向以窗口实测宽高比为准：Activity 自行处理方向变更，配置读取可能不随之刷新
@@ -117,11 +95,7 @@ fun HomeScreen(
             playbackState.searchResults.isNotEmpty() ||
             playbackState.showSearchResults
         if (hasSearchContent) {
-            playbackState.setSearchQuery("")
-            playbackState.searchResults = emptyList()
-            playbackState.searchPending = emptyList()
-            playbackState.searchPendingFull = false
-            playbackState.setSearchResultsVisible(false)
+            playbackState.searchPanel.clearSearchResults()
             playbackState.setErrorMsg(null)
         } else {
             panelState.closePanels()

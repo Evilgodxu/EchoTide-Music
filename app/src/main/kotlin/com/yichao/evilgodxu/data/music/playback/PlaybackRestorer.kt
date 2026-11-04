@@ -64,6 +64,13 @@ internal class PlaybackRestorer(private val state: MusicPlaybackState) {
         }
         // 冷启动预读上次曲目的落盘封面：驻留内存后首帧可同步取用，不阻塞本次恢复
         savedUri?.let { uri -> state.playbackScope.launch { CurrentCoverCache.load(context, uri) } }
+        // 恢复后的首帧预读：曲目时长补齐、歌词与源格式提前取回，
+        // 使界面重建时无需自己再编排一遍启动加载
+        state.currentTrack?.let { track ->
+            if (state.duration <= 0L) state.duration = track.duration
+            state.requestMetadata(track)
+            state.refreshIdleTrackFormatInfo(context)
+        }
     }
 
     // 启动镜像预置的当前曲目在播放列表就绪后归位：以列表实例为准并补齐下标（首帧时列表为空，无从定位），
