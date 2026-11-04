@@ -55,7 +55,7 @@ internal fun PlaylistSheetHeader(
     val scope = rememberCoroutineScope()
     val playlistRefresher = LocalPlaylistRefresher.current
     val metadataEnricher = LocalMetadataEnricher.current
-    val sortEnabled = followsQueue && playbackState.playlistSource == null && !playbackState.isScanning
+    val sortEnabled = followsQueue && playbackState.queueFilter == null && !playbackState.isScanning
 
     Row(
         modifier = modifier.fillMaxWidth(),

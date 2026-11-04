@@ -79,8 +79,8 @@ internal fun handleMediaItemTransition(
             }
         }
     }
-    // 待接入队列（切换歌单时当前曲目仍在播放）：播放器自然接续的曲目仍属旧队列，
-    // 改由新队列的待接入位置接管，避免切歌单后继续播上一个歌单
+    // 待接入队列（切换过滤来源时当前曲目仍在播放）：播放器自然接续的曲目仍属旧过滤结果，
+    // 改由新过滤结果的待接入位置接管，避免切换后继续播旧来源
     val pendingStart = state.pendingQueueStartIndex
     if (pendingStart != null && state.playlist.isNotEmpty() &&
         reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO

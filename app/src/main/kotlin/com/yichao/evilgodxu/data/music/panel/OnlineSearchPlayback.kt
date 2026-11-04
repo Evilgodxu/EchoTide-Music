@@ -68,6 +68,13 @@ internal suspend fun downloadAndPlay(
             if (playbackState.currentTrack?.id == trackId) {
                 playbackState.currentTrack = refreshed
             }
+            // 有过滤时播放结果只是默认队列的子集，换音质换源须同时回写默认队列，
+            // 否则切换过滤来源会退回旧直链
+            if (playbackState.queueFilter != null) {
+                playbackState.defaultPlaylist = playbackState.defaultPlaylist.map { item ->
+                    if (item.id == trackId) refreshed else item
+                }
+            }
             existingIndex
         } else {
             playbackState.playlist = playbackState.playlist + track

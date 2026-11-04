@@ -52,7 +52,7 @@ import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 
 // 播放列表副标题快捷切换歌单弹层：默认 + 系统歌单 + 自定义歌单，专辑/艺术家支持分组二级导航
-// 选择结果仅回调所选来源给调用方切换面板展示内容，不直接改动播放状态
+// 选择结果回调所选来源，由调用方设为默认队列的过滤条件并同步面板展示
 @Composable
 internal fun PlaylistSwitcher(
     visible: Boolean,

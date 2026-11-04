@@ -197,7 +197,7 @@ internal fun PlaylistSheetList(
                                     }
                                     // 浏览态点击正在播放的曲目：只切换播放/暂停，保持浏览内容不变
                                     isActive -> togglePlayPause(playbackState)
-                                    // 浏览态点击其它曲目：把该歌单设为播放队列并起播，随后回到跟随播放队列
+                                    // 浏览态点击其它曲目：把该来源设为默认队列的过滤条件并起播，随后回到跟随播放队列
                                     else -> {
                                         switchToPlaylistQueue(
                                             context,

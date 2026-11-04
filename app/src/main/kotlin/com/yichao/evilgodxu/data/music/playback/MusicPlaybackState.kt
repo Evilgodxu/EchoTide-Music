@@ -119,6 +119,8 @@ class MusicPlaybackState(
             _playlist.value = value
             playlistRevision++
             cachedMediaItems = null
+            // 无过滤时播放队列即默认队列：保持同源，不再单独维护一份备份
+            if (queueFilter == null) defaultPlaylist = value
         }
     /** 缓存 playlist 对应的 MediaItem 列表，避免切歌时重复构建 */
     var cachedMediaItems by mutableStateOf<List<androidx.media3.common.MediaItem>?>(null)
@@ -335,8 +337,8 @@ class MusicPlaybackState(
 
     val recentPlayedIds: List<Long> get() = recentPlayedStore.ids
 
-    // 当前播放列表来源歌单（null = 默认全量播放列表）
-    var playlistSource by mutableStateOf<PlaylistSource?>(null)
+    // 默认队列的过滤来源（null = 不过滤，播放整条默认队列）
+    var queueFilter by mutableStateOf<PlaylistSource?>(null)
     // 播放列表面板的浏览态：为 true 时面板展示播放队列，否则展示 viewedSource 指定的歌单。
     // 浏览态只决定面板展示内容，与播放队列解耦，切换时不触碰播放器
     var viewedFollowsQueue by mutableStateOf(true)
@@ -347,11 +349,12 @@ class MusicPlaybackState(
     // 播放列表排序规则（仅对默认全量播放列表生效），随列表一并持久化
     var playlistSortField by mutableStateOf(PlaylistSortField.DEFAULT)
     var playlistSortDescending by mutableStateOf(false)
-    // 默认全量播放列表备份：首次切到歌单时快照，供快捷切回默认
-    var defaultPlaylistBackup by mutableStateOf<List<MusicTrack>?>(null)
-    // 全量库：优先备份，否则为当前播放列表
+    // 默认播放队列：唯一队列本体，全量库按当前排序规则排列。
+    // 过滤只作用于播放结果，不替换它
+    var defaultPlaylist by mutableStateOf<List<MusicTrack>>(emptyList())
+    // 全量库：始终取自默认队列，过滤期间也保持完整
     val libraryTracks: List<MusicTrack>
-        get() = defaultPlaylistBackup ?: playlist
+        get() = defaultPlaylist
 
     // 面板切换为浏览指定歌单：只改变列表展示内容，播放队列与播放状态保持不变
     fun viewPlaylist(source: PlaylistSource?) {
@@ -390,8 +393,8 @@ class MusicPlaybackState(
     internal val playlistEditor by lazy { PlaylistEditor(this) }
     // 曲目移除与不可用清理由 PlaylistRemovalController 承担；此处按原方法名转发
     internal val playlistRemoval by lazy { PlaylistRemovalController(this) }
-    // 待接入队列的起播位置（null = 无待接入队列）：切换歌单时正在播放的曲目仍出声，
-    // 新队列暂不装载以免打断播放，待该曲目播完（或用户手动切歌）后从这个位置接入播放器
+    // 待接入队列的起播位置（null = 无待接入队列）：切换过滤来源时正在播放的曲目仍出声，
+    // 新过滤结果暂不装载以免打断播放，待该曲目播完（或用户手动切歌）后从这个位置接入播放器
     internal var pendingQueueStartIndex: Int? = null
 
     // 曲目是否已在下一首播放队列中
@@ -486,12 +489,12 @@ class MusicPlaybackState(
         get() = audioSignal.isCurrentForCurrentTrack
 
     fun persistPlaylist() {
-        // 列表、来源、浏览态、排序与默认库备份同属一份偏好文件，由 PlaylistPersistence 合并为一次落盘
+        // 过滤结果、过滤来源、默认队列、浏览态与排序同属一份偏好文件，由 PlaylistPersistence 合并为一次落盘
         playlistPersistence.persist(
             PlaylistPersistence.Snapshot(
                 tracks = playlist,
-                source = playlistSource,
-                backup = defaultPlaylistBackup,
+                source = queueFilter,
+                defaultPlaylist = defaultPlaylist,
                 followsQueue = viewedFollowsQueue,
                 viewedSource = viewedSource,
                 sortField = playlistSortField,
@@ -782,8 +785,8 @@ class MusicPlaybackState(
 
     internal fun calculateIndex(direction: Int, repeatOne: Boolean, from: Int = currentIndex): Int {
         if (playlist.isEmpty()) return -1
-        // 当前曲目不在队列内（如切换歌单后正在播放的曲目已不属于新歌单）：
-        // 下一首取队列首曲、上一首取队尾，而非把缺失下标当作首曲再顺延一首
+        // 当前曲目不在队列内（如切换过滤来源后正在播放的曲目已不属于过滤结果）：
+        // 下一首取过滤结果首曲、上一首取末曲，而非把缺失下标当作首曲再顺延一首
         if (from !in playlist.indices) {
             return if (direction < 0) playlist.lastIndex else 0
         }

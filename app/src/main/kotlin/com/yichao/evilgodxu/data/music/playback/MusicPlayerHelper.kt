@@ -76,8 +76,8 @@ suspend fun playTrackAt(
 
         withContext(Dispatchers.Main) {
             applyPlaybackMode(controller, state.playMode)
-            // 播放器当前项即目标曲目：整体替换队列（如切换歌单）时沿用实际进度，
-            // 避免只是换了队列顺序却把正在播放的曲目从头重播
+            // 播放器当前项即目标曲目：整体替换播放项（如切换过滤来源）时沿用实际进度，
+            // 避免只是换了过滤结果却把正在播放的曲目从头重播
             val sameTrack = controller.currentMediaItem?.mediaId == track.id.toString()
             val resumePosition = when {
                 state.pendingSavedUri == track.audioUri ->

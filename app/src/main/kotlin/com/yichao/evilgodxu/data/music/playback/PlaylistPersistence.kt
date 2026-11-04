@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 播放列表相关落盘：列表本体、来源、浏览态、排序规则、默认库备份与曲库签名。
+ * 播放列表相关落盘：过滤结果、过滤来源、默认队列、浏览态、排序规则与曲库签名。
  *
  * 这些键同属一份偏好文件，写入合并在同一次 commit 中完成——拆开写会重复重写整份文件，
  * 且中途进程被杀会留下「列表已更新、来源未更新」的不一致。
@@ -38,7 +38,7 @@ internal class PlaylistPersistence(
     data class Snapshot(
         val tracks: List<MusicTrack>,
         val source: PlaylistSource?,
-        val backup: List<MusicTrack>?,
+        val defaultPlaylist: List<MusicTrack>,
         val followsQueue: Boolean,
         val viewedSource: PlaylistSource?,
         val sortField: PlaylistSortField,
@@ -73,8 +73,10 @@ internal class PlaylistPersistence(
                         putString(KEY_VIEWED_SOURCE_NAME, snapshot.viewedSource?.name)
                         putString(KEY_SORT_FIELD, snapshot.sortField.name)
                         putBoolean(KEY_SORT_DESCENDING, snapshot.sortDescending)
-                        if (snapshot.backup != null) {
-                            putString(KEY_DEFAULT_BACKUP, PlaylistCodec.encode(snapshot.backup))
+                        // 无过滤时过滤结果即默认队列，无需重复编码整份全量列表；
+                        // 有过滤时才单独保存默认队列，供冷启动恢复完整队列
+                        if (snapshot.source != null) {
+                            putString(KEY_DEFAULT_BACKUP, PlaylistCodec.encode(snapshot.defaultPlaylist))
                         } else {
                             remove(KEY_DEFAULT_BACKUP)
                         }

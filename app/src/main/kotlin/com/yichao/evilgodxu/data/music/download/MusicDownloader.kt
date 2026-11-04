@@ -315,6 +315,13 @@ internal suspend fun updateTrackAudioUri(
     if (playbackState.currentTrack?.id == trackId) {
         playbackState.currentTrack = updated
     }
+    // 有过滤时播放结果只是默认队列的子集，换源须同时回写默认队列，
+    // 否则切换过滤来源会退回旧 URI
+    if (playbackState.queueFilter != null) {
+        playbackState.defaultPlaylist = playbackState.defaultPlaylist.map { item ->
+            if (item.id == trackId) updated else item
+        }
+    }
     playbackState.persistPlaylist()
 }
 
@@ -385,6 +392,12 @@ internal suspend fun upgradeTrackToLossless(
         playbackState.playlist = list
         if (playbackState.currentTrack?.id == track.id) {
             playbackState.currentTrack = updated
+        }
+        // 有过滤时默认队列不在播放结果内，无损换源须一并回写
+        if (playbackState.queueFilter != null) {
+            playbackState.defaultPlaylist = playbackState.defaultPlaylist.map { item ->
+                if (item.id == track.id) updated else item
+            }
         }
         playbackState.persistPlaylist()
         idx

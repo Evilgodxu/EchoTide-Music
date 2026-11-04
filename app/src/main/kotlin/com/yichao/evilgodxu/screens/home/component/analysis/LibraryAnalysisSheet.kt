@@ -72,11 +72,11 @@ internal fun LibraryAnalysisSheet(
     if (!visible) return
     val context = LocalContext.current
     val metadataEnricher = LocalMetadataEnricher.current
-    // 全量库统计：切换歌单时曲库范围不变，仅依赖全量库数据
+    // 全量库统计：切换过滤来源时曲库范围不变，仅依赖默认队列数据
     val stats = remember(playbackState.libraryTracks) {
         analyzeLibraryFormats(context, playbackState.libraryTracks)
     }
-    val currentKey = playbackState.playlistSource?.key
+    val currentKey = playbackState.queueFilter?.key
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -234,7 +234,7 @@ internal fun LibraryAnalysisSheet(
     }
 }
 
-// 切换播放列表为指定格式曲目，复用歌单切换（备份默认列表 + 加载首曲不自动播放 + 补全元数据）。
+// 把指定格式设为默认队列的过滤条件（加载首曲不自动播放 + 补全元数据）。
 // 在播放器全局作用域执行，弹层关闭不取消切换
 private fun switchToFormat(
     context: Context,

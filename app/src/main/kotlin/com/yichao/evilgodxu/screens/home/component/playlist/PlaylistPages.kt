@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.playlist.Playlist
@@ -62,10 +63,11 @@ import com.yichao.evilgodxu.data.playlist.recentTracks
 import com.yichao.evilgodxu.data.playlist.resolveTracks
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PlaylistSource
-import com.yichao.evilgodxu.data.music.playback.playTrackAt
+import com.yichao.evilgodxu.data.music.playback.switchToPlaylistQueue
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.permission.hasAllFilesAccess
+import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
@@ -79,7 +81,6 @@ import com.yichao.evilgodxu.ui.component.SEARCH_BAR_FILL_ALPHA
 import com.yichao.evilgodxu.ui.component.SEARCH_BAR_LIST_FADE_FEATHER_DP
 import com.yichao.evilgodxu.ui.component.SEARCH_BAR_REGION_DP
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 @Composable
@@ -254,7 +255,6 @@ internal fun PlaylistTracksPage(
     playbackState: MusicPlaybackState,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val playlistStore = LocalPlaylistStore.current
     // 实时读取最新歌单，添加/移除歌曲后立即刷新列表
     val currentPlaylist = playlistStore.playlists.find { it.id == playlist.id } ?: playlist
@@ -267,7 +267,6 @@ internal fun PlaylistTracksPage(
         tracks = tracks,
         source = PlaylistSource("custom:${playlist.id}", currentPlaylist.name),
         playbackState = playbackState,
-        scope = scope,
         trailingAction = {
             // 用紧凑点击区承载图标：Material 图标按钮的固定触控高度会把操作栏撑高
             Box(
@@ -316,7 +315,6 @@ internal fun PlaylistSmartTracksPage(
     type: SmartPlaylistType,
     playbackState: MusicPlaybackState,
 ) {
-    val scope = rememberCoroutineScope()
     val library = playbackState.libraryTracks
     // type 必须参与缓存键：结果为按 type 分叉的曲目集，而宽屏面板的右栏在同一个调用点切换类目，
     // 曲库与两张 id 表都没变时只按它们缓存，会把空类目（如收藏为 0）的结果留给下一个类目
@@ -333,7 +331,6 @@ internal fun PlaylistSmartTracksPage(
         tracks = tracks,
         source = PlaylistSource("smart:${type.name}", smartTypeLabel(type)),
         playbackState = playbackState,
-        scope = scope,
         trailingAction = {},
         onTrackLongClick = { track ->
             if (type == SmartPlaylistType.RECENT) removeTrack = track
@@ -368,7 +365,6 @@ internal fun PlaylistAlbumTracksPage(
         tracks = tracks,
         source = PlaylistSource(group.key, group.name),
         playbackState = playbackState,
-        scope = scope,
         trailingAction = {},
         onTrackLongClick = { editAlbumTrack = it },
     )
@@ -393,12 +389,12 @@ internal fun TracksContent(
     tracks: List<MusicTrack>,
     source: PlaylistSource?,
     playbackState: MusicPlaybackState,
-    scope: CoroutineScope,
     trailingAction: @Composable () -> Unit,
     onTrackLongClick: (MusicTrack) -> Unit,
     onReorder: ((List<MusicTrack>) -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val metadataEnricher = LocalMetadataEnricher.current
     val listState = rememberLazyListState()
     // 可排序的本地列表：拖拽实时重排，随数据源变化重置
     var orderedTracks by remember(tracks) { mutableStateOf(tracks) }
@@ -410,8 +406,8 @@ internal fun TracksContent(
         val moved = list.removeAt(from)
         list.add(to, moved)
         orderedTracks = list
-        // 与当前播放来源一致时实时同步播放队列顺序
-        if (playbackState.playlistSource?.key == source?.key) {
+        // 与当前过滤来源一致时实时同步播放结果顺序
+        if (playbackState.queueFilter?.key == source?.key) {
             playbackState.reorderPlaylist(list)
         }
         onReorder?.invoke(list)
@@ -425,7 +421,7 @@ internal fun TracksContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(
-                onClick = { playQueue(context, playbackState, scope, orderedTracks, 0, source) },
+                onClick = { playQueue(context, playbackState, metadataEnricher, orderedTracks, 0, source) },
                 enabled = orderedTracks.isNotEmpty(),
             ) {
                 Icon(
@@ -471,7 +467,7 @@ internal fun TracksContent(
                                 if (isActive) {
                                     togglePlayPause(playbackState)
                                 } else {
-                                    playQueue(context, playbackState, scope, orderedTracks, index, source)
+                                    playQueue(context, playbackState, metadataEnricher, orderedTracks, index, source)
                                 }
                             },
                             onLongClick = { onTrackLongClick(track) },
@@ -497,26 +493,26 @@ internal fun EmptyHint(text: String) {
     }
 }
 
-// 将歌单曲目设为当前播放队列并切入指定曲目，同时记录来源歌单
+// 把歌单曲目设为默认队列的过滤结果并切入指定曲目
 private fun playQueue(
     context: android.content.Context,
     state: MusicPlaybackState,
-    scope: CoroutineScope,
+    metadataEnricher: MetadataEnricher,
     tracks: List<MusicTrack>,
     startIndex: Int,
     source: PlaylistSource?,
 ) {
     if (tracks.isEmpty()) return
-    // 首次从默认库切到歌单时备份默认列表，供快捷切回
-    if (state.playlistSource == null && state.defaultPlaylistBackup == null) {
-        state.defaultPlaylistBackup = state.playlist
-    }
-    state.playlist = tracks
-    state.playlistSource = source
-    val index = startIndex.coerceIn(0, tracks.size - 1)
-    state.currentIndex = index
-    scope.launch { playTrackAt(context, state, index) }
-    state.persistPlaylist()
+    val startTrackId = tracks[startIndex.coerceIn(0, tracks.lastIndex)].id
+    switchToPlaylistQueue(
+        context = context,
+        state = state,
+        tracks = tracks,
+        source = source,
+        metadataEnricher = metadataEnricher,
+        startTrackId = startTrackId,
+        autoPlay = true,
+    )
 }
 
 // 专辑视图长按歌曲：编辑该歌曲的专辑元数据

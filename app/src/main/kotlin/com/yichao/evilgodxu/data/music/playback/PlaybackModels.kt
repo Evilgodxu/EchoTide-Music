@@ -12,7 +12,7 @@ data class AudioSignalPathFormat(
     val bitrate: Int?,
 )
 
-// 播放列表来源歌单：key 标识来源，name 为副标题显示名
+// 默认队列的过滤来源：key 标识来源，name 为副标题显示名
 data class PlaylistSource(
     val key: String,
     val name: String,

@@ -110,8 +110,8 @@ internal fun PlaylistSheet(
             )
         }
     }
-    val viewedKey = if (followsQueue) playbackState.playlistSource?.key else viewedSource?.key
-    val viewedName = if (followsQueue) playbackState.playlistSource?.name else viewedSource?.name
+    val viewedKey = if (followsQueue) playbackState.queueFilter?.key else viewedSource?.key
+    val viewedName = if (followsQueue) playbackState.queueFilter?.name else viewedSource?.name
     // 浏览的歌单已失效（被删除、专辑/艺术家分组消失）时回落到默认播放列表，避免面板停留在空列表；
     // 读盘完成前自定义歌单必然解析为空、扫描期间全量库可能暂时为空，都不作为失效依据
     LaunchedEffect(playlistStoreLoaded, playbackState.isScanning, followsQueue, viewedSource, tracks) {
@@ -240,8 +240,8 @@ internal fun PlaylistSheet(
             visible = showSwitcher,
             playbackState = playbackState,
             currentKey = viewedKey,
-            // 切换歌单即把所选歌单设为播放队列：当前曲目在新歌单中则按新歌单顺序继续播放，
-            // 不在则从新歌单首曲起播；面板同步改为展示所选歌单
+            // 切换歌单即把所选来源设为默认队列的过滤条件：当前曲目在过滤结果中则按过滤顺序继续播放，
+            // 不在则从过滤结果首曲起播；面板同步改为展示所选来源
             onSwitch = { source ->
                 switchPlaylistSource(
                     context = context,

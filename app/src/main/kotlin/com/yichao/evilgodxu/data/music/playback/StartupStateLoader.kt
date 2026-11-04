@@ -49,7 +49,7 @@ internal class StartupStateLoader(
         val cachedPlaylistRead = async(Dispatchers.IO) {
             playlistPersistence.readCachedPlaylist(context)
         }
-        // 恢复上次选中的歌单来源、排序规则与默认库备份，扫描刷新后保持选中与排序
+        // 恢复上次的过滤来源、排序规则与默认队列，扫描刷新后保持过滤与排序
         val playlistPrefsRead = async(Dispatchers.IO) {
             playlistPersistence.readSourceSettings(context)
         }
@@ -63,7 +63,8 @@ internal class StartupStateLoader(
 
         val cachedPlaylist = cachedPlaylistRead.await()
         val (savedSource, savedSortField, savedSortDescending) = playlistPrefsRead.await()
-        // 默认全量播放列表套用保存的排序规则；大库排序开销明显，放 IO 执行
+        // 无过滤时缓存列表即默认队列，套用保存的排序规则；大库排序开销明显，放 IO 执行。
+        // 有过滤时缓存列表是过滤结果，保持来源自身顺序
         val orderedCachedPlaylist = withContext(Dispatchers.IO) {
             if (savedSource == null) {
                 sortTracks(cachedPlaylist, savedSortField, savedSortDescending)

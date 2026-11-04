@@ -34,19 +34,28 @@ internal class PlaybackRestorer(private val state: MusicPlaybackState) {
         val savedPosition = savedState.position
         val savedMode = savedState.modeOrdinal
         withContext(Dispatchers.Main) {
-            // 无保存来源时处于全量播放列表
-            state.playlistSource = savedSource
+            // 无保存过滤来源时播放默认队列全集
+            state.queueFilter = savedSource
             state.applyRestoredViewedState(savedFollowsQueue, savedViewedSource)
             state.playlistSortField = savedSortField
             state.playlistSortDescending = savedSortDescending
-            state.defaultPlaylistBackup = cachedBackup.takeIf { it.isNotEmpty() }
-            // 收藏合并自当前歌单与默认库备份，避免切歌单后库内收藏丢失
-            state.likedIds = (cachedPlaylist + cachedBackup)
+            // 默认队列：无过滤时以缓存列表为准（已按保存规则排序）；有过滤时取单独保存的默认队列。
+            // 旧缓存缺失时退回过滤结果，待扫描刷新重建完整队列
+            state.defaultPlaylist = when {
+                savedSource == null -> orderedCachedPlaylist.ifEmpty { cachedBackup }
+                else -> cachedBackup.ifEmpty { orderedCachedPlaylist }
+            }
+            // 收藏合并自缓存列表与默认队列，避免切换过滤后库内收藏丢失
+            state.likedIds = (cachedPlaylist + state.defaultPlaylist)
                 .filter { it.isFavorite }
                 .map { it.id }
                 .toSet()
-            if (state.playlist.isEmpty() && cachedPlaylist.isNotEmpty()) {
-                state.playlist = orderedCachedPlaylist.map { it.copy(isFavorite = state.likedIds.contains(it.id)) }
+            if (state.playlist.isEmpty()) {
+                // 有过滤时缓存列表已是过滤结果；无过滤时直接采用默认队列
+                val restored = if (savedSource == null) state.defaultPlaylist else orderedCachedPlaylist
+                if (restored.isNotEmpty()) {
+                    state.playlist = restored.map { it.copy(isFavorite = state.likedIds.contains(it.id)) }
+                }
             }
             // 列表就绪即让首帧预置的当前曲目归位并补齐下标，此后界面不再需要二次定位
             adoptSeededCurrentTrack()

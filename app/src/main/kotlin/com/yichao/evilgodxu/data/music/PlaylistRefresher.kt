@@ -4,6 +4,7 @@ import android.content.Context
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
+import com.yichao.evilgodxu.data.playlist.resolveSourceTracks
 import com.yichao.evilgodxu.data.music.analysis.trackFormatCategory
 import com.yichao.evilgodxu.data.music.metadata.EmbeddedTagBackfill
 import com.yichao.evilgodxu.data.music.panel.normalizeTitle
@@ -53,7 +54,7 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
                     val mergedBase = (tracks + externalTracks).distinctBy { trackIdentityKey(context, it) }
                     // 缓存复用索引以全量库为准而非当前列表：停留在歌单时当前列表只是全量库子集，
                     // 仅按它建索引会丢掉库内其他歌曲的歌词缓存引用，导致切歌单后缓存污染
-                    val cachedLibrary = state.libraryTracks
+                    val cachedLibrary = state.defaultPlaylist
                     val previous = cachedLibrary.associateBy { normalizedAudioUri(it.audioUri) }
                     // 缓存下载后 audioUri 由 downloads 集合切换为 audio/media 集合，归一化后仍不一致；
                     // 按"标题 - 艺术家"兜底匹配旧列表，复用在线播放期间已保存的歌词缓存
@@ -79,30 +80,29 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
                                 lyricFailed = fallback.lyricFailed,
                             )
                         }
-                    val defaultOrdered = state.sortPlaylistForDefaultOrder(mergedTracks)
-                    // 默认全量播放列表套用用户排序规则；歌单来源保持其自身顺序
-                    if (state.playlistSource == null) state.sortByActiveRule(defaultOrdered) else defaultOrdered
+                    // 默认队列始终套用用户排序规则；来源自身顺序只在过滤结果中体现
+                    state.sortByActiveRule(state.sortPlaylistForDefaultOrder(mergedTracks))
                 }
                 withContext(Dispatchers.Main) {
-                    // 扫描前快照当前歌单选择，扫描后按新库重建并保持选中而非回到默认
-                    val selectedSource = state.playlistSource
+                    // 扫描前快照当前过滤条件，扫描后按新库重建并保持过滤而非回到默认
+                    val selectedFilter = state.queueFilter
                     val currentId = state.currentTrack?.id
+                    // 新的全量库始终成为默认队列；无过滤时同时成为播放结果
                     state.applySortedPlaylist(sortedLibrary)
-                    if (selectedSource != null) {
-                        val rebuilt = rebuildFromSource(context, state, sortedLibrary, selectedSource)
+                    if (selectedFilter != null) {
+                        val rebuilt = rebuildFromSource(context, state, sortedLibrary, selectedFilter)
                         if (rebuilt.isNotEmpty()) {
+                            state.queueFilter = selectedFilter
                             state.playlist = rebuilt
-                            state.playlistSource = selectedSource
                             val newIndex = rebuilt.indexOfFirst { it.id == currentId }
                             state.currentIndex = newIndex
                             if (newIndex >= 0) state.currentTrack = rebuilt[newIndex]
-                            state.defaultPlaylistBackup = sortedLibrary
                         } else {
-                            state.playlistSource = null
-                            state.defaultPlaylistBackup = null
+                            // 来源在扫描后的库中已不存在：清空过滤，回落到默认队列
+                            state.queueFilter = null
+                            state.playlist = sortedLibrary
+                            state.currentIndex = sortedLibrary.indexOfFirst { it.id == currentId }
                         }
-                    } else {
-                        state.defaultPlaylistBackup = null
                     }
                     state.persistPlaylist()
                     if (restoreCurrent) restoreCurrentTrack(state)
@@ -134,7 +134,8 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
         state.currentTrack = state.playlist[index]
     }
 
-    // 按来源 key 从全量库重建歌单，供扫描刷新后保持选中
+    // 按过滤来源从新全量库重建播放结果，供扫描刷新后保持过滤。
+    // 非格式来源统一走 resolveSourceTracks，与面板展示、快捷切换的口径一致
     private suspend fun rebuildFromSource(
         context: Context,
         state: MusicPlaybackState,
@@ -143,12 +144,6 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
     ): List<MusicTrack> {
         playlistStore.awaitLoaded(context)
         return when {
-            source.key == "smart:RECENT" -> {
-                val byId = library.associateBy { it.id }
-                state.recentPlayedIds.mapNotNull { id -> byId[id] }
-            }
-            source.key == "smart:FAVORITE" ->
-                library.filter { it.id in state.likedIds }
             source.key.startsWith("smart:FORMAT:") -> {
                 val format = source.key.removePrefix("smart:FORMAT:")
                 // 格式类目逐曲判定在 IO 执行，避免占用主线程
@@ -156,22 +151,13 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
                     library.filter { trackFormatCategory(context, it) == format }
                 }
             }
-            source.key.startsWith("custom:") -> {
-                val playlistId = source.key.removePrefix("custom:").toLongOrNull()
-                    ?: return emptyList()
-                val playlist = playlistStore.playlists.find { it.id == playlistId }
-                    ?: return emptyList()
-                // 建一次 id 索引再查表：逐个线性扫描全库会退化为 O(歌单长度 × 库大小)
-                val byId = library.associateBy { it.id }
-                playlist.trackIds.mapNotNull { trackId -> byId[trackId] }
-            }
-            source.key.startsWith("album:") -> {
-                val albumId = source.key.removePrefix("album:").toLongOrNull()
-                library.filter { albumId != null && it.albumId == albumId }
-            }
-            source.key.startsWith("artist:") ->
-                library.filter { it.artist == source.key.removePrefix("artist:") }
-            else -> emptyList()
+            else -> resolveSourceTracks(
+                all = library,
+                playlists = playlistStore.playlists,
+                likedIds = state.likedIds,
+                recentPlayedIds = state.recentPlayedIds,
+                source = source,
+            )
         }
     }
 }

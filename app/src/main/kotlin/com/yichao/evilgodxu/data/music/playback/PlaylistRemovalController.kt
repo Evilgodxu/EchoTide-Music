@@ -76,17 +76,17 @@ internal class PlaylistRemovalController(private val state: MusicPlaybackState) 
     }
 
     /**
-     * 歌词缓存的引用集：全量库 ∪ 当前播放列表。全量库覆盖本地曲目，当前列表兜底在线曲目
-     * （在线曲目只存在于当前列表，不在全量库备份）。
+     * 歌词缓存的引用集：默认队列 ∪ 当前过滤结果。默认队列覆盖本地曲目，过滤结果兜底在线曲目
+     * （在线曲目只存在于过滤结果，不在默认队列）。
      *
-     * 返回 null 表示此刻判不出全量引用 —— 停留在自定义歌单且全量库备份缺失时，当前列表只是歌单子集，
+     * 返回 null 表示此刻判不出全量引用 —— 停留在过滤来源且默认队列尚未建立时，当前结果只是子集，
      * 此时任何缓存都「看似无引用」，调用方必须整体跳过回收，否则会删掉其他曲目仍在用的共享缓存。
      *
      * @param excludeTrackId 从引用集剔出的曲目：删曲时传入待删曲目，其歌词缓存随之成为可回收的孤儿
      */
     fun lyricCacheReferences(excludeTrackId: Long? = null): Set<String>? {
-        if (state.playlistSource != null && state.defaultPlaylistBackup == null) return null
-        return (state.defaultPlaylistBackup.orEmpty() + state.playlist)
+        if (state.queueFilter != null && state.defaultPlaylist.isEmpty()) return null
+        return (state.defaultPlaylist + state.playlist)
             .filterNot { it.id == excludeTrackId }
             .distinctBy { it.id }
             .map { it.lyricCachePath }
@@ -111,7 +111,7 @@ internal class PlaylistRemovalController(private val state: MusicPlaybackState) 
             )
             return
         }
-        state.defaultPlaylistBackup = state.defaultPlaylistBackup?.filterNot { it.id == track.id }
+        state.defaultPlaylist = state.defaultPlaylist.filterNot { it.id == track.id }
         remove(track.id, advanceToNext = true)
         state.likedIds = state.likedIds - track.id
         state.removeFromRecentPlayed(track.id)

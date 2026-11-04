@@ -9,7 +9,7 @@ import kotlinx.coroutines.withContext
 /**
  * 播放队列的编辑操作：排序、收藏、重排、元数据替换与曲目 ID 迁移。
  *
- * 只负责队列与全量库备份的一致性，不参与播放推进；改完由播放侧按需重新装载。
+ * 只负责过滤结果与默认队列的一致性，不参与播放推进；改完由播放侧按需重新装载。
  */
 internal class PlaylistEditor(private val state: MusicPlaybackState) {
 
@@ -28,28 +28,30 @@ internal class PlaylistEditor(private val state: MusicPlaybackState) {
         return sortTracks(tracks, state.playlistSortField, state.playlistSortDescending)
     }
 
-    // 应用已排好序的播放列表，并保留当前曲目索引
+    // 应用已排好序的默认队列；无过滤时过滤结果与默认队列同源，并保留当前曲目索引
     fun applySorted(sorted: List<MusicTrack>) {
+        state.defaultPlaylist = sorted
+        if (state.queueFilter != null) return
         val currentId = state.currentTrack?.id
         state.playlist = sorted
         state.currentIndex = sorted.indexOfFirst { it.id == currentId }.coerceAtLeast(-1)
     }
 
-    // 设置排序规则：仅默认全量播放列表套用重排（自定义/智能歌单保持自身顺序）；
+    // 设置排序规则：仅默认队列套用重排（过滤来源保持自身顺序）；
     // 重排放后台线程执行，避免大库拼音排序占用主线程
     fun setSort(field: PlaylistSortField, descending: Boolean) {
         state.playlistSortField = field
         state.playlistSortDescending = descending
-        if (state.playlistSource == null) {
-            val snapshot = state.playlist
+        if (state.queueFilter == null) {
+            val snapshot = state.defaultPlaylist
             val revision = state.playlistRevision
-            val source = state.playlistSource
+            val filter = state.queueFilter
             state.playbackScope.launch {
                 val ordered = withContext(Dispatchers.Default) { sortTracks(snapshot, field, descending) }
-                // 排序期间列表内容、歌单来源或排序规则已变：这份结果只代表旧快照，
+                // 排序期间队列内容、过滤来源或排序规则已变：这份结果只代表旧快照，
                 // 应用它会把新增/删除/改名的曲目一起回滚
                 if (state.playlistRevision != revision ||
-                    state.playlistSource != source ||
+                    state.queueFilter != filter ||
                     state.playlistSortField != field ||
                     state.playlistSortDescending != descending
                 ) {
@@ -64,7 +66,7 @@ internal class PlaylistEditor(private val state: MusicPlaybackState) {
     }
 
     // 切换指定曲目的收藏状态：仅就地更新收藏标记，不改变列表顺序。
-    // 全量库备份须一并更新：面板浏览非播放队列的歌单时曲目取自备份，只改队列会让收藏图标不刷新。
+    // 默认队列须一并更新：过滤结果只是默认队列的子集，只改队列会让其它来源的收藏图标不刷新。
     fun toggleFavorite(trackId: Long) {
         val newLiked = if (state.likedIds.contains(trackId)) {
             state.likedIds - trackId
@@ -76,7 +78,7 @@ internal class PlaylistEditor(private val state: MusicPlaybackState) {
             list.map { if (it.id == trackId) it.copy(isFavorite = trackId in newLiked) else it }
         }
         state.playlist = replace(state.playlist)
-        state.defaultPlaylistBackup = state.defaultPlaylistBackup?.let(replace)
+        state.defaultPlaylist = replace(state.defaultPlaylist)
         state.persistPlaylist()
     }
 
@@ -90,16 +92,16 @@ internal class PlaylistEditor(private val state: MusicPlaybackState) {
         state.persistPlaylist()
     }
 
-    // 更新播放列表中指定曲目的元数据并持久化（列表、当前曲目与全量库备份同步替换）。
-    // 备份必须一并替换：扫描刷新的缓存复用索引取自 libraryTracks（getter 优先返回备份），
-    // 备份落后会在下次刷新时把旧字段（歌词等）搬回列表，抹掉刚写入的结果
+    // 更新播放列表中指定曲目的元数据并持久化（过滤结果、当前曲目与默认队列同步替换）。
+    // 默认队列必须一并替换：扫描刷新的缓存复用索引取自 libraryTracks，
+    // 默认队列落后会在下次刷新时把旧字段（歌词等）搬回列表，抹掉刚写入的结果
     fun updateTrack(updated: MusicTrack) {
         val replace: (List<MusicTrack>) -> List<MusicTrack> = { list ->
             list.map { if (it.id == updated.id) updated.copy(isFavorite = state.likedIds.contains(it.id)) else it }
         }
         state.playlist = replace(state.playlist)
         state.currentTrack = state.currentTrack?.let { if (it.id == updated.id) updated else it }
-        state.defaultPlaylistBackup = state.defaultPlaylistBackup?.let(replace)
+        state.defaultPlaylist = replace(state.defaultPlaylist)
         state.persistPlaylist()
         // 通知栏与蓝牙读的是播放器里的 MediaItem：只改状态层列表不会刷新当前项，
         // 故把正在播放的同名项替换为最新标题/歌手/专辑；非当前项随下次装载自然更新
@@ -124,7 +126,7 @@ internal class PlaylistEditor(private val state: MusicPlaybackState) {
     }
 
     // 批量更新曲目元数据（封面等），一次触发重组；
-    // 同时回写全量库备份，保证切歌单后其他歌单的歌曲引用到最新封面。
+    // 同时回写默认队列，保证切换过滤来源后其他来源的歌曲引用到最新封面。
     // persist=false 时只更新内存态，由调用方按节流策略统一落盘（渐进补全用，
     // 使列表能逐条刷新而不必为每条回写整份播放列表）
     fun batchUpdate(updates: List<MusicTrack>, persist: Boolean = true) {
@@ -137,7 +139,7 @@ internal class PlaylistEditor(private val state: MusicPlaybackState) {
         }
         state.playlist = applyUpdates(state.playlist)
         state.currentTrack = state.currentTrack?.let { updateMap[it.id] ?: it }
-        state.defaultPlaylistBackup = state.defaultPlaylistBackup?.let(applyUpdates)
+        state.defaultPlaylist = applyUpdates(state.defaultPlaylist)
         if (persist) state.persistPlaylist()
     }
 }
