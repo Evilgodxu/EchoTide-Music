@@ -70,14 +70,11 @@ class MusicPlaybackState(
     private val playlistStore: PlaylistStore,
 ) {
 
-    // 常听收录窗口：统计 3 天内完整播放次数不少于 2 次的歌曲
     companion object {
         // 定时关闭时长（分钟）：单次调节步长、下限与上限
         const val TIMER_STEP_MINUTES = 5
         const val TIMER_MIN_MINUTES = 5
         const val TIMER_MAX_MINUTES = 999
-        private const val RECENT_WINDOW_DAYS = 3
-        private const val RECENT_MIN_PLAYS = 2
         // 播放期间周期性持久化间隔：保证冷启动/异常退出也能恢复当前曲目与进度
         private const val STATE_PERSIST_INTERVAL_MS = 3000L
         // 常规进度轮询周期：位置只喂进度条与持久化，200ms 足够
@@ -136,7 +133,6 @@ class MusicPlaybackState(
     private val viewedSourceNamePref = "music_viewed_source_name"
     private val playlistSortFieldPref = "music_playlist_sort_field"
     private val playlistSortDescPref = "music_playlist_sort_descending"
-    private val searchHistoryKey = "music_search_history"
     // 待落盘的播放状态快照：每次调用覆盖为最新值，写入任务按需消费，合并连续写入
     private var pendingStateSnapshot: SavedPlaybackState? = null
     // 播放状态写入任务：在途时新调用只更新快照，由在途循环以最新快照收尾，
@@ -468,7 +464,7 @@ class MusicPlaybackState(
     var searchQuery by mutableStateOf("")
     var searchSource by mutableStateOf(MusicSearchSource.NETEASE)
     var searchResults by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
-    var searchHistory by mutableStateOf<List<String>>(emptyList())
+    val searchHistory: List<String> get() = searchHistoryStore.entries
     var isSearching by mutableStateOf(false)
     // 当前搜索协程句柄：新搜索发起时取消上一次，避免过期响应覆盖新查询结果
     var searchJob: Job? = null
@@ -851,11 +847,14 @@ class MusicPlaybackState(
 
     var likedIds by mutableStateOf<Set<Long>>(emptySet())
 
-    // 常听：3 天内完整播放次数不少于 2 次的歌曲，按最近一次播放时间倒序
-    private var recentPlayEvents by mutableStateOf<List<PlayEvent>>(emptyList())
-    private val recentPlayedKey = "music_recent_played_events"
-    private val recentWindowMs: Long
-        get() = RECENT_WINDOW_DAYS * 24L * 60 * 60 * 1000
+    private val recentPlayedStore = RecentPlayedStore(
+        scope = { playbackScope },
+        context = { appContext },
+    )
+    private val searchHistoryStore = SearchHistoryStore(
+        scope = { playbackScope },
+        context = { appContext },
+    )
 
     // 单曲循环回卷检测状态：追踪上次 tick 的播放位置，位置大幅回退即一次完整播放
     private var lastTickTrackId: Long? = null
@@ -868,16 +867,7 @@ class MusicPlaybackState(
     private var lastMonoMediaId: Long? = null
     private var lastMonoPosition = 0L
 
-    val recentPlayedIds: List<Long>
-        get() {
-            val cutoff = System.currentTimeMillis() - recentWindowMs
-            val window = recentPlayEvents.filter { it.timestamp >= cutoff }
-            return window.groupBy { it.trackId }
-                .filterValues { it.size >= RECENT_MIN_PLAYS }
-                .entries
-                .sortedByDescending { it.value.maxOf { e -> e.timestamp } }
-                .map { it.key }
-        }
+    val recentPlayedIds: List<Long> get() = recentPlayedStore.ids
 
     // 当前播放列表来源歌单（null = 默认全量播放列表）
     var playlistSource by mutableStateOf<PlaylistSource?>(null)
@@ -911,31 +901,14 @@ class MusicPlaybackState(
         persistPlaylist()
     }
 
-    // 记录一次完整播放：追加带时间戳的播放记录，并清理超出 3 天窗口的旧记录
+    // 记录一次完整播放：追加带时间戳的播放记录，并清理超出窗口的旧记录
     fun recordPlayed(trackId: Long) {
-        val now = System.currentTimeMillis()
-        recentPlayEvents = listOf(PlayEvent(trackId, now)) +
-            recentPlayEvents.filter { it.timestamp >= now - recentWindowMs }
-        persistRecentPlayed()
+        recentPlayedStore.record(trackId)
     }
 
     // 从常听手动移除：清除该曲目的播放记录，期间不再自动收录
     fun removeFromRecentPlayed(trackId: Long) {
-        recentPlayEvents = recentPlayEvents.filterNot { it.trackId == trackId }
-        persistRecentPlayed()
-    }
-
-    private fun persistRecentPlayed() {
-        val context = appContext ?: return
-        playbackScope.launch(Dispatchers.IO) {
-            context.getSharedPreferences(RECENT_PLAYED_STORE.name, Context.MODE_PRIVATE)
-                .edit(commit = true) {
-                    putString(
-                        recentPlayedKey,
-                        recentPlayEvents.joinToString(",") { "${it.trackId}:${it.timestamp}" },
-                    )
-                }
-        }
+        recentPlayedStore.remove(trackId)
     }
 
     // 下一首播放插队队列：自然播完后依次播放队列曲目，再接续原播放位置
@@ -1109,24 +1082,10 @@ class MusicPlaybackState(
         // 排序依赖读出的缓存与排序规则，故放在并发收尾处单独执行
         val restored = coroutineScope {
             val searchHistoryRead = async(Dispatchers.IO) {
-                context.getSharedPreferences(SEARCH_HISTORY_STORE.name, Context.MODE_PRIVATE)
-                    .getString(searchHistoryKey, "")
-                    ?.split("\n")
-                    ?.filter(String::isNotBlank)
-                    .orEmpty()
+                searchHistoryStore.read(context)
             }
             val recentPlayRead = async(Dispatchers.IO) {
-                context.getSharedPreferences(RECENT_PLAYED_STORE.name, Context.MODE_PRIVATE)
-                    .getString(recentPlayedKey, "")
-                    ?.split(",")
-                    ?.mapNotNull { token ->
-                        val idx = token.lastIndexOf(':')
-                        if (idx <= 0) return@mapNotNull null
-                        val id = token.substring(0, idx).toLongOrNull() ?: return@mapNotNull null
-                        val ts = token.substring(idx + 1).toLongOrNull() ?: return@mapNotNull null
-                        PlayEvent(id, ts)
-                    }
-                    .orEmpty()
+                recentPlayedStore.read(context)
             }
             val preferencesRead = async(Dispatchers.IO) {
                 context.settingsDataStore.data.first()
@@ -1183,8 +1142,8 @@ class MusicPlaybackState(
                 savedViewedSource = savedViewedSource,
             )
         }
-        searchHistory = restored.searchHistory
-        recentPlayEvents = restored.recentPlayEvents
+        searchHistoryStore.replaceAll(restored.searchHistory)
+        recentPlayedStore.replaceAll(restored.recentPlayEvents)
         val preferences = restored.preferences
         val cachedPlaylist = restored.cachedPlaylist
         val orderedCachedPlaylist = restored.orderedPlaylist
@@ -1365,31 +1324,15 @@ class MusicPlaybackState(
     }
 
     fun addSearchHistory(query: String) {
-        val normalized = query.trim()
-        if (normalized.isBlank()) return
-        searchHistory = listOf(normalized) + searchHistory.filterNot { it == normalized }
-        searchHistory = searchHistory.take(10)
-        persistSearchHistory()
+        searchHistoryStore.add(query)
     }
 
     fun removeSearchHistory(query: String) {
-        searchHistory = searchHistory.filterNot { it == query }
-        persistSearchHistory()
+        searchHistoryStore.remove(query)
     }
 
     fun clearSearchHistory() {
-        searchHistory = emptyList()
-        persistSearchHistory()
-    }
-
-    private fun persistSearchHistory() {
-        val context = appContext ?: return
-        playbackScope.launch(Dispatchers.IO) {
-            context.getSharedPreferences(SEARCH_HISTORY_STORE.name, Context.MODE_PRIVATE)
-                .edit(commit = true) {
-                    putString(searchHistoryKey, searchHistory.joinToString("\n"))
-                }
-        }
+        searchHistoryStore.clear()
     }
 
     var pendingSavedUri: String? = null
@@ -1962,12 +1905,7 @@ class MusicPlaybackState(
     suspend fun migrateTrackId(context: Context, oldId: Long, newId: Long) {
         if (oldId == newId) return
         if (oldId in likedIds) likedIds = (likedIds - oldId) + newId
-        if (recentPlayEvents.any { it.trackId == oldId }) {
-            recentPlayEvents = recentPlayEvents.map {
-                if (it.trackId == oldId) it.copy(trackId = newId) else it
-            }
-            persistRecentPlayed()
-        }
+        recentPlayedStore.migrateTrackId(oldId, newId)
         withContext(Dispatchers.IO) {
             playlistStore.awaitLoaded(context)
             playlistStore.replaceTrackId(context, oldId, newId)
