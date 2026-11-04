@@ -241,16 +241,18 @@ internal fun PlaylistSheet(
             playbackState = playbackState,
             currentKey = viewedKey,
             // 切换歌单即把所选来源设为默认队列的过滤条件：当前曲目在过滤结果中则按过滤顺序继续播放，
-            // 不在则从过滤结果首曲起播；面板同步改为展示所选来源
+            // 不在则从过滤结果首曲起播。
+            // 过滤已生效时面板回到跟随队列——展示的就是过滤结果，切回默认时排序按钮也随之恢复可用；
+            // 来源为空（播放队列保持原样）才切到浏览态展示该来源
             onSwitch = { source ->
-                switchPlaylistSource(
+                val applied = switchPlaylistSource(
                     context = context,
                     state = playbackState,
                     source = source,
                     playlists = playlistStore.playlists,
                     metadataEnricher = metadataEnricher,
                 )
-                playbackState.viewPlaylist(source)
+                if (applied) playbackState.followPlaybackQueue() else playbackState.viewPlaylist(source)
             },
             onDismiss = { showSwitcher = false },
         )

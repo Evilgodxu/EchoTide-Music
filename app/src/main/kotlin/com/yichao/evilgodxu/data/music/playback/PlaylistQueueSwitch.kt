@@ -40,9 +40,9 @@ internal fun switchPlaylistSource(
     source: PlaylistSource?,
     playlists: List<Playlist>,
     metadataEnricher: MetadataEnricher,
-) {
+): Boolean {
     // 已是当前过滤来源：重复应用只会重建一份等价结果
-    if (source?.key == state.queueFilter?.key) return
+    if (source?.key == state.queueFilter?.key) return true
     // 过滤结果始终从默认队列解析，默认队列不因来源切换而改变
     val library = state.defaultPlaylist
     val tracks = if (source == null) {
@@ -51,7 +51,7 @@ internal fun switchPlaylistSource(
         resolveSourceTracks(library, playlists, state.likedIds, state.recentPlayedIds, source)
     }
     // 空来源无曲可播：保持原播放队列，仅由面板切到该来源展示
-    if (tracks.isEmpty()) return
+    if (tracks.isEmpty()) return false
     val currentId = state.currentTrack?.id
     // 当前曲目是否仍由播放器出声（含缓冲）：出声期间装载过滤结果会重建音频源打断播放
     val currentPlaying = currentId != null && state.isPlayerActive &&
@@ -68,7 +68,7 @@ internal fun switchPlaylistSource(
             startTrackId = currentId,
             autoPlay = currentId == null,
         )
-        return
+        return true
     }
     // 出声中：只换状态层过滤结果，播放器留待当前曲目播完再接续，当前曲目下标同步为过滤结果中的位置
     val ordered = applyPlaylistQueue(state, tracks, source)
@@ -78,6 +78,7 @@ internal fun switchPlaylistSource(
     state.clearPlayNextQueue()
     state.persistPlaylist()
     state.playbackScope.launch { metadataEnricher.enrichAndCleanup(context, state) }
+    return true
 }
 
 // 把过滤来源与过滤结果写入状态层：无过滤时结果即默认队列（按用户排序规则重排），

@@ -356,17 +356,23 @@ class MusicPlaybackState(
     val libraryTracks: List<MusicTrack>
         get() = defaultPlaylist
 
-    // 面板切换为浏览指定歌单：只改变列表展示内容，播放队列与播放状态保持不变
+    // 面板切换为浏览指定歌单：只改变列表展示内容，播放队列与播放状态保持不变。
+    // 无过滤时「浏览默认」与「跟随队列」展示同一份内容，统一收口到跟随队列，
+    // 避免停留在浏览态导致排序按钮无谓置灰
     fun viewPlaylist(source: PlaylistSource?) {
+        if (source == null && queueFilter == null) {
+            followPlaybackQueue()
+            return
+        }
         viewedFollowsQueue = false
         viewedSource = source
         persistPlaylist()
     }
 
-    // 恢复路径写入面板浏览态：跟随播放队列时忽略来源
+    // 恢复路径写入面板浏览态：跟随播放队列时忽略来源；无过滤时浏览默认与跟随队列等价
     internal fun applyRestoredViewedState(followsQueue: Boolean, source: PlaylistSource?) {
-        viewedFollowsQueue = followsQueue
-        viewedSource = if (followsQueue) null else source
+        viewedFollowsQueue = followsQueue || (source == null && queueFilter == null)
+        viewedSource = if (viewedFollowsQueue) null else source
     }
 
     fun followPlaybackQueue() {
