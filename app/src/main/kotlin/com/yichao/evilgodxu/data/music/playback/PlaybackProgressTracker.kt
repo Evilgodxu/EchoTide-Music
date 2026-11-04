@@ -27,11 +27,10 @@ internal class PlaybackProgressTracker(
     private val currentTrack: () -> MusicTrack?,
     private val isPrepared: () -> Boolean,
     private val isPlaying: () -> Boolean,
-    private val isHighlightClipActive: () -> Boolean,
     private val onPlayingChanged: (Boolean) -> Unit,
     private val onPeriodicPersist: () -> Unit,
-    private val onPlaybackCompleted: (trackId: Long) -> Unit,
-    private val onTick: () -> Unit,
+    private val highlight: HighlightModeController,
+    private val recentPlayedStore: RecentPlayedStore,
 ) {
 
     private companion object {
@@ -115,10 +114,10 @@ internal class PlaybackProgressTracker(
             while (isActive) {
                 if (isPlaying()) {
                     updatePosition()
-                    onTick()
+                    highlight.syncFadeVolume()
                 }
                 // 片段播放期间步进要细：首尾的音量斜坡靠它逐格推进
-                delay(if (isHighlightClipActive()) HIGHLIGHT_TICK_MS else POSITION_TICK_MS)
+                delay(if (highlight.isClipActive()) HIGHLIGHT_TICK_MS else POSITION_TICK_MS)
             }
         }
     }
@@ -231,6 +230,6 @@ internal class PlaybackProgressTracker(
         lastAutoCountAtMs = now
         // 回卷复位进度单调基准，让进度条回到起点
         lastMonoMediaId = null
-        onPlaybackCompleted(track.id)
+        recentPlayedStore.record(track.id)
     }
 }

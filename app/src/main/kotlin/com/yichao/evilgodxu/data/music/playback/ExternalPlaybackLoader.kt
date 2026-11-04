@@ -152,7 +152,7 @@ class ExternalPlaybackLoader(
             }
             withContext(Dispatchers.Main) {
                 playbackState.syncPlaybackState()
-                playbackState.updatePosition()
+                playbackState.progress.updatePosition()
             }
             registerMediaObserver()
         }

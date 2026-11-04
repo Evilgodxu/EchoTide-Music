@@ -187,12 +187,6 @@ class MusicPlaybackState(
     val cacheInProgressIds: MutableSet<Long> =
         java.util.Collections.synchronizedSet(mutableSetOf())
 
-    // 自动清理未在播放的纯在线流曲目
-    fun cleanupIdleOnlineTracks() {
-        playlistRemoval.cleanupIdleOnlineTracks()
-    }
-
-    // 删除的是当前曲目时自动递补下一首
     fun removeTrack(trackId: Long, advanceToNext: Boolean = false) {
         playlistRemoval.remove(trackId, advanceToNext)
     }
@@ -280,12 +274,11 @@ class MusicPlaybackState(
         currentTrack = { currentTrack },
         playlist = { playlist },
         libraryTracks = { libraryTracks },
-        onColorsReady = { uri, colors -> backgroundColors.saveFor(uri, colors) },
-        onInvalidatePersistedColors = { backgroundColors.clear() },
+        colorMemory = backgroundColors,
     )
     // 封面写入成功后自增，通知封面组件强制重载最新封面
     var coverRevision by artworkCache::coverRevision
-    private val highlight = HighlightModeController(
+    internal val highlight = HighlightModeController(
         scope = { playbackScope },
         context = { appContext },
         playMode = { playMode },
@@ -319,11 +312,10 @@ class MusicPlaybackState(
         currentTrack = { currentTrack },
         isPrepared = { isPrepared },
         isPlaying = { isPlaying },
-        isHighlightClipActive = { highlight.isClipActive() },
         onPlayingChanged = { isPlaying = it },
         onPeriodicPersist = { persistState() },
-        onPlaybackCompleted = { recordPlayed(it) },
-        onTick = { highlight.syncFadeVolume() },
+        highlight = highlight,
+        recentPlayedStore = recentPlayedStore,
     )
 
     // 单曲循环回卷检测、进度单调与周期持久化节流由 PlaybackProgressTracker 持有
@@ -427,18 +419,9 @@ class MusicPlaybackState(
     private val playbackJob = SupervisorJob()
     val playbackScope = CoroutineScope(playbackJob + Dispatchers.Main)
 
-    // 全局进度刷新由 PlaybackProgressTracker 承担，此处按原方法名转发
-    fun ensurePositionTicker() {
-        progress.ensureTicker()
-    }
-
-    fun stopPositionTicker() {
-        progress.stopTicker()
-    }
-
     // ===== 歌词进度时间轴 =====
-    // 快照由 LyricTimeline 持有；此处按原方法名转发，面板侧无需感知拆分
-    private val lyricTimeline = LyricTimeline()
+    // 快照由 LyricTimeline 持有；此处只保留界面需要的读写入口
+    internal val lyricTimeline = LyricTimeline()
 
     fun seedLyricPosition(trackId: Long?): Long {
         // 取绝对时间：心动模式下控制器回报的是片段内进度，换算回整曲时间后歌词才对得上
@@ -449,11 +432,6 @@ class MusicPlaybackState(
     fun recordLyricPosition(trackId: Long?, positionMs: Long) {
         lyricTimeline.record(trackId, positionMs)
     }
-
-    internal fun invalidateLyricTimeline() {
-        lyricTimeline.invalidate()
-    }
-
     // 防止手动切歌与自动切歌并发导致状态错乱
     val playTrackMutex = Mutex()
 
@@ -523,27 +501,9 @@ class MusicPlaybackState(
 
     var pendingSavedUri: String? = null
     var pendingResumePosition: Long = 0L
-    // 首页背景取色结果由 BackgroundColorMemory 持有与落盘；此处只转发查询入口
-    // 仅当曲目与取色结果同源时返回，避免运行时切歌后旧曲目的恢复色闪帧
+    // 首页背景取色结果由 BackgroundColorMemory 持有与落盘；此处只保留界面查询入口
     fun restoredBackgroundColorFor(track: MusicTrack?): Color? =
         backgroundColors.restoredColorFor(track)?.representative
-
-    // 无损升级替换音频文件时 URI 变化但封面/背景不变：把已持久化的取色结果改指到新 URI
-    fun remapBackgroundColorUri(fromUri: String, toUri: String) {
-        backgroundColors.remapUri(fromUri, toUri)
-    }
-
-    // 首页背景真实取色成功后持久化，供下次播放直接复用
-    internal fun saveBackgroundColors(colors: CoverBackgroundColors) {
-        backgroundColors.saveForCurrentTrack(colors)
-    }
-
-
-
-    // 扫描完成后的封面预热由 ArtworkCacheController 承担，详见其实现说明
-    fun warmUpArtwork(context: Context) {
-        artworkCache.warmUpArtwork(context)
-    }
 
     // 续播锚点：playTrackAt 以保存位置起播时记录该目标，供异步派发的 onMediaItemTransition 保留已还原进度。
     // -1 表示无续播锚点（真实切歌/重播），过渡回调按常规复位进度到起点。
@@ -642,7 +602,7 @@ class MusicPlaybackState(
     }
 
     fun softRelease() {
-        stopPositionTicker()
+        progress.stopTicker()
         persistState()
         currentTrack?.let { track ->
             pendingSavedUri = track.audioUri
@@ -665,7 +625,7 @@ class MusicPlaybackState(
     }
 
     fun release() {
-        stopPositionTicker()
+        progress.stopTicker()
         persistState()
         currentTrack?.let { track ->
             pendingSavedUri = track.audioUri
@@ -686,7 +646,7 @@ class MusicPlaybackState(
         player = null
         // 进度归零：歌词时间轴一并作废，避免下次重建时按释放前的旧进度起步
         progress.reset()
-        invalidateLyricTimeline()
+        lyricTimeline.invalidate()
         isPlaying = false
         isPrepared = false
         errorMsg = null
@@ -804,10 +764,6 @@ class MusicPlaybackState(
         progress.syncFromController(isActive)
     }
 
-    fun updatePosition() {
-        progress.updatePosition()
-    }
-
     internal fun calculateIndex(direction: Int, repeatOne: Boolean, from: Int = currentIndex): Int {
         if (playlist.isEmpty()) return -1
         // 当前曲目不在队列内（如切换歌单后正在播放的曲目已不属于新歌单）：
@@ -869,15 +825,6 @@ class MusicPlaybackState(
         // 表可能尚未扫完（首次启用、曲库刚变化）：后台补齐，已扫到的先按现有结果播放
         if (mode == PlayMode.Highlight) highlight.ensureScan(context)
     }
-
-    fun onImmersiveOutputChanged() {
-        highlight.onImmersiveOutputChanged()
-    }
-
-    // 后台扫描全库副歌片段由 HighlightModeController 承担，详见其实现说明
-    fun ensureHighlightScan(context: Context) {
-        highlight.ensureScan(context)
-    }
     @JvmName("updateSearchMode")
     fun setSearchMode(enabled: Boolean) { isSearchMode = enabled }
     @JvmName("updateSearchResultsVisible")
@@ -910,19 +857,12 @@ class MusicPlaybackState(
     fun setCurrentPosition(position: Long) {
         // 拖动是真实跳变：复位单调基准并改写位置，歌词时间轴一并作废
         progress.seekTo(position)
-        invalidateLyricTimeline()
+        lyricTimeline.invalidate()
     }
 
     // 本地曲库变化后的补扫策略由 HighlightModeController 承担
     internal fun onLibraryChanged() {
         highlight.onLibraryChanged()
-    }
-
-    /**
-     * 心动模式下曲目落定后的收尾由 HighlightModeController 承担。
-     */
-    internal fun settleHighlightOnTrackChange() {
-        highlight.onTrackSettled()
     }
 }
 

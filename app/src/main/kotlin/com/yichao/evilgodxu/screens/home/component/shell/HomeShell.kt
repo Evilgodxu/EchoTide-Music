@@ -34,7 +34,7 @@ internal fun HomeShell(
             // 整屏换色与换图同一方向：类型取自曲目变更入口的记录
             switchKind = playbackState.lastSwitchKind,
             onBackgroundColor = { panelState.backgroundColor = it },
-            onExtractedColors = { colors -> playbackState.saveBackgroundColors(colors) },
+            onExtractedColors = { colors -> playbackState.backgroundColors.saveForCurrentTrack(colors) },
         )
         Scaffold(
             modifier = Modifier.fillMaxSize(),

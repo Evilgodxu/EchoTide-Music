@@ -17,7 +17,7 @@ internal fun handleMediaItemTransition(
     reason: Int,
 ) {
     // 换曲（含单曲循环重播同一曲目）后上一曲的歌词进度不再适用
-    state.invalidateLyricTimeline()
+    state.lyricTimeline.invalidate()
     // 曲目自然播完即计一次完整播放，作为常听收录依据：
     // AUTO=自动续播/单曲结束切下一首；REPEAT=单曲循环重播当前曲目。
     // 手动切歌(SEEK)、列表变更(PLAYLIST_CHANGED)非自然结束，不计入。
@@ -126,16 +126,16 @@ internal fun handleMediaItemTransition(
     }
     // 切换曲目后清理未在播放的在线歌曲，避免在线播放曲目在播放列表中常驻；
     // 元数据补全只在缓存完成时执行一次，切歌不再触发，避免重复写封面并触发系统级文件扫描
-    state.cleanupIdleOnlineTracks()
+    state.playlistRemoval.cleanupIdleOnlineTracks()
     // 再次从控制器校正当前曲目，确保 UI 与真实音频一致（在线曲目切换时尤其关键）
     state.syncPlaybackState()
     // 心动模式：当前曲目定位不到副歌就跳过，否则为下一首预备片段
-    state.settleHighlightOnTrackChange()
+    state.highlight.onTrackSettled()
 }
 
 internal fun handlePositionDiscontinuity(state: MusicPlaybackState, reason: Int) {
     // 位置不连续即真实跳变：作废歌词时间轴快照，改由新的播放位置重新起步
-    state.invalidateLyricTimeline()
+    state.lyricTimeline.invalidate()
     // 手动拖动进度会触发 SEEK 类位置不连续：重置回卷检测基准，
     // 避免把"拖回开头"误判为单曲循环完整播放
     if (reason == Player.DISCONTINUITY_REASON_SEEK) {
@@ -148,7 +148,7 @@ internal fun handlePlaybackStateChanged(state: MusicPlaybackState, playbackState
     when (playbackState) {
         Player.STATE_READY -> {
             state.isPrepared = true
-            state.ensurePositionTicker()
+            state.progress.ensureTicker()
             state.searchPanel.onPlaybackReady()
             state.syncPlaybackState()
         }
@@ -198,7 +198,7 @@ internal fun handlePlayerError(state: MusicPlaybackState) {
     state.errorMsg = state.appContext?.getString(R.string.music_panel_play_failed)
     state.isPlaying = false
     state.isPrepared = false
-    state.stopPositionTicker()
+    state.progress.stopTicker()
     state.searchPanel.onPlaybackAborted()
     state.suppressAutoNext = true
     state.mediaController?.stop()

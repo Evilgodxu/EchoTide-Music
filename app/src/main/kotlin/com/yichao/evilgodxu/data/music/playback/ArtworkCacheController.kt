@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
-import com.yichao.evilgodxu.data.music.metadata.CoverBackgroundColors
 import com.yichao.evilgodxu.data.music.metadata.CoverColorCache
 import com.yichao.evilgodxu.data.music.metadata.CoverSkipRegistry
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
@@ -35,8 +34,7 @@ internal class ArtworkCacheController(
     private val currentTrack: () -> MusicTrack?,
     private val playlist: () -> List<MusicTrack>,
     private val libraryTracks: () -> List<MusicTrack>,
-    private val onColorsReady: (uri: String, colors: CoverBackgroundColors) -> Unit,
-    private val onInvalidatePersistedColors: () -> Unit,
+    private val colorMemory: BackgroundColorMemory,
 ) {
 
     private companion object {
@@ -85,7 +83,7 @@ internal class ArtworkCacheController(
             val colors = CoverColorCache.get(track.audioUri)
                 ?: extractCoverBackgroundColors(bitmap)
                 ?: return@launch
-            onColorsReady(track.audioUri, colors)
+            colorMemory.saveFor(track.audioUri, colors)
         }
         coverPrefetchJob?.cancel()
         coverPrefetchJob = scope().launch {
@@ -146,7 +144,7 @@ internal class ArtworkCacheController(
         CoverColorCache.clear()
         // 持久化的取色结果同样出自被重写的封面：一并作废，避免冷启动仍按旧色调铺底；
         // 新色调由显示端或切歌预取重取后重新落盘
-        onInvalidatePersistedColors()
+        colorMemory.clear()
         withContext(NonCancellable) {
             // 落盘封面同样是旧图：一并作废，避免冷启动拿旧封面顶出（新封面由下次切歌重新落盘）
             context()?.let { context ->
