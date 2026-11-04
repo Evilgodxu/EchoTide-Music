@@ -4,14 +4,6 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,20 +15,14 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,71 +37,37 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.yichao.evilgodxu.data.music.metadata.CoverExporter
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
-import com.yichao.evilgodxu.data.music.metadata.isMediaStoreIndexed
-import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
-import com.yichao.evilgodxu.data.music.model.RecentCover
-import com.yichao.evilgodxu.data.settings.homePortraitLyricLayoutFlow
-import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
-import com.yichao.evilgodxu.data.settings.LyricLayoutParams
-import com.yichao.evilgodxu.data.music.panel.applyCoverCandidate
 import com.yichao.evilgodxu.data.music.panel.applyLocalLyrics
 import com.yichao.evilgodxu.data.music.panel.applyLyricsCandidate
 import com.yichao.evilgodxu.data.music.panel.applyLyricsLineEdit
 import com.yichao.evilgodxu.data.music.panel.autoTranslateLyrics
-import com.yichao.evilgodxu.data.music.panel.searchCoverCandidates
 import com.yichao.evilgodxu.data.music.panel.searchLyricsCandidates
 import com.yichao.evilgodxu.data.music.panel.TranslateOutcome
-import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.permission.hasAllFilesAccess
-import com.yichao.evilgodxu.permission.hasImageAccess
-import com.yichao.evilgodxu.permission.mediaImagePermission
-import com.yichao.evilgodxu.screens.home.component.dialog.ArtistPickerDialog
 import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
-import com.yichao.evilgodxu.screens.home.component.player.HomeImmersiveCover
-import com.yichao.evilgodxu.screens.home.component.player.MarqueeInfoLine
-import com.yichao.evilgodxu.screens.home.component.player.PlayerControls
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisController
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisSheet
 import com.yichao.evilgodxu.screens.home.component.audioinfo.AudioInfoSheet
 import com.yichao.evilgodxu.screens.home.component.queue.PlaylistSheet
-import com.yichao.evilgodxu.ui.icons.AppIcons
+import com.yichao.evilgodxu.screens.home.component.player.PlayerControls
 import com.yichao.evilgodxu.ui.component.player.currentTrackNeedsLosslessUpgrade
 import com.yichao.evilgodxu.ui.component.player.MusicErrorBanner
 import com.yichao.evilgodxu.ui.component.player.ProgressSection
-import com.yichao.evilgodxu.ui.component.player.applyLocalCover
-import com.yichao.evilgodxu.ui.component.player.CoverContextMenu
-import com.yichao.evilgodxu.ui.component.player.CoverRefreshDialog
-import com.yichao.evilgodxu.ui.component.player.CoverReplaceDialog
-import com.yichao.evilgodxu.ui.component.player.loadRecentCovers
-import com.yichao.evilgodxu.ui.component.player.LocalCoverDialog
-import com.yichao.evilgodxu.ui.component.player.MiniContextMenu
-import com.yichao.evilgodxu.ui.component.dialog.RenameDialog
 import com.yichao.evilgodxu.ui.component.player.LyricsEditDialog
 import com.yichao.evilgodxu.ui.component.player.LyricsTranslateDialog
-import com.yichao.evilgodxu.ui.component.player.LyricsPanel
 import com.yichao.evilgodxu.ui.component.player.LyricsRefreshDialog
 import com.yichao.evilgodxu.ui.component.menuEdgePositionProvider
 import com.yichao.evilgodxu.ui.component.PlayModeSelectionScrim
-import com.yichao.evilgodxu.ui.component.rememberTrackSwitchAnchor
-import com.yichao.evilgodxu.ui.component.TrackSwitchTransition
-import com.yichao.evilgodxu.ui.copyToClipboard
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.yichao.evilgodxu.LocalPlaybackState
@@ -148,9 +100,6 @@ internal fun PortraitPlayer(
 ) {
     val playbackState = LocalPlaybackState.current
 
-    // 切歌过渡锚点：标题与艺术家随锚点整体横移，方向来自本次变更的类型
-    val trackAnchor = rememberTrackSwitchAnchor(playbackState.currentTrack, playbackState.lastSwitchKind)
-
     // 播放列表、音频信息与曲库格式分析弹层展开时，系统返回键收起弹层
     BackHandler(enabled = playlistVisible || audioInfoVisible || libraryAnalysis.visible) {
         when {
@@ -162,48 +111,13 @@ internal fun PortraitPlayer(
 
     // 播放进度由 MusicPlaybackState 全局 ticker 驱动，此处不再独立轮询
 
-    // 首页竖屏歌词排版：字号与可见行数独立可调
     val context = LocalContext.current
     // 提示文案在协程中取用，需经 Configuration 感知的资源入口，避免语言/字体缩放切换后取到旧值
     val resources = LocalResources.current
-    val homePortraitLayout by context.homePortraitLyricLayoutFlow()
-        .collectAsStateWithLifecycle(
-            initialValue = LyricLayoutParams(
-                LyricLayoutDefaults.HOME_PORTRAIT_FONT_SIZE_SP,
-                LyricLayoutDefaults.HOME_PORTRAIT_VISIBLE_LINES,
-                LyricLayoutDefaults.LINE_SPACING_DEFAULT_DP,
-            ),
-        )
 
-    // 歌词区高度随可见行数、字号与行间距自适应：每行占行高与上下 2dp 内边距，行间留出设置的行间距，
-    // 末尾补足歌词面板顶部 4dp 内边距，使外层高度与内部歌词窗口一致。
-    // 行高与行间距都必须与 LyricsPanel 同口径（行高沿用 LocalTextStyle 的 24sp 行高），否则外层偏矮裁剪歌词
-    val textMeasurer = rememberTextMeasurer()
-    val lyricTextStyle = LocalTextStyle.current
-    val lyricLineHeight = with(LocalDensity.current) {
-        textMeasurer.measure(
-            AnnotatedString("歌词"),
-            lyricTextStyle.merge(TextStyle(fontSize = homePortraitLayout.fontSizeSp.sp)),
-        ).size.height.toDp()
-    }
-    val lyricsAreaHeight = (lyricLineHeight + 4.dp) * homePortraitLayout.visibleLines +
-        homePortraitLayout.lineSpacingDp.dp * (homePortraitLayout.visibleLines - 1) + 4.dp
-
-    // 长按功能状态：复用播放器共享的封面/歌词刷新与标题/艺人重命名能力
+    // 长按功能状态：复用播放器共享的歌词刷新能力
     val scope = rememberCoroutineScope()
     val lyricsRefreshFailedMessage = stringResource(R.string.music_panel_lyrics_refresh_failed)
-    // 保存封面到相册的结果提示：成功与「无内嵌封面」走轻量提示，写入失败复用封面错误横幅
-    val coverSavedMessage = stringResource(R.string.music_panel_save_cover_success)
-    val coverNoEmbeddedMessage = stringResource(R.string.music_panel_save_cover_no_embedded)
-    var showCoverMenu by remember { mutableStateOf(false) }
-    var showCoverRefresh by remember { mutableStateOf(false) }
-    var showLocalCover by remember { mutableStateOf(false) }
-    var showCoverReplace by remember { mutableStateOf(false) }
-    var selectedCoverCandidate by remember { mutableStateOf<NeteaseSongSearchResult?>(null) }
-    var selectedLocalCover by remember { mutableStateOf<RecentCover?>(null) }
-    var coverSaving by remember { mutableStateOf(false) }
-    var coverSaveFailed by remember { mutableStateOf(false) }
-    var coverTargetId by remember { mutableStateOf<Long?>(null) }
     var showLyricsRefresh by remember { mutableStateOf(false) }
     var selectedLyricsCandidate by remember { mutableStateOf<NeteaseSongSearchResult?>(null) }
     var lyricsTargetId by remember { mutableStateOf<Long?>(null) }
@@ -234,47 +148,11 @@ internal fun PortraitPlayer(
             }
         }
     }
-    // 本地封面候选取自系统图片库：缺图片访问时先申请，授权后直接重载候选
-    val localCoverPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) scope.launch { playbackState.setLocalCoverCandidates(loadRecentCovers(context)) }
-    }
-    var showRename by remember { mutableStateOf(false) }
-    var renameIsTitle by remember { mutableStateOf(true) }
-    var renameInitValue by remember { mutableStateOf("") }
-    var renameTargetId by remember { mutableStateOf<Long?>(null) }
-    var showMetaMenu by remember { mutableStateOf(false) }
-    var menuText by remember { mutableStateOf("") }
-    var menuIsTitle by remember { mutableStateOf(true) }
-    // 点击歌手信息时待选择的歌手候选：多位歌手时弹出选择对话框
-    var artistPicker by remember { mutableStateOf<List<String>>(emptyList()) }
     var showLosslessUpgrade by remember { mutableStateOf(false) }
-    // 歌词微调按钮显示状态：点击歌词区切换
-    var lyricTuneVisible by remember { mutableStateOf(false) }
-    // 微调操作计数：每次调整自增以重置自动隐藏计时
-    var tuneVersion by remember { mutableIntStateOf(0) }
     // 播放模式选择展开态：展开时控制栏让位给四种播放模式，点击其他区域或选定模式后收起
     var playModeSelectorExpanded by remember { mutableStateOf(false) }
     // 控制栏实测高度：展开遮罩据此剔出底部控制栏所占区域，保证四个模式按钮仍可点击
     var controlsHeightPx by remember { mutableIntStateOf(0) }
-    // 浮动提示：显示当前微调的毫秒数
-    var tuneHintText by remember { mutableStateOf("") }
-    var tuneHintVersion by remember { mutableIntStateOf(0) }
-    // 显示后 2 秒无操作自动隐藏
-    LaunchedEffect(lyricTuneVisible, tuneVersion) {
-        if (lyricTuneVisible) {
-            delay(2000)
-            lyricTuneVisible = false
-        }
-    }
-    // 浮动提示暂显后自动消失
-    LaunchedEffect(tuneHintVersion) {
-        if (tuneHintText.isNotEmpty()) {
-            delay(800)
-            tuneHintText = ""
-        }
-    }
 
     // 底部避让量：控制栏与屏幕底缘的间距，取固定留白与系统导航栏（三键/手势）高度中的较大者。
     // 首页全沉浸隐藏了两条系统栏，正常路径下导航栏高度为 0，此时由固定留白决定，
@@ -300,261 +178,92 @@ internal fun PortraitPlayer(
             // 沉浸式专辑封面：全宽置顶（含状态栏后方），仅下边缘渐隐融入封面衍生背景。
             // 不强制填充：剩余高度留给外层 SpaceBetween 分给两侧留白；高度上限为全宽正方形，
             // 窗口过矮时按可用高度收缩，优先保证下方内容完整
-            Box(
+            PortraitCoverSection(
+                playbackState = playbackState,
+                topBarInset = topBarInset,
+                swipePreviewText = swipePreviewText,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false)
-                    .heightIn(max = coverSquare)
-                    .combinedClickable(
-                        onClick = {},
-                        onLongClick = { if (playbackState.currentTrack != null) showCoverMenu = true },
-                    ),
-            ) {
-                HomeImmersiveCover(
-                    track = playbackState.currentTrack,
-                    kind = playbackState.lastSwitchKind,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                // 长按菜单锚定封面，显示在封面底部
-                CoverContextMenu(
-                    visible = showCoverMenu,
-                    onOnlineCover = {
-                        showCoverMenu = false
-                        coverTargetId = playbackState.currentTrack?.id
-                        showCoverRefresh = true
-                        playbackState.currentTrack?.let { track ->
-                            scope.launch { searchCoverCandidates(context, playbackState, track, playbackState.coverRefreshSource) }
-                        }
-                    },
-                    onLocalCover = {
-                        showCoverMenu = false
-                        coverTargetId = playbackState.currentTrack?.id
-                        selectedLocalCover = null
-                        showLocalCover = true
-                        if (hasImageAccess(context)) {
-                            scope.launch { playbackState.setLocalCoverCandidates(loadRecentCovers(context)) }
-                        } else {
-                            localCoverPermissionLauncher.launch(mediaImagePermission())
-                        }
-                    },
-                    // 保存内嵌封面原图到系统相册：不改动曲目元数据，故无目标校验；
-                    // 无内嵌封面时以提示告知，写入失败仍复用封面错误横幅
-                    onSaveCover = {
-                        showCoverMenu = false
-                        playbackState.currentTrack?.let { track ->
-                            scope.launch {
-                                val message = when (CoverExporter.export(context, track)) {
-                                    CoverExporter.Result.Saved -> coverSavedMessage
-                                    CoverExporter.Result.NoEmbeddedCover -> coverNoEmbeddedMessage
-                                    CoverExporter.Result.Failed -> null
-                                }
-                                if (message != null) {
-                                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                                } else {
-                                    coverSaveFailed = true
-                                }
-                            }
-                        }
-                    },
-                    onDismiss = { showCoverMenu = false },
-                )
-                // 纵向切歌预览：滑动未松手时显示于封面底部，提醒将播放的曲目方向。
-                // 显式限定到顶层重载：此处同时处于 Column 与 Box 两个作用域，不加限定会解析到
-                // ColumnScope 版本，而该版本无法在本层（Box 内）用隐式接收者调用
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = swipePreviewText != null,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    enter = fadeIn(animationSpec = tween(150)) +
-                        slideInVertically(animationSpec = tween(150)) { it / 2 },
-                    exit = fadeOut(animationSpec = tween(150)) +
-                        slideOutVertically(animationSpec = tween(150)) { it / 2 },
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .padding(bottom = 24.dp)
-                            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                    ) {
-                        Text(
-                            text = swipePreviewText.orEmpty(),
-                            color = Color.White,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
+                    .heightIn(max = coverSquare),
+            )
+            PortraitLyricsSection(
+                playbackState = playbackState,
+                onVerticalFling = onVerticalFling,
+                onLongPress = { positionMs ->
+                    lyricsMenuPositionMs = positionMs
+                    showLyricsMenu = true
+                },
+            )
+            LyricsContextMenu(
+                visible = showLyricsMenu,
+                // 编辑本行与自动补译都以「有歌词行」为前提，无歌词时均不展示
+                lyricsAvailable = playbackState.currentTrack?.lyricLines?.isNotEmpty() == true,
+                // 补译进行中（含后台执行）置灰，避免并发写回同一份歌词缓存
+                lyricsTaskIdle = !translating,
+                onEditLine = {
+                    showLyricsMenu = false
+                    val track = playbackState.currentTrack
+                    if (track?.lyricLines?.isNotEmpty() == true) {
+                        // 按长按定格位置定位歌词行，与长按瞬间屏幕显示的当前行一致
+                        val index = track.lyricLines
+                            .indexOfLast { it.timeMs <= lyricsMenuPositionMs }
+                            .coerceAtLeast(0)
+                        lyricsEditIndex = index
+                        // 预填该行存储的完整原文：时间戳 + 歌词（含逐字标签） + 翻译行
+                        lyricsEditInitialText = MusicMetadataCache.encodeLyrics(listOf(track.lyricLines[index]))
+                        showLyricsEdit = true
                     }
-                }
-            }
-            // 歌词组：上下各留一处固定间距作为下限，富余空间由外层 SpaceBetween 均分到这两侧
-            Column(modifier = Modifier.fillMaxWidth()) {
-                // 封面与歌词间距（下限）
-                Spacer(Modifier.height(8.dp))
-                // 歌词：高度随设置的可见行数自适应（默认 5 行），点击歌词区切换微调按钮显隐
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(lyricsAreaHeight),
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        if (playbackState.currentTrack != null) {
-                            LyricsPanel(
-                                playbackState = playbackState,
-                                onClick = { lyricTuneVisible = !lyricTuneVisible },
-                                onLongClick = {
-                                    if (playbackState.currentTrack != null) {
-                                        // 长按瞬间定格播放位置，作为歌词编辑的目标行依据。
-                                        // 取整曲绝对时间（见 lyricPositionMs）：歌词行的时间戳是绝对时间，
-                                        // 心动模式下 controller 回报的是片段内进度，直接用会定位到错误的行
-                                        lyricsMenuPositionMs = playbackState.lyricPositionMs
-                                        showLyricsMenu = true
-                                    }
-                                },
-                                fontSize = homePortraitLayout.fontSizeSp.sp,
-                                visibleLines = homePortraitLayout.visibleLines,
-                                lineSpacing = homePortraitLayout.lineSpacingDp.dp,
-                                contentColor = Color.White,
-                                onVerticalFling = onVerticalFling,
-                            )
-                        } else {
-                            Text(
-                                text = stringResource(R.string.home_player_empty),
-                                fontSize = 14.sp,
-                                color = Color.White,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 32.dp),
-                            )
-                        }
-                    }
-                    LyricsContextMenu(
-                        visible = showLyricsMenu,
-                        // 编辑本行与自动补译都以「有歌词行」为前提，无歌词时均不展示
-                        lyricsAvailable = playbackState.currentTrack?.lyricLines?.isNotEmpty() == true,
-                        // 补译进行中（含后台执行）置灰，避免并发写回同一份歌词缓存
-                        lyricsTaskIdle = !translating,
-                        onEditLine = {
-                            showLyricsMenu = false
-                            val track = playbackState.currentTrack
-                            if (track?.lyricLines?.isNotEmpty() == true) {
-                                // 按长按定格位置定位歌词行，与长按瞬间屏幕显示的当前行一致
-                                val index = track.lyricLines
-                                    .indexOfLast { it.timeMs <= lyricsMenuPositionMs }
-                                    .coerceAtLeast(0)
-                                lyricsEditIndex = index
-                                // 预填该行存储的完整原文：时间戳 + 歌词（含逐字标签） + 翻译行
-                                lyricsEditInitialText = MusicMetadataCache.encodeLyrics(listOf(track.lyricLines[index]))
-                                showLyricsEdit = true
+                },
+                onAutoTranslate = {
+                    showLyricsMenu = false
+                    val track = playbackState.currentTrack
+                    if (track?.lyricLines?.isNotEmpty() == true) {
+                        translating = true
+                        translateProgress = null
+                        showTranslateDialog = true
+                        playbackState.playbackScope.launch {
+                            val outcome = autoTranslateLyrics(context, playbackState, track) { done, total ->
+                                withContext(Dispatchers.Main) { translateProgress = done to total }
                             }
-                        },
-                        onAutoTranslate = {
-                            showLyricsMenu = false
-                            val track = playbackState.currentTrack
-                            if (track?.lyricLines?.isNotEmpty() == true) {
-                                translating = true
+                            withContext(Dispatchers.Main) {
+                                translating = false
+                                showTranslateDialog = false
                                 translateProgress = null
-                                showTranslateDialog = true
-                                playbackState.playbackScope.launch {
-                                    val outcome = autoTranslateLyrics(context, playbackState, track) { done, total ->
-                                        withContext(Dispatchers.Main) { translateProgress = done to total }
-                                    }
-                                    withContext(Dispatchers.Main) {
-                                        translating = false
-                                        showTranslateDialog = false
-                                        translateProgress = null
-                                        // 失败以外的结局都用轻量提示：没有可补译的内容属于正常结果
-                                        val message = when (outcome) {
-                                            is TranslateOutcome.Applied -> resources.getQuantityString(
-                                                R.plurals.music_panel_auto_translate_done,
-                                                outcome.translated,
-                                                outcome.translated,
-                                            )
-                                            TranslateOutcome.NothingToDo ->
-                                                resources.getString(R.string.music_panel_auto_translate_nothing)
-                                            TranslateOutcome.SameLanguage ->
-                                                resources.getString(R.string.music_panel_auto_translate_same_language)
-                                            TranslateOutcome.Failed -> null
-                                        }
-                                        message?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
-                                        translateFailed = outcome is TranslateOutcome.Failed
-                                    }
+                                // 失败以外的结局都用轻量提示：没有可补译的内容属于正常结果
+                                val message = when (outcome) {
+                                    is TranslateOutcome.Applied -> resources.getQuantityString(
+                                        R.plurals.music_panel_auto_translate_done,
+                                        outcome.translated,
+                                        outcome.translated,
+                                    )
+                                    TranslateOutcome.NothingToDo ->
+                                        resources.getString(R.string.music_panel_auto_translate_nothing)
+                                    TranslateOutcome.SameLanguage ->
+                                        resources.getString(R.string.music_panel_auto_translate_same_language)
+                                    TranslateOutcome.Failed -> null
                                 }
+                                message?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                                translateFailed = outcome is TranslateOutcome.Failed
                             }
-                        },
-                        onOnlineSearch = {
-                            showLyricsMenu = false
-                            lyricsTargetId = playbackState.currentTrack?.id
-                            showLyricsRefresh = true
-                            playbackState.currentTrack?.let { track ->
-                                scope.launch { searchLyricsCandidates(context, playbackState, track, playbackState.lyricsRefreshSource) }
-                            }
-                        },
-                        onLocalImport = {
-                            showLyricsMenu = false
-                            lyricsImportLauncher.launch("*/*")
-                        },
-                        onDismiss = { showLyricsMenu = false },
-                    )
-                    // 歌词微调：左-延后歌词，右+提前歌词，每次微调一个步长
-                    if (lyricTuneVisible && playbackState.currentTrack?.lyricLines?.isNotEmpty() == true) {
-                        IconButton(
-                            onClick = {
-                                playbackState.adjustLyricsOffset(LyricFineTuneStepMs)
-                                tuneVersion++
-                                tuneHintText = "+${LyricFineTuneStepMs}ms"
-                                tuneHintVersion++
-                            },
-                            modifier = Modifier
-                                .align(Alignment.CenterStart)
-                                .padding(start = 16.dp)
-                                .size(34.dp)
-                                .background(Color.White.copy(alpha = 0.18f), CircleShape),
-                        ) {
-                            Icon(
-                                imageVector = AppIcons.Remove,
-                                contentDescription = stringResource(R.string.home_player_lyric_delay),
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                playbackState.adjustLyricsOffset(-LyricFineTuneStepMs)
-                                tuneVersion++
-                                tuneHintText = "-${LyricFineTuneStepMs}ms"
-                                tuneHintVersion++
-                            },
-                            modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .padding(end = 16.dp)
-                                .size(34.dp)
-                                .background(Color.White.copy(alpha = 0.18f), CircleShape),
-                        ) {
-                            Icon(
-                                imageVector = AppIcons.Add,
-                                contentDescription = stringResource(R.string.home_player_lyric_advance),
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp),
-                            )
                         }
                     }
-                    // 浮动提示：居中显示微调的毫秒数
-                    if (tuneHintText.isNotEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                        ) {
-                            Text(
-                                text = tuneHintText,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White,
-                            )
-                        }
+                },
+                onOnlineSearch = {
+                    showLyricsMenu = false
+                    lyricsTargetId = playbackState.currentTrack?.id
+                    showLyricsRefresh = true
+                    playbackState.currentTrack?.let { track ->
+                        scope.launch { searchLyricsCandidates(context, playbackState, track, playbackState.lyricsRefreshSource) }
                     }
-                }
-                // 歌词与歌曲信息间距（下限）
-                Spacer(Modifier.height(8.dp))
-            }
+                },
+                onLocalImport = {
+                    showLyricsMenu = false
+                    lyricsImportLauncher.launch("*/*")
+                },
+                onDismiss = { showLyricsMenu = false },
+            )
+
             // 歌曲信息、进度条与控制栏：作为最后一组贴底排列，底部留出固定避让间距
             Column(
                 modifier = Modifier
@@ -562,102 +271,12 @@ internal fun PortraitPlayer(
                     .padding(bottom = bottomClearance),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                // 标题与艺术家：切歌时随封面与背景同一节拍整幅横移，方向一致。
-                // 文本取自锚点而非当前曲目：退场的那一层要显示上一首的文本，读实时状态会显示成新曲目
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    TrackSwitchTransition(
-                        anchor = trackAnchor,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { info ->
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            MarqueeInfoLine(
-                                text = info.title,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White,
-                                modifier = Modifier
-                                    .padding(horizontal = 32.dp)
-                                    .fillMaxWidth()
-                                    .combinedClickable(
-                                        onClick = {},
-                                        onLongClick = {
-                                            val track = playbackState.currentTrack
-                                            if (track != null) {
-                                                menuText = track.title
-                                                menuIsTitle = true
-                                                showMetaMenu = true
-                                            }
-                                        },
-                                    ),
-                            )
-                            if (info.id != null) {
-                                Spacer(Modifier.height(4.dp))
-                                MarqueeInfoLine(
-                                    text = info.artist,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Normal,
-                                    color = Color.White,
-                                    modifier = Modifier
-                                        .padding(horizontal = 32.dp)
-                                        .fillMaxWidth()
-                                        .combinedClickable(
-                                            // 多位歌手先弹选择对话框，单一时直接进入该歌手的歌单页
-                                            onClick = {
-                                                val artists = parseTrackArtists(playbackState.currentTrack?.artist.orEmpty())
-                                                    .filter { it.isNotBlank() }
-                                                if (artists.size > 1) {
-                                                    artistPicker = artists
-                                                } else {
-                                                    artists.firstOrNull()?.let(onOpenArtistPlaylist)
-                                                }
-                                            },
-                                            onLongClick = {
-                                                val artist = playbackState.currentTrack?.artist
-                                                if (!artist.isNullOrBlank()) {
-                                                    menuText = artist
-                                                    menuIsTitle = false
-                                                    showMetaMenu = true
-                                                }
-                                            },
-                                        ),
-                                )
-                            }
-                        }
-                    }
-                    MiniContextMenu(
-                        visible = showMetaMenu,
-                        onCopy = {
-                            showMetaMenu = false
-                            copyToClipboard(context, menuText)
-                        },
-                        onRename = {
-                            showMetaMenu = false
-                            val track = playbackState.currentTrack
-                            when {
-                                track == null -> Unit
-                                // 写回音频文件要全部文件访问：缺权限就直接去元数据编辑页，
-                                // 那一页打开时会申请；不该让用户先填一遍再被告知写不进去
-                                !hasAllFilesAccess() -> onOpenMetadata(track.id)
-                                else -> {
-                                    renameIsTitle = menuIsTitle
-                                    renameInitValue = menuText
-                                    renameTargetId = track.id
-                                    showRename = true
-                                }
-                            }
-                        },
-                        // 标题整体作为唯一关键词；艺术家按多歌手分隔符解析，多位时由菜单下钻选择
-                        searchTargets = if (menuIsTitle) listOf(menuText) else parseTrackArtists(menuText),
-                        onSearchTarget = { target ->
-                            showMetaMenu = false
-                            onOpenOnlineSearch(target)
-                        },
-                        onDismiss = { showMetaMenu = false },
-                    )
-                }
+                PortraitTrackInfoSection(
+                    playbackState = playbackState,
+                    onOpenOnlineSearch = onOpenOnlineSearch,
+                    onOpenArtistPlaylist = onOpenArtistPlaylist,
+                    onOpenMetadata = onOpenMetadata,
+                )
                 // 艺术家与音频格式条间距
                 Spacer(Modifier.height(8.dp))
                 // 音频信息与进度条（左右各收窄 15%，与封面的羽化过渡带对齐）
@@ -721,26 +340,6 @@ internal fun PortraitPlayer(
             onDismiss = { libraryAnalysis.dismiss() },
         )
 
-        RenameDialog(
-            visible = showRename,
-            isTitle = renameIsTitle,
-            initialValue = renameInitValue,
-            onConfirm = { newValue ->
-                showRename = false
-                val track = playbackState.currentTrack
-                if (track != null && track.id == renameTargetId) {
-                    val updated = if (renameIsTitle) track.copy(title = newValue)
-                    else track.copy(artist = newValue)
-                    playbackState.renameTrackMetadata(updated)
-                    // 手动重命名标题/艺术家后写入音频文件元数据
-                    scope.launch {
-                        MusicMetadataWriter.writeTitleArtist(context, track, updated.title, updated.artist)
-                    }
-                }
-            },
-            onCancel = { showRename = false },
-        )
-
         LyricsEditDialog(
             visible = showLyricsEdit,
             initialValue = lyricsEditInitialText,
@@ -762,127 +361,11 @@ internal fun PortraitPlayer(
             onCollapse = { showTranslateDialog = false },
         )
 
-        // 多位歌手的曲目：点击歌手信息后弹出的歌手选择对话框
-        ArtistPickerDialog(
-            artists = artistPicker,
-            onSelect = { artist ->
-                artistPicker = emptyList()
-                onOpenArtistPlaylist(artist)
-            },
-            onDismiss = { artistPicker = emptyList() },
-        )
-
         // 音频信息条点击触发的无损升级确认对话框
         LosslessUpgradeDialog(
             visible = showLosslessUpgrade,
             playbackState = playbackState,
             onDismiss = { showLosslessUpgrade = false },
-        )
-
-        LocalCoverDialog(
-            visible = showLocalCover,
-            candidates = playbackState.localCoverCandidates,
-            selected = selectedLocalCover,
-            saving = coverSaving,
-            onSelected = { selectedLocalCover = it },
-            onConfirm = {
-                val cover = selectedLocalCover
-                val track = playbackState.currentTrack
-                if (cover != null && track != null && track.id == coverTargetId) {
-                    coverSaving = true
-                    coverSaveFailed = false
-                    scope.launch {
-                        if (applyLocalCover(context, playbackState, track, cover)) {
-                            showLocalCover = false
-                            selectedLocalCover = null
-                        } else {
-                            coverSaveFailed = true
-                        }
-                        coverSaving = false
-                    }
-                }
-            },
-            onCancel = {
-                showLocalCover = false
-                selectedLocalCover = null
-                playbackState.setLocalCoverCandidates(emptyList())
-            },
-        )
-
-        CoverRefreshDialog(
-            visible = showCoverRefresh && !showCoverReplace && !showLocalCover,
-            track = playbackState.currentTrack,
-            playbackState = playbackState,
-            context = context,
-            selectedId = selectedCoverCandidate?.id,
-            saving = coverSaving,
-            onCandidateSelected = { selectedCoverCandidate = it },
-            onSourceSelected = { source ->
-                val track = playbackState.currentTrack
-                if (track != null && track.id == coverTargetId && source != playbackState.coverRefreshSource) {
-                    playbackState.setCoverRefreshSource(source)
-                    selectedCoverCandidate = null
-                    scope.launch { searchCoverCandidates(context, playbackState, track, source) }
-                }
-            },
-            onRefresh = {
-                val track = playbackState.currentTrack
-                if (track != null && track.id == coverTargetId) {
-                    selectedCoverCandidate = null
-                    scope.launch { searchCoverCandidates(context, playbackState, track, playbackState.coverRefreshSource) }
-                }
-            },
-            onConfirm = {
-                val candidate = selectedCoverCandidate
-                val track = playbackState.currentTrack
-                if (candidate != null && track != null && track.id == coverTargetId) {
-                    // 索引曲目的封面由系统维护，已有封面时确认是否覆盖
-                    val hasCover = track.isMediaStoreIndexed
-                    if (hasCover) {
-                        showCoverReplace = true
-                    } else {
-                        coverSaving = true
-                        coverSaveFailed = false
-                        scope.launch {
-                            coverSaveFailed = !applyCoverCandidate(context, playbackState, track, candidate)
-                            if (!coverSaveFailed) {
-                                showCoverRefresh = false
-                                selectedCoverCandidate = null
-                            }
-                            coverSaving = false
-                        }
-                    }
-                }
-            },
-            onCancel = {
-                showCoverRefresh = false
-                selectedCoverCandidate = null
-                playbackState.setCoverCandidates(emptyList())
-            },
-        )
-
-        CoverReplaceDialog(
-            visible = showCoverReplace,
-            track = playbackState.currentTrack,
-            candidate = selectedCoverCandidate,
-            saving = coverSaving,
-            onConfirm = {
-                val candidate = selectedCoverCandidate ?: return@CoverReplaceDialog
-                val track = playbackState.currentTrack ?: return@CoverReplaceDialog
-                if (track.id != coverTargetId) return@CoverReplaceDialog
-                coverSaving = true
-                coverSaveFailed = false
-                scope.launch {
-                    coverSaveFailed = !applyCoverCandidate(context, playbackState, track, candidate)
-                    if (!coverSaveFailed) {
-                        showCoverReplace = false
-                        showCoverRefresh = false
-                        selectedCoverCandidate = null
-                    }
-                    coverSaving = false
-                }
-            },
-            onCancel = { showCoverReplace = false },
         )
 
         LyricsRefreshDialog(
@@ -929,15 +412,6 @@ internal fun PortraitPlayer(
             },
         )
 
-        if (coverSaveFailed) {
-            MusicErrorBanner(
-                message = stringResource(R.string.music_panel_cover_save_failed),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(start = 16.dp, top = topBarInset + 10.dp, end = 16.dp),
-                onDismiss = { coverSaveFailed = false },
-            )
-        }
         if (lyricsImportFailed) {
             MusicErrorBanner(
                 message = stringResource(R.string.music_panel_local_lyrics_failed),
