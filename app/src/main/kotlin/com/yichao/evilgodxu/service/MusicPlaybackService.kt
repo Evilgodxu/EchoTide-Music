@@ -24,10 +24,6 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.yichao.evilgodxu.App
-import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.data.music.analysis.TrackAudioInfoReader
-import com.yichao.evilgodxu.data.music.analysis.formatDisplayName
-import com.yichao.evilgodxu.data.music.playback.AudioSignalPathFormat
 import com.yichao.evilgodxu.data.music.playback.DecodedOutputFormat
 import com.yichao.evilgodxu.data.music.playback.DirectOutputDoNotDisturb
 import com.yichao.evilgodxu.data.music.playback.ExclusiveVolume
@@ -37,6 +33,7 @@ import com.yichao.evilgodxu.data.music.playback.PerDeviceAudioSink
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.UsbDirectOutput
 import com.yichao.evilgodxu.data.music.playback.alac.AlacAudioRenderer
+import com.yichao.evilgodxu.data.music.playback.handleTracksChanged
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveAudioSink
 import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveOutput
@@ -321,98 +318,7 @@ class MusicPlaybackService : MediaSessionService() {
             }
 
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
-                // 只取音频组自身的格式：不能取首个「有选中项」的组——渲染器按视频在前的
-                // 顺序建组，组内含视频轨时会先命中视频格式；组内优先取被选中的轨——多音轨时选中项
-                // 未必在 0 号。整组没有选中项即该音频轨不会被解码（媒体3 对无解码器的格式正是如此处理），
-                // 此时改取组内 0 号轨的编码用于说明原因；信号路径状态仍只认被解码的那条轨
-                val audioGroup = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_AUDIO }
-                val selectedIndex = audioGroup?.let { group ->
-                    (0 until group.length).firstOrNull { group.isTrackSelected(it) }
-                }
-                val audioFormat = audioGroup
-                    ?.takeIf { it.length > 0 }
-                    ?.getTrackFormat(selectedIndex ?: 0)
-                val format = audioFormat.takeIf { selectedIndex != null }
-                val state = playbackState
-                // 轨道回调直接来自播放器，早于 MediaController 把曲目过渡转投到 state.currentTrack：
-                // 自动接续时按 state.currentTrack 取，会把新曲目的解码格式记到上一首名下，随后到达的
-                // 过渡回调又只按容器头补一份缺格式与采样率的预置记录，归属从此错位——信息条与音频参数
-                // 面板清空，且再无回填时机。故以播放器实际的当前项定位曲目，与稍后到达的过渡回调一致
-                val currentTrack = player.currentMediaItem?.mediaId?.toLongOrNull()
-                    ?.let { mediaId -> state.playlist.firstOrNull { it.id == mediaId } }
-                    ?: state.currentTrack
-                // 解码器名的归属校正：媒体3 的音频轨判为不可解码时不会有解码器初始化回调，
-                // 上一只解码器名会顶着当前曲目继续展示（ALAC 曲目显示成 flac 解码器即此来路），
-                // 故按「本轨未被选中」与「音频轨换了编码」两种情形清掉残留。
-                // 整组音频轨都不在（列表清空、播放器停止）时不动这些值：此刻无从判定当前曲目的编码，
-                // 清掉只会让信息面板在重新装载前一直空着
-                if (audioGroup != null) {
-                    val audioMime = audioFormat?.sampleMimeType
-                    if (selectedIndex == null ||
-                        (state.audioTrackMimeType != null && state.audioTrackMimeType != audioMime)
-                    ) {
-                        state.audioDecoderName = null
-                    }
-                    state.audioTrackMimeType = audioMime
-                    state.audioTrackDecodable = audioFormat?.let { selectedIndex != null }
-                    if (selectedIndex == null && audioMime != null) {
-                        // 无解码器时播放器不报错：整条音频轨不被选中，表现为静音走完。必须在面板上明确告知，
-                        // 否则既没有解码器也没有原因，只能看到一首「不出声的歌」
-                        val formatName = TrackAudioInfoReader.mimeToFormatName(audioMime) ?: audioMime
-                        state.errorMsg = applicationContext.getString(
-                            R.string.music_panel_decode_unsupported,
-                            formatName,
-                        )
-                    }
-                }
-                val fileFormat = format?.let { f ->
-                    formatDisplayName(currentTrack?.path, f.sampleMimeType)
-                }
-                if (format != null) {
-                    // 采样率/声道取解码格式的实际值，缺失项留空交由展示层跳过，不用固定值顶替
-                    val decodedSampleRate = format.sampleRate.takeIf { it > 0 }
-                    // 优先沿用源格式预读的位深/声道，保证播放前后展示一致不跳变；
-                    // 位深是源文件属性，不以解码输出位深推算（高解析度曲目解码常以浮点输出）。
-                    // 归属判定含音频源 URI：无损升级换源后曲目 ID 不变，沿用旧值会把有损位深/声道带过来
-                    val sourceFormat = state.audioSignalPathFormat
-                        .takeIf {
-                            state.audioSignalPathTrackId == currentTrack?.id &&
-                                state.audioSignalPathSourceUri == currentTrack?.audioUri
-                        }
-                    val bitDepth = sourceFormat?.bitDepth
-                        ?: currentTrack?.takeIf { it.isLocalAudioSource }
-                            ?.let { TrackAudioInfoReader.readContainerFormat(applicationContext, it)?.bitDepth }
-                    state.audioSignalPathFormat = AudioSignalPathFormat(
-                        format = fileFormat,
-                        sampleRate = decodedSampleRate,
-                        outputRate = decodedSampleRate,
-                        bitDepth = bitDepth,
-                        channels = sourceFormat?.channels ?: format.channelCount.takeIf { it > 0 },
-                        // Format.bitrate 单位为 bps，统一换算为 kbps；VBR 曲目 bitrate 未知时回退 averageBitrate
-                        bitrate = maxOf(format.bitrate, format.averageBitrate)
-                            .takeIf { it > 0 }
-                            ?.let { it / 1000 },
-                    )
-                    state.audioSignalPathTrackId = currentTrack?.id
-                    state.audioSignalPathSourceUri = currentTrack?.audioUri
-                }
-                // 解码头未给出比特率时（FLAC/VBR 常见），异步读取真实比特率并回填；
-                // 仅本地音频源读取文件元数据，在线曲目等缓存完成后由 refreshTrackFormatInfoFromLocal 补齐
-                if (state.audioSignalPathFormat?.bitrate == null) {
-                    val track = currentTrack
-                    state.playbackScope.launch(Dispatchers.IO) {
-                        if (track != null && track.isLocalAudioSource &&
-                            state.audioSignalPathTrackId == track.id &&
-                            state.audioSignalPathSourceUri == track.audioUri
-                        ) {
-                            TrackAudioInfoReader.readBitrateKbps(applicationContext, track)?.let { bitrate ->
-                                if (state.audioSignalPathFormat?.bitrate == null) {
-                                    state.audioSignalPathFormat = state.audioSignalPathFormat?.copy(bitrate = bitrate)
-                                }
-                            }
-                        }
-                    }
-                }
+                handleTracksChanged(applicationContext, player, playbackState, tracks)
             }
 
             // 起播意图由操作入口决定，过渡回调不再强制 playWhenReady=true：
