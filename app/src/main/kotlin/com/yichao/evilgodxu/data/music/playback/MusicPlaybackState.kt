@@ -724,8 +724,8 @@ class MusicPlaybackState(
     fun sortByActiveRule(tracks: List<MusicTrack>): List<MusicTrack> =
         playlistEditor.sortByActiveRule(tracks)
 
-    fun applySortedPlaylist(sorted: List<MusicTrack>) {
-        playlistEditor.applySorted(sorted)
+    fun applyDefaultPlaylist(sorted: List<MusicTrack>) {
+        playlistEditor.applyDefaultPlaylist(sorted)
     }
 
     fun setPlaylistSort(field: PlaylistSortField, descending: Boolean) {

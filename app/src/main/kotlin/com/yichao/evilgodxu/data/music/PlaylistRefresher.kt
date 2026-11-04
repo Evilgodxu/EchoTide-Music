@@ -88,15 +88,17 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
                     val selectedFilter = state.queueFilter
                     val currentId = state.currentTrack?.id
                     // 新的全量库始终成为默认队列；无过滤时同时成为播放结果
-                    state.applySortedPlaylist(sortedLibrary)
+                    state.applyDefaultPlaylist(sortedLibrary)
                     if (selectedFilter != null) {
                         val rebuilt = rebuildFromSource(context, state, sortedLibrary, selectedFilter)
                         if (rebuilt.isNotEmpty()) {
+                            // 排序规则作用于任何播放队列；默认顺序时保留来源自身顺序
+                            val ordered = state.sortByActiveRule(rebuilt)
                             state.queueFilter = selectedFilter
-                            state.playlist = rebuilt
-                            val newIndex = rebuilt.indexOfFirst { it.id == currentId }
+                            state.playlist = ordered
+                            val newIndex = ordered.indexOfFirst { it.id == currentId }
                             state.currentIndex = newIndex
-                            if (newIndex >= 0) state.currentTrack = rebuilt[newIndex]
+                            if (newIndex >= 0) state.currentTrack = ordered[newIndex]
                         } else {
                             // 来源在扫描后的库中已不存在：清空过滤，回落到默认队列
                             state.queueFilter = null

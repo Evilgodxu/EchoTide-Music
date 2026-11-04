@@ -28,41 +28,42 @@ internal class PlaylistEditor(private val state: MusicPlaybackState) {
         return sortTracks(tracks, state.playlistSortField, state.playlistSortDescending)
     }
 
-    // 应用已排好序的默认队列；无过滤时过滤结果与默认队列同源，并保留当前曲目索引
-    fun applySorted(sorted: List<MusicTrack>) {
+    // 应用已排好序的默认队列；无过滤时播放结果与默认队列同源，一并重排并保留当前曲目索引
+    fun applyDefaultPlaylist(sorted: List<MusicTrack>) {
         state.defaultPlaylist = sorted
         if (state.queueFilter != null) return
-        val currentId = state.currentTrack?.id
-        state.playlist = sorted
-        state.currentIndex = sorted.indexOfFirst { it.id == currentId }.coerceAtLeast(-1)
+        applyQueueOrder(sorted)
     }
 
-    // 设置排序规则：仅默认队列套用重排（过滤来源保持自身顺序）；
+    // 按当前排序规则重排播放结果：默认队列与过滤结果都是当前播放队列，均可排序。
     // 重排放后台线程执行，避免大库拼音排序占用主线程
     fun setSort(field: PlaylistSortField, descending: Boolean) {
         state.playlistSortField = field
         state.playlistSortDescending = descending
-        if (state.queueFilter == null) {
-            val snapshot = state.defaultPlaylist
-            val revision = state.playlistRevision
-            val filter = state.queueFilter
-            state.playbackScope.launch {
-                val ordered = withContext(Dispatchers.Default) { sortTracks(snapshot, field, descending) }
-                // 排序期间队列内容、过滤来源或排序规则已变：这份结果只代表旧快照，
-                // 应用它会把新增/删除/改名的曲目一起回滚
-                if (state.playlistRevision != revision ||
-                    state.queueFilter != filter ||
-                    state.playlistSortField != field ||
-                    state.playlistSortDescending != descending
-                ) {
-                    return@launch
-                }
-                applySorted(ordered)
-                state.persistPlaylist()
+        val snapshot = state.playlist
+        val revision = state.playlistRevision
+        val filter = state.queueFilter
+        state.playbackScope.launch {
+            val ordered = withContext(Dispatchers.Default) { sortTracks(snapshot, field, descending) }
+            // 排序期间队列内容、过滤来源或排序规则已变：这份结果只代表旧快照，
+            // 应用它会把新增/删除/改名的曲目一起回滚
+            if (state.playlistRevision != revision ||
+                state.queueFilter != filter ||
+                state.playlistSortField != field ||
+                state.playlistSortDescending != descending
+            ) {
+                return@launch
             }
-        } else {
+            applyQueueOrder(ordered)
             state.persistPlaylist()
         }
+    }
+
+    // 应用排序结果并保留当前曲目索引；无过滤时 playlist setter 会同步默认队列
+    private fun applyQueueOrder(sorted: List<MusicTrack>) {
+        val currentId = state.currentTrack?.id
+        state.playlist = sorted
+        state.currentIndex = sorted.indexOfFirst { it.id == currentId }.coerceAtLeast(-1)
     }
 
     // 切换指定曲目的收藏状态：仅就地更新收藏标记，不改变列表顺序。

@@ -39,7 +39,7 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.launch
 
 // 播放列表面板头部：标题、当前歌单快捷切换、曲目数、刷新、排序与关闭。
-// 排序只作用于默认全量播放队列，浏览其它歌单时按钮置灰
+// 排序作用于当前播放结果（默认队列或其过滤结果），仅浏览其它歌单时按钮置灰
 @Composable
 internal fun PlaylistSheetHeader(
     playbackState: MusicPlaybackState,
@@ -55,7 +55,7 @@ internal fun PlaylistSheetHeader(
     val scope = rememberCoroutineScope()
     val playlistRefresher = LocalPlaylistRefresher.current
     val metadataEnricher = LocalMetadataEnricher.current
-    val sortEnabled = followsQueue && playbackState.queueFilter == null && !playbackState.isScanning
+    val sortEnabled = followsQueue && !playbackState.isScanning
 
     Row(
         modifier = modifier.fillMaxWidth(),

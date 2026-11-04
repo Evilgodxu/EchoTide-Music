@@ -81,14 +81,14 @@ internal fun switchPlaylistSource(
     return true
 }
 
-// 把过滤来源与过滤结果写入状态层：无过滤时结果即默认队列（按用户排序规则重排），
-// 有过滤时默认队列保持不变
+// 把过滤来源与过滤结果写入状态层：默认队列与过滤结果都是当前播放队列，
+// 均按用户排序规则重排（默认顺序时保留来源自身顺序）；过滤期间默认队列本体保持不变
 private fun applyPlaylistQueue(
     state: MusicPlaybackState,
     tracks: List<MusicTrack>,
     source: PlaylistSource?,
 ): List<MusicTrack> {
-    val ordered = if (source == null) state.sortByActiveRule(tracks) else tracks
+    val ordered = state.sortByActiveRule(tracks)
     // 先落定过滤条件：无过滤时 playlist setter 会把同一结果同步为默认队列
     state.queueFilter = source
     state.playlist = ordered
