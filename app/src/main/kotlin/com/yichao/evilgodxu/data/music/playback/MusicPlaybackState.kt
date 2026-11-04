@@ -177,7 +177,7 @@ class MusicPlaybackState(
     var coverRefreshSource by searchPanel::coverRefreshSource
 
     // ===== 心动模式 =====
-    // 心动模式的自有状态、扫描与跳过策略由 HighlightModeController 持有
+    // 扫描、准入/跳过策略与音量斜坡由三个独立组件承担
 
     suspend fun removeUnavailableExternalTracks(context: Context) {
         playlistRemoval.removeUnavailableExternalTracks(context)
@@ -276,17 +276,27 @@ class MusicPlaybackState(
         libraryTracks = { libraryTracks },
         colorMemory = backgroundColors,
     )
+    // 封面写入成功后的缓存作废由 CoverCacheInvalidator 承担
+    internal val coverCache = CoverCacheInvalidator(
+        context = { appContext },
+        colorMemory = backgroundColors,
+    )
     // 封面写入成功后自增，通知封面组件强制重载最新封面
-    var coverRevision by artworkCache::coverRevision
-    internal val highlight = HighlightModeController(
+    var coverRevision by coverCache::coverRevision
+    internal val highlightScan = HighlightScanCoordinator(
+        scope = { playbackScope },
+        context = { appContext },
+        playMode = { playMode },
+        libraryTracks = { libraryTracks },
+        onClipsUpdated = { applyNewClipsToLoadedQueue(this@MusicPlaybackState) },
+    )
+    internal val highlightPolicy = HighlightPlaybackPolicy(
         scope = { playbackScope },
         context = { appContext },
         playMode = { playMode },
         currentTrack = { currentTrack },
-        playlist = { playlist },
+        playlistSize = { playlist.size },
         currentIndex = { currentIndex },
-        libraryTracks = { libraryTracks },
-        mediaController = { mediaController },
         nextIndex = { nextIndex() },
         playAt = { context, index ->
             playbackScope.launch {
@@ -300,11 +310,15 @@ class MusicPlaybackState(
             }
         },
         exitToNormal = { setPlayMode(PlayMode.RepeatAll) },
-        onClipsUpdated = { applyNewClipsToLoadedQueue(this@MusicPlaybackState) },
         immersiveOutputActive = { immersiveOutputActive },
     )
     // 心动模式自行退出的一次性原因，由界面消费后清空
-    var highlightExitNotice by highlight::exitNotice
+    var highlightExitNotice by highlightPolicy::exitNotice
+    internal val highlightFade = HighlightFadeController(
+        playMode = { playMode },
+        currentTrack = { currentTrack },
+        mediaController = { mediaController },
+    )
 
     internal val progress = PlaybackProgressTracker(
         scope = { playbackScope },
@@ -314,7 +328,7 @@ class MusicPlaybackState(
         isPlaying = { isPlaying },
         onPlayingChanged = { isPlaying = it },
         onPeriodicPersist = { persistState() },
-        highlight = highlight,
+        highlight = highlightFade,
         recentPlayedStore = recentPlayedStore,
     )
 
@@ -721,10 +735,6 @@ class MusicPlaybackState(
         playlistEditor.migrateTrackId(context, oldId, newId)
     }
 
-    suspend fun bumpCoverRevision() {
-        artworkCache.bumpCoverRevision()
-    }
-
     fun batchUpdateTracks(updates: List<MusicTrack>, persist: Boolean = true) {
         playlistEditor.batchUpdate(updates, persist)
     }
@@ -804,12 +814,12 @@ class MusicPlaybackState(
         if (playMode == mode) return
         // 沉浸式输出期间不接受心动模式：界面据此说明缘由而不是静默不响应
         if (mode == PlayMode.Highlight && immersiveOutputActive) {
-            highlight.notifyImmersiveBlocked()
+            highlightPolicy.notifyImmersiveBlocked()
             return
         }
         val previous = playMode
         playMode = mode
-        highlight.onModeChanged()
+        highlightPolicy.onModeChanged()
         // 只有跨越心动模式边界的切换才改变队列项：进入时整队列补上裁剪区间，退出时整队列去掉。
         // 非心动各模式互切不动队列（repeatMode/shuffleMode 由调用方同步），此时不得重建 ——
         // 重建会被判成「队列已变」而重载整条时间线，表现为切模式时当前曲目卡顿
@@ -823,7 +833,7 @@ class MusicPlaybackState(
         // 当前曲目一并生效：进入自片段起点起播，退出还原到整曲的绝对位置
         applyHighlightModeChange(context, this)
         // 表可能尚未扫完（首次启用、曲库刚变化）：后台补齐，已扫到的先按现有结果播放
-        if (mode == PlayMode.Highlight) highlight.ensureScan(context)
+        if (mode == PlayMode.Highlight) highlightScan.ensureScan()
     }
     @JvmName("updateSearchMode")
     fun setSearchMode(enabled: Boolean) { isSearchMode = enabled }
@@ -860,9 +870,9 @@ class MusicPlaybackState(
         lyricTimeline.invalidate()
     }
 
-    // 本地曲库变化后的补扫策略由 HighlightModeController 承担
+    // 本地曲库变化后的补扫策略由 HighlightScanCoordinator 承担
     internal fun onLibraryChanged() {
-        highlight.onLibraryChanged()
+        highlightScan.onLibraryChanged()
     }
 }
 

@@ -281,7 +281,7 @@ internal suspend fun applyCoverCandidate(
         withContext(Dispatchers.Main) {
             // 封面已写入音频文件：清掉在线封面地址，转由文件自身的封面提供显示
             playbackState.updateTrack(track.copy(neteaseId = candidate.id, neteaseCoverUrl = ""))
-            playbackState.bumpCoverRevision()
+            playbackState.coverCache.bumpCoverRevision()
             playbackState.coverCandidates = emptyList()
         }
         true

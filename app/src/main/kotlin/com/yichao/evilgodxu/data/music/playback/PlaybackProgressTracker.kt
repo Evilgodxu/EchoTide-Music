@@ -29,7 +29,7 @@ internal class PlaybackProgressTracker(
     private val isPlaying: () -> Boolean,
     private val onPlayingChanged: (Boolean) -> Unit,
     private val onPeriodicPersist: () -> Unit,
-    private val highlight: HighlightModeController,
+    private val highlight: HighlightFadeController,
     private val recentPlayedStore: RecentPlayedStore,
 ) {
 

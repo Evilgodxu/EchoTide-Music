@@ -66,7 +66,7 @@ class HomeViewModel(
             }
             // 副歌片段表排在歌词之后：扫描只读歌词文件，此时缓存已就位，两者不再并发争同一批文件。
             // 只处理未扫过或歌词已变的曲目，无变化时重复调用无代价
-            state.highlight.ensureScan(context)
+            state.highlightScan.ensureScan()
         }
     }
 

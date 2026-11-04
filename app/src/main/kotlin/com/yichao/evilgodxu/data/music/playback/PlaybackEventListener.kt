@@ -130,7 +130,7 @@ internal fun handleMediaItemTransition(
     // 再次从控制器校正当前曲目，确保 UI 与真实音频一致（在线曲目切换时尤其关键）
     state.syncPlaybackState()
     // 心动模式：当前曲目定位不到副歌就跳过，否则为下一首预备片段
-    state.highlight.onTrackSettled()
+    state.highlightPolicy.onTrackSettled()
 }
 
 internal fun handlePositionDiscontinuity(state: MusicPlaybackState, reason: Int) {

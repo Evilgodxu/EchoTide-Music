@@ -707,7 +707,7 @@ class MetadataViewModel(
         state.updateTrack(updated)
         // 封面字节随文件重写而变（写入新图或移除内嵌封面），作废显示端的封面缓存，
         // 使列表与播放器取到新图而不是旧缩略图
-        if (coverChanged) state.bumpCoverRevision()
+        if (coverChanged) state.coverCache.bumpCoverRevision()
     }
 
     private fun message(resId: Int): String = getApplication<Application>().getString(resId)

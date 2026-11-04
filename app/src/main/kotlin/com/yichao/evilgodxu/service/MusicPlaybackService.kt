@@ -462,7 +462,7 @@ class MusicPlaybackService : MediaSessionService() {
                 usbDirectOutput.setEnabled(enabled)
                 // 开关的启用状态同步给播放状态：心动模式据此判断能否进入，见 isImmersiveOutput
                 stateHolder.state.usbDirectOutputEnabled = enabled
-                stateHolder.state.highlight.onImmersiveOutputChanged()
+                stateHolder.state.highlightPolicy.onImmersiveOutputChanged()
             }
         }
         // 独占同样在会话建立后装配。它自己订阅 USB 的接入/拔出与授权结果，故只需喂开关与成色出口；
@@ -484,7 +484,7 @@ class MusicPlaybackService : MediaSessionService() {
             usbExclusiveOutputModeFlow().collect { enabled ->
                 usbExclusiveOutput.setEnabled(enabled)
                 stateHolder.state.usbExclusiveEnabled = enabled
-                stateHolder.state.highlight.onImmersiveOutputChanged()
+                stateHolder.state.highlightPolicy.onImmersiveOutputChanged()
             }
         }
         // 上次的档位在起播前恢复：读盘与独占开关的读取走同一份设置，两者都在同一批协程里完成

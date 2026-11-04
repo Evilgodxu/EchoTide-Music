@@ -80,7 +80,7 @@ internal suspend fun applyLocalCover(
         withContext(Dispatchers.Main) {
             // 封面已写入音频文件：清掉在线封面地址，转由文件自身的封面提供显示
             playbackState.updateTrack(track.copy(neteaseCoverUrl = ""))
-            playbackState.bumpCoverRevision()
+            playbackState.coverCache.bumpCoverRevision()
             playbackState.setLocalCoverCandidates(emptyList())
         }
         true
