@@ -459,57 +459,47 @@ class MusicPlaybackState(
     var isEnrichingMetadata by mutableStateOf(false)
     var isLyricsVisible by mutableStateOf(false)
 
-    // 在线搜索相关状态
-    var isSearchMode by mutableStateOf(false)
-    var searchQuery by mutableStateOf("")
-    var searchSource by mutableStateOf(MusicSearchSource.NETEASE)
-    var searchResults by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
+    // 在线搜索与在线资源匹配的界面状态收在 SearchPanelState 中；
+    // 此处按原属性名转发，界面侧无需感知拆分
+    private val searchPanel = SearchPanelState()
+
+    var isSearchMode by searchPanel::isSearchMode
+    var searchQuery by searchPanel::searchQuery
+    var searchSource by searchPanel::searchSource
+    var searchResults by searchPanel::searchResults
     val searchHistory: List<String> get() = searchHistoryStore.entries
-    var isSearching by mutableStateOf(false)
-    // 当前搜索协程句柄：新搜索发起时取消上一次，避免过期响应覆盖新查询结果
-    var searchJob: Job? = null
-    // 搜索结果分页：已加载页数、是否正在加载更多、是否还有更多
-    var searchPage by mutableIntStateOf(0)
-    var isLoadingMore by mutableStateOf(false)
-    var hasMoreSearchResults by mutableStateOf(true)
-    // 代理音源一次拉取的全量结果缓冲：本地按页切分展示，避免不支持分页的代理重复请求
-    var searchPending by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
-    // 代理音源首次请求是否拉满（可能支持分页，缓冲耗尽后继续请求下一页）
-    var searchPendingFull by mutableStateOf(false)
-    // 加载更多分页的协程句柄：新搜索发起时取消，避免过期分页混入新结果
-    var searchLoadJob: Job? = null
-    var showSearchResults by mutableStateOf(false)
-    var pendingSearchResults by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
-    var closeSearchResultsOnReady by mutableStateOf(false)
-    // 首页音质选择对话框：非空时显示，目标为待播在线歌曲
-    var qualityPickTrack by mutableStateOf<NeteaseSongSearchResult?>(null)
-    // 音质尝试中：解析地址与等待播放结果期间置 true，阻止重复点击/误关对话框
-    var qualityBusy by mutableStateOf(false)
-    // 最近一次音质尝试失败提示（失败时保留对话框展示，供用户换其它音质）
-    var qualityError by mutableStateOf<String?>(null)
-    // 音质试播曲目 ID：播放就绪(READY)后清空；播放失败时据此移除试播曲目并保留对话框
-    var pendingQualityPlayTrackId by mutableStateOf<Long?>(null)
-    // 无损升级进行中：阻止重复触发与误关对话框
-    var losslessUpgradeBusy by mutableStateOf(false)
-    // 最近一次无损升级失败提示：升级失败时保留对话框展示，供用户重试
-    var losslessUpgradeError by mutableStateOf<String?>(null)
-    // 无损升级候选：按来源搜索的在线原曲，用户确认选中后下载无损替换本地文件
-    var losslessUpgradeCandidates by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
-    var isLosslessUpgradeSearching by mutableStateOf(false)
-    var losslessUpgradeSource by mutableStateOf(MusicSearchSource.NETEASE)
-    var coverCandidates by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
-    var isCoverSearching by mutableStateOf(false)
-    var localCoverCandidates by mutableStateOf<List<RecentCover>>(emptyList())
+    var isSearching by searchPanel::isSearching
+    var searchJob by searchPanel::searchJob
+    var searchPage by searchPanel::searchPage
+    var isLoadingMore by searchPanel::isLoadingMore
+    var hasMoreSearchResults by searchPanel::hasMoreSearchResults
+    var searchPending by searchPanel::searchPending
+    var searchPendingFull by searchPanel::searchPendingFull
+    var searchLoadJob by searchPanel::searchLoadJob
+    var showSearchResults by searchPanel::showSearchResults
+    var pendingSearchResults by searchPanel::pendingSearchResults
+    var closeSearchResultsOnReady by searchPanel::closeSearchResultsOnReady
+    var qualityPickTrack by searchPanel::qualityPickTrack
+    var qualityBusy by searchPanel::qualityBusy
+    var qualityError by searchPanel::qualityError
+    var pendingQualityPlayTrackId by searchPanel::pendingQualityPlayTrackId
+    var losslessUpgradeBusy by searchPanel::losslessUpgradeBusy
+    var losslessUpgradeError by searchPanel::losslessUpgradeError
+    var losslessUpgradeCandidates by searchPanel::losslessUpgradeCandidates
+    var isLosslessUpgradeSearching by searchPanel::isLosslessUpgradeSearching
+    var losslessUpgradeSource by searchPanel::losslessUpgradeSource
+    var coverCandidates by searchPanel::coverCandidates
+    var isCoverSearching by searchPanel::isCoverSearching
+    var localCoverCandidates by searchPanel::localCoverCandidates
     // 封面写入成功后自增：封面写进音频文件后其 URI 不变而系统略缩图已变，
     // 通知封面组件重新取系统略缩图
     var coverRevision by mutableIntStateOf(0)
-    var lyricsCandidates by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
-    var isLyricsSearching by mutableStateOf(false)
-    var isLyricsRefreshing by mutableStateOf(false)
-    var lyricsRefreshError by mutableStateOf<String?>(null)
-    // 歌词/封面刷新当前来源：按来源独立搜索，切换来源时轮换并重新搜索
-    var lyricsRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
-    var coverRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
+    var lyricsCandidates by searchPanel::lyricsCandidates
+    var isLyricsSearching by searchPanel::isLyricsSearching
+    var isLyricsRefreshing by searchPanel::isLyricsRefreshing
+    var lyricsRefreshError by searchPanel::lyricsRefreshError
+    var lyricsRefreshSource by searchPanel::lyricsRefreshSource
+    var coverRefreshSource by searchPanel::coverRefreshSource
 
     // ===== 心动模式 =====
     // 连续跳过计数：整队列都无可定位副歌时防止回绕空转
