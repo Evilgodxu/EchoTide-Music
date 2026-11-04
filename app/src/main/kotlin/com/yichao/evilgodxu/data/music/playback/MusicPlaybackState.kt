@@ -12,7 +12,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.edit
 import androidx.core.net.toUri
-import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -46,10 +45,8 @@ import kotlin.jvm.JvmName
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -742,6 +739,11 @@ class MusicPlaybackState(
         scope = { playbackScope },
         context = { appContext },
     )
+    private val startupStateLoader = StartupStateLoader(
+        searchHistoryStore = searchHistoryStore,
+        recentPlayedStore = recentPlayedStore,
+        playlistPersistence = playlistPersistence,
+    )
     private val backgroundColors = BackgroundColorMemory(
         scope = { playbackScope },
         context = { appContext },
@@ -979,58 +981,8 @@ class MusicPlaybackState(
 
     private suspend fun doRestoreSavedState(context: Context) {
         appContext = context
-        // 各段读取互不依赖：并发发起，总耗时取最慢一段而非各段之和。
-        // 排序依赖读出的缓存与排序规则，故放在并发收尾处单独执行
-        val restored = coroutineScope {
-            val searchHistoryRead = async(Dispatchers.IO) {
-                searchHistoryStore.read(context)
-            }
-            val recentPlayRead = async(Dispatchers.IO) {
-                recentPlayedStore.read(context)
-            }
-            val preferencesRead = async(Dispatchers.IO) {
-                context.settingsDataStore.data.first()
-            }
-            val cachedPlaylistRead = async(Dispatchers.IO) {
-                playlistPersistence.readCachedPlaylist(context)
-            }
-            // 恢复上次选中的歌单来源、排序规则与默认库备份，扫描刷新后保持选中与排序
-            val playlistPrefsRead = async(Dispatchers.IO) {
-                playlistPersistence.readSourceSettings(context)
-            }
-            // 恢复面板浏览态：未显式浏览过歌单时跟随播放队列
-            val viewedPrefsRead = async(Dispatchers.IO) {
-                playlistPersistence.readViewedSettings(context)
-            }
-            val cachedBackupRead = async(Dispatchers.IO) {
-                playlistPersistence.readCachedBackup(context)
-            }
-
-            val cachedPlaylist = cachedPlaylistRead.await()
-            val (savedSource, savedSortField, savedSortDescending) = playlistPrefsRead.await()
-            // 默认全量播放列表套用保存的排序规则；大库排序开销明显，放 IO 执行
-            val orderedCachedPlaylist = withContext(Dispatchers.IO) {
-                if (savedSource == null) {
-                    sortTracks(cachedPlaylist, savedSortField, savedSortDescending)
-                } else {
-                    cachedPlaylist
-                }
-            }
-            val (savedFollowsQueue, savedViewedSource) = viewedPrefsRead.await()
-            RestoredStartupState(
-                searchHistory = searchHistoryRead.await(),
-                recentPlayEvents = recentPlayRead.await(),
-                preferences = preferencesRead.await(),
-                cachedPlaylist = cachedPlaylist,
-                orderedPlaylist = orderedCachedPlaylist,
-                cachedBackup = cachedBackupRead.await(),
-                savedSource = savedSource,
-                savedSortField = savedSortField,
-                savedSortDescending = savedSortDescending,
-                savedFollowsQueue = savedFollowsQueue,
-                savedViewedSource = savedViewedSource,
-            )
-        }
+        // 读取侧（并发读盘与排序）由 StartupStateLoader 承担，这里只负责把结果应用到播放状态
+        val restored = startupStateLoader.load(context)
         searchHistoryStore.replaceAll(restored.searchHistory)
         recentPlayedStore.replaceAll(restored.recentPlayEvents)
         val preferences = restored.preferences
@@ -1879,19 +1831,4 @@ private data class SavedPlaybackState(
     val audioUri: String,
     val position: Long,
     val mode: Int,
-)
-
-// 恢复阶段并发读出的各段结果：无依赖的读取同时发起，此处只做汇总
-private data class RestoredStartupState(
-    val searchHistory: List<String>,
-    val recentPlayEvents: List<PlayEvent>,
-    val preferences: Preferences,
-    val cachedPlaylist: List<MusicTrack>,
-    val orderedPlaylist: List<MusicTrack>,
-    val cachedBackup: List<MusicTrack>,
-    val savedSource: PlaylistSource?,
-    val savedSortField: PlaylistSortField,
-    val savedSortDescending: Boolean,
-    val savedFollowsQueue: Boolean,
-    val savedViewedSource: PlaylistSource?,
 )
