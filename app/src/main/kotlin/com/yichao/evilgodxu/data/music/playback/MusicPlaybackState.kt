@@ -903,43 +903,21 @@ class MusicPlaybackState(
     }
 
     // ===== 歌词进度时间轴 =====
-    // 歌词面板在旋转、悬浮窗建立、页面回切时会整体重建。面板本地按真实流逝时间推进的相位
-    // 若不能在重建时接上，就会退回重建那一刻的播放位置，表现为「重建一次、歌词落后数百毫秒」；
-    // 故时间轴快照由状态层持有：面板每轮跟随回写，重建时接着走。
-    // 用普通字段而非 Compose 状态：每秒数十次写入，不该牵动其它面板重组
-    private var lyricTimelineTrackId: Long? = null
-    private var lyricTimelinePositionMs = 0L
+    // 快照由 LyricTimeline 持有；此处按原方法名转发，面板侧无需感知拆分
+    private val lyricTimeline = LyricTimeline()
 
-    /**
-     * 界面重建时的歌词起步位置。
-     *
-     * 取「上一块面板推进到的进度」与「即时播放位置」的较大者：前者保住面板本地已按真实流逝时间
-     * 推进的相位（即时位置随位置回锚回退后可能已低于它），后者保证离开页面较久、快照明显落后时
-     * 仍从当前进度起步。即时位置连续推进，只有控制器不可用时才回退到台阶式的单调位置
-     */
     fun seedLyricPosition(trackId: Long?): Long {
-        val snapshot = lyricTimelinePositionMs
-            .takeIf { trackId != null && trackId == lyricTimelineTrackId } ?: 0L
         // 取绝对时间：心动模式下控制器回报的是片段内进度，换算回整曲时间后歌词才对得上
-        return maxOf(lyricPositionMs, snapshot)
+        return lyricTimeline.seed(trackId, lyricPositionMs)
     }
 
     // 面板每轮跟随回写当前进度，供界面重建时接着推进
     fun recordLyricPosition(trackId: Long?, positionMs: Long) {
-        if (trackId == null || trackId != lyricTimelineTrackId) {
-            lyricTimelineTrackId = trackId
-            lyricTimelinePositionMs = positionMs
-            return
-        }
-        // 同一曲目内只前进：多个面板可能同时在场，落后的一方回写不应把已推进的进度拉回
-        if (positionMs > lyricTimelinePositionMs) lyricTimelinePositionMs = positionMs
+        lyricTimeline.record(trackId, positionMs)
     }
 
-    // 真实跳变（拖动进度、歌词拖拽跳转、切曲、循环回卷）后作废快照：
-    // 下一块面板改以跳变后的即时播放位置重新起步，避免沿用跳变前的旧进度
     private fun invalidateLyricTimeline() {
-        lyricTimelineTrackId = null
-        lyricTimelinePositionMs = 0L
+        lyricTimeline.invalidate()
     }
 
     // 防止手动切歌与自动切歌并发导致状态错乱
