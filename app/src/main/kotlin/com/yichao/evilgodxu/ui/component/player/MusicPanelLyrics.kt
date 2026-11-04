@@ -100,6 +100,9 @@ internal fun LyricsPanel(
     // 这类滑动全程不让歌词跟随移动；为 null 的场景（无切歌手势）不做快速滑动仲裁，
     // 纵向拖拽一律按歌词跳转处理
     onVerticalFling: ((next: Boolean) -> Unit)? = null,
+    // 纵向拖拽接管本次手势的出口（方向判定为纵向即回调）：由宿主收回触摸瞬间顺带唤出的控件，
+    // 使歌词拖拽定位不把已收起的标题栏闪出来
+    onVerticalDragClaim: (() -> Unit)? = null,
 ) {
     // 已唱 / 未唱歌词颜色：默认取主题色，传入 contentColor 时（如首页）覆盖为指定色
     val activeColor = contentColor ?: MaterialTheme.colorScheme.primary
@@ -165,6 +168,8 @@ internal fun LyricsPanel(
     val currentLines by rememberUpdatedState(lines)
     // 切歌出口同理：手势协程常驻，需读到最新的回调而非组合期捕获的旧值
     val currentOnVerticalFling by rememberUpdatedState(onVerticalFling)
+    // 纵向接管出口同理
+    val currentOnVerticalDragClaim by rememberUpdatedState(onVerticalDragClaim)
     // 歌词缺失时按需补全（懒加载）：补全成功后回写 lyricLines 驱动重组显示
     LaunchedEffect(
         playbackState.currentTrack?.id,
@@ -377,6 +382,8 @@ internal fun LyricsPanel(
                         if (delta.getDistance() < viewConfiguration.touchSlop) continue
                         if (abs(delta.y) < abs(delta.x)) return@awaitEachGesture
                         dragY = delta.y
+                        // 纵向接管：先告知宿主收回本次触摸顺带唤出的控件（无歌词可拖时不算拖拽）
+                        if (currentLines.isNotEmpty()) currentOnVerticalDragClaim?.invoke()
                         change.consume()
                         break
                     }

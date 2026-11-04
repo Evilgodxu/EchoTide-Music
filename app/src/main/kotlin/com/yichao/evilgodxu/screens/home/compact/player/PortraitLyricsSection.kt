@@ -54,6 +54,8 @@ private const val LyricFineTuneStepMs = 100L
 internal fun PortraitLyricsSection(
     playbackState: MusicPlaybackState,
     onVerticalFling: ((next: Boolean) -> Unit)?,
+    // 歌词纵向拖拽接管手势的出口：宿主据此收回触摸瞬间顺带唤出的标题栏
+    onVerticalDragClaim: (() -> Unit)?,
     onLongPress: (Long) -> Unit,
     modifier: Modifier = Modifier,
     // 歌词菜单由上层持有状态，但必须挂在此区域内部：菜单 Popup 以调用处布局节点为锚点，
@@ -133,6 +135,7 @@ internal fun PortraitLyricsSection(
                         lineSpacing = homePortraitLayout.lineSpacingDp.dp,
                         contentColor = Color.White,
                         onVerticalFling = onVerticalFling,
+                        onVerticalDragClaim = onVerticalDragClaim,
                     )
                 } else {
                     Text(

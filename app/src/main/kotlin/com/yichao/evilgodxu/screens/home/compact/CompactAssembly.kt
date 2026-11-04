@@ -103,13 +103,19 @@ internal fun CompactAssembly(
     val sheetOnTopState = rememberUpdatedState(sheetOnTop)
 
     // 标题栏显隐：仅播放器页自动收起（搜索页与歌单页内容从标题栏下方开始，收起会留下空带），
-    // 触摸播放页任意位置或切回播放器页即唤出，两秒无操作后收起
+    // 触摸播放页任意位置或切回播放器页即唤出，两秒无操作后收起；
+    // 歌词纵向拖拽是例外——它接管整次手势，触摸瞬间的唤出会随即收回（见 lyricDragClaimed）
     val autoHideTopBar = panelState.currentPage == HomePage.PLAYER
     // 歌手页自带沉浸头图，标题栏在该页始终隐藏：顶部整个让给头图，也不随触摸唤出
     val topBarSuppressed = panelState.playlistImmersive
     var topBarVisible by remember { mutableStateOf(true) }
     // 交互计数：每次唤出都自增以重置收起计时，连续触摸期间不会提前收起
     var topBarGeneration by remember { mutableIntStateOf(0) }
+    // 本次触摸开始前标题栏是否已收起：歌词纵向拖拽接管手势时据此把它收回，
+    // 拖拽歌词定位不把已收起的标题栏闪出来
+    var topBarHiddenBeforeTouch by remember { mutableStateOf(false) }
+    // 本次触摸是否已被歌词纵向拖拽接管：接管期间标题栏始终收起，连触摸瞬间起始的淡入也不再推进
+    var lyricDragClaimed by remember { mutableStateOf(false) }
     fun revealTopBar() {
         // 弹层置顶期间不唤出：触摸落在弹层上，若照常唤出，标题栏会随每次触摸闪入、
         // 两秒后再自动收起，在弹层上方反复进出
@@ -130,7 +136,7 @@ internal fun CompactAssembly(
     LaunchedEffect(sheetOnTop) {
         if (sheetOnTop) topBarVisible = false
     }
-    val topBarAlpha by animateFloatAsState(
+    val animatedTopBarAlpha by animateFloatAsState(
         targetValue = when {
             // 歌手页的标题栏恒隐藏：进该页时一并按这条淡出收走，不做突起突没
             topBarSuppressed -> 0f
@@ -139,6 +145,8 @@ internal fun CompactAssembly(
         },
         animationSpec = tween(durationMillis = TopBarFadeDurationMs),
     )
+    // 被歌词纵向拖拽接管时直接归零：触摸唤出尚在淡入起始段，直接收起不留残影
+    val topBarAlpha = if (lyricDragClaimed) 0f else animatedTopBarAlpha
 
     HomeShell(
         panelState = panelState,
@@ -173,11 +181,14 @@ internal fun CompactAssembly(
                     .fillMaxSize()
                     .then(trackSwipe.modifier)
                     // 只在 Initial 阶段观察、不消费事件：播放页任意触摸都唤出标题栏
-                    // （弹层置顶期间除外，判定见 revealTopBar）
+                    // （弹层置顶期间除外，判定见 revealTopBar；歌词纵向拖拽接手时收回，见 lyricDragClaimed）
                     .pointerInput(Unit) {
                         awaitPointerEventScope {
                             while (true) {
                                 awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                // 记录触摸前的显隐再唤出：歌词纵向拖拽接管本次手势时按此状态收回
+                                topBarHiddenBeforeTouch = !topBarVisible
+                                lyricDragClaimed = false
                                 revealTopBar()
                             }
                         }
@@ -189,6 +200,13 @@ internal fun CompactAssembly(
                     swipePreviewText = trackSwipe.previewText,
                     // 歌词区快速滑动同样按切歌处理，复用整页纵向切歌的判定与偏好
                     onVerticalFling = trackSwipe::switchTrack,
+                    // 歌词拖拽定位接管手势时收回触摸顺带唤出的标题栏（触摸前本就收起才收回）
+                    onLyricVerticalDragClaim = {
+                        if (topBarHiddenBeforeTouch) {
+                            lyricDragClaimed = true
+                            topBarVisible = false
+                        }
+                    },
                     libraryAnalysis = panelState.libraryAnalysis,
                     playlistVisible = panelState.playlistVisible,
                     onPlaylistVisibilityChange = { panelState.playlistVisible = it },

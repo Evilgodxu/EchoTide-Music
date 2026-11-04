@@ -82,6 +82,8 @@ internal fun PortraitPlayer(
     swipePreviewText: String? = null,
     // 歌词区快速纵向滑动的切歌出口（true 为下一曲）：与整页上下滑动切歌同一套判定
     onVerticalFling: ((next: Boolean) -> Unit)? = null,
+    // 歌词纵向拖拽接管手势的出口：宿主据此收回触摸瞬间顺带唤出的标题栏
+    onLyricVerticalDragClaim: (() -> Unit)? = null,
     // 曲库格式分析对话框显隐：常驻首页层
     libraryAnalysis: LibraryAnalysisController,
     // 播放列表面板显隐：由首页层持有，显示期间禁用上下滑动切歌
@@ -190,6 +192,7 @@ internal fun PortraitPlayer(
             PortraitLyricsSection(
                 playbackState = playbackState,
                 onVerticalFling = onVerticalFling,
+                onVerticalDragClaim = onLyricVerticalDragClaim,
                 onLongPress = { positionMs ->
                     lyricsMenuPositionMs = positionMs
                     showLyricsMenu = true
