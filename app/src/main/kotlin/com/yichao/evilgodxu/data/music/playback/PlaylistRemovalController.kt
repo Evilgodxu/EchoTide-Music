@@ -4,7 +4,6 @@ import android.content.ContentResolver
 import android.content.Context
 import android.media.MediaScannerConnection
 import androidx.core.net.toUri
-import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.log.CrashLogManager
 import kotlinx.coroutines.Dispatchers
@@ -15,7 +14,7 @@ import java.io.File
 /**
  * 曲目移除：从播放队列删除、清理未播放的在线流、剔除失访的外部条目，以及彻底删除音频源。
  *
- * 只处理「曲目从库与队列中消失」这一条链路：队列收缩、当前项递补、歌词缓存孤儿回收、
+ * 只处理「曲目从库与队列中消失」这一条链路：队列收缩、当前项递补、
  * 歌单引用同步。播放推进本身由调用方与播放会话承担。
  */
 internal class PlaylistRemovalController(private val state: MusicPlaybackState) {
@@ -75,33 +74,10 @@ internal class PlaylistRemovalController(private val state: MusicPlaybackState) 
         state.persistPlaylist()
     }
 
-    /**
-     * 歌词缓存的引用集：默认队列 ∪ 当前过滤结果。默认队列覆盖本地曲目，过滤结果兜底在线曲目
-     * （在线曲目只存在于过滤结果，不在默认队列）。
-     *
-     * 返回 null 表示此刻判不出全量引用 —— 停留在过滤来源且默认队列尚未建立时，当前结果只是子集，
-     * 此时任何缓存都「看似无引用」，调用方必须整体跳过回收，否则会删掉其他曲目仍在用的共享缓存。
-     *
-     * @param excludeTrackId 从引用集剔出的曲目：删曲时传入待删曲目，其歌词缓存随之成为可回收的孤儿
-     */
-    fun lyricCacheReferences(excludeTrackId: Long? = null): Set<String>? {
-        if (state.queueFilter != null && state.defaultPlaylist.isEmpty()) return null
-        return (state.defaultPlaylist + state.playlist)
-            .filterNot { it.id == excludeTrackId }
-            .distinctBy { it.id }
-            .map { it.lyricCachePath }
-            .toSet()
-    }
-
-    // 彻底删除歌曲：移除音频源文件与仅该曲引用的歌词缓存，并同步库、播放队列与歌单引用
+    // 彻底删除歌曲：移除音频源文件，并同步库、播放队列与歌单引用。
+    // 歌词缓存不随曲目删除：公共下载目录里也可能有用户自己放入的 .lrc，无法区分归属
     suspend fun deleteSongPermanently(context: Context, track: MusicTrack) {
-        // 删除前先按剩余曲目算好引用集；引用集不全时拿到 null，本次跳过清理而非按「无引用」误删
-        val references = lyricCacheReferences(excludeTrackId = track.id)
-        val deleted = withContext(Dispatchers.IO) {
-            val ok = deleteAudioSource(context, track)
-            if (ok) references?.let { MusicMetadataCache.cleanupOrphanedMetadata(context, it) }
-            ok
-        }
+        val deleted = withContext(Dispatchers.IO) { deleteAudioSource(context, track) }
         // 源文件没删掉时不能把收藏/歌单当成功删除处理：下次扫描会把歌重新带回来，
         // 用户整理过的关联却已经先丢了
         if (!deleted) {

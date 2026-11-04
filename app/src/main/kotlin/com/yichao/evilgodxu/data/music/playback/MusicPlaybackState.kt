@@ -193,9 +193,6 @@ class MusicPlaybackState(
         playlistRemoval.remove(trackId, advanceToNext)
     }
 
-    fun lyricCacheReferences(excludeTrackId: Long? = null): Set<String>? =
-        playlistRemoval.lyricCacheReferences(excludeTrackId)
-
     suspend fun deleteSongPermanently(context: Context, track: MusicTrack) {
         playlistRemoval.deleteSongPermanently(context, track)
     }

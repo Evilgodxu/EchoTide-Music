@@ -132,11 +132,9 @@ class MiniPlayerController(
         dismissMiniPlayer()
         externalPlaybackLoader.release()
         context.stopService(Intent(context, MusicPlaybackService::class.java))
-        // 引用集在这里取好再交给清理：它是「哪些缓存还有主人」的唯一判据，须与此刻的播放状态一致
-        val lyricReferences = playbackState.lyricCacheReferences()
         exitScope.launch {
             // 回收失败也要结束进程：退出路径不能因一次清理异常就卡住不退出
-            runCatching { CacheInventory.reclaimOnExit(context, lyricReferences) }
+            runCatching { CacheInventory.reclaimOnExit(context) }
             Process.killProcess(Process.myPid())
         }
     }

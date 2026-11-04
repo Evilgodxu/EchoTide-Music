@@ -101,7 +101,7 @@ internal suspend fun downloadAndPlay(
             val lyricPath = MusicMetadataCache.saveLyrics(context, result.title, result.artist, lines).orEmpty()
             withContext(Dispatchers.Main) {
                 // updateTrack 同步回写并持久化引用：仅改内存态会丢失持久化引用，
-                // 进程被杀后重启清理会把刚落盘的歌词缓存当作孤儿误删
+                // 下次启动就无法复用刚落盘的歌词缓存
                 val track = playbackState.playlist.firstOrNull { it.id == trackId } ?: return@withContext
                 // 歌词已就位，清掉此前的失败标记，否则缓存文件被删后不再重建
                 playbackState.updateTrack(

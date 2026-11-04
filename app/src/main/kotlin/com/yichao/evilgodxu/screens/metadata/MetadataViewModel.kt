@@ -19,7 +19,6 @@ import com.yichao.evilgodxu.data.music.panel.applyCoverCandidate
 import com.yichao.evilgodxu.data.music.panel.autoTranslateLyricLine
 import com.yichao.evilgodxu.data.music.panel.searchCoverCandidates
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
-import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -183,9 +182,9 @@ class MetadataViewModel(
         val cachePath = target.lyricCachePath.takeIf { MusicMetadataCache.isValid(getApplication(), it) }
             ?: MusicMetadataCache.findLyrics(getApplication(), target.title, target.artist)
         val cached = cachePath?.let { path ->
-            withContext(Dispatchers.IO) {
-                runCatching { File(path).readText() }.getOrNull()
-            }?.takeIf { it.isNotBlank() }?.let { it to MusicMetadataCache.lyricsModifiedMs(getApplication(), path) }
+            withContext(Dispatchers.IO) { MusicMetadataCache.readLyricsText(getApplication(), path) }
+                .takeIf { it.isNotBlank() }
+                ?.let { it to MusicMetadataCache.lyricsModifiedMs(getApplication(), path) }
         }
         return when {
             embedded.isNullOrBlank() -> cached?.first.orEmpty()

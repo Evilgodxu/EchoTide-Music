@@ -3,7 +3,6 @@ package com.yichao.evilgodxu.data.cache
 import android.content.Context
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
 import com.yichao.evilgodxu.data.music.metadata.LargeCoverStore
-import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import java.io.File
 
 /**
@@ -58,18 +57,17 @@ internal object CacheInventory {
     }
 
     /**
-     * 退出前回收孤儿产出：只处理「引用可判定、内容可重建」的产出，用户数据一律不碰。
+     * 退出前回收：只清理可重建且不属于用户数据的中转残留。
      * 遍历与删除均为阻塞 IO，必须在 IO 线程调用。
      *
-     * - **歌词缓存**：无任何曲目引用的文件。引用集由调用方给出（见 MusicPlaybackState.lyricCacheReferences）；
-     *   传入 null 表示此刻判不出全量引用，整体跳过 —— 引用集不全时判「无引用」等于判「全删」。
-     * - **封面落盘目录的中转残留**：写入被打断留下的 `.tmp`，不属于任何曲目，也没有入口会读。
+     * 歌词缓存不在此列：公共下载目录下用户也可能放入自己的 .lrc，按「有无曲目引用」判断
+     * 无法区分应用产出与用户文件，故对歌词目录不做任何自动删除。
+     * 封面落盘目录的中转残留（`.tmp`）不属于任何曲目，也没有入口会读，可以回收。
      *
      * 不在此列的三类各有归属：在线音频缓存与歌单等用户数据只由用户显式删除；运行日志要留给用户分享；
      * 待安装的更新包可能正等安装 —— 它们的残留由 [reclaimOnColdStart] 按各自判据处理。
      */
-    fun reclaimOnExit(context: Context, lyricReferences: Set<String>?) {
-        lyricReferences?.let { MusicMetadataCache.cleanupOrphanedMetadata(context, it) }
+    fun reclaimOnExit(context: Context) {
         CurrentCoverCache.reclaimTempResidue(context, TEMP_RESIDUE_GRACE_MS)
         LargeCoverStore.reclaimTempResidue(context, TEMP_RESIDUE_GRACE_MS)
     }

@@ -39,9 +39,8 @@ class MetadataEnricher {
     /**
      * 补全歌词。
      *
-     * 不回收孤儿缓存：无引用的歌词缓存只在引用集可判定的入口回收（用户显式删除曲目、
-     * 应用退出前的一次清理，均见 [MusicMetadataCache.cleanupOrphanedMetadata]），
-     * 其余入口（扫描、切歌单、下载完成、媒体变更、权限回调）的引用集可能缺失，不参与回收。
+     * 不回收歌词缓存：公共下载目录里也可能有用户自己放入的 .lrc，无法区分应用产出与用户文件，
+     * 故任何入口都不对歌词目录做自动删除。
      */
     suspend fun enrichAndCleanup(
         context: Context,
@@ -222,7 +221,9 @@ class MetadataEnricher {
         }
     }
 
-    // 读取单曲本地歌词：曲目缓存 → 内嵌歌词 → 共享 .lrc 缓存；三处均未命中即标记失败
+    // 读取单曲本地歌词：曲目缓存 → 共享 .lrc 缓存 → 内嵌歌词；三处均未命中即标记失败。
+    // 共享缓存先于内嵌歌词：首次启动（曲目尚无关联路径）时优先复用公共目录下已有的 .lrc，
+    // 不必逐首重新解码音频内嵌歌词
     private suspend fun enrichLyric(context: Context, track: MusicTrack): MusicTrack? = try {
         // 优先直接复用曲目已关联的歌词缓存（冷启动恢复残留的路径），按需读取并应用手动偏移
         track.lyricCachePath.takeIf { MusicMetadataCache.isValid(context, it) }?.let { path ->
@@ -234,8 +235,18 @@ class MetadataEnricher {
                 )
             }
         }
-        // 其次读取本地音频内嵌歌词：文件自带歌词优先于共享缓存；
-        // 读回后落盘为歌词缓存，避免冷启动重复读取音频文件头部
+        // 其次复用按"标题 - 艺术家"落盘的通用歌词缓存（在线播放/手动刷新保存的 .lrc）
+        val existingPath = MusicMetadataCache.findLyrics(context, track.title, track.artist)
+        val existingLines = existingPath?.let { MusicMetadataCache.loadLyrics(context, it) }
+        if (!existingLines.isNullOrEmpty()) {
+            return track.copy(
+                lyricCachePath = existingPath,
+                lyricLines = applyLyricOffset(existingLines, track.lyricOffsetMs),
+                lyricFailed = false,
+            )
+        }
+        // 再次读取本地音频内嵌歌词：新曲目的歌词来源；读回后落盘为歌词缓存，
+        // 避免冷启动重复读取音频文件头部
         if (track.isLocalAudioSource) {
             MusicEmbeddedLyricReader.read(context, track).takeIf { it.isNotEmpty() }?.let { lines ->
                 val lyricPath = MusicMetadataCache.saveLyrics(context, track.title, track.artist, lines).orEmpty()
@@ -245,16 +256,6 @@ class MetadataEnricher {
                     lyricFailed = false,
                 )
             }
-        }
-        // 再次复用按"标题 - 艺术家"落盘的通用歌词缓存（在线播放/手动刷新保存的 .lrc）
-        val existingPath = MusicMetadataCache.findLyrics(context, track.title, track.artist)
-        val existingLines = existingPath?.let { MusicMetadataCache.loadLyrics(context, it) }
-        if (!existingLines.isNullOrEmpty()) {
-            return track.copy(
-                lyricCachePath = existingPath,
-                lyricLines = applyLyricOffset(existingLines, track.lyricOffsetMs),
-                lyricFailed = false,
-            )
         }
         // 本地三处均无歌词：标记失败并转占位显示，同时避免后续补全反复重扫同一曲目。
         // 联网补齐由用户手动触发（歌词刷新），不在自动路径内

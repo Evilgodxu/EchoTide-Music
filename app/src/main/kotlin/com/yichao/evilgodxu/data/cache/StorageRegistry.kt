@@ -150,7 +150,7 @@ internal object StorageRegistry {
         CacheEntry(CacheCategory.TEMP_FILE, CacheScope.CLEARABLE) { context -> tempFiles(context) },
         // 运行日志：仅保留今日，写入时顺带清理旧文件；清理作用域内由用户整批删除（逐文件删，目录保留）
         CacheEntry(CacheCategory.LOG, CacheScope.CLEARABLE) { context -> logFiles(context) },
-        // 歌词缓存：可由网络或音频文件重建，孤儿回收，连续 3 天无引用后删除
+        // 歌词缓存：可由网络或音频文件重建，仅供统计，应用不自动回收
         CacheEntry(CacheCategory.LYRIC, CacheScope.USER_DATA) { context ->
             metadataLocations(context, MusicMetadataCache.lyricRoot(context))
         },
