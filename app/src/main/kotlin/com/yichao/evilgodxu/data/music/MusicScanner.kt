@@ -1,10 +1,13 @@
 package com.yichao.evilgodxu.data.music
 
+import android.Manifest
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.core.net.toUri
@@ -71,6 +74,13 @@ object MusicScanner {
     suspend fun scan(context: Context): List<MusicTrack> = withContext(Dispatchers.IO) {
         val tracks = mutableListOf<MusicTrack>()
         val contentResolver = context.contentResolver
+        // 空库的成因有两条完全不同的路：授权没到位（查询静默返回空游标，不抛异常）与
+        // 库内确实没有符合口径的条目。两者在结果上都是空列表，故在此统计一轮剔除量，
+        // 为空时留一条可判读的记录——否则这条链路上再没有别的痕迹
+        var rawRows = 0
+        var droppedByPath = 0
+        var droppedByExtension = 0
+        var queryFailed = false
         try {
             val projection = arrayOf(
                 MediaStore.Audio.Media._ID,
@@ -90,6 +100,7 @@ object MusicScanner {
                 null,
                 "${MediaStore.Audio.Media.TITLE} ASC"
             )?.use { cursor ->
+                rawRows = cursor.count
                 val unknownArtist = context.getString(R.string.music_scanner_unknown_artist)
                 val idIdx = cursor.getColumnIndex(MediaStore.Audio.Media._ID)
                 val titleIdx = cursor.getColumnIndex(MediaStore.Audio.Media.TITLE)
@@ -99,13 +110,19 @@ object MusicScanner {
                 val albumIdIdx = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
                 val albumNameIdx = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM)
                 val modifiedIdx = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_MODIFIED)
-                if (idIdx < 0 || titleIdx < 0) return@withContext tracks
+                if (idIdx < 0 || titleIdx < 0) return@use
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idIdx)
                     val path = if (dataIdx >= 0) cursor.getString(dataIdx).orEmpty() else ""
-                    if (isNonMusicPath(path)) continue
+                    if (isNonMusicPath(path)) {
+                        droppedByPath++
+                        continue
+                    }
                     // 装载不了就播不出声，留着只在曲库里添乱
-                    if (!hasSupportedAudioExtension(path)) continue
+                    if (!hasSupportedAudioExtension(path)) {
+                        droppedByExtension++
+                        continue
+                    }
                     val audioUri = ContentUris.withAppendedId(
                         MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                         id
@@ -137,7 +154,18 @@ object MusicScanner {
                 }
             }
         } catch (e: Exception) {
+            queryFailed = true
             CrashLogManager.logException("MusicScanner", "扫描本地音乐失败", e)
+        }
+        // 仅在查询本身没出错时记：查询已失败的情况上面那条记录即现场，不复述第二遍
+        if (!queryFailed && tracks.isEmpty()) {
+            CrashLogManager.logException(
+                "MusicScanner",
+                "本地曲库扫描结果为空：设备 ${Build.MANUFACTURER} ${Build.MODEL}（API ${Build.VERSION.SDK_INT}）" +
+                    "，音乐访问${if (isAudioReadGranted(context)) "已授予" else "未授予"}" +
+                    "，库内音频 ${countAudioRows(context)} 首，符合口径 $rawRows 首" +
+                    "，路径剔除 $droppedByPath 首，扩展名剔除 $droppedByExtension 首",
+            )
         }
         tracks
     }
@@ -200,6 +228,23 @@ private val SUPPORTED_AUDIO_EXTENSIONS = setOf(
 // 直接对整条路径做 substringAfterLast('.') 会把目录误当扩展名
 private fun hasSupportedAudioExtension(path: String): Boolean =
     path.substringAfterLast('/').substringAfterLast('.', "").lowercase() in SUPPORTED_AUDIO_EXTENSIONS
+
+// 授权态只用于为空库留痕时区分成因：缺授权时平台返回空游标而不抛异常，
+// 与「库内确实没有曲目」在结果上无从分辨
+private fun isAudioReadGranted(context: Context): Boolean =
+    context.checkSelfPermission(Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+// 不带口径的条目数：区分「系统索引里就没有音频」与「有音频但被 IS_MUSIC/时长口径全挡掉」，
+// 两者对排查指向的方向完全不同，而扫描本身只看得见后者之后的结果
+private fun countAudioRows(context: Context): Int = runCatching {
+    context.contentResolver.query(
+        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+        arrayOf(MediaStore.Audio.Media._ID),
+        null,
+        null,
+        null,
+    )?.use { it.count } ?: 0
+}.getOrDefault(0)
 
 // 解析音频 URI 对应的本地文件真实路径，用于跨 URI 形态识别同一文件：
 // 同一文件可能以 MediaStore 行、SAF 文档 URI、直路文件路径等多种形态出现

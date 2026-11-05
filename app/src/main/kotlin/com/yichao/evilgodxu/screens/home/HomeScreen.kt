@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -58,6 +59,12 @@ fun HomeScreen(
         onAudioGranted = viewModel::refreshPermissions,
         markRequested = viewModel::markPermissionRequested,
     )
+    // 回到前台复检授权：授权也可能发生在系统设置页，那条路没有弹窗回调，
+    // 只认回调会让「已在系统里开了权限」的本进程一直停在空库，等下次冷启动才恢复
+    LifecycleResumeEffect(Unit) {
+        viewModel.refreshPermissions()
+        onPauseOrDispose { }
+    }
     // 冷启动恢复与曲目预读由 PlaybackRestorer 编排，界面不再重复触发
 
     val activity = LocalActivityResultRegistryOwner.current as? Activity

@@ -30,7 +30,8 @@ class HomeViewModel(
         refreshPermissions()
     }
 
-    // 只核对音频访问：其余权限由各自功能点在自己触发时申请，启动路径不再逐项探测系统状态
+    // 只核对音频访问：其余权限由各自功能点在自己触发时申请，启动路径不再逐项探测系统状态。
+    // 弹窗回调与页面回到前台都走这里——授权也可能发生在系统设置页，只挂在回调上会漏掉那条路
     fun refreshPermissions() {
         val wasGranted = _state.value.blockingPermissionsGranted
         _state.update { it.copy(mediaAudioGranted = permissionMonitor.isMediaAudioGranted()) }
