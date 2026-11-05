@@ -10,7 +10,7 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-6.2.0-informational)
+![Version](https://img.shields.io/badge/version-6.2.1-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.5.0-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.8.2-blue)
@@ -39,7 +39,7 @@
 | 语言 | Kotlin 2.4.21 |
 | UI | Jetpack Compose(BOM 2026.09.00)+ Material 3 |
 | 播放 | Media3 ExoPlayer 1.11.1 + MediaSessionService（USB 独占另走原生等时层） |
-| 导航 | AndroidX Navigation3 1.2.0（类型安全路由） |
+| 导航 | AndroidX Navigation3 1.2.1（类型安全路由） |
 | 依赖注入 | 手动 DI（单例挂在 Application） |
 | 持久化 | DataStore Preferences 1.3.0 |
 | 图片加载 | Coil 3.6.3 |
