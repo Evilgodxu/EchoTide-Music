@@ -314,6 +314,31 @@ internal object MusicMetadataCache {
         return queryDownloadsUri(context, dirName, file.name)
     }
 
+    // 删除曲目的歌词缓存：只认本应用写的那两份落点（公共下载目录与权限缺失时的私有兜底），
+    // 公共目录里别的 .lrc 可能是用户自己放的，宁可留下也不误删。条目在集合里时经集合删除
+    // （文件与记账一起走），条目已不在（旧版遗留的纯路径缓存）才直删文件
+    fun deleteLyrics(context: Context, location: String) {
+        if (location.isBlank()) return
+        if (isContentLocation(location)) {
+            deleteEntry(context, location.toUri())
+            return
+        }
+        val file = File(location)
+        if (file.parentFile?.absolutePath !in lyricRoots(context)) return
+        val uri = downloadsUriForFile(context, file)
+        if (uri != null && deleteEntry(context, uri)) return
+        runCatching { file.delete() }
+    }
+
+    // 歌词缓存的两处落点：公共目录，以及无写入权限时的应用专属目录
+    private fun lyricRoots(context: Context): Set<String> = buildSet {
+        add(lyricRoot(context).absolutePath)
+        context.getExternalFilesDir(null)?.let { add(File(it, LYRIC_DIR).absolutePath) }
+    }
+
+    private fun deleteEntry(context: Context, uri: Uri): Boolean =
+        runCatching { context.contentResolver.delete(uri, null, null) > 0 }.getOrDefault(false)
+
     private fun queryModifiedSeconds(context: Context, uri: Uri): Long = runCatching {
         context.contentResolver.query(
             uri,

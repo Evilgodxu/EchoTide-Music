@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.media.MediaScannerConnection
 import androidx.core.net.toUri
+import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.log.CrashLogManager
 import kotlinx.coroutines.Dispatchers
@@ -75,7 +76,7 @@ internal class PlaylistRemovalController(private val state: MusicPlaybackState) 
     }
 
     // 彻底删除歌曲：移除音频源文件，并同步库、播放队列与歌单引用。
-    // 歌词缓存不随曲目删除：公共下载目录里也可能有用户自己放入的 .lrc，无法区分归属
+    // 歌词缓存随曲目一并删除，但只删本应用写的那一份（见 MusicMetadataCache.deleteLyrics）
     suspend fun deleteSongPermanently(context: Context, track: MusicTrack) {
         val deleted = withContext(Dispatchers.IO) { deleteAudioSource(context, track) }
         // 源文件没删掉时不能把收藏/歌单当成功删除处理：下次扫描会把歌重新带回来，
@@ -94,6 +95,18 @@ internal class PlaylistRemovalController(private val state: MusicPlaybackState) 
         // 读盘切到 IO：首次 getSharedPreferences 需同步解析整份歌单 JSON，不应占用主线程
         state.playlistStore.awaitLoaded(context)
         state.playlistStore.removeTrackFromAll(context, track.id)
+        deleteLyricCache(context, track)
+    }
+
+    // 歌词缓存按「标题 - 艺术家」命名，同名的两首歌共用同一份文件：
+    // 队列或默认歌单里还有曲目在用它时不动，避免删一首歌连带清掉另一首的歌词
+    private suspend fun deleteLyricCache(context: Context, track: MusicTrack) {
+        val location = track.lyricCachePath
+        if (location.isBlank()) return
+        val stillUsed = (state.playlist.asSequence() + state.defaultPlaylist.asSequence())
+            .any { it.lyricCachePath == location }
+        if (stillUsed) return
+        withContext(Dispatchers.IO) { MusicMetadataCache.deleteLyrics(context, location) }
     }
 
     // 文件访问探测属 I/O 操作，在 IO 线程执行避免阻塞主线程
