@@ -53,6 +53,7 @@ import com.yichao.evilgodxu.data.music.panel.autoTranslateLyrics
 import com.yichao.evilgodxu.data.music.panel.searchLyricsCandidates
 import com.yichao.evilgodxu.data.music.panel.TranslateOutcome
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.permission.ensureTrackFileWritable
 import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisController
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisSheet
@@ -184,6 +185,7 @@ internal fun PortraitPlayer(
                 playbackState = playbackState,
                 topBarInset = topBarInset,
                 swipePreviewText = swipePreviewText,
+                onOpenMetadata = onOpenMetadata,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false)
@@ -194,8 +196,13 @@ internal fun PortraitPlayer(
                 onVerticalFling = onVerticalFling,
                 onVerticalDragClaim = onLyricVerticalDragClaim,
                 onLongPress = { positionMs ->
-                    lyricsMenuPositionMs = positionMs
-                    showLyricsMenu = true
+                    // 歌词菜单里的编辑本行、在线刷新、本地导入、自动补译都要写回音频文件：
+                    // 无权限时不展开菜单，直接去元数据编辑页，由那一页统一申请
+                    val track = playbackState.currentTrack
+                    if (track != null && ensureTrackFileWritable(track.id, onOpenMetadata)) {
+                        lyricsMenuPositionMs = positionMs
+                        showLyricsMenu = true
+                    }
                 },
                 menuContent = {
                     LyricsContextMenu(

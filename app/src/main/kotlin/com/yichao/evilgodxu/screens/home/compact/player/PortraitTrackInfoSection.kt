@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
-import com.yichao.evilgodxu.permission.hasAllFilesAccess
+import com.yichao.evilgodxu.permission.ensureTrackFileWritable
 import com.yichao.evilgodxu.screens.home.component.dialog.ArtistPickerDialog
 import com.yichao.evilgodxu.screens.home.component.player.MarqueeInfoLine
 import com.yichao.evilgodxu.ui.component.player.MiniContextMenu
@@ -83,8 +83,10 @@ internal fun PortraitTrackInfoSection(
                             .combinedClickable(
                                 onClick = {},
                                 onLongClick = {
+                                    // 菜单里的重命名要写回音频文件：无权限时不展开菜单，
+                                    // 直接去元数据编辑页，由那一页统一申请，各触发点不再各写一遍
                                     val track = playbackState.currentTrack
-                                    if (track != null) {
+                                    if (track != null && ensureTrackFileWritable(track.id, onOpenMetadata)) {
                                         menuText = track.title
                                         menuIsTitle = true
                                         showMetaMenu = true
@@ -114,9 +116,11 @@ internal fun PortraitTrackInfoSection(
                                         }
                                     },
                                     onLongClick = {
-                                        val artist = playbackState.currentTrack?.artist
-                                        if (!artist.isNullOrBlank()) {
-                                            menuText = artist
+                                        val track = playbackState.currentTrack
+                                        if (track != null && !track.artist.isNullOrBlank() &&
+                                            ensureTrackFileWritable(track.id, onOpenMetadata)
+                                        ) {
+                                            menuText = track.artist
                                             menuIsTitle = false
                                             showMetaMenu = true
                                         }
@@ -134,18 +138,11 @@ internal fun PortraitTrackInfoSection(
                 },
                 onRename = {
                     showMetaMenu = false
-                    val track = playbackState.currentTrack
-                    when {
-                        track == null -> Unit
-                        // 写回音频文件要全部文件访问：缺权限就直接去元数据编辑页，
-                        // 那一页打开时会申请；不该让用户先填一遍再被告知写不进去
-                        !hasAllFilesAccess() -> onOpenMetadata(track.id)
-                        else -> {
-                            renameIsTitle = menuIsTitle
-                            renameInitValue = menuText
-                            renameTargetId = track.id
-                            showRename = true
-                        }
+                    playbackState.currentTrack?.let { track ->
+                        renameIsTitle = menuIsTitle
+                        renameInitValue = menuText
+                        renameTargetId = track.id
+                        showRename = true
                     }
                 },
                 // 标题整体作为唯一关键词；艺术家按多歌手分隔符解析，多位时由菜单下钻选择

@@ -48,6 +48,7 @@ import com.yichao.evilgodxu.data.music.playback.switchPlaylistSource
 import com.yichao.evilgodxu.data.playlist.isViewSourceValid
 import com.yichao.evilgodxu.data.playlist.resolveSourceTracks
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.permission.ensureTrackFileWritable
 import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
 import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 import kotlinx.coroutines.delay
@@ -229,7 +230,10 @@ internal fun PlaylistSheet(
                         playlistSettled = playlistSettled,
                         playlistTrackIds = playlistTrackIds,
                         onDismiss = onDismiss,
-                        onLongPressTrack = { deleteTrack = it },
+                        onLongPressTrack = { track ->
+                            // 彻底删除要动音频文件：无权限时不弹确认框，直接去元数据编辑页申请
+                            if (ensureTrackFileWritable(track.id, onEditMetadata)) deleteTrack = track
+                        },
                         onSwipePlaylist = { playlistTarget = it },
                         onSwipeAdvanced = { advancedTrack = it },
                     )

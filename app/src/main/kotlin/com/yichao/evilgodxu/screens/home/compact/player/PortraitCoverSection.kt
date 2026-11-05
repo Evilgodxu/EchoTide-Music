@@ -39,6 +39,7 @@ import com.yichao.evilgodxu.data.music.model.RecentCover
 import com.yichao.evilgodxu.data.music.panel.applyCoverCandidate
 import com.yichao.evilgodxu.data.music.panel.searchCoverCandidates
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.permission.ensureTrackFileWritable
 import com.yichao.evilgodxu.permission.hasImageAccess
 import com.yichao.evilgodxu.permission.mediaImagePermission
 import com.yichao.evilgodxu.screens.home.component.player.HomeImmersiveCover
@@ -58,6 +59,8 @@ internal fun PortraitCoverSection(
     playbackState: MusicPlaybackState,
     topBarInset: Dp,
     swipePreviewText: String?,
+    // 封面菜单里的在线刷新与本地封面都要写回音频文件：无权限时改去元数据编辑页申请
+    onOpenMetadata: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -83,7 +86,12 @@ internal fun PortraitCoverSection(
     Box(
         modifier = modifier.combinedClickable(
             onClick = {},
-            onLongClick = { if (playbackState.currentTrack != null) showCoverMenu = true },
+            onLongClick = {
+                // 菜单里的在线刷新与本地封面都要写回音频文件：无权限时不展开菜单，
+                // 直接去元数据编辑页，由那一页统一申请
+                val track = playbackState.currentTrack
+                if (track != null && ensureTrackFileWritable(track.id, onOpenMetadata)) showCoverMenu = true
+            },
         ),
     ) {
         HomeImmersiveCover(

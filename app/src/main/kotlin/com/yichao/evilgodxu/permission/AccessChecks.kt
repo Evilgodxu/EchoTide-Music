@@ -28,6 +28,18 @@ fun hasImageAccess(context: Context): Boolean =
  */
 fun hasAllFilesAccess(): Boolean = Environment.isExternalStorageManager()
 
+/**
+ * 长按动作菜单的统一前置：菜单里的删除、重命名、改歌词与封面都要写回音频文件。
+ *
+ * 缺「全部文件访问」时直接去元数据编辑页——那一页打开即申请，不必每个触发点各写一套申请流程。
+ * 返回 false 表示本次不展开菜单。
+ */
+fun ensureTrackFileWritable(trackId: Long, onOpenMetadata: (Long) -> Unit): Boolean {
+    if (hasAllFilesAccess()) return true
+    onOpenMetadata(trackId)
+    return false
+}
+
 /** 打开本应用的「全部文件访问」系统页：由界面以 ActivityResult 发起 */
 fun allFilesAccessIntent(context: Context): Intent = Intent(
     Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
