@@ -189,6 +189,8 @@ class MusicPlaybackService : MediaSessionService() {
             },
             // 独占绕开混音器，故由写出侧施加应用自持的音量；未装配时按满幅，不影响其它路径
             appVolume = { exclusiveVolume.gain() },
+            // 写出位深按源格式选；源位深未知时退回解码输出位深
+            sourceBitDepth = { playbackState.currentSourceBitDepth },
             // 独占这条路上没有音频轨可供平台回填写出编码，故由写出侧直接上报；
             // 不走 reportOutputEncoding：那条出口还兼着"让直出重算路由"的职责，而独占期间直出并不参与
             onOutputEncodingChanged = { encoding ->
@@ -340,10 +342,11 @@ class MusicPlaybackService : MediaSessionService() {
             .setCallback(sessionCallback)
             .build()
         // 直出不参与媒体会话，在会话建立后单独装配；设置变更即刻生效，无需重启服务。
-        // 直出档位一律取自设备声明的动态混音端口条目，故这里不喂源位深：设备声明什么就按什么直出
+        // 档位仍取自设备声明；源位深只用于在这些声明里挑与源一致的那一档
         usbDirectOutput = UsbDirectOutput(
             player = player,
             audioManager = audioManager,
+            sourceBitDepth = { playbackState.currentSourceBitDepth },
         )
         // 免打扰随输出成色进出：直出属于专注聆听，通知与提示音是最直接的打扰源；
         // 未获免打扰访问权时类内自行跳过，不影响播放

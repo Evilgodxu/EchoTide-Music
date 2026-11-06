@@ -3,18 +3,18 @@ package com.yichao.evilgodxu.floatingwindow
 import android.annotation.SuppressLint
 import android.animation.ValueAnimator
 import android.content.Context
-import android.content.res.Configuration
 import android.graphics.PixelFormat
-import android.view.animation.AccelerateInterpolator
-import android.view.animation.DecelerateInterpolator
+import android.hardware.display.DisplayManager
+import android.view.Display
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.WindowInsets
 import android.view.WindowManager
+import android.view.animation.AccelerateInterpolator
+import android.view.animation.DecelerateInterpolator
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -50,11 +50,22 @@ class MiniPlayerViewManager(
     private val onSwipedDismiss: () -> Unit,
 ) {
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    private val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
     private var composeView: ComposeView? = null
     private var isDismissing = false
 
-    // 顶部偏移基准。迷你条窗口宽度固定，纵向位置随状态栏高度校正
-    private var statusBarHeight = currentTopInset()
+    // 旋转不改窗口尺寸，故窗口自身不会重排；顶部位置需随屏幕朝向重新贴合
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId != Display.DEFAULT_DISPLAY) return
+            // 系统广播朝向变化时，窗口指标尚可能停留在旧值，推到下一帧再读
+            composeView?.post { applyWindowLayout() }
+        }
+
+        override fun onDisplayAdded(displayId: Int) = Unit
+
+        override fun onDisplayRemoved(displayId: Int) = Unit
+    }
 
     // 播放列表展开态：窗口高度在紧凑条与展开高度之间动画，Compose 侧据此决定是否铺开列表
     private val playlistExpanded = mutableStateOf(false)
@@ -90,7 +101,6 @@ class MiniPlayerViewManager(
     @SuppressLint("InflateParams", "ClickableViewAccessibility")
     fun show() {
         if (composeView != null) return
-        statusBarHeight = currentTopInset()
 
         val barH = barHeightPx()
         val flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
@@ -144,13 +154,9 @@ class MiniPlayerViewManager(
         view.setViewTreeViewModelStoreOwner(viewModelStoreOwner)
         view.setViewTreeSavedStateRegistryOwner(savedStateRegistryOwner)
 
-        // 实时监听系统状态栏高度变化（刘海屏/分屏/折叠屏等动态调整）
+        // 系统栏显隐、高度变化后重新贴合；目标位置由显示指标统一推算，重复回调会因目标未变而提前返回
         ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
-            val top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
-            if (top != statusBarHeight) {
-                statusBarHeight = top
-                applyWindowLayout()
-            }
+            applyWindowLayout()
             ViewCompat.dispatchApplyWindowInsets(v, insets)
         }
 
@@ -168,6 +174,7 @@ class MiniPlayerViewManager(
         }
         lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        displayManager.registerDisplayListener(displayListener, null)
 
         view.animate()
             .translationY(0f)
@@ -177,7 +184,7 @@ class MiniPlayerViewManager(
             .start()
     }
 
-    // 校正窗口纵向位置与展开高度：状态栏高度或屏幕尺寸变化时重新贴合
+    // 校正窗口纵向位置与展开高度：屏幕朝向、系统栏或尺寸变化后重新贴合
     private fun applyWindowLayout() {
         val view = composeView ?: return
         val params = view.layoutParams as? WindowManager.LayoutParams ?: return
@@ -228,28 +235,24 @@ class MiniPlayerViewManager(
     private fun barWidthPx(): Int =
         dpToPx(MINI_PADDING_H_DP * 2 + MINI_COVER_DP + MINI_BUTTON_COUNT * MINI_BUTTON_DP)
 
-    // 横屏时状态栏位于屏幕侧边，顶部偏移为 0
-    private fun isLandscape(): Boolean =
-        context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-
     /**
-     * 当前窗口顶部状态栏 inset。
+     * 迷你播放器顶部纵坐标。
      *
-     * 取不到 inset 时返回 0 而非读系统内部尺寸：`status_bar_height` 是私有的框架资源，
-     * 各厂商与版本都不保证存在或准确。位置会在下一次 inset 回调里按真实值校正，
-     * 因此瞬时偏差只影响首帧，不会长期停在错误位置
+     * 竖屏时状态栏在顶部，横屏时在侧边（顶部 inset 随之变为 0），两种朝向都只看顶部 inset，
+     * 再加 1dp 下限使 inset 为 0 时仍与屏幕边缘留出间距。
+     * 朝向不另取配置值：旋转瞬间配置与 inset 的更新先后不一，混用两者会配出「旧朝向 + 新 inset」
+     * 这类不存在的组合，迷你条于是要么残留竖屏的状态栏占位，要么嵌进状态栏区域。
+     *
+     * 取不到指标时按间距下限放置，而非读系统内部尺寸：`status_bar_height` 是私有的框架资源，
+     * 各厂商与版本都不保证存在或准确。
      */
-    private fun currentTopInset(): Int = runCatching {
-        windowManager.currentWindowMetrics.windowInsets
-            .getInsets(WindowInsets.Type.statusBars()).top
-    }.getOrDefault(0)
-
-    // 迷你播放器纵向位置：横屏状态栏在侧边，顶部仅保留 1dp 间距；
-    // 竖屏位于状态栏下方。max 保留已记录的最大值：状态栏高度在横竖屏切换瞬间可能短暂读到 0，
-    // 取较大值可避免迷你条在这一帧跳到屏幕顶端
-    private fun topOffsetPx(): Int =
-        if (isLandscape()) dpToPx(LANDSCAPE_TOP_GAP_DP)
-        else max(statusBarHeight, currentTopInset())
+    private fun topOffsetPx(): Int {
+        val topInset = runCatching {
+            windowManager.currentWindowMetrics.windowInsets
+                .getInsets(WindowInsets.Type.statusBars()).top
+        }.getOrDefault(0)
+        return max(topInset, dpToPx(MIN_TOP_GAP_DP))
+    }
 
     private fun dpToPx(value: Int): Int = (value * context.resources.displayMetrics.density).roundToInt()
 
@@ -274,6 +277,7 @@ class MiniPlayerViewManager(
             .withEndAction {
                 lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
                 lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+                displayManager.unregisterDisplayListener(displayListener)
                 try {
                     if (view.windowToken != null) windowManager.removeView(view)
                 } catch (e: Exception) {
@@ -289,6 +293,7 @@ class MiniPlayerViewManager(
     companion object {
         // 紧凑容纳两行文本与最小触控热区
         private const val BAR_HEIGHT_DP = 32
-        private const val LANDSCAPE_TOP_GAP_DP = 1
+        // 状态栏不占顶部时的最小间距（横屏状态栏在侧边）
+        private const val MIN_TOP_GAP_DP = 1
     }
 }

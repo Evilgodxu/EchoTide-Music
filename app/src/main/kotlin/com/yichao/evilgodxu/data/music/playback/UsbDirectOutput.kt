@@ -86,6 +86,8 @@ private const val LOG_TAG = "UsbDirectOutput"
 class UsbDirectOutput(
     private val player: ExoPlayer,
     private val audioManager: AudioManager,
+    /** 当前曲目的源位深；直出档位按它挑与源一致的那一档，未知时退回解码输出编码 */
+    private val sourceBitDepth: () -> Int? = { null },
 ) {
     // 路由重算由主线程（开关、设备插拔）与播放线程（解码格式上报、音频轨建成）两处驱动，下列字段因此
     // 被两线程读写：取值都按音频属性的现场状态重新求出，重复求值无害，但跨线程可见性必须显式给出，
@@ -149,6 +151,10 @@ class UsbDirectOutput(
 
     @Volatile
     private var decodedPcmEncoding = 0
+
+    /** 本次直出所对齐的源位深；null 表示源位深未知，档位改按解码输出编码挑 */
+    @Volatile
+    private var targetSourceBitDepth: Int? = null
 
     /** 输出成色变更回调：[AudioOutputMode.MIXER] 表示已回到系统混音输出 */
     var onRoutingChanged: ((AudioOutputMode) -> Unit)? = null
@@ -287,14 +293,16 @@ class UsbDirectOutput(
      * 上报点早于音频轨建立，属性才能在轨建起前生效。非 PCM 编码不予下发，交回系统混音。
      */
     fun onTrackFormatChanged(sampleRate: Int, channelCount: Int, decodedPcmEncoding: Int) {
+        val sourceBitDepth = sourceBitDepth()
         if (sampleRate == decodedSampleRate && channelCount == decodedChannelCount &&
-            decodedPcmEncoding == this.decodedPcmEncoding
+            decodedPcmEncoding == this.decodedPcmEncoding && sourceBitDepth == targetSourceBitDepth
         ) {
             return
         }
         decodedSampleRate = sampleRate
         decodedChannelCount = channelCount
         this.decodedPcmEncoding = decodedPcmEncoding
+        targetSourceBitDepth = sourceBitDepth
         // 解码格式改由音频信息面板的「解码输出」一行展示
         refreshOutputRouting()
     }
@@ -516,12 +524,19 @@ class UsbDirectOutput(
         supported: List<AudioMixerAttributes>,
     ): List<AudioMixerAttributes> =
         listOfNotNull(
-            selectDirectMixer(supported, decodedSampleRate, decodedChannelCount, decodedPcmEncoding),
+            selectDirectMixer(
+                supported,
+                decodedSampleRate,
+                decodedChannelCount,
+                decodedPcmEncoding,
+                targetSourceBitDepth,
+            ),
             selectSameFamilyUpsample(
                 supported,
                 decodedSampleRate,
                 decodedChannelCount,
                 decodedPcmEncoding,
+                targetSourceBitDepth,
             ),
         )
 
@@ -560,8 +575,8 @@ class UsbDirectOutput(
  * 条目（只有 profile 声明了 AUDIO_OUTPUT_FLAG_BIT_PERFECT 才额外多出一条位完美条目），故只取默认条目不
  * 会挑不出档位。一条都没有时返回 null，由调用方交回系统混音。
  *
- * 同成色内按编码排序，位深优先——见 [encodingPreference]：解码输出通常为浮点，写到 16 位档位即丢低位，
- * 故位深高的档位排在前，浮点最优先。
+ * 编码一侧：源位深已知时取容得下它的最窄整型档（浮点不参与，写出位深与源一致）；未知时按解码位深取，
+ * 浮点最优先（见 [encodingPreference]）。
  *
  * 本函数产出的是直出档位；音频输出不再自行挑条目，而是直接取已受理的属性格式来选写出变体
  * （[UsbDirectOutput.directOutputEncoding]）。写出编码与已受理的属性不符时 AudioFlinger 不报错
@@ -573,18 +588,27 @@ internal fun selectDirectMixer(
     sampleRate: Int,
     channelCount: Int,
     decodedPcmEncoding: Int,
+    sourceBitDepth: Int?,
 ): AudioMixerAttributes? {
     if (sampleRate <= 0) return null
     if (!Util.isEncodingLinearPcm(decodedPcmEncoding)) return null
     val writable = writablePcmEncodings(decodedPcmEncoding)
+    val target = sourceBitDepth
     val candidates = supported.filter {
         it.format.sampleRate == sampleRate &&
-            it.format.encoding in writable &&
             (channelCount <= 0 || it.format.channelCount == channelCount) &&
-            it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT
+            it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT &&
+            (
+                if (target != null) (integerBitDepthOf(it.format.encoding) ?: 0) >= target
+                else it.format.encoding in writable
+            )
     }
-    return candidates.maxByOrNull {
-        encodingPreference(it.format.encoding)
+    return if (target != null) {
+        candidates.minByOrNull { integerBitDepthOf(it.format.encoding) ?: Int.MAX_VALUE }
+    } else {
+        candidates.maxByOrNull {
+            encodingPreference(it.format.encoding, Util.isEncodingHighResolutionPcm(decodedPcmEncoding))
+        }
     }
 }
 
@@ -598,8 +622,8 @@ internal fun selectDirectMixer(
  * 筛法与 [selectDirectMixer] 逐条一致——声道与编码同筛，只把采样率一项由「相等」放宽为「同族整数倍」。
  * 同率条目不会被本函数挑中（倍率恒 ≥ 2），故两条候选天然互斥、次序不会打架。
  *
- * 倍率取**最小**那一档：多出一倍的样本已是能守住的最近一档，再往上是白添数据与延迟；同倍率内仍按
- * [encodingPreference] 取位深最高的编码。
+ * 倍率取**最小**那一档：多出一倍的样本已是能守住的最近一档，再往上是白添数据与延迟；同倍率内，源位深
+ * 已知时取容得下它的最窄整型档，未知时按 [encodingPreference] 取与解码位深口径一致的编码。
  *
  * 编码一侧多一道门槛：倍率档的数据要由本应用插值写出，故 [decodedPcmEncoding] 必须是本应用插得动的
  * 线性 PCM（见 [canInterpolatePcm]）。插不出的编码宁可不出现在候选里——挂上了也补不出数据，而写出率
@@ -611,34 +635,59 @@ internal fun selectSameFamilyUpsample(
     sampleRate: Int,
     channelCount: Int,
     decodedPcmEncoding: Int,
+    sourceBitDepth: Int?,
 ): AudioMixerAttributes? {
     if (sampleRate <= 0) return null
     if (!Util.isEncodingLinearPcm(decodedPcmEncoding)) return null
     if (!canInterpolatePcm(decodedPcmEncoding)) return null
     val writable = writablePcmEncodings(decodedPcmEncoding)
-    return supported
+    val target = sourceBitDepth
+    val candidates = supported
         .filter {
-            it.format.encoding in writable &&
-                (channelCount <= 0 || it.format.channelCount == channelCount) &&
-                it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT
+            (channelCount <= 0 || it.format.channelCount == channelCount) &&
+                it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT &&
+                (
+                    if (target != null) (integerBitDepthOf(it.format.encoding) ?: 0) >= target
+                    else it.format.encoding in writable
+                )
         }
         .mapNotNull { attributes ->
             sameFamilyMultiple(sampleRate, attributes.format.sampleRate)?.let { it to attributes }
         }
-        // 倍率小者优先，同倍率内位深高者优先
-        .minWithOrNull(
-            compareBy({ it.first }, { -encodingPreference(it.second.format.encoding) })
-        )
-        ?.second
+    // 倍率小者优先；源位深已知时同倍率内取最窄的整型档，未知时按解码位深的编码偏好取
+    return if (target != null) {
+        candidates.minWithOrNull(
+            compareBy({ it.first }, { integerBitDepthOf(it.second.format.encoding) ?: Int.MAX_VALUE })
+        )?.second
+    } else {
+        candidates.minWithOrNull(
+            compareBy(
+                { it.first },
+                {
+                    -encodingPreference(
+                        it.second.format.encoding,
+                        Util.isEncodingHighResolutionPcm(decodedPcmEncoding),
+                    )
+                },
+            )
+        )?.second
+    }
+}
+
+/** 打包整型的有效位深；浮点与其它编码返回 null（源位深已知时浮点不参与直出档位） */
+private fun integerBitDepthOf(encoding: Int): Int? = when (encoding) {
+    AudioFormat.ENCODING_PCM_16BIT -> 16
+    AudioFormat.ENCODING_PCM_24BIT_PACKED -> 24
+    AudioFormat.ENCODING_PCM_32BIT -> 32
+    else -> null
 }
 
 /**
  * 音频输出能写出的 PCM 编码。
  *
  * 浮点与 16 位整型由媒体3 的默认输出产出：浮点变体下写浮点，非浮点变体上经 `ToInt16PcmAudioProcessor`
- * 转成 16 位整型。浮点因此不由源位深决定——渲染器配置解码器时按接收器的能力基准索取浮点输出，
- * [decodedPcmEncoding] 通常就是浮点；保留 [Util.isEncodingHighResolutionPcm] 这一关，是为解码器未照做、
- * 仍按 16 位整型输出时不再放宽可写集合。
+ * 转成 16 位整型。浮点只在源位深未知或高于 16 位时出现在解码输出（见 PerDeviceAudioSink 的能力申报）；
+ * 16 位及以下的源按源位深解码，[decodedPcmEncoding] 就是 16 位，故浮点不在可写集合里。
  * 打包整型由 [IntPcmAudioSink] 写出，其中 32 位容得下任意线性源——32 位及以下源左移补零后逐位无损，
  * 浮点源按中间态取整；24 位则丢 32 位源的低八位，故源本就是 32 位时不列入。
  *
@@ -665,16 +714,21 @@ internal fun writablePcmEncodings(decodedPcmEncoding: Int): Set<Int> {
 }
 
 /**
- * 同为可写编码时的优先序：取容量够的那一档，浮点最优先。
+ * 源位深未知时的编码优先序：高分辨率解码输出浮点最优先，16 位及以下取 16 位档。
  *
- * 解码输出按接收器的能力基准索取，通常就是浮点，故位深直接决定精度：不能像从前那样让 16 位整型无条件
- * 排在最前——那是「源格式候选被拒后只剩回落档位」时代的取舍。现在档位一律取自设备声明，16 位档位就是
- * 写出位深本身，写到它即丢低位。
- * 打包整型内 32 位高于 24 位：32 位容得下 32 位及以下的一切源，24 位放不下 32 位源的低八位。
+ * 源位深已知时不用本函数，由调用方直接取容得下源位深的最窄整型档。
  */
-private fun encodingPreference(encoding: Int): Int = when (encoding) {
-    AudioFormat.ENCODING_PCM_FLOAT -> 4
-    AudioFormat.ENCODING_PCM_32BIT -> 3
-    AudioFormat.ENCODING_PCM_24BIT_PACKED -> 2
-    else -> 1
+private fun encodingPreference(encoding: Int, highResolutionSource: Boolean): Int = when {
+    encoding == AudioFormat.ENCODING_PCM_FLOAT -> 4
+    highResolutionSource -> when (encoding) {
+        AudioFormat.ENCODING_PCM_32BIT -> 3
+        AudioFormat.ENCODING_PCM_24BIT_PACKED -> 2
+        else -> 1
+    }
+
+    else -> when (encoding) {
+        AudioFormat.ENCODING_PCM_16BIT -> 3
+        AudioFormat.ENCODING_PCM_32BIT -> 2
+        else -> 1
+    }
 }

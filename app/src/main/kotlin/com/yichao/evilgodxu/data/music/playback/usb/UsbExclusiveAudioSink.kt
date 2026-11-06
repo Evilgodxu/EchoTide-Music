@@ -59,6 +59,8 @@ internal class UsbExclusiveAudioSink(
      * 媒体音量已不再参与（音量键也已被会话的远端音量通道接管），故这里的取值与系统音量无关。
      */
     private val appVolume: () -> Float = { 1f },
+    /** 当前曲目的源位深；写出位深按它选，未知时退回解码输出位深 */
+    private val sourceBitDepth: () -> Int? = { null },
     /**
      * 写出编码的上报出口：等时输出建立时报出设备实际收到的位深，释放时报空。
      *
@@ -230,12 +232,12 @@ internal class UsbExclusiveAudioSink(
             ?: Util.getAudioTrackChannelConfig(format.channelCount)
     }
 
-    /** 从设备声明的格式里挑出能原样送出本次解码输出的那一个；挑不出即本次不成立 */
+    /** 从设备声明的格式里挑出按源位深写出的那一个；源位深未知时按解码输出位深，挑不出即本次不成立 */
     private fun selectFormat(active: UsbExclusiveDac, format: Format): UsbAudioOutputFormat? =
         planUsbOutput(
             sampleRate = format.sampleRate,
             channelCount = format.channelCount,
-            sourceBitDepth = sourceBitDepthOf(format.pcmEncoding),
+            sourceBitDepth = sourceBitDepth() ?: sourceBitDepthOf(format.pcmEncoding),
             candidates = active.formats,
         )
 
@@ -648,11 +650,10 @@ internal fun ringResidentFrames(writtenFrames: Long, sentFrames: Long, bufferFra
     (writtenFrames - sentFrames).coerceIn(0L, bufferFrames.toLong())
 
 /**
- * 解码输出的位深。
+ * 解码输出的位深，仅在源位深未知时作为写出位深的兜底。
  *
- * 浮点按 24 位计而不是 32 位：解码器转浮点是拿一个精度受限的中间态承载源，取 32 会要求设备具备
- * 32 位有效位深，把大量 24 位解码器无谓地挡在门外；按 24 位判则至多拒绝 16 位的设备——那种搭配下
- * 确实会丢低位，判为不成立才是诚实的。
+ * 浮点按 24 位计而不是 32 位：取 32 会要求设备具备 32 位有效位深，把大量 24 位解码器无谓地挡在门外；
+ * 按 24 位判则至多拒绝 16 位的设备——那种搭配下确实会丢低位，判为不成立才是诚实的。
  */
 internal fun sourceBitDepthOf(pcmEncoding: Int): Int = when (pcmEncoding) {
     C.ENCODING_PCM_8BIT -> 8

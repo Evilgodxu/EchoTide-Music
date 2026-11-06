@@ -491,6 +491,10 @@ class MusicPlaybackState(
     val isAudioSignalPathCurrent: Boolean
         get() = audioSignal.isCurrentForCurrentTrack
 
+    /** 当前曲目已知源位深；归属不符视为未读到，按高分辨率处理 */
+    val currentSourceBitDepth: Int?
+        get() = audioSignalPathFormat?.takeIf { isAudioSignalPathCurrent }?.bitDepth
+
     fun persistPlaylist() {
         // 过滤结果、过滤来源、默认队列、浏览态与排序同属一份偏好文件，由 PlaylistPersistence 合并为一次落盘
         playlistPersistence.persist(

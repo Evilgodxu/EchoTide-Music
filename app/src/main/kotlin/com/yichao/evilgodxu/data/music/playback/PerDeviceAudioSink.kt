@@ -513,9 +513,8 @@ class PerDeviceAudioSink(
      * 解码器索取浮点输出；上一曲是 16 位源时变体已落到整型，探针失手，下一曲便拿不到浮点解码输出，
      * 且此后无缘再回到设备声明的浮点条目。
      *
-     * 不按源位深收窄浮点申报：媒体3 只在恰好收到 [AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY] 时才向解码器
-     * 索取浮点输出，而直出追求的是按源格式写出，解码统一落在浮点、由写出端按目标位深取整，精度只多不少；
-     * 16 位及以下的源被截到 16 位解码换不来任何收益，故申报恒报浮点。
+     * 解码输出固定取浮点：media3 只在恰好收到 [AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY] 时才向解码器
+     * 索取浮点输出，故这里稳定申报浮点，解码器不会被源位深的读取时机左右。写出位深另由直出与独占按源格式选。
      */
     override fun supportsFormat(format: Format): Boolean = floatSink.supportsFormat(format)
 
