@@ -2,10 +2,12 @@ package com.yichao.evilgodxu.floatingwindow
 
 import android.annotation.SuppressLint
 import android.animation.ValueAnimator
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.PixelFormat
-import android.hardware.display.DisplayManager
-import android.view.Display
+import android.os.PowerManager
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.WindowInsets
@@ -14,7 +16,6 @@ import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
-import androidx.core.view.ViewCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -50,21 +51,32 @@ class MiniPlayerViewManager(
     private val onSwipedDismiss: () -> Unit,
 ) {
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    private val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+    private val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
     private var composeView: ComposeView? = null
     private var isDismissing = false
 
-    // 旋转不改窗口尺寸，故窗口自身不会重排；顶部位置需随屏幕朝向重新贴合
-    private val displayListener = object : DisplayManager.DisplayListener {
-        override fun onDisplayChanged(displayId: Int) {
-            if (displayId != Display.DEFAULT_DISPLAY) return
-            // 系统广播朝向变化时，窗口指标尚可能停留在旧值，推到下一帧再读
-            composeView?.post { applyWindowLayout() }
+    /**
+     * 状态栏显隐没有跨应用的公开回调，只能轮询显示指标。
+     *
+     * 位置只认「顶部状态栏 inset 是否存在」这一个条件：前台应用在旋转后才进入沉浸模式时，
+     * 状态栏会晚一步隐藏，此刻没有任何窗口事件可捕获；inset 轮询能把这一变化补上。
+     * 息屏期间状态栏不会变化，轮询随之挂起，避免后台播放时空转。
+     */
+    private val statusBarWatcher = object : Runnable {
+        override fun run() {
+            val view = composeView ?: return
+            if (!powerManager.isInteractive) return
+            applyWindowLayout()
+            view.postDelayed(this, STATUS_BAR_POLL_MS)
         }
+    }
 
-        override fun onDisplayAdded(displayId: Int) = Unit
-
-        override fun onDisplayRemoved(displayId: Int) = Unit
+    private val screenOnReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val view = composeView ?: return
+            view.removeCallbacks(statusBarWatcher)
+            view.post(statusBarWatcher)
+        }
     }
 
     // 播放列表展开态：窗口高度在紧凑条与展开高度之间动画，Compose 侧据此决定是否铺开列表
@@ -154,12 +166,6 @@ class MiniPlayerViewManager(
         view.setViewTreeViewModelStoreOwner(viewModelStoreOwner)
         view.setViewTreeSavedStateRegistryOwner(savedStateRegistryOwner)
 
-        // 系统栏显隐、高度变化后重新贴合；目标位置由显示指标统一推算，重复回调会因目标未变而提前返回
-        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
-            applyWindowLayout()
-            ViewCompat.dispatchApplyWindowInsets(v, insets)
-        }
-
         composeView = view
         try {
             windowManager.addView(view, params)
@@ -174,7 +180,12 @@ class MiniPlayerViewManager(
         }
         lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
-        displayManager.registerDisplayListener(displayListener, null)
+        context.registerReceiver(
+            screenOnReceiver,
+            IntentFilter(Intent.ACTION_SCREEN_ON),
+            Context.RECEIVER_NOT_EXPORTED
+        )
+        view.postDelayed(statusBarWatcher, STATUS_BAR_POLL_MS)
 
         view.animate()
             .translationY(0f)
@@ -184,12 +195,17 @@ class MiniPlayerViewManager(
             .start()
     }
 
-    // 校正窗口纵向位置与展开高度：屏幕朝向、系统栏或尺寸变化后重新贴合
+    // 校正窗口纵向位置与高度：状态栏显隐、密度变化后重新贴合；
+    // 播放列表展开动画进行中不动高度，避免轮询打断补间
     private fun applyWindowLayout() {
         val view = composeView ?: return
         val params = view.layoutParams as? WindowManager.LayoutParams ?: return
         val targetY = topOffsetPx()
-        val targetHeight = if (playlistExpanded.value) expandedHeightPx() else barHeightPx()
+        val targetHeight = when {
+            heightAnimator?.isRunning == true -> params.height
+            playlistExpanded.value -> expandedHeightPx()
+            else -> barHeightPx()
+        }
         if (targetY == params.y && targetHeight == params.height) return
         params.y = targetY
         params.height = targetHeight
@@ -238,10 +254,9 @@ class MiniPlayerViewManager(
     /**
      * 迷你播放器顶部纵坐标。
      *
-     * 竖屏时状态栏在顶部，横屏时在侧边（顶部 inset 随之变为 0），两种朝向都只看顶部 inset，
-     * 再加 1dp 下限使 inset 为 0 时仍与屏幕边缘留出间距。
-     * 朝向不另取配置值：旋转瞬间配置与 inset 的更新先后不一，混用两者会配出「旧朝向 + 新 inset」
-     * 这类不存在的组合，迷你条于是要么残留竖屏的状态栏占位，要么嵌进状态栏区域。
+     * 唯一依据是顶部状态栏 inset：状态栏可见时贴在它下方，隐藏后 inset 变为 0，
+     * 只剩 1dp 的屏幕边缘间距。不参考屏幕朝向，因为横屏下状态栏也可能仍显示，
+     * 朝向与「状态栏是否占据顶部」并不等价。
      *
      * 取不到指标时按间距下限放置，而非读系统内部尺寸：`status_bar_height` 是私有的框架资源，
      * 各厂商与版本都不保证存在或准确。
@@ -267,6 +282,8 @@ class MiniPlayerViewManager(
         // 收起动画与高度动画会争夺同一个窗口参数，收起前先停掉高度动画
         heightAnimator?.cancel()
         heightAnimator = null
+        view.removeCallbacks(statusBarWatcher)
+        context.unregisterReceiver(screenOnReceiver)
 
         lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         view.animate()
@@ -277,7 +294,6 @@ class MiniPlayerViewManager(
             .withEndAction {
                 lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
                 lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
-                displayManager.unregisterDisplayListener(displayListener)
                 try {
                     if (view.windowToken != null) windowManager.removeView(view)
                 } catch (e: Exception) {
@@ -295,5 +311,7 @@ class MiniPlayerViewManager(
         private const val BAR_HEIGHT_DP = 32
         // 状态栏不占顶部时的最小间距（横屏状态栏在侧边）
         private const val MIN_TOP_GAP_DP = 1
+        // 状态栏显隐只能轮询：半秒一次足以覆盖沉浸模式的延迟隐藏，又不会频繁打断窗口布局
+        private const val STATUS_BAR_POLL_MS = 500L
     }
 }
