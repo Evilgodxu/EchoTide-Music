@@ -54,11 +54,22 @@ internal sealed interface UsbExclusiveState {
  * 授权只有一个入口：接入入口开启时，系统的「用哪个应用打开」选择框就是那次授权，本类收到接入广播时
  * 不去申请，等入口作答完成的通知（见 [notifyUsbAttachConfirmed]）；选择框未参与（开关关着、或入口
  * 拉起后仍无权限）时才由 `requestPermission` 自己弹。
+ *
+ * 接管与写出侧的交接也在此定规矩：取设备之前先经 [beforeClaim] 让写出侧放开平台输出（接管会让那条
+ * 输出失效，且它的收尾会把流接口的备用设置抹掉），取到之后由写出侧在同一趟里把数据改到独占上。
  */
 internal class UsbExclusiveOutput(
     private val context: Context,
     /** 成色回调：接管与归还都经此处对外发布 */
     private val onStateChanged: (UsbExclusiveState) -> Unit,
+    /**
+     * 接管前的交棒：把"此刻正在用的输出先放手"交给写出侧，由它放完之后回身接管。
+     *
+     * 顺序是硬要求而非偏好：接管的手段是解绑内核音频驱动，平台那条输出从此写不出去，而它的收尾
+     * （HAL 关声卡、驱动解绑）是异步的——落在接管之后就会把刚设好的流接口备用设置一并抹掉，刚建好的
+     * 等时流因此一个 URB 也投不出去。故先让写出侧放开平台输出，再接管。
+     */
+    private val beforeClaim: (proceed: () -> Unit) -> Unit = { it() },
 ) : Closeable {
 
     private val usbManager: UsbManager? = context.getSystemService(UsbManager::class.java)
@@ -180,6 +191,18 @@ internal class UsbExclusiveOutput(
 
     private fun openClaim(manager: UsbManager, device: UsbDevice) {
         releaseClaim()
+        // 接管本身交给写出侧完成：只有它能让平台那条输出当场放手，也只有它能在同一趟里把写出改到
+        // 独占上（见 [beforeClaim] 与 UsbOutputSink.runTakeover）。故这里只交出"取设备"这件事
+        beforeClaim { claimNow(manager, device) }
+    }
+
+    /**
+     * 真正取设备。跑在写出侧那条线程上，故交棒期间状态可能已变（开关被关掉、另一次接管已成立），
+     * 一律在此复核；取不到即如实发布"等待设备"，不重试（见 [openClaim] 的失败口径）。
+     */
+    @Synchronized
+    private fun claimNow(manager: UsbManager, device: UsbDevice) {
+        if (!enabled || claim != null) return
         val opened = UsbExclusiveDac.open(manager, device)
         if (opened == null) {
             // 接管失败不重试：同一原因反复接管只会反复解开又挂回内核驱动，比不接管更糟。

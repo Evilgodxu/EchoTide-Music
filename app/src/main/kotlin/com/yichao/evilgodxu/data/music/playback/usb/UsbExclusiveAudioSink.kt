@@ -494,12 +494,20 @@ internal class UsbExclusiveAudioSink(
         return stats.framesPlayed
     }
 
-    /** 建起等时输出；未建起时向上抛出初始化异常，由渲染器按可恢复与否处置 */
+    /**
+     * 建起等时输出；未建起时向上抛出初始化异常，由渲染器按可恢复与否处置。
+     *
+     * 一次建不起来就重设一次备用设置再建一次：接管是在平台那条输出放手之后才做的，而它的收尾
+     * （HAL 关声卡、内核驱动解绑）是异步的，可能正好落在就绪流程设完备用设置之后，把流接口带回 alt 0
+     * ——端点随之从设备侧消失，URB 一个也投不出去。重设即是把端点挂回来；此时收尾已过，第二次不会被
+     * 同一个原因打断。若连就绪都做不到了，如实判失败，由上层退回平台路径。
+     */
     private fun ensureOutput(): UsbIsoOutput {
         output?.let { return it }
         val active = checkNotNull(dac) { "建输出前必须先 configure" }
         val selected = checkNotNull(plan) { "建输出前必须先 configure" }
-        val created = UsbIsoOutput.create(active.fileDescriptor, selected, sampleRate)
+        val created = openOutput(active, selected)
+            ?: rebuildOutput(active, selected)
             ?: throw AudioSink.InitializationException(
                 "等时输出建立失败",
                 PlatformAudioTrack.STATE_UNINITIALIZED,
@@ -515,6 +523,13 @@ internal class UsbExclusiveAudioSink(
         onOutputEncodingChanged(encodingForSubslot(created.subslotBytes))
         return created
     }
+
+    private fun openOutput(active: UsbExclusiveDac, selected: UsbAudioOutputFormat): UsbIsoOutput? =
+        UsbIsoOutput.create(active.fileDescriptor, selected, sampleRate)
+
+    /** 重设一次备用设置再建一次（口径见 [ensureOutput]）；就绪都做不成时不再建 */
+    private fun rebuildOutput(active: UsbExclusiveDac, selected: UsbAudioOutputFormat): UsbIsoOutput? =
+        if (active.prepareStream(selected, sampleRate)) openOutput(active, selected) else null
 
     /**
      * 上报音频轨配置。

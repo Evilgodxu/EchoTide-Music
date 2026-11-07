@@ -376,17 +376,25 @@ class MusicPlaybackService : MediaSessionService() {
         }
         // 独占同样在会话建立后装配。它自己订阅 USB 的接入/拔出与授权结果，故只需喂开关与成色出口；
         // 成色不由开关代替——开关开着而设备没接入、没授权、接管失败时，播放仍走平台路径
-        usbExclusiveOutput = UsbExclusiveOutput(context = this) { state ->
-            val claimed = state is UsbExclusiveState.Active
-            // 设备信息随接管与归还同步：接管期间该设备已从系统音频里消失，面板只能由此取，
-            // 交还后随之清空，以免面板继续展示一台已不在手里的设备
-            playbackState.usbExclusiveDevice = usbExclusiveOutput.deviceInfo()
-            playbackState.usbExclusiveClaimed = claimed
-            // 接管即把会话切到远端音量，不等路由成立：设备一旦被接管就已退出系统音频，
-            // 系统媒体音量此后不作用于它，此时仍让音量键去改媒体档位只会"按了没反应"。
-            // 回调来自主线程或播放线程（链路失效），而会话状态只能在播放器线程上刷新，故一律投递
-            serviceScope.launch { exclusiveVolumePlayer.setRemote(claimed) }
-        }
+        usbExclusiveOutput = UsbExclusiveOutput(
+            context = this,
+            onStateChanged = { state ->
+                val claimed = state is UsbExclusiveState.Active
+                // 设备信息随接管与归还同步：接管期间该设备已从系统音频里消失，面板只能由此取，
+                // 交还后随之清空，以免面板继续展示一台已不在手里的设备
+                playbackState.usbExclusiveDevice = usbExclusiveOutput.deviceInfo()
+                playbackState.usbExclusiveClaimed = claimed
+                // 接管即把会话切到远端音量，不等路由成立：设备一旦被接管就已退出系统音频，
+                // 系统媒体音量此后不作用于它，此时仍让音量键去改媒体档位只会"按了没反应"。
+                // 回调来自主线程或播放线程（链路失效），而会话状态只能在播放器线程上刷新，故一律投递
+                serviceScope.launch { exclusiveVolumePlayer.setRemote(claimed) }
+                // 成色一变就地改道：接管一成立那台设备就退出了系统音频，平台那条输出写不出去，
+                // 等到下次换曲才改道的话，本曲余下的部分只能落在扬声器上；归还之后同理要改回平台路径
+                audioSink.syncRouting()
+            },
+            // 接管的三步（放开平台输出、取设备、改道）要落在播放线程的同一趟里，故改写出的路由代劳
+            beforeClaim = audioSink::runTakeover,
+        )
         // 独占开关只在此处喂给接管方：接管是否成立由它自己订阅的设备接入与授权结果决定，
         // 开关开着不等于接管成功，成色另由 UsbOutputSink 按实际路由上报
         serviceScope.launch {

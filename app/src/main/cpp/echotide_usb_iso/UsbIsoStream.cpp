@@ -168,6 +168,12 @@ bool UsbIsoStream::start(const Config& config) {
     running_ = true;
     // 先把所有 URB 投出去再起回收线程：投递与回收分处两线程，回收线程阻塞等待完成事件
     for (auto& urb : urbs_) fillAndSubmit(urb->urb);
+    // 一个 URB 都没进内核：端点不在当前备用设置上（被另一方复位过），或设备已不可用。此时若照常交出
+    // 句柄，写侧要等到第一次 write 才失败，而它拿到的只是"这条流写不进去"——分不清是设备没了还是
+    // 备用设置没了，也就无从补救。故如实判建流失败，由调用方重设备用设置后再建一次
+    if (inFlightCount_.load() == 0) {
+        return false;
+    }
     if (feedback_) submitFeedback();
     reapThread_ = std::thread([this] { reapLoop(); });
     return true;

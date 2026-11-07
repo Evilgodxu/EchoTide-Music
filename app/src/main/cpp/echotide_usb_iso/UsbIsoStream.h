@@ -61,7 +61,12 @@ public:
         bool disconnected = false;
     };
 
-    /** 建流并立即开始送出静音；参数不可用时返回 nullptr */
+    /**
+     * 建流并立即开始送出静音。
+     *
+     * 参数不可用、或一个 URB 都投不进内核（端点不在当前备用设置上、设备已不可用）时返回 nullptr
+     * ——后者意味着这条流写不进去，早失败才有补救余地，见 start()。
+     */
     static std::unique_ptr<UsbIsoStream> create(const Config& config);
 
     ~UsbIsoStream();

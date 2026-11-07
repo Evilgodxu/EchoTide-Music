@@ -1,5 +1,7 @@
 package com.yichao.evilgodxu.data.music.playback.usb
 
+import android.os.Handler
+import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.AuxEffectInfo
@@ -30,6 +32,10 @@ private const val LOG_TAG = "UsbOutputSink"
  *
  * 独占在建流或写出上失败即退回平台路径，并把这次失败报给设备接入侧（[onExclusiveFailed]）——
  * 本项目对直出的底线是"尽力而为，绝不带走整曲播放"，独占是这条路的一种成色，不该比它更硬。
+ *
+ * 选路不只在 [configure] 处落地：成色可能在曲中才变（插上解码器并授予权限、拔出、开关关闭），
+ * 而接管一成立那台设备就已从系统音频里消失，平台那条输出当场写不出去。故成色一变即就地改道
+ * （见 [syncRouting]），接管本身也由本类在播放线程上完成取设备的放手与改道（见 [runTakeover]）。
  */
 @OptIn(UnstableApi::class)
 internal class UsbOutputSink(
@@ -61,6 +67,25 @@ internal class UsbOutputSink(
     /** 渲染器最近一次下发的配置：独占链路失效时就地退回平台路径要用它重配 */
     private var lastConfig: AudioSink.AudioSinkConfig? = null
 
+    /**
+     * 播放线程的 Handler：成色在曲中变化时，改道只能投回播放线程执行。
+     *
+     * 在播放线程上首次 [configure] 时捕获——构造发生在服务创建期（主线程），此处拿不到播放线程的 Looper。
+     */
+    private var playbackHandler: Handler? = null
+
+    /**
+     * 渲染器最后一次下发的起停意图。
+     *
+     * 自发改道要先复位退出的一方，而复位会清掉接收器内部的启停状态（`DefaultAudioSink.reset` 与
+     * [IntPcmAudioSink] 都把 playing 置假），渲染器却只在「停止 → 启动」的转换点下发 [play]——
+     * 换曲重配与曲中改道都不会再有第二次。故意图在此登记，改道后在进入方补上一次。
+     */
+    private var playRequested = false
+
+    /** 是否已整体释放：释放后投递进来的改道不得再执行，此时两条路都已作废 */
+    private var released = false
+
     private val activeRoute: AudioSink
         get() = if (route == Route.EXCLUSIVE) exclusive else platform
 
@@ -91,20 +116,22 @@ internal class UsbOutputSink(
         platform.getFormatOffloadSupport(format)
 
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
-        val format = audioSinkConfig.format
         lastConfig = audioSinkConfig
-        val next = when {
-            !exclusiveReady() -> Route.PLATFORM
-            exclusive.canHandle(format) -> Route.EXCLUSIVE
-            else -> Route.PLATFORM
-        }
-        switchTo(next, audioSinkConfig)
-        // 独占那两项由本层代报（见 [onDecodedFormatChanged]）。读的是切换之后的实际路由：
-        // 独占建不起来时 [switchTo] 已自行退回，此处不能再按当初选的那条路报
-        if (route == Route.EXCLUSIVE) {
-            onDecodedFormatChanged(format.sampleRate, format.channelCount, format.pcmEncoding)
-            onVariantChanged(false)
-        }
+        released = false
+        if (playbackHandler == null) playbackHandler = Looper.myLooper()?.let(::Handler)
+        switchTo(routeFor(audioSinkConfig.format), audioSinkConfig)
+    }
+
+    /**
+     * 本次格式应当由哪条路承接。
+     *
+     * 判据不看设置开关：开关开着不等于接管成立（设备未接入、未授权、接管失败都不成立），而接管成立时
+     * 也可能送不了本曲的格式（设备未声明该采样率、子槽放不下源位深）。两处都退回平台路径。
+     */
+    private fun routeFor(format: Format): Route = when {
+        !exclusiveReady() -> Route.PLATFORM
+        exclusive.canHandle(format) -> Route.EXCLUSIVE
+        else -> Route.PLATFORM
     }
 
     /**
@@ -112,6 +139,9 @@ internal class UsbOutputSink(
      *
      * 退出使用的一方先复位再配进入方：复位会释放它持有的输出并回调，而进入方此刻尚未建立输出，
      * 顺序反了会让渲染器先看到"新输出已建立"、再看到"输出已释放"，界面与延迟采集随之读到空值。
+     *
+     * [next] 与当前路由相同时也照常配置一次：本类的自发改道会在接管前先把平台输出复位，收回成命时
+     * （接管没成、或本曲格式送不了）就得靠这一次把平台那条路重新建起来。
      */
     private fun switchTo(next: Route, audioSinkConfig: AudioSink.AudioSinkConfig) {
         if (next != route) {
@@ -122,15 +152,81 @@ internal class UsbOutputSink(
         }
         if (next == Route.PLATFORM) {
             platform.configure(audioSinkConfig)
+        } else {
+            try {
+                exclusive.configure(audioSinkConfig)
+            } catch (e: AudioSink.ConfigurationException) {
+                // 独占建不起来就退回平台路径，本次播放照常；会话随之交还，免得下次配置又走一遍同样的失败
+                CrashLogManager.logException(LOG_TAG, "独占配置失败，退回平台路径", e)
+                onExclusiveFailed()
+                switchTo(Route.PLATFORM, audioSinkConfig)
+                return
+            }
+            // 独占没有 PerDeviceAudioSink 那一环，解码输出与写出取向只能由本层代报（见 [onDecodedFormatChanged]）。
+            // 报在读的是切换之后的实际路由：独占建不起来时上面已自行退回，不会报到独占头上
+            val format = audioSinkConfig.format
+            onDecodedFormatChanged(format.sampleRate, format.channelCount, format.pcmEncoding)
+            onVariantChanged(false)
+        }
+        // 进入方可能刚被复位过（换路、或本类的自发改道），其内部的启停状态已清零而渲染器不会再下发一次，
+        // 不补这一下新生效的那条路不会起播、位置随之停滞（媒体3 的停滞检测满 10 秒即以超时终止播放）
+        if (playRequested) activeRoute.play()
+    }
+
+    /**
+     * 独占成色在曲中变化（接管成立或失守）时重跑一次选路。
+     *
+     * 接管一成立，那台设备就已从系统音频里消失（内核驱动被解绑），平台那条输出从此写不出去；而选路原先
+     * 只在 [configure] 处落地，于是这一曲余下的部分只能落在扬声器或干脆无声，非要等换曲重新配置才回到
+     * 独占——用户看到的就是"插上解码器得切歌才进独占"。故成色一变就地改道，与直出那条路
+     * （`PerDeviceAudioSink.syncRouting`）同一个做法。反向同理：归还之后设备重新出现在系统音频里，
+     * 留在独占路由上只会写一个已作废的会话。
+     */
+    fun syncRouting() {
+        val handler = playbackHandler ?: return
+        handler.post {
+            val config = lastConfig ?: return@post
+            if (released) return@post
+            val next = routeFor(config.format)
+            if (next == route) return@post
+            // 改道由本类自发起，不经渲染器的错误处置，故失败自己吞掉：下一次重配会照常重来
+            runCatching { switchTo(next, config) }.onFailure {
+                CrashLogManager.logException(LOG_TAG, "独占成色变化后的改道失败", it)
+            }
+        }
+    }
+
+    /**
+     * 由接管方发起的一次接管：在同一趟里放开平台输出、完成接管、把写出改到独占上。
+     *
+     * 三步必须落在播放线程的同一趟里，且顺序不可换：
+     * - **先放开平台输出**。接管的手段是解绑内核音频驱动，平台那条输出随之失效。若等它自己去发现，
+     *   它会晚一步以 `-6`（DEAD_OBJECT）终止并由平台侧另建一条输出——声音于是落到扬声器上；更麻烦的是
+     *   它的收尾（HAL 关声卡、驱动解绑）是异步的，可能落在本层设好流接口之后，把备用设置一并抹掉，
+     *   于是刚建好的等时流一个 URB 也投不出去。
+     * - **中途不让出**。平台输出放手之后、改道之前若被渲染器插进来写（它照旧往一个已复位的平台上写），
+     *   写进去的就不是音频而是故障。播放线程的 Handler 天然串行，把三步放进同一个任务即可。
+     *
+     * 还没配置过时（平台也没有输出在手）直接接管，第一次配置会按新成色选路。
+     */
+    fun runTakeover(claim: () -> Unit) {
+        val handler = playbackHandler
+        if (handler == null) {
+            claim()
             return
         }
-        try {
-            exclusive.configure(audioSinkConfig)
-        } catch (e: AudioSink.ConfigurationException) {
-            // 独占建不起来就退回平台路径，本次播放照常；会话随之交还，免得下次配置又走一遍同样的失败
-            CrashLogManager.logException(LOG_TAG, "独占配置失败，退回平台路径", e)
-            onExclusiveFailed()
-            switchTo(Route.PLATFORM, audioSinkConfig)
+        handler.post {
+            if (released) {
+                // 输出已整体作废，但接管本身仍该发生：下一次配置要靠它才能选到独占那条路
+                claim()
+                return@post
+            }
+            if (route == Route.PLATFORM) platform.reset()
+            claim()
+            val config = lastConfig ?: return@post
+            runCatching { switchTo(routeFor(config.format), config) }.onFailure {
+                CrashLogManager.logException(LOG_TAG, "接管后的改道失败", it)
+            }
         }
     }
 
@@ -176,11 +272,13 @@ internal class UsbOutputSink(
      * 只给生效方会让另一条路的启停状态停在旧值上，切过去之后立刻表现为"该播的不播"或"该停的还在跑"。
      */
     override fun play() {
+        playRequested = true
         platform.play()
         exclusive.play()
     }
 
     override fun pause() {
+        playRequested = false
         platform.pause()
         exclusive.pause()
     }
@@ -196,6 +294,7 @@ internal class UsbOutputSink(
     }
 
     override fun release() {
+        released = true
         platform.release()
         exclusive.release()
     }

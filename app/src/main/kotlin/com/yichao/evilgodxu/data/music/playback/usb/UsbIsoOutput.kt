@@ -180,7 +180,9 @@ internal class UsbIsoOutput private constructor(
         /**
          * 按 [format] 与 [sampleRate] 建立等时输出。
          *
-         * 失败返回 null：独占是可选的一路，建不起输出应当退回，而不是把播放带走。
+         * 失败返回 null：独占是可选的一路，建不起输出应当退回，而不是把播放带走。除参数不成立外，
+         * **一个 URB 都投不进内核**也算建不起来——那说明端点不在当前的备用设置上（或设备已不可用），
+         * 交出一个写不进去的流只会把失败推迟到第一次写出。见 [UsbExclusiveAudioSink] 的重建口径。
          */
         fun create(deviceFd: Int, format: UsbAudioOutputFormat, sampleRate: Int): UsbIsoOutput? {
             if (format.formatTag != PCM_FORMAT_TAG) return null
