@@ -241,6 +241,20 @@ internal class UsbExclusiveAudioSink(
             candidates = active.formats,
         )
 
+    /**
+     * 本次配置选定的档位是否已与当前源位深不符。
+     *
+     * 换曲重配发生在播放线程上，而当前曲目的源位深要到过渡回调才落定，重配那一刻读到的仍是上一曲的值：
+     * 子槽宽度会因此按上一曲的位深选下，写出编码随之落后一曲。落定后据此重配一次
+     * （见 [UsbOutputSink.syncRouting]）。纯判定不做设备控制，故可在路由重算时随意调用。
+     */
+    fun planDiffers(format: Format): Boolean {
+        val selected = plan ?: return false
+        val active = session() ?: return false
+        val next = selectFormat(active, format) ?: return false
+        return next != selected
+    }
+
     override fun handleBuffer(
         buffer: ByteBuffer,
         presentationTimeUs: Long,

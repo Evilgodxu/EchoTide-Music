@@ -308,6 +308,19 @@ class UsbDirectOutput(
     }
 
     /**
+     * 当前曲目的源位深落定后重挑档位。
+     *
+     * 换曲重配发生在播放线程上，而界面侧的当前曲目要到过渡回调才推进：重配那一刻读到的源位深仍是上一曲的，
+     * 档位会按上一曲的位深选下。故源位深归属当前曲目后在这里重挑一次，写出编码才不会落后一曲。
+     */
+    fun onSourceBitDepthSettled() {
+        val sourceBitDepth = sourceBitDepth()
+        if (sourceBitDepth == targetSourceBitDepth) return
+        targetSourceBitDepth = sourceBitDepth
+        refreshOutputRouting()
+    }
+
+    /**
      * 音频输出（音频轨）建成后重算路由。
      *
      * 平台按**输出端口**报告动态混音端口的档位（getSupportedMixerAttributes 是对音频策略的直接原生查询，

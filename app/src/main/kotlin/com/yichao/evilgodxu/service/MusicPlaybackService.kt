@@ -8,6 +8,7 @@ import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import androidx.annotation.OptIn
+import androidx.compose.runtime.snapshotFlow
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
@@ -50,6 +51,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.ArrayList
@@ -407,6 +409,20 @@ class MusicPlaybackService : MediaSessionService() {
         // 上次的档位在起播前恢复：读盘与独占开关的读取走同一份设置，两者都在同一批协程里完成
         serviceScope.launch {
             applicationContext.exclusiveVolumeStepFlow().first()?.let(exclusiveVolumePlayer::restoreStep)
+        }
+        // 源位深是曲间的量：换曲重配发生在播放线程上，那一刻界面侧的当前曲目尚未推进，输出会按上一曲的
+        // 位深建轨。当前曲目归属落定后再重算一次，直出与独占的写出编码才不会落后一曲
+        serviceScope.launch {
+            snapshotFlow {
+                playbackState.isAudioSignalPathCurrent to playbackState.currentSourceBitDepth
+            }
+                .distinctUntilChanged()
+                .collect { (current, _) ->
+                    if (!current) return@collect
+                    usbDirectOutput.onSourceBitDepthSettled()
+                    perDeviceSink.syncRouting()
+                    audioSink.syncRouting()
+                }
         }
     }
 

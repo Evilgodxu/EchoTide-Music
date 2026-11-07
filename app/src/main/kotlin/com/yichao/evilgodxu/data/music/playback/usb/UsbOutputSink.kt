@@ -181,6 +181,9 @@ internal class UsbOutputSink(
      * 独占——用户看到的就是"插上解码器得切歌才进独占"。故成色一变就地改道，与直出那条路
      * （`PerDeviceAudioSink.syncRouting`）同一个做法。反向同理：归还之后设备重新出现在系统音频里，
      * 留在独占路由上只会写一个已作废的会话。
+     *
+     * 同一条出口也承接「路由未变、档位该变」的情形：源位深在曲间才落定，换曲重配那一刻它还是上一曲的
+     * 取值，子槽因此按上一曲的位深选下（见 [UsbExclusiveAudioSink.planDiffers]）。
      */
     fun syncRouting() {
         val handler = playbackHandler ?: return
@@ -188,7 +191,16 @@ internal class UsbOutputSink(
             val config = lastConfig ?: return@post
             if (released) return@post
             val next = routeFor(config.format)
-            if (next == route) return@post
+            if (next == route) {
+                // 路由不变而档位随源位深变了：换曲重配时源位深尚未落定，子槽按上一曲的位深选下，
+                // 不重配就会一直按那个宽度写出（面板的「输出编码」也随之落后一曲）
+                if (next == Route.EXCLUSIVE && exclusive.planDiffers(config.format)) {
+                    runCatching { switchTo(next, config) }.onFailure {
+                        CrashLogManager.logException(LOG_TAG, "源位深落定后的重配失败", it)
+                    }
+                }
+                return@post
+            }
             // 改道由本类自发起，不经渲染器的错误处置，故失败自己吞掉：下一次重配会照常重来
             runCatching { switchTo(next, config) }.onFailure {
                 CrashLogManager.logException(LOG_TAG, "独占成色变化后的改道失败", it)
