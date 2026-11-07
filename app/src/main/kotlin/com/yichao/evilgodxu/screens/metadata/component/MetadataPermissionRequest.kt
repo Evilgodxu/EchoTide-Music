@@ -14,22 +14,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.yichao.evilgodxu.permission.PermissionReturnMonitor
-import com.yichao.evilgodxu.permission.PermissionType
-import com.yichao.evilgodxu.permission.allFilesAccessIntent
 import com.yichao.evilgodxu.permission.hasAllFilesAccess
 import com.yichao.evilgodxu.permission.hasImageAccess
 import com.yichao.evilgodxu.permission.mediaImagePermission
+import com.yichao.evilgodxu.permission.rememberAllFilesAccessRequest
 
 /**
  * 元数据页的权限前置：打开页面即按「全部文件 → 图片」串行申请。
  *
  * 本页要做的每一件事都撞在这两项上——改动写回音频文件要全部文件，从最近图片里挑封面要图片访问。
- * 等用户改到一半才发现写不进去，比进来就问一次更糟，故把它们提前到页面打开时。
- *
- * 全部文件从本页用 ActivityResult 打开系统授权页：与原任务同一栈，用户返回即回到本页，
- * 不靠后台把应用拉起（与设置页的悬浮窗授权同一条路）。每次进入最多自动跳一次，用户拒绝后
- * 不再反复把他带走。图片一项等全部文件就绪后再问，两者串行不叠加弹窗。
+ * 等用户改到一半才发现写不进去，比进来就问一次更糟，故把它们提前到页面打开时；
+ * 用户此前拒绝过，这里就是重新申请的入口。每次进入最多自动跳一次，图片一项等全部文件
+ * 就绪后再问，两者串行不叠加弹窗。
  */
 @Composable
 internal fun MetadataPermissionRequest() {
@@ -39,9 +35,9 @@ internal fun MetadataPermissionRequest() {
     var allFilesPrompted by rememberSaveable { mutableStateOf(false) }
     var imagePrompted by rememberSaveable { mutableStateOf(false) }
 
-    val allFilesLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { allFilesReady = hasAllFilesAccess() }
+    val requestAllFilesAccess = rememberAllFilesAccessRequest {
+        allFilesReady = hasAllFilesAccess()
+    }
     val imagePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
@@ -62,11 +58,7 @@ internal fun MetadataPermissionRequest() {
         if (!allFilesReady) {
             if (!allFilesPrompted) {
                 allFilesPrompted = true
-                // 跳转同时开始跟随：这个系统页在用户拨开开关后不会自己关闭，
-                // 只靠 ActivityResult 只能覆盖「用户手动返回」那一半，
-                // 另一半要靠跟随到授权后把应用带回前台（与设置页悬浮窗那条路一致）
-                PermissionReturnMonitor.watch(context, PermissionType.MANAGE_EXTERNAL_STORAGE)
-                runCatching { allFilesLauncher.launch(allFilesAccessIntent(context)) }
+                requestAllFilesAccess()
             }
             return@LaunchedEffect
         }

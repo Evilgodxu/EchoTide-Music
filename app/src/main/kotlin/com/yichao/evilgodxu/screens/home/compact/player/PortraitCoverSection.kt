@@ -42,6 +42,7 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.permission.ensureTrackFileWritable
 import com.yichao.evilgodxu.permission.hasImageAccess
 import com.yichao.evilgodxu.permission.mediaImagePermission
+import com.yichao.evilgodxu.permission.rememberAllFilesAccessRequest
 import com.yichao.evilgodxu.screens.home.component.player.HomeImmersiveCover
 import com.yichao.evilgodxu.ui.component.player.CoverContextMenu
 import com.yichao.evilgodxu.ui.component.player.CoverRefreshDialog
@@ -59,12 +60,11 @@ internal fun PortraitCoverSection(
     playbackState: MusicPlaybackState,
     topBarInset: Dp,
     swipePreviewText: String?,
-    // 封面菜单里的在线刷新与本地封面都要写回音频文件：无权限时改去元数据编辑页申请
-    onOpenMetadata: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val requestAllFilesAccess = rememberAllFilesAccessRequest()
     val coverSavedMessage = stringResource(R.string.music_panel_save_cover_success)
     val coverNoEmbeddedMessage = stringResource(R.string.music_panel_save_cover_no_embedded)
     var showCoverMenu by remember { mutableStateOf(false) }
@@ -87,10 +87,9 @@ internal fun PortraitCoverSection(
         modifier = modifier.combinedClickable(
             onClick = {},
             onLongClick = {
-                // 菜单里的在线刷新与本地封面都要写回音频文件：无权限时不展开菜单，
-                // 直接去元数据编辑页，由那一页统一申请
+                // 菜单里的在线刷新与本地封面都要写回音频文件：无权限时就地申请，本次不展开菜单
                 val track = playbackState.currentTrack
-                if (track != null && ensureTrackFileWritable(track.id, onOpenMetadata)) showCoverMenu = true
+                if (track != null && ensureTrackFileWritable(requestAllFilesAccess)) showCoverMenu = true
             },
         ),
     ) {

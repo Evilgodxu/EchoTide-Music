@@ -13,16 +13,18 @@ import androidx.compose.ui.platform.LocalContext
 import com.yichao.evilgodxu.permission.PermissionMonitor
 import com.yichao.evilgodxu.permission.mediaAudioPermission
 import com.yichao.evilgodxu.permission.notificationPermission
+import com.yichao.evilgodxu.permission.rememberAllFilesAccessRequest
 
 private const val REQUEST_AUDIO = "startup_audio"
 private const val REQUEST_NOTIFICATION = "startup_notification"
+private const val REQUEST_ALL_FILES = "startup_all_files"
 
 /**
- * 启动期的两段授权，按「音频 → 通知」串行推进。
+ * 启动期的三段授权，按「音频 → 通知 → 全部文件」串行推进。
  *
- * 每一项只在缺它时才弹，且每轮启动最多问一次：用户拒绝后不追问，下次冷启动重走一条链。
- * 这里没有常驻的权限提示——所有权限都在用得上它的那一刻申请，本组件只负责把启动这两项排好序。
- * 音频是唯一的前提：没有它读不到曲目；通知服务于「能正常听」——前台播放通知与锁屏控制依赖它。
+ * 每一项只在缺它时才弹，且每轮启动最多问一次：用户拒绝后不追问，下次冷启动重走一条链，
+ * 期间各写操作触发点会就地再申请。音频是唯一的前提——没有它读不到曲目；通知服务于「能正常听」；
+ * 全部文件排在最后，写回音频标签与封面才需要它，不该挡在能听歌之前。
  */
 @Composable
 internal fun StartupPermissionChain(
@@ -43,8 +45,10 @@ internal fun StartupPermissionChain(
     val notificationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) {
-        stage = STAGE_DONE
+        stage = STAGE_ALL_FILES
     }
+    // 授权页返回即收束本链：无论用户是否拨开开关，都不再追问同一次启动
+    val requestAllFilesAccess = rememberAllFilesAccessRequest { stage = STAGE_DONE }
 
     LaunchedEffect(stage, mediaAudioGranted) {
         when (stage) {
@@ -62,10 +66,18 @@ internal fun StartupPermissionChain(
                 }
             }
             STAGE_NOTIFICATION -> when {
-                permissionMonitor.isNotificationGranted() -> stage = STAGE_DONE
-                !markRequested(REQUEST_NOTIFICATION) -> stage = STAGE_DONE
+                permissionMonitor.isNotificationGranted() -> stage = STAGE_ALL_FILES
+                !markRequested(REQUEST_NOTIFICATION) -> stage = STAGE_ALL_FILES
                 else -> {
                     notificationLauncher.launch(notificationPermission())
+                    return@LaunchedEffect
+                }
+            }
+            STAGE_ALL_FILES -> when {
+                permissionMonitor.isAllFilesGranted() -> stage = STAGE_DONE
+                !markRequested(REQUEST_ALL_FILES) -> stage = STAGE_DONE
+                else -> {
+                    requestAllFilesAccess()
                     return@LaunchedEffect
                 }
             }
@@ -75,4 +87,5 @@ internal fun StartupPermissionChain(
 
 private const val STAGE_AUDIO = 0
 private const val STAGE_NOTIFICATION = 1
-private const val STAGE_DONE = 2
+private const val STAGE_ALL_FILES = 2
+private const val STAGE_DONE = 3

@@ -54,6 +54,7 @@ import com.yichao.evilgodxu.data.music.panel.searchLyricsCandidates
 import com.yichao.evilgodxu.data.music.panel.TranslateOutcome
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.permission.ensureTrackFileWritable
+import com.yichao.evilgodxu.permission.rememberAllFilesAccessRequest
 import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisController
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisSheet
@@ -117,6 +118,7 @@ internal fun PortraitPlayer(
     val context = LocalContext.current
     // 提示文案在协程中取用，需经 Configuration 感知的资源入口，避免语言/字体缩放切换后取到旧值
     val resources = LocalResources.current
+    val requestAllFilesAccess = rememberAllFilesAccessRequest()
 
     // 长按功能状态：复用播放器共享的歌词刷新能力
     val scope = rememberCoroutineScope()
@@ -185,7 +187,6 @@ internal fun PortraitPlayer(
                 playbackState = playbackState,
                 topBarInset = topBarInset,
                 swipePreviewText = swipePreviewText,
-                onOpenMetadata = onOpenMetadata,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false)
@@ -197,9 +198,9 @@ internal fun PortraitPlayer(
                 onVerticalDragClaim = onLyricVerticalDragClaim,
                 onLongPress = { positionMs ->
                     // 歌词菜单里的编辑本行、在线刷新、本地导入、自动补译都要写回音频文件：
-                    // 无权限时不展开菜单，直接去元数据编辑页，由那一页统一申请
+                    // 无权限时就地申请，本次不展开菜单
                     val track = playbackState.currentTrack
-                    if (track != null && ensureTrackFileWritable(track.id, onOpenMetadata)) {
+                    if (track != null && ensureTrackFileWritable(requestAllFilesAccess)) {
                         lyricsMenuPositionMs = positionMs
                         showLyricsMenu = true
                     }
@@ -287,7 +288,6 @@ internal fun PortraitPlayer(
                     playbackState = playbackState,
                     onOpenOnlineSearch = onOpenOnlineSearch,
                     onOpenArtistPlaylist = onOpenArtistPlaylist,
-                    onOpenMetadata = onOpenMetadata,
                 )
                 // 艺术家与音频格式条间距
                 Spacer(Modifier.height(8.dp))

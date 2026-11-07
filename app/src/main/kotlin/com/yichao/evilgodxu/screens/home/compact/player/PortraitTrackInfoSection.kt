@@ -23,6 +23,7 @@ import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
 import com.yichao.evilgodxu.permission.ensureTrackFileWritable
+import com.yichao.evilgodxu.permission.rememberAllFilesAccessRequest
 import com.yichao.evilgodxu.screens.home.component.dialog.ArtistPickerDialog
 import com.yichao.evilgodxu.screens.home.component.player.MarqueeInfoLine
 import com.yichao.evilgodxu.ui.component.player.MiniContextMenu
@@ -39,11 +40,11 @@ internal fun PortraitTrackInfoSection(
     playbackState: MusicPlaybackState,
     onOpenOnlineSearch: (String) -> Unit,
     onOpenArtistPlaylist: (String) -> Unit,
-    onOpenMetadata: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val requestAllFilesAccess = rememberAllFilesAccessRequest()
     // 切歌过渡锚点：标题与艺术家随锚点整体横移，方向来自本次变更的类型
     val trackAnchor = rememberTrackSwitchAnchor(playbackState.currentTrack, playbackState.lastSwitchKind)
 
@@ -83,10 +84,9 @@ internal fun PortraitTrackInfoSection(
                             .combinedClickable(
                                 onClick = {},
                                 onLongClick = {
-                                    // 菜单里的重命名要写回音频文件：无权限时不展开菜单，
-                                    // 直接去元数据编辑页，由那一页统一申请，各触发点不再各写一遍
+                                    // 菜单里的重命名要写回音频文件：无权限时就地申请，本次不展开菜单
                                     val track = playbackState.currentTrack
-                                    if (track != null && ensureTrackFileWritable(track.id, onOpenMetadata)) {
+                                    if (track != null && ensureTrackFileWritable(requestAllFilesAccess)) {
                                         menuText = track.title
                                         menuIsTitle = true
                                         showMetaMenu = true
@@ -118,7 +118,7 @@ internal fun PortraitTrackInfoSection(
                                     onLongClick = {
                                         val track = playbackState.currentTrack
                                         if (track != null && !track.artist.isNullOrBlank() &&
-                                            ensureTrackFileWritable(track.id, onOpenMetadata)
+                                            ensureTrackFileWritable(requestAllFilesAccess)
                                         ) {
                                             menuText = track.artist
                                             menuIsTitle = false

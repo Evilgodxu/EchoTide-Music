@@ -49,6 +49,7 @@ import com.yichao.evilgodxu.data.playlist.isViewSourceValid
 import com.yichao.evilgodxu.data.playlist.resolveSourceTracks
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.permission.ensureTrackFileWritable
+import com.yichao.evilgodxu.permission.rememberAllFilesAccessRequest
 import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
 import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 import kotlinx.coroutines.delay
@@ -67,6 +68,7 @@ internal fun PlaylistSheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val requestAllFilesAccess = rememberAllFilesAccessRequest()
     val metadataEnricher = LocalMetadataEnricher.current
     // 竖屏播放列表高度减半，横屏全高显示
     val isPortrait = !rememberWindowLandscape()
@@ -231,8 +233,8 @@ internal fun PlaylistSheet(
                         playlistTrackIds = playlistTrackIds,
                         onDismiss = onDismiss,
                         onLongPressTrack = { track ->
-                            // 彻底删除要动音频文件：无权限时不弹确认框，直接去元数据编辑页申请
-                            if (ensureTrackFileWritable(track.id, onEditMetadata)) deleteTrack = track
+                            // 彻底删除要动音频文件：无权限时就地申请，本次不弹确认框
+                            if (ensureTrackFileWritable(requestAllFilesAccess)) deleteTrack = track
                         },
                         onSwipePlaylist = { playlistTarget = it },
                         onSwipeAdvanced = { advancedTrack = it },

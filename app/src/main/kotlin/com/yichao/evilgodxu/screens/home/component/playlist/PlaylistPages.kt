@@ -66,7 +66,8 @@ import com.yichao.evilgodxu.data.music.playback.PlaylistSource
 import com.yichao.evilgodxu.data.music.playback.switchToPlaylistQueue
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.permission.hasAllFilesAccess
+import com.yichao.evilgodxu.permission.ensureTrackFileWritable
+import com.yichao.evilgodxu.permission.rememberAllFilesAccessRequest
 import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
@@ -355,6 +356,7 @@ internal fun PlaylistAlbumTracksPage(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val requestAllFilesAccess = rememberAllFilesAccessRequest()
     val tracks = remember(playbackState.libraryTracks, group.key) {
         val albumId = group.key.removePrefix("album:").toLongOrNull()
         playbackState.libraryTracks.filter { it.albumId == albumId }
@@ -366,7 +368,10 @@ internal fun PlaylistAlbumTracksPage(
         source = PlaylistSource(group.key, group.name),
         playbackState = playbackState,
         trailingAction = {},
-        onTrackLongClick = { editAlbumTrack = it },
+        // 确认后要把专辑名写回音频文件标签：无权限时就地申请，本次不弹编辑框
+        onTrackLongClick = { track ->
+            if (ensureTrackFileWritable(requestAllFilesAccess)) editAlbumTrack = track
+        },
     )
     EditAlbumDialog(
         track = editAlbumTrack,
@@ -374,10 +379,7 @@ internal fun PlaylistAlbumTracksPage(
             playbackState.updateTrack(track.copy(albumName = albumName))
             editAlbumTrack = null
             // 将专辑名写回音频文件标签
-            scope.launch {
-                if (!hasAllFilesAccess()) return@launch
-                MusicMetadataWriter.writeAlbum(context, track, albumName)
-            }
+            scope.launch { MusicMetadataWriter.writeAlbum(context, track, albumName) }
         },
         onDismiss = { editAlbumTrack = null },
     )
