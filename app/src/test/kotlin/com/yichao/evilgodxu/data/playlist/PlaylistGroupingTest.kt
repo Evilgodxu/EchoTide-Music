@@ -127,6 +127,44 @@ class PlaylistGroupingTest {
         assertEquals("未知专辑", groups.single().name)
     }
 
+    // -----------------------------------------------------------------------
+    // 专辑改名后的身份重绑
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun albumIdentityJoinsExistingAlbumOfSameName() {
+        // 库内已有同名专辑：改名曲目并入那张专辑，而不是另起一组同名分组
+        assertEquals(20L, albumIdentity(tracks, " 合辑 "))
+    }
+
+    @Test
+    fun albumIdentityMintsStableIdForNameFirstSeenInLibrary() {
+        val minted = albumIdentity(tracks, "New Album")
+        // 负值不与 MediaStore 的正 id 相撞；名字大小写与首尾空白不改变身份，
+        // 先后改到同一名字的曲目仍聚成一组
+        assertTrue(minted < 0)
+        assertEquals(minted, albumIdentity(tracks, " new album "))
+        assertTrue(albumIdentity(tracks, "另一张") != minted)
+    }
+
+    @Test
+    fun albumIdentityTreatsBlankNameAsUnknownAlbum() {
+        assertEquals(0L, albumIdentity(tracks, "   "))
+    }
+
+    @Test
+    fun renamedTrackMovesToNewAlbumGroup() {
+        val renamed = tracks[0].copy(
+            albumName = "新专辑",
+            albumId = albumIdentity(tracks, "新专辑"),
+        )
+        val groups = albumGroups(listOf(renamed) + tracks.drop(1), "未知专辑")
+        // 旧专辑仅剩改名曲目时整组消失，曲目改由新专辑收纳
+        assertEquals(listOf("合辑", "新专辑"), groups.map { it.name })
+        assertEquals(listOf(2L, 3L), groups[0].trackIds)
+        assertEquals(listOf(1L), groups[1].trackIds)
+    }
+
     @Test
     fun artistGroupsAttributeMultiArtistTracksToEveryArtist() {
         val groups = artistGroups(tracks, "未知艺术家")

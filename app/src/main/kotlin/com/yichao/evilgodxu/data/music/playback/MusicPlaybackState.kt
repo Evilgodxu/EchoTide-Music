@@ -22,6 +22,7 @@ import com.yichao.evilgodxu.data.music.model.RecentCover
 import com.yichao.evilgodxu.data.persistence.PersistedData
 import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
+import com.yichao.evilgodxu.data.playlist.albumIdentity
 import kotlin.jvm.JvmName
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
@@ -741,8 +742,21 @@ class MusicPlaybackState(
         playlistEditor.reorder(ordered)
     }
 
+    /**
+     * 替换曲目的元数据，并把专辑身份与专辑名保持一致。
+     *
+     * 专辑分组与专辑曲目页都按 albumId 认专辑，专辑改名后不重绑就会让曲目留在旧专辑下
+     * （列表不刷新）。这条联动收在这里，各编辑入口只给出改后的曲目即可，不必各自记住它
+     */
     fun updateTrack(updated: MusicTrack) {
-        playlistEditor.updateTrack(updated)
+        playlistEditor.updateTrack(withAlbumIdentity(updated))
+    }
+
+    // 专辑名变过才重绑：改前名字取自库内当前值——调用方传入的曲目已带新名字，不能自比
+    private fun withAlbumIdentity(updated: MusicTrack): MusicTrack {
+        val current = libraryTracks.firstOrNull { it.id == updated.id } ?: return updated
+        if (current.albumName.trim() == updated.albumName.trim()) return updated
+        return updated.copy(albumId = albumIdentity(libraryTracks, updated.albumName))
     }
 
     suspend fun migrateTrackId(context: Context, oldId: Long, newId: Long) {

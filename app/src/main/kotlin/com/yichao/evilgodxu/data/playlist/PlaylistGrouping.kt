@@ -1,8 +1,10 @@
 package com.yichao.evilgodxu.data.playlist
 
+import com.yichao.evilgodxu.data.music.api.stableIdFromString
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.playback.PlaylistSource
 import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
+import kotlin.math.abs
 
 // 按 id 集合从全量曲目中解析曲目，保持集合顺序。
 // 先建 id 索引再查表：逐个线性扫描全库会让调用点退化为 O(曲目数 × 集合长度)
@@ -71,6 +73,24 @@ internal fun distinctAlbumCount(all: List<MusicTrack>): Int = all.map { it.album
 
 internal fun distinctArtistCount(all: List<MusicTrack>): Int =
     all.flatMap { parseTrackArtists(it.artist) }.distinct().size
+
+/**
+ * 专辑改名后该曲目的专辑身份（albumId）。
+ *
+ * 专辑分组与专辑曲目页都以 albumId 认专辑，只改专辑名会让曲目留在旧专辑下，
+ * 故改名时按新名字重新绑定：库里已有同名专辑即并入它（把曲目归到那张专辑下）；
+ * 名字在库内首次出现则取名字的稳定哈希作负 id 独立成组 —— MediaStore 分配的专辑 id 恒为正，
+ * 负值不会与之相撞，且同一名字总得到同一个 id，先后改到同一新名字的多首曲目仍聚成一组。
+ * 名字清空即归入无专辑组（id 0）。
+ *
+ * 下次曲库扫描由 MediaStore 按文件标签重新解析 id，分组随之收敛到平台值
+ */
+internal fun albumIdentity(all: List<MusicTrack>, album: String): Long {
+    val name = album.trim()
+    if (name.isEmpty()) return 0L
+    all.firstOrNull { it.albumName.trim().equals(name, ignoreCase = true) }?.let { return it.albumId }
+    return -abs(stableIdFromString(name.lowercase()))
+}
 
 // 按专辑分组，组名回退为未知专辑文案
 internal fun albumGroups(all: List<MusicTrack>, unknownAlbum: String): List<PlaylistGroup> =
