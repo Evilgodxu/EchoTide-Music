@@ -83,7 +83,7 @@ fun ProxySource(
             onDismiss = { showImportDialog = false },
             onLocalImport = {
                 showImportDialog = false
-                filePickerLauncher.launch(arrayOf("text/*", "application/json", "application/javascript"))
+                filePickerLauncher.launch(arrayOf("text/*", "application/json"))
             },
             onLinkImport = {
                 showImportDialog = false

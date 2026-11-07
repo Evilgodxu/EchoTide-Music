@@ -80,20 +80,18 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="audio/*" />
             </intent-filter>
-            <!-- 可接收外部分享/打开的代理音源文件（JSON/JS/文本） -->
+            <!-- 可接收外部分享/打开的代理音源文件（JSON/文本） -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
                 <data android:mimeType="application/json" />
-                <data android:mimeType="application/javascript" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
                 <data android:mimeType="application/json" />
-                <data android:mimeType="application/javascript" />
             </intent-filter>
         </activity>
 

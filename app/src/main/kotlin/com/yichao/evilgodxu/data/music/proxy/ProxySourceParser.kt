@@ -52,7 +52,8 @@ internal object ProxySourceParser {
             if (spec != null) platforms[key] = spec
         }
         if (platforms.isEmpty()) {
-            return ProxyParseResult.Failure("未定义可用平台（内置平台 wy/qq/kg/kw/mg，自定义平台需声明 name 与 search）")
+            val builtIn = MusicSearchSource.BUILT_IN.joinToString("/") { it.key }
+            return ProxyParseResult.Failure("未定义可用平台（内置平台 $builtIn，自定义平台需声明 name 与 search）")
         }
 
         return ProxyParseResult.Success(
