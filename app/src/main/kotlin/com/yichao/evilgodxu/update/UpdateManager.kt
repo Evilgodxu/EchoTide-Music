@@ -109,8 +109,15 @@ object UpdateManager {
             val latest = normalizeVersion(release.tag_name)
             val current = getCurrentVersion(context)
             val ignored = prefs.getString(KEY_IGNORED_VERSION, null)?.let(::normalizeVersion)
+            val offerUpdate = isNewerVersion(latest, current) && latest != ignored
 
-            if (isNewerVersion(latest, current) && latest != ignored) {
+            // 检查更新顺带清理安装包：只保留本次可安装的那份，其余（旧版本、升级后残留）一并删掉；
+            // 跑在 IO 线程，与本次检查同步完成，不另起时机
+            withContext(Dispatchers.IO) {
+                pruneOutdatedPackages(context, keepVersion = if (offerUpdate) latest else null)
+            }
+
+            if (offerUpdate) {
                 val apkAsset = release.assets.firstOrNull { it.name.endsWith(".apk") }
                     ?: throw IllegalStateException("GitHub Release 未提供可用 APK")
                 val downloadUrl = apkAsset.browser_download_url.takeIf { it.isNotBlank() }
@@ -147,6 +154,19 @@ object UpdateManager {
             onError?.invoke(e)
             null
         }
+    }
+
+    // 安装包文件名由版本号决定，下载与清理共用同一条命名事实
+    private fun apkFileName(version: String): String = "EchoTideMusic_$version.apk"
+
+    // 清理更新目录下不属于本次可安装版本的安装包；keepVersion 为 null 表示当前无更新，全部清掉
+    private fun pruneOutdatedPackages(context: Context, keepVersion: String?) {
+        val dir = java.io.File(context.getExternalFilesDir(null), StoragePaths.UPDATE_DIR_NAME)
+        val keepName = keepVersion?.let { apkFileName(it) }
+        dir.listFiles()
+            ?.filter { it.isFile && it.extension.equals("apk", ignoreCase = true) }
+            ?.filterNot { it.name == keepName }
+            ?.forEach { it.delete() }
     }
 
     private fun readJson(url: String): String {
@@ -196,7 +216,7 @@ object UpdateManager {
         updateInfo: UpdateInfo,
         onProgress: (Float) -> Unit = {}
     ): Boolean {
-        val fileName = "EchoTideMusic_${updateInfo.latestVersion}.apk"
+        val fileName = apkFileName(updateInfo.latestVersion)
         // 落自定义 update 子目录：系统约定的 Download 目录一被 getExternalFilesDir 调用就会
         // 被创建出来并一直空着（见 StoragePaths.UPDATE_DIR_NAME）
         val outFile = java.io.File(
