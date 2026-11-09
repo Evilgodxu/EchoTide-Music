@@ -18,6 +18,8 @@
 
 # 本地开发约定文件：不随本仓库发布
 /AGENTS.md
+/docs/注意事项.md
+/docs/APK体积与性能报告.md
 
 jh.keystore
 recollection
