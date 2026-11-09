@@ -112,8 +112,6 @@
 │   ├── libs.versions.toml               # 版本目录(依赖管理)
 │   └── wrapper/
 ├── docs/                                # 代理音源规范、界面截图、注意事项与 APK 报告
-├── tools/
-│   └── apk-optimizer/                   # APK 体积归因、16 KiB 对齐、重签名与构建期配置体检
 ├── LICENSE
 ├── build.gradle.kts
 ├── settings.gradle.kts
@@ -121,7 +119,7 @@
 ```
 
 自定义代理音源的接口规范见 [忆潮代理音源规范](docs/忆潮代理音源规范.md)。
-APK 体积、对齐与签名的后处理工具见 [tools/apk-optimizer](tools/apk-optimizer/README.md)。
+APK 体积、对齐与签名的体检工具改用[模板仓库](https://github.com/Evilgodxu/android-template)发布的那一份，本仓库不再自带。
 
 ## 权限
 

@@ -25,6 +25,7 @@ YiChaoTmp
 __pycache__/
 *.py[cod]
 
-# 仅 apk-optimizer 对外开源，其余为仓库自用脚本
-/tools/check_unused_imports.py
-/tools/make_promo_hero.py
+# 本地脚本工具目录：不随本仓库发布。
+# apk-optimizer 已随模板仓库（github.com/Evilgodxu/android-template）发布，
+# 本仓库只保留本地工作副本用于生成 APK 体检报告
+/tools/
