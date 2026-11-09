@@ -28,14 +28,14 @@ class FormatTest {
     }
 
     @Test
-    fun bytesBelowUnitStayInBytes() {
+    fun `不足单位时以字节显示`() {
         assertEquals("0 B", formatBytes(0))
         assertEquals("1 B", formatBytes(1))
         assertEquals("1023 B", formatBytes(1023))
     }
 
     @Test
-    fun bytesAdvanceByPowersOf1024() {
+    fun `字节按 1024 的幂进级`() {
         assertEquals("1.00 KB", formatBytes(1024))
         assertEquals("1.00 MB", formatBytes(1024 * 1024))
         assertEquals("1.00 GB", formatBytes(1024 * 1024 * 1024))
@@ -43,19 +43,19 @@ class FormatTest {
     }
 
     @Test
-    fun bytesKeepTwoDecimals() {
+    fun `字节保留两位小数`() {
         assertEquals("1.50 KB", formatBytes(1536))
         assertEquals("2.25 MB", formatBytes((2.25 * 1024 * 1024).toLong()))
     }
 
     @Test
-    fun bytesAboveLargestUnitStayInThatUnit() {
+    fun `超过最大单位仍用该单位`() {
         // 单位表末尾之后不再递进：TB 之上仍以 TB 表示，只是数值继续增大
         assertEquals("1024.00 TB", formatBytes(1024L * 1024 * 1024 * 1024 * 1024))
     }
 
     @Test
-    fun megabytesUseDecimalPowers() {
+    fun `MB 用十进制幂`() {
         assertEquals("0.00 MB", formatMegabytes(0))
         assertEquals("1.00 MB", formatMegabytes(1_000_000))
         // 同一字节数在两种口径下数值不同：5 MiB 的 5242880 字节只有 5.24 MB
@@ -63,14 +63,14 @@ class FormatTest {
     }
 
     @Test
-    fun mebibytesUseBinaryPowers() {
+    fun `MiB 用二进制幂`() {
         assertEquals("0.00 MiB", formatMebibytes(0))
         assertEquals("1.00 MiB", formatMebibytes(1024 * 1024))
         assertEquals("5.00 MiB", formatMebibytes(5242880))
     }
 
     @Test
-    fun timeIsTruncatedToWholeSeconds() {
+    fun `时间截断到整秒`() {
         assertEquals("0:00", formatTime(0))
         assertEquals("0:00", formatTime(999))
         assertEquals("0:01", formatTime(1_000))
@@ -78,7 +78,7 @@ class FormatTest {
     }
 
     @Test
-    fun timeRollsOverToMinutes() {
+    fun `时间进位到分钟`() {
         assertEquals("1:00", formatTime(60_000))
         assertEquals("1:05", formatTime(65_000))
         assertEquals("10:09", formatTime(609_000))

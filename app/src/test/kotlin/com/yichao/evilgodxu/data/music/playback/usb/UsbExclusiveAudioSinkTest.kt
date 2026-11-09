@@ -13,7 +13,7 @@ import org.junit.Test
 class UsbExclusiveAudioSinkTest {
 
     @Test
-    fun integerEncodingsMapOneToOne() {
+    fun `整型编码一一对应`() {
         assertEquals(8, sourceBitDepthOf(C.ENCODING_PCM_8BIT))
         assertEquals(16, sourceBitDepthOf(C.ENCODING_PCM_16BIT))
         assertEquals(24, sourceBitDepthOf(C.ENCODING_PCM_24BIT))
@@ -22,20 +22,20 @@ class UsbExclusiveAudioSinkTest {
 
     // 浮点按 24 位计：取 32 会把大量 24 位解码器挡在门外，取 16 则会放过会丢低位的搭配
     @Test
-    fun floatCountsAsTwentyFourBits() {
+    fun `浮点按 24 位计`() {
         assertEquals(24, sourceBitDepthOf(C.ENCODING_PCM_FLOAT))
     }
 
     // 非线性编码无从判断位深：判 0 会让格式规划直接不成立，退回平台路径
     @Test
-    fun nonLinearEncodingHasNoBitDepth() {
+    fun `非线性编码没有位深`() {
         assertEquals(0, sourceBitDepthOf(C.ENCODING_INVALID))
         assertEquals(0, sourceBitDepthOf(C.ENCODING_AAC_LC))
     }
 
     // 驻留只算还在环里的那一段：已取走（装入 URB）的量不计，否则面板上它会超过"当前缓冲"这一行
     @Test
-    fun residentCountsOnlyWhatIsStillInRing() {
+    fun `驻留只计仍在环形缓冲中的部分`() {
         assertEquals(3528, ringResidentFrames(writtenFrames = 3528, sentFrames = 0, bufferFrames = 3528))
         assertEquals(705, ringResidentFrames(writtenFrames = 4233, sentFrames = 3528, bufferFrames = 3528))
         assertEquals(0, ringResidentFrames(writtenFrames = 3528, sentFrames = 3528, bufferFrames = 3528))
@@ -43,13 +43,13 @@ class UsbExclusiveAudioSinkTest {
 
     // 已取走的量取自播放线程留下的快照，落后于已写出量时按容量封顶——缓冲容不下更多，超出只可能是这份滞后
     @Test
-    fun residentIsCappedAtCapacity() {
+    fun `驻留量以容量为上限`() {
         assertEquals(3528, ringResidentFrames(writtenFrames = 5000, sentFrames = 1000, bufferFrames = 3528))
     }
 
     // 负值只可能来自快照与记账错位，压成 0 而不是把负驻留报给界面
     @Test
-    fun residentNeverGoesNegative() {
+    fun `驻留量不会为负`() {
         assertEquals(0, ringResidentFrames(writtenFrames = 100, sentFrames = 400, bufferFrames = 3528))
     }
 }

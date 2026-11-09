@@ -20,7 +20,7 @@ class FftTest {
     }
 
     @Test
-    fun transformMatchesNaiveDft() {
+    fun `变换结果与朴素 DFT 一致`() {
         val size = 8
         val input = floatArrayOf(1f, 2f, -3f, 4f, 0.5f, -0.25f, 7f, 0f)
         val re = input.copyOf()
@@ -35,7 +35,7 @@ class FftTest {
     }
 
     @Test
-    fun constantSignalHasOnlyDcComponent() {
+    fun `恒值信号只有直流分量`() {
         val size = 16
         val re = FloatArray(size) { 1f }
         val im = FloatArray(size)
@@ -48,7 +48,7 @@ class FftTest {
     }
 
     @Test
-    fun singleImpulseSpreadsUnitMagnitudeAcrossBins() {
+    fun `单个冲激把单位幅度铺满各频点`() {
         // 时域单个冲激在所有频点上的幅度恒为 1：验证变换未做归一化且不丢能量
         val size = 8
         val re = FloatArray(size).also { it[1] = 1f }
@@ -60,7 +60,7 @@ class FftTest {
     }
 
     @Test
-    fun hannWindowIsSymmetricAndZeroAtBothEnds() {
+    fun `汉宁窗对称且两端为零`() {
         val window = Fft.hannWindow(64)
         assertEquals(0.0, window[0].toDouble(), EPS)
         // 末点回零以保证两端连续
@@ -69,7 +69,7 @@ class FftTest {
     }
 
     @Test
-    fun hannWindowIsCachedPerSize() {
+    fun `汉宁窗按长度缓存`() {
         // 逐帧重建窗函数是主要开销之一，缓存后同一长度必须复用同一实例
         assertSame(Fft.hannWindow(512), Fft.hannWindow(512))
     }

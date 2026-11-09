@@ -10,14 +10,14 @@ import org.junit.Test
 class ProxySourceEngineTest {
 
     @Test
-    fun existingQueryDoesNotDropAdditionalParams() {
+    fun `已有查询串不丢失附加参数`() {
         val action = action(url = "https://example.com/search?token=x", params = mapOf("keyword" to "{keyword}"))
         val url = ProxySourceEngine.buildUrl(action, mapOf("keyword" to "hello"))
         assertEquals("https://example.com/search?token=x&keyword=hello", url)
     }
 
     @Test
-    fun placeholderValuesAreEncodedAsUrlComponents() {
+    fun `占位值按 URL 组件编码`() {
         val action = action(url = "https://example.com/q?q={keyword}")
         val url = ProxySourceEngine.buildUrl(action, mapOf("keyword" to "A&B#C"))
         assertEquals("https://example.com/q?q=A%26B%23C", url)

@@ -12,7 +12,7 @@ import org.junit.Test
 class QrcCipherTest {
 
     @Test
-    fun emptyAndMalformedHexAreRejected() {
+    fun `空与非法十六进制被拒绝`() {
         assertNull(QrcCipher.decrypt(""))
         assertNull(QrcCipher.decrypt("   "))
         // 奇数长度无法两两成字节
@@ -22,12 +22,12 @@ class QrcCipherTest {
     }
 
     @Test
-    fun payloadShorterThanOneBlockIsRejected() {
+    fun `不足一块的密文被拒绝`() {
         assertNull(QrcCipher.decrypt("0011223344"))
     }
 
     @Test
-    fun undecryptablePayloadIsRejected() {
+    fun `无法解密的密文被拒绝`() {
         // 长度合规但内容不是 zlib 流：解密后必然无法解压，返回 null 而非抛异常
         assertNull(QrcCipher.decrypt("0000000000000000"))
         assertNull(QrcCipher.decrypt("ffffffffffffffff"))

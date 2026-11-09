@@ -17,32 +17,32 @@ class ExclusiveVolumeTest {
 
     // 满档即满幅 0 dB：打包器整段缩放不参与，写出仍是逐位原样
     @Test
-    fun topStepIsUnityGain() {
+    fun `最高档为增益 1`() {
         assertEquals(1f, stepToGain(EXCLUSIVE_VOLUME_STEPS), tolerance)
     }
 
     // 每级 0.5 dB：降 20 级恰是 -10 dB，幅度为 10^(-0.5)
     @Test
-    fun everyTwentyStepsIsAMinusTenDecibelDrop() {
+    fun `每二十档降低十分贝`() {
         assertEquals(0.316228f, stepToGain(EXCLUSIVE_VOLUME_STEPS - 20), tolerance)
     }
 
     // 0 档是量程下界 -80 dB：1e-4 的幅度，听不见但不是零
     @Test
-    fun bottomStepIsMinusEightyDecibels() {
+    fun `最低档为负八十分贝`() {
         assertEquals(1e-4f, stepToGain(0), tolerance)
     }
 
     // 越界一律按两端取值：档位来自系统音量面板与按键，不该有机会变成放大或负音量
     @Test
-    fun outOfRangeStepsClampToEnds() {
+    fun `越界档位钳到两端`() {
         assertEquals(stepToGain(EXCLUSIVE_VOLUME_STEPS), stepToGain(EXCLUSIVE_VOLUME_STEPS + 5))
         assertEquals(stepToGain(0), stepToGain(-5))
     }
 
     // 逐级单调：音量键往上是变响、往下是变轻，这条不成立就说明级数或衰减写反了
     @Test
-    fun gainIncreasesWithStep() {
+    fun `增益随档位递增`() {
         val gains = (0..EXCLUSIVE_VOLUME_STEPS).map(::stepToGain)
 
         assertEquals(gains.sorted(), gains)
@@ -50,7 +50,7 @@ class ExclusiveVolumeTest {
 
     // 默认档位是 -30 dB：起播不会一上来就是满幅
     @Test
-    fun defaultStepIsMinusThirtyDecibels() {
+    fun `默认档为负三十分贝`() {
         val volume = ExclusiveVolume()
 
         assertEquals(EXCLUSIVE_VOLUME_DEFAULT_STEP, volume.currentStep)
@@ -60,7 +60,7 @@ class ExclusiveVolumeTest {
     // 档位写入带钳制，并如实回答"是否真的变了"——调用方据此决定落盘与会话播报，两者都不该被
     // 无效写入牵着走
     @Test
-    fun setStepClampsAndReportsChange() {
+    fun `设置档位会钳制并回报变化`() {
         val volume = ExclusiveVolume()
 
         assertTrue(volume.setStep(EXCLUSIVE_VOLUME_DEFAULT_STEP + 1))
@@ -73,7 +73,7 @@ class ExclusiveVolumeTest {
 
     // 静音只是增益归零，档位留在原处：取消静音即回到原响度，不必让用户重新找一遍
     @Test
-    fun muteSilencesWithoutLosingTheStep() {
+    fun `静音不丢失当前档位`() {
         val volume = ExclusiveVolume()
         val step = volume.currentStep
 

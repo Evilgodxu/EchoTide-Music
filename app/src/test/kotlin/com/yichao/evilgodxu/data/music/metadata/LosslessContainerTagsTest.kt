@@ -19,7 +19,7 @@ class LosslessContainerTagsTest {
     private val cover = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe0.toByte(), 1, 2, 3, 4)
 
     @Test
-    fun wavTrailingTagIsLocatedFromFooter() {
+    fun `WAV 尾部标签按尾注定位`() {
         val source = wavWithTrailingId3()
         val header = source.copyOfRange(0, 12)
         assertEquals(lyrics, LosslessContainerTags.readLyrics(header, source, 0L, null))
@@ -37,7 +37,7 @@ class LosslessContainerTagsTest {
     }
 
     @Test
-    fun wavEmbeddedId3ChunkAfterAudioIsReadFromWindows() {
+    fun `音频后的内嵌 ID3 块按窗口分段读取`() {
         val source = wavWithEmbeddedId3()
         // 整个文件即窗口时，容器内标签块在窗口内即可定位
         assertEquals(lyrics, LosslessContainerTags.readLyrics(source, null, 0L, null))
@@ -51,7 +51,7 @@ class LosslessContainerTagsTest {
     }
 
     @Test
-    fun wavRewriteCollapsesTagAndInfoChunksIntoOneEach() {
+    fun `WAV 重写把标签块与 INFO 块各并为一个`() {
         val source = wavWithEmbeddedId3()
         val rewrite = LosslessContainerTags.write(source, "新标题", "新艺术家", "新专辑", cover, lyrics)
         assertNotNull(rewrite)
@@ -78,7 +78,7 @@ class LosslessContainerTagsTest {
     }
 
     @Test
-    fun wavTextTagsAreReadBackFromId3Chunk() {
+    fun `文本标签可从 ID3 块读回`() {
         val source = wavWithEmbeddedId3()
         val rewrite = LosslessContainerTags.write(source, "新标题", "新艺术家", "新专辑", null, null)
         assertNotNull(rewrite)
@@ -92,7 +92,7 @@ class LosslessContainerTagsTest {
 
     // 只有 LIST/INFO 的文件（第三方工具写出的布局）：没有 ID3 块时文本标签仍能从 INFO 项取回
     @Test
-    fun wavTextTagsAreReadBackFromInfoChunkOnly() {
+    fun `只有 INFO 块时文本标签仍可读回`() {
         val source = wavFile(
             wavChunk("fmt ", ByteArray(16)),
             wavChunk("data", audioPayload()),
@@ -107,7 +107,7 @@ class LosslessContainerTagsTest {
 
     // 头窗只覆盖容器头与 fmt 时，data 之后的标签块与 INFO 块由尾窗给出块头，块体按绝对偏移定点读取
     @Test
-    fun wavTextTagsAreReadFromWindowsAndOutOfWindowChunks() {
+    fun `文本标签跨窗口内外分段读取`() {
         val source = wavWithEmbeddedId3()
         val header = source.copyOfRange(0, 64)
         val tailOffset = source.size / 2
@@ -119,7 +119,7 @@ class LosslessContainerTagsTest {
     }
 
     @Test
-    fun wavRewriteMergesLegacyTrailingTagIntoContainerChunk() {
+    fun `WAV 重写把旧式尾部标签并入容器块`() {
         val source = wavWithLegacyTrailingTag()
         val rewrite = LosslessContainerTags.write(source, "新标题", null, null, null, lyrics)
         assertNotNull(rewrite)
@@ -136,7 +136,7 @@ class LosslessContainerTagsTest {
     }
 
     @Test
-    fun wavOddDataChunkKeepsPadByteBeforeTagChunk() {
+    fun `WAV 奇数长度数据块在标签块前保留填充字节`() {
         val source = wavWithEmbeddedId3(oddAudio = true)
         val rewrite = LosslessContainerTags.write(source, "新标题", null, null, null, lyrics)
         assertNotNull(rewrite)
@@ -151,7 +151,7 @@ class LosslessContainerTagsTest {
     }
 
     @Test
-    fun id3TagPreservesForeignFramesAndReplacesTargets() {
+    fun `ID3 标签保留外来帧并替换目标帧`() {
         val existing = ByteArrayOutputStream()
         val out = ByteArrayOutputStream()
         Id3v2Tag.textFrame(out, "TXXX", "自定义", Id3v2Tag.TAG_VERSION)
@@ -168,7 +168,7 @@ class LosslessContainerTagsTest {
     }
 
     @Test
-    fun id3v23TagIsReadBackWithUtf16Text() {
+    fun `ID3v23 标签的 UTF-16 文本可读回`() {
         val out = ByteArrayOutputStream()
         Id3v2Tag.usltFrame(out, lyrics, 3)
         val tag = Id3v2Tag.buildTag(out.toByteArray(), 3)
@@ -177,7 +177,7 @@ class LosslessContainerTagsTest {
     }
 
     @Test
-    fun unknownContainerIsRejected() {
+    fun `未知容器被拒绝`() {
         assertNull(LosslessContainerTags.write(ByteArray(64), "标题", null, null, null, null))
         assertNull(LosslessContainerTags.readLyrics(ByteArray(64), null, 0L, null))
     }

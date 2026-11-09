@@ -40,12 +40,12 @@ class LyricLineTimingTest {
     )
 
     @Test
-    fun wordEndsPreferOwnDuration() {
+    fun `字结束时间优先取自身时长`() {
         assertEquals(listOf(1_000L, 3_000L, 5_000L, 6_000L), lyricWordEnds(gappedWords, NEXT_LINE_MS))
     }
 
     @Test
-    fun zeroDurationWordsEndAtTheNextWordStart() {
+    fun `零时长字在下一字起点结束`() {
         // 增强 LRC 只给字起点，末词以下一行起点收尾，否则末词没有可用区间
         val words = listOf(
             LyricWord(startMs = 0L, durationMs = 0L, text = "你"),
@@ -55,7 +55,7 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun fillFractionStartsEmptyAndEndsFull() {
+    fun `填充比例由零到满`() {
         val ends = lyricWordEnds(gappedWords, NEXT_LINE_MS)
         assertEquals(0f, lyricWordFillFraction(gappedWords, ends, 0L), EPS)
         assertEquals(1f, lyricWordFillFraction(gappedWords, ends, 6_000L), EPS)
@@ -64,7 +64,7 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun fillFractionAdvancesWithinTheCurrentWord() {
+    fun `填充比例在当前字内推进`() {
         val ends = lyricWordEnds(gappedWords, NEXT_LINE_MS)
         // 首词唱到一半：4 个字中点亮 0.5 个
         assertEquals(0.125f, lyricWordFillFraction(gappedWords, ends, 500L), EPS)
@@ -73,7 +73,7 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun fillFractionHoldsDuringWordGaps() {
+    fun `字间空隙时填充比例保持`() {
         val ends = lyricWordEnds(gappedWords, NEXT_LINE_MS)
         val atGapStart = lyricWordFillFraction(gappedWords, ends, 1_500L)
         val atGapEnd = lyricWordFillFraction(gappedWords, ends, 1_999L)
@@ -82,7 +82,7 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun fillFractionNeverDecreasesAcrossTheLine() {
+    fun `整行内填充比例不回退`() {
         val ends = lyricWordEnds(gappedWords, NEXT_LINE_MS)
         var previous = -1f
         for (positionMs in 0L..7_000L step 50L) {
@@ -93,7 +93,7 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun zeroLengthWordIsNeitherSkippedNorDividedByZero() {
+    fun `零长度字既不跳过也不除零`() {
         // 词时长为 0 且没有下一行兜底时区间被撑到 1ms：不能产生 NaN，也不能一开唱就整词点亮
         val word = listOf(LyricWord(startMs = 1_000L, durationMs = 0L, text = "啊"))
         val ends = lyricWordEnds(word, 1_000L)
@@ -102,20 +102,20 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun wordsWithoutTextYieldNoFill() {
+    fun `无文本的字不产生填充`() {
         assertEquals(0f, lyricWordFillFraction(emptyList(), emptyList(), 5_000L), EPS)
         val blank = listOf(LyricWord(startMs = 0L, durationMs = 1_000L, text = ""))
         assertEquals(0f, lyricWordFillFraction(blank, lyricWordEnds(blank, NEXT_LINE_MS), 500L), EPS)
     }
 
     @Test
-    fun defaultWordEndsCarryNoTailLead() {
+    fun `默认字尾不带收尾提前量`() {
         // 不传提前量时逐字时序原样保留：调用方按需自行决定是否留行尾余量
         assertEquals(listOf(1_000L, 2_000L, 5_000L), lyricWordEnds(tailReachingWords, TAIL_LINE_END_MS))
     }
 
     @Test
-    fun endLeadLeavesRoomForTheScrollTransition() {
+    fun `收尾提前量为滚动过渡留出时间`() {
         val plainLine = LyricLine(timeMs = 0L, text = "歌词")
         // 行不短于两倍过渡时长：整行在滚动开始前一个过渡时长完成点亮
         assertEquals(400L, lyricEndLeadMs(plainLine, 5_000L))
@@ -128,7 +128,7 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun endLeadAlwaysLeavesPositiveFillTime() {
+    fun `收尾提前量始终留出正填充时间`() {
         // 按字/按词均分都要除以「行时长 − 提前量」：提前量必须严格小于行时长
         val line = LyricLine(timeMs = 0L, text = "歌词")
         for (duration in 1L..10_000L) {
@@ -137,7 +137,7 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun lineEndLeadAlsoShortensTheLastWord() {
+    fun `整行收尾提前量同样缩短末字`() {
         // 各处歌词渲染同一口径：行级提前量直接喂给逐字末词
         val line = LyricLine(timeMs = 0L, text = "你好世", words = tailReachingWords)
         val ends = lyricWordEnds(
@@ -150,7 +150,7 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun startOnlyLastWordKeepsItsOwnPaceInsteadOfTheLineEnd() {
+    fun `只给起点时末字按自身节奏而非行尾`() {
         // 增强 LRC 只给字起点：末字按前面各字的平均字时长估出收尾，不再被拉长到行尾
         val words = listOf(
             LyricWord(startMs = 0L, durationMs = 0L, text = "你"),
@@ -170,7 +170,7 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun explicitLastWordEndIsKeptWhenItPrecedesTheDeadline() {
+    fun `显式末字结束早于截止时保留原值`() {
         // 末词自身时长已给出且早于滚动余量：保持原终点，不向行尾拉长也不提前截断
         val words = listOf(
             LyricWord(startMs = 0L, durationMs = 1_000L, text = "你"),
@@ -186,7 +186,7 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun tailLeadEndsTheLastWordBeforeTheLineEnd() {
+    fun `尾部提前量让末字早于行尾结束`() {
         val ends = lyricWordEnds(tailReachingWords, TAIL_LINE_END_MS, tailLeadMs = 400L)
         assertEquals(listOf(1_000L, 2_000L, 4_600L), ends)
         // 末词在切行前 400ms 已整行点亮：切行那一刻不再有半个字刚亮起
@@ -199,7 +199,7 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun tailLeadAppliesToTheFallbackEndOfTheLastWord() {
+    fun `尾部提前量作用于末字的回落结束时间`() {
         // 增强 LRC 的末词以下一行起点收尾：同样要在切行前完成点亮
         val words = listOf(
             LyricWord(startMs = 0L, durationMs = 0L, text = "你"),
@@ -212,7 +212,7 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun tailLeadIsDroppedWhenTheLastWordHasNoRoom() {
+    fun `末字没有余量时丢弃尾部提前量`() {
         // 末词贴着行尾起唱：挤出提前量会把它压成瞬间点亮，此时保留原始终点
         val words = listOf(
             LyricWord(startMs = 0L, durationMs = 4_800L, text = "啊"),
@@ -225,7 +225,7 @@ class LyricLineTimingTest {
     }
 
     @Test
-    fun tailLeadNeverMovesAnEndBeforeItsStart() {
+    fun `尾部提前量不会让结束早于开始`() {
         // 提前量大于行时长等极端输入下终点仍不早于起点，保证逐词区间有效
         val words = tailReachingWords
         for (lead in 0L..TAIL_LINE_END_MS) {

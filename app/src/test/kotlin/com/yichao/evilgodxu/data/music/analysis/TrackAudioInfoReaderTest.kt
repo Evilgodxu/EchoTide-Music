@@ -14,7 +14,7 @@ import org.junit.Test
 class TrackAudioInfoReaderTest {
 
     @Test
-    fun isoBmffContainersThatCanHoldAlacAreRead() {
+    fun `能容纳 ALAC 的 ISO BMFF 容器会被读取`() {
         assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.m4a"))
         assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.mp4"))
         // 有声书的 .m4b 同样可能装 ALAC
@@ -23,13 +23,13 @@ class TrackAudioInfoReaderTest {
     }
 
     @Test
-    fun losslessAndPcmContainersAreRead() {
+    fun `无损与 PCM 容器会被读取`() {
         assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.flac"))
         assertTrue(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.wav"))
     }
 
     @Test
-    fun formatsWithoutPlatformExtractorAreNotRead() {
+    fun `平台无解封装器的格式不读取`() {
         // DSD（.dsf/.dff）与 APE（.ape）无媒体提取器、无从播放，相关支持已整体移除，
         // 故不再为它们开文件读容器头
         assertFalse(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.dsf"))
@@ -38,7 +38,7 @@ class TrackAudioInfoReaderTest {
     }
 
     @Test
-    fun lossyFormatsAreNotRead() {
+    fun `有损格式不读取`() {
         // 有损格式的容器头给不出位深与码流名，读它只是白开一次文件；
         // .m4p/.m4r 内容恒为有损，同理不读，格式名交给 mime 那条路
         assertFalse(TrackAudioInfoReader.isContainerHeaderFormat("/music/a.mp3"))
@@ -49,7 +49,7 @@ class TrackAudioInfoReaderTest {
     }
 
     @Test
-    fun missingExtensionIsNotRead() {
+    fun `缺扩展名时不读取`() {
         assertFalse(TrackAudioInfoReader.isContainerHeaderFormat(null))
         assertFalse(TrackAudioInfoReader.isContainerHeaderFormat(""))
         assertFalse(TrackAudioInfoReader.isContainerHeaderFormat("/music/a"))

@@ -34,7 +34,7 @@ class PlaylistTrackSearchTest {
     )
 
     @Test
-    fun blankQueryReturnsEveryTrackWithoutSnippet() {
+    fun `空查询返回全部曲目且不带片段`() {
         val tracks = listOf(track(1, "Alpha", "A"), track(2, "Beta", "B"))
 
         val hits = searchPlaylistTracks(tracks, "  ")
@@ -44,7 +44,7 @@ class PlaylistTrackSearchTest {
     }
 
     @Test
-    fun titleAndArtistHitsRankBeforeLyricHits() {
+    fun `标题与歌手命中排在歌词命中之前`() {
         val tracks = listOf(
             track(1, "夜空中最亮的星", "逃跑计划"),
             track(2, "夏日", "某人", lyrics = listOf("我祈祷拥有一颗透明的心灵")),
@@ -61,7 +61,7 @@ class PlaylistTrackSearchTest {
     }
 
     @Test
-    fun lyricHitsAreOrderedByMatchCountDescending() {
+    fun `歌词命中按次数降序`() {
         val tracks = listOf(
             track(1, "A", "x", lyrics = listOf("风")),
             track(2, "B", "y", lyrics = listOf("风", "风继续吹", "风再起时")),
@@ -74,7 +74,7 @@ class PlaylistTrackSearchTest {
     }
 
     @Test
-    fun equalMatchCountKeepsPlaylistOrder() {
+    fun `命中次数相同保持歌单顺序`() {
         val tracks = listOf(
             track(1, "A", "x", lyrics = listOf("一样的风声")),
             track(2, "B", "y", lyrics = listOf("风也温柔")),
@@ -84,7 +84,7 @@ class PlaylistTrackSearchTest {
     }
 
     @Test
-    fun snippetFallsBackToTranslationWhenOnlyTranslationMatches() {
+    fun `仅翻译命中时片段回落到翻译`() {
         val tracks = listOf(
             track(1, "Song", "Artist", lyrics = listOf("夜明け"), translations = listOf("黎明")),
         )
@@ -96,7 +96,7 @@ class PlaylistTrackSearchTest {
     }
 
     @Test
-    fun tracksWithoutMatchAreExcluded() {
+    fun `无命中的曲目被排除`() {
         val tracks = listOf(
             track(1, "A", "x", lyrics = listOf("无关歌词")),
             track(2, "B", "y"),

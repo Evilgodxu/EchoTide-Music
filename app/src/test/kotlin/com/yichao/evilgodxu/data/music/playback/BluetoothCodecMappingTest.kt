@@ -16,7 +16,7 @@ import org.junit.Test
 class BluetoothCodecMappingTest {
 
     @Test
-    fun everySampleRateFlagMapsToItsOwnRate() {
+    fun `每个采样率标志映射到自身采样率`() {
         assertEquals(44_100, BluetoothCodecResolver.sampleRateHz(BluetoothCodecConfig.SAMPLE_RATE_44100))
         assertEquals(48_000, BluetoothCodecResolver.sampleRateHz(BluetoothCodecConfig.SAMPLE_RATE_48000))
         assertEquals(88_200, BluetoothCodecResolver.sampleRateHz(BluetoothCodecConfig.SAMPLE_RATE_88200))
@@ -26,14 +26,14 @@ class BluetoothCodecMappingTest {
     }
 
     @Test
-    fun everyBitsPerSampleFlagMapsToItsOwnBitCount() {
+    fun `每个位深标志映射到自身位数`() {
         assertEquals(16, BluetoothCodecResolver.bitsPerSample(BluetoothCodecConfig.BITS_PER_SAMPLE_16))
         assertEquals(24, BluetoothCodecResolver.bitsPerSample(BluetoothCodecConfig.BITS_PER_SAMPLE_24))
         assertEquals(32, BluetoothCodecResolver.bitsPerSample(BluetoothCodecConfig.BITS_PER_SAMPLE_32))
     }
 
     @Test
-    fun emptyFlagsYieldNoValue() {
+    fun `标志为空时不产出取值`() {
         // 未上报与多数位掩码都不是可展示的单一取值，一律留空交由展示层跳过该行
         assertNull(BluetoothCodecResolver.sampleRateHz(BluetoothCodecConfig.SAMPLE_RATE_NONE))
         assertNull(BluetoothCodecResolver.bitsPerSample(BluetoothCodecConfig.BITS_PER_SAMPLE_NONE))
@@ -41,7 +41,7 @@ class BluetoothCodecMappingTest {
     }
 
     @Test
-    fun everyChannelModeMapsToItsOwnLabel() {
+    fun `每种声道模式映射到自身名称`() {
         assertEquals(
             BluetoothChannelMode.MONO,
             BluetoothCodecResolver.channelMode(BluetoothCodecConfig.CHANNEL_MODE_MONO),
@@ -53,7 +53,7 @@ class BluetoothCodecMappingTest {
     }
 
     @Test
-    fun legacyCodecTypesMapToPlatformNames() {
+    fun `旧版编码类型映射到平台名称`() {
         assertEquals("SBC", BluetoothCodecResolver.legacyCodecName(BluetoothCodecConfig.SOURCE_CODEC_TYPE_SBC))
         assertEquals("AAC", BluetoothCodecResolver.legacyCodecName(BluetoothCodecConfig.SOURCE_CODEC_TYPE_AAC))
         assertEquals("aptX", BluetoothCodecResolver.legacyCodecName(BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX))
@@ -67,7 +67,7 @@ class BluetoothCodecMappingTest {
     }
 
     @Test
-    fun unknownCodecTypeYieldsNoName() {
+    fun `未知编码类型不产出名称`() {
         // 厂商编解码器在本表之外，凭空取名会误导，宁可留空
         assertNull(BluetoothCodecResolver.legacyCodecName(BluetoothCodecConfig.SOURCE_CODEC_TYPE_INVALID))
         assertNull(BluetoothCodecResolver.legacyCodecName(100))

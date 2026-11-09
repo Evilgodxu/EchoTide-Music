@@ -17,7 +17,7 @@ class UsbOutputSwitchesTest {
     private val exclusive = UsbOutputKind.EXCLUSIVE
 
     @Test
-    fun turningOnDirectOutputClearsExclusive() {
+    fun `开启直出会关闭独占`() {
         val switches = usbOutputSwitchesAfter(formatLocked, enabled = true)
 
         assertEquals(true, switches[formatLocked])
@@ -25,7 +25,7 @@ class UsbOutputSwitchesTest {
     }
 
     @Test
-    fun turningOnExclusiveClearsDirectOutput() {
+    fun `开启独占会关闭直出`() {
         val switches = usbOutputSwitchesAfter(exclusive, enabled = true)
 
         assertEquals(true, switches[exclusive])
@@ -34,7 +34,7 @@ class UsbOutputSwitchesTest {
 
     // 关闭一路不得写出另一路的取值：另一路此时可能正开着
     @Test
-    fun turningOffDoesNotTouchTheOtherSwitch() {
+    fun `关闭一路不牵动另一路`() {
         val switches = usbOutputSwitchesAfter(formatLocked, enabled = false)
 
         assertEquals(false, switches[formatLocked])
@@ -42,7 +42,7 @@ class UsbOutputSwitchesTest {
     }
 
     @Test
-    fun turningOffExclusiveDoesNotTouchDirectOutput() {
+    fun `关闭独占不牵动直出`() {
         val switches = usbOutputSwitchesAfter(exclusive, enabled = false)
 
         assertEquals(false, switches[exclusive])
@@ -50,7 +50,7 @@ class UsbOutputSwitchesTest {
     }
 
     @Test
-    fun otherSwapsTheTwoKinds() {
+    fun `互斥种类互为对方`() {
         assertEquals(exclusive, formatLocked.other())
         assertEquals(formatLocked, exclusive.other())
     }

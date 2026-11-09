@@ -17,7 +17,7 @@ class PlaylistSortTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun artistsAreSplitByEverySupportedSeparator() {
+    fun `歌手按支持的分隔符切分`() {
         assertEquals(listOf("A", "B"), parseTrackArtists("A、B"))
         assertEquals(listOf("A", "B"), parseTrackArtists("A&B"))
         assertEquals(listOf("A", "B"), parseTrackArtists("A / B"))
@@ -30,14 +30,14 @@ class PlaylistSortTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun leadingNumbersSortNumericallyAndFirst() {
+    fun `前导数字按数值排序且优先`() {
         // 逐字符比较会把 "10" 排到 "2" 之前；自然序按数值排，且数字开头者一律靠前
         val tracks = listOf(track(1, "明天"), track(2, "10 年"), track(3, "2 年"))
         assertEquals(listOf("2 年", "10 年", "明天"), titles(sortTracks(tracks, PlaylistSortField.TITLE, false)))
     }
 
     @Test
-    fun chineseNumeralsAreTreatedAsNumbers() {
+    fun `中文数字按数值处理`() {
         val tracks = listOf(track(1, "十年"), track(2, "二字"), track(3, "百年"), track(4, "月光"))
         assertEquals(
             listOf("二字", "十年", "百年", "月光"),
@@ -50,7 +50,7 @@ class PlaylistSortTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun favoritePlacesLikedFirstThenNaturalTitleOrder() {
+    fun `收藏排序把喜欢的置前，其余按标题自然序`() {
         val tracks = listOf(
             track(1, "C"),
             track(2, "10 年", isFavorite = true),
@@ -65,7 +65,7 @@ class PlaylistSortTest {
     }
 
     @Test
-    fun modifiedTimePlacesNewestFirst() {
+    fun `修改时间把最新的置前`() {
         val tracks = listOf(
             track(1, "旧", fileModifiedMs = 100),
             track(2, "新", fileModifiedMs = 300),
@@ -78,7 +78,7 @@ class PlaylistSortTest {
     }
 
     @Test
-    fun artistFallsBackToTitleOnTie() {
+    fun `歌手相同时回落到标题`() {
         val tracks = listOf(
             track(1, "B", artist = "同"),
             track(2, "A", artist = "同"),
@@ -87,7 +87,7 @@ class PlaylistSortTest {
     }
 
     @Test
-    fun albumFallsBackToAlbumIdThenTitle() {
+    fun `专辑相同时回落到专辑 ID 再回落标题`() {
         val tracks = listOf(
             track(1, "B", albumName = "同名", albumId = 2),
             track(2, "A", albumName = "同名", albumId = 1),
@@ -98,7 +98,7 @@ class PlaylistSortTest {
     }
 
     @Test
-    fun durationFallsBackToTitle() {
+    fun `时长相同时回落到标题`() {
         val tracks = listOf(
             track(1, "B", duration = 100),
             track(2, "A", duration = 100),
@@ -108,7 +108,7 @@ class PlaylistSortTest {
     }
 
     @Test
-    fun descendingReversesTheOrderedResult() {
+    fun `降序反转排序结果`() {
         val tracks = listOf(track(1, "A"), track(2, "B"), track(3, "C"))
         assertEquals(
             listOf("C", "B", "A"),
@@ -121,7 +121,7 @@ class PlaylistSortTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun defaultOrderAnchorsOnFirstTitleAndGroupsByArtistThenAlbum() {
+    fun `默认顺序以首曲为锚，按歌手再按专辑分组`() {
         val tracks = listOf(
             track(1, "斑马", artist = "周杰伦", albumName = "七里香", albumId = 1),
             track(2, "安静", artist = "周杰伦", albumName = "七里香", albumId = 1),
@@ -141,7 +141,7 @@ class PlaylistSortTest {
     }
 
     @Test
-    fun defaultOrderKeepsAnchorFixedRegardlessOfDescending() {
+    fun `默认顺序无论升降序锚点不变`() {
         val tracks = listOf(
             track(1, "斑马", artist = "周杰伦", albumName = "七里香", albumId = 1),
             track(2, "安静", artist = "周杰伦", albumName = "七里香", albumId = 1),
@@ -154,7 +154,7 @@ class PlaylistSortTest {
     }
 
     @Test
-    fun defaultOrderPrefersArtistBlocksOverTitleSequence() {
+    fun `默认顺序优先歌手分块而非标题序列`() {
         val tracks = listOf(
             track(1, "A", artist = "乙", albumName = "乙的专辑", albumId = 3),
             track(2, "B", artist = "甲", albumName = "甲的专辑", albumId = 2),

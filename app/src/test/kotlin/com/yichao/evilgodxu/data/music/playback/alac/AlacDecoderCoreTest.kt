@@ -24,7 +24,7 @@ class AlacDecoderCoreTest {
     private val config = requireNotNull(AlacSpecificConfig.parse(COOKIE)) { "cookie 应能解析" }
 
     @Test
-    fun magicCookieYieldsCodecParameters() {
+    fun `magic cookie 解析出编码参数`() {
         assertEquals(4096, config.frameLength)
         assertEquals(16, config.bitDepth)
         assertEquals(40, config.pb)
@@ -35,7 +35,7 @@ class AlacDecoderCoreTest {
     }
 
     @Test
-    fun magicCookieIgnoresHistoricalAtomFraming() {
+    fun `magic cookie 忽略历史原子封装`() {
         // 历史编码器会把配置再包一层 'frma' / 'alac' 原子，两个原子头都须跳过
         val framed = ByteArray(ATOM_HEADER_BYTES * 2) + COOKIE
         writeTag(framed, 0, "frma")
@@ -49,7 +49,7 @@ class AlacDecoderCoreTest {
     }
 
     @Test
-    fun magicCookieRejectsOversizedFrameAllocation() {
+    fun `magic cookie 拒绝过大的帧分配`() {
         // 24 字节配置就能声明一帧上亿样本；解码器会按帧长 × 声道立刻预分配缓冲，
         // 必须在解析阶段按内存预算拒绝，而不是等构造解码器时 OOM
         val huge = COOKIE.copyOf().also { cookie ->
@@ -62,7 +62,7 @@ class AlacDecoderCoreTest {
     }
 
     @Test
-    fun magicCookieRejectsUnsupportedParameters() {
+    fun `magic cookie 拒绝不支持的参数`() {
         assertNull("长度不足应判为不支持", AlacSpecificConfig.parse(COOKIE.copyOf(20)))
 
         assertNull(
@@ -88,7 +88,7 @@ class AlacDecoderCoreTest {
     }
 
     @Test
-    fun bitReaderReadsMsbFirstAcrossByteBoundaries() {
+    fun `位读取器跨字节边界按高位优先读`() {
         val reader = AlacBitReader(byteArrayOf(0b10110110.toByte(), 0b01000000), length = 2)
 
         assertEquals(0b101, reader.read(3))
@@ -100,7 +100,7 @@ class AlacDecoderCoreTest {
     }
 
     @Test
-    fun decodesFramesBitExactlyAgainstFfmpegReference() {
+    fun `解码帧与 ffmpeg 参考位精确一致`() {
         val frames = readResource(PREFIX_FIXTURE)
         var offset = 0
         FRAME_SIZES.forEachIndexed { index, size ->
@@ -119,7 +119,7 @@ class AlacDecoderCoreTest {
     }
 
     @Test
-    fun decodesTrailingPartialFrameByItsOwnSampleCount() {
+    fun `尾部不完整帧按自身样本数解码`() {
         val frame = readResource(PARTIAL_FRAME_FIXTURE)
         val decoder = AlacFrameDecoder(config)
 
@@ -134,12 +134,12 @@ class AlacDecoderCoreTest {
     }
 
     @Test
-    fun rejectsEmptyFrame() {
+    fun `空帧被拒绝`() {
         expectRejected("空帧应被判为不可解") { AlacFrameDecoder(config).decode(ByteArray(0), 0) }
     }
 
     @Test
-    fun rejectsIllegalExtraBitsCount() {
+    fun `非法附加位数被拒绝`() {
         // 附加低位字节数占标志字节的中间两位，取值 3 在参考实现里同样是非法值
         val frame = readResource(PREFIX_FIXTURE).copyOf(FRAME_SIZES[0])
         setBits(frame, FLAGS_BIT_POSITION + 1, 2, 0b11)
@@ -150,7 +150,7 @@ class AlacDecoderCoreTest {
     }
 
     @Test
-    fun pcmEncoderRescalesBetweenWordLengths() {
+    fun `PCM 编码器在位宽之间重缩放`() {
         val channels = arrayOf(intArrayOf(1, -32768, 32767), intArrayOf(-1, 256, -256))
         val samples = 3
 

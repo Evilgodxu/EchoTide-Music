@@ -35,7 +35,7 @@ class DirectOutputDoNotDisturbTest {
     )
 
     @Test
-    fun directOutputMutesNotificationsThenRestoresPreviousFilter() {
+    fun `直出期间静音通知，退出后恢复原过滤规则`() {
         val controller = controller()
 
         controller.onModeChanged(AudioOutputMode.FORMAT_LOCKED)
@@ -47,7 +47,7 @@ class DirectOutputDoNotDisturbTest {
     }
 
     @Test
-    fun formatLockedAlsoCountsAsDirectOutput() {
+    fun `格式锁定同样算作直出`() {
         val controller = controller()
 
         controller.onModeChanged(AudioOutputMode.FORMAT_LOCKED)
@@ -57,7 +57,7 @@ class DirectOutputDoNotDisturbTest {
 
     // 完全静音会把 STREAM_MUSIC 一并压掉，故任何路径都不得写入该档位
     @Test
-    fun totalSilenceIsNeverWritten() {
+    fun `从不写入完全静音档`() {
         val controller = controller()
 
         controller.onModeChanged(AudioOutputMode.FORMAT_LOCKED)
@@ -69,7 +69,7 @@ class DirectOutputDoNotDisturbTest {
 
     // 进入前通知已被静音：目标状态已满足，不接管也不在退出时还原
     @Test
-    fun alreadySilencedSystemIsLeftUntouched() {
+    fun `系统已静音时不作改动`() {
         listOf(none, alarms).forEach { silenced ->
             filter = silenced
             writes.clear()
@@ -85,7 +85,7 @@ class DirectOutputDoNotDisturbTest {
 
     // 原档位是「仅限优先项」时按原值还原，而不是一律回到允许全部打扰
     @Test
-    fun priorityFilterIsRestoredVerbatim() {
+    fun `优先级过滤规则原样恢复`() {
         filter = priority
         val controller = controller()
 
@@ -96,7 +96,7 @@ class DirectOutputDoNotDisturbTest {
     }
 
     @Test
-    fun withoutPolicyAccessNothingIsWritten() {
+    fun `无免打扰访问权时不写入`() {
         granted = false
         val controller = controller()
 
@@ -108,7 +108,7 @@ class DirectOutputDoNotDisturbTest {
 
     // 成色未成立时不产生任何写入，避免未直出时也动系统档位
     @Test
-    fun mixerModeWithoutHoldingWritesNothing() {
+    fun `未持有时混音模式不写入`() {
         val controller = controller()
 
         controller.onModeChanged(AudioOutputMode.MIXER)
@@ -118,7 +118,7 @@ class DirectOutputDoNotDisturbTest {
 
     // Android 15+：写回旧全局档位只是「启用自己的规则」，必须以 UNKNOWN 停用隐式规则
     @Test
-    fun modernPlatformDeactivatesOwnRuleOnExit() {
+    fun `新平台在退出时停用自己的规则`() {
         filter = priority
         val controller = controller(sdkInt = 35)
 
@@ -136,7 +136,7 @@ class DirectOutputDoNotDisturbTest {
 
     // 服务销毁兜底：持有时无条件还原，未持有时不动
     @Test
-    fun releaseRestoresOnlyWhenHolding() {
+    fun `仅在持有时才恢复`() {
         val controller = controller()
         controller.onModeChanged(AudioOutputMode.FORMAT_LOCKED)
 

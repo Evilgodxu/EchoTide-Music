@@ -9,13 +9,13 @@ import org.junit.Test
 class LyricFeaturesTest {
 
     @Test
-    fun cleanLyricsDropsMetadataAndBlankLines() {
+    fun `清洗歌词丢弃元数据与空行`() {
         val cleaned = LyricFeatures.cleanLyrics(listOf("作词：甲", "  ", "夜色真好", "制作人：乙"))
         assertEquals(listOf("夜色真好"), cleaned)
     }
 
     @Test
-    fun cleanLyricsTrimsRemainingLines() {
+    fun `清洗歌词修剪剩余行`() {
         assertEquals(listOf("夜色真好"), LyricFeatures.cleanLyrics("  夜色真好  \n"))
     }
 }

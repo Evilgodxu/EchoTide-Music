@@ -25,7 +25,7 @@ class OutputLatencySamplerTest {
 
     // 独占链路上只有驻留可测：均值取窗口内的驻留，容量是链路属性不参与平均
     @Test
-    fun providedReadingAveragesTheResidency() {
+    fun `单次读数按驻留时长取平均`() {
         val sampler = OutputLatencySampler(window = 3)
         sampler.sampleProvided(reading(10f))
         sampler.sampleProvided(reading(20f))
@@ -38,7 +38,7 @@ class OutputLatencySamplerTest {
 
     // 窗口只覆盖最近几次：更早的样本被挤出，均值随之跟手
     @Test
-    fun windowDropsTheOldestSamples() {
+    fun `窗口丢弃最旧的样本`() {
         val sampler = OutputLatencySampler(window = 2)
         sampler.sampleProvided(reading(0f))
         sampler.sampleProvided(reading(10f))
@@ -49,7 +49,7 @@ class OutputLatencySamplerTest {
 
     // 「缓冲之后」那一段在独占链路上测不到，此时不出均值，也不拿驻留去顶替
     @Test
-    fun afterTrackStaysAbsentWhenItIsUnmeasurable() {
+    fun `换曲后不可测时保持无值`() {
         val sampler = OutputLatencySampler(window = 3)
         val averaged = sampler.sampleProvided(reading(12f))
 
@@ -59,7 +59,7 @@ class OutputLatencySamplerTest {
 
     // 两段各成一窗：互不干扰，缺一段不影响另一段的均值
     @Test
-    fun segmentsAreAveragedIndependently() {
+    fun `各分段分别取平均`() {
         val sampler = OutputLatencySampler(window = 3)
         sampler.sampleProvided(reading(residentMs = 4f, afterTrackMs = 6f))
         val averaged = sampler.sampleProvided(reading(residentMs = 6f, afterTrackMs = 8f))

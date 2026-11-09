@@ -24,7 +24,7 @@ import org.junit.Test
 class MetadataRewriteFileSourceTest {
 
     @Test
-    fun shortRangeCopyIsRejectedInsteadOfSilentlyAccepted() {
+    fun `过短的区间拷贝被拒绝而非静默接受`() {
         // 源在采样长度后被截短时，区间搬运必须失败：短读被当作成功会把残缺躯干提交上去
         val source = ByteArrayTagSource(ByteArray(2))
         try {
@@ -36,7 +36,7 @@ class MetadataRewriteFileSourceTest {
     }
 
     @Test
-    fun fileSourceRewriteMatchesByteEntryAcrossContainers() {
+    fun `文件源重写在各容器间与字节入口一致`() {
         FIXTURES.forEach { name ->
             val original = File(FIXTURE_DIR + name).readBytes()
             val work = File(tempDir(), name).apply { writeBytes(original) }
@@ -76,7 +76,7 @@ class MetadataRewriteFileSourceTest {
      * 超过上限的文件仍须按窗口解析 + 躯干流式搬运完成重写。
      */
     @Test
-    fun largeFlacIsRewrittenThroughWindowWithoutWholeFileParse() {
+    fun `大 FLAC 经窗口重写而不解析整个文件`() {
         val source = flacWithStreamInfo(ByteArray(AUDIO_BYTES) { (it % 251).toByte() })
         assertTrue("样本未超过 Ogg 页序列重排上限，用例失去意义", source.size > OGG_PARSE_LIMIT_BYTES)
 
@@ -102,7 +102,7 @@ class MetadataRewriteFileSourceTest {
      * 故文件大小不再构成重写上限；音频区必须逐字节保持原样。
      */
     @Test
-    fun largeWavIsRewrittenThroughRangeIo() {
+    fun `大 WAV 经区间 IO 完成重写`() {
         val audio = ByteArray(AUDIO_BYTES) { (it % 253).toByte() }
         assertLargeRewrite(wav(audio), "large.wav")
     }
@@ -112,7 +112,7 @@ class MetadataRewriteFileSourceTest {
      * 超过上限即跳过本次重写并记日志，绝不把大文件读进堆。
      */
     @Test
-    fun largeOpusIsSkippedWhilePageStreamCannotBeRanged() {
+    fun `页流不可区间读取时大 Opus 跳过重写`() {
         val source = opusShaped()
         assertTrue("样本未超过页序列重排上限，用例失去意义", source.size > OGG_PARSE_LIMIT_BYTES)
 
@@ -135,7 +135,7 @@ class MetadataRewriteFileSourceTest {
      * 只有把尾部按区间搬运才能重写成功。
      */
     @Test
-    fun fragmentedMp4IsRewrittenByStreamingTheTrailingRun() {
+    fun `碎片化 MP4 以流式处理尾部连续区完成重写`() {
         val source = fragmentedMp4()
         assertTrue("样本的尾部块未超过单块搬运上限，用例失去意义", BIG_MDAT_BYTES > 32 * 1024 * 1024)
 

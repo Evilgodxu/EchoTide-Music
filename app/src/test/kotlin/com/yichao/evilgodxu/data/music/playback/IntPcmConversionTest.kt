@@ -24,7 +24,7 @@ class IntPcmConversionTest {
     private val int32 = C.ENCODING_PCM_32BIT
 
     @Test
-    fun packedInt24PassesThroughUnchanged() {
+    fun `打包 24 位原样通过`() {
         val samples = byteArrayOf(
             0x34, 0x12, 0x56,
             0x00, 0x00, 0x80.toByte(),
@@ -34,7 +34,7 @@ class IntPcmConversionTest {
     }
 
     @Test
-    fun packedInt32PassesThroughUnchanged() {
+    fun `打包 32 位原样通过`() {
         val samples = byteArrayOf(
             0x34, 0x12, 0x56, 0x78,
             0x00, 0x00, 0x00, 0x80.toByte(),
@@ -44,7 +44,7 @@ class IntPcmConversionTest {
     }
 
     @Test
-    fun sixteenBitExpandsExactlyByShiftingIntoTheHighBytes() {
+    fun `16 位左移进高字节后精确扩展`() {
         val source = littleEndian(6).apply {
             putShort(0)
             putShort(32767)
@@ -67,7 +67,7 @@ class IntPcmConversionTest {
     }
 
     @Test
-    fun sixteenBitExpandsExactlyIntoTheHighHalfOfInt32() {
+    fun `16 位精确扩展到 32 位的高半区`() {
         val source = littleEndian(6).apply {
             putShort(0)
             putShort(32767)
@@ -90,7 +90,7 @@ class IntPcmConversionTest {
     }
 
     @Test
-    fun trailingBytesThatCannotFormASampleAreSkippedWithoutReadingPastTheLimit() {
+    fun `不足一帧的尾字节被跳过且不越过长度上限`() {
         val source = littleEndian(5).apply {
             putInt(0)
             put(0x7F) // 余一字节：不构成一个 32 位样本
@@ -106,7 +106,7 @@ class IntPcmConversionTest {
     }
 
     @Test
-    fun floatHalfScaleKeepsTheSameOrderOfMagnitude() {
+    fun `浮点减半后量级不变`() {
         val source = littleEndian(4).apply { putFloat(0.5f) }
         source.flip()
         val output = ByteBuffer.allocate(3).order(ByteOrder.LITTLE_ENDIAN)
@@ -119,7 +119,7 @@ class IntPcmConversionTest {
     }
 
     @Test
-    fun floatHalfScaleIntoInt32KeepsTheSameOrderOfMagnitude() {
+    fun `浮点减半写入 32 位后量级不变`() {
         val source = littleEndian(4).apply { putFloat(0.5f) }
         source.flip()
         val output = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN)
@@ -132,7 +132,7 @@ class IntPcmConversionTest {
     }
 
     @Test
-    fun conversionKeepsTheSampleCount() {
+    fun `转换保持样本数`() {
         val source = littleEndian(16).apply {
             repeat(4) { putFloat(0.25f) }
             flip()
@@ -145,7 +145,7 @@ class IntPcmConversionTest {
     }
 
     @Test
-    fun floatFormatIsSupportedDirectly() {
+    fun `浮点格式直接支持`() {
         assertEquals(
             AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY,
             intPcmFormatSupport(C.ENCODING_PCM_FLOAT),
@@ -153,7 +153,7 @@ class IntPcmConversionTest {
     }
 
     @Test
-    fun int16FormatRequiresTranscoding() {
+    fun `16 位格式需要转码`() {
         assertEquals(
             AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING,
             intPcmFormatSupport(C.ENCODING_PCM_16BIT),
@@ -161,7 +161,7 @@ class IntPcmConversionTest {
     }
 
     @Test
-    fun int24FormatRequiresTranscoding() {
+    fun `24 位格式需要转码`() {
         assertEquals(
             AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING,
             intPcmFormatSupport(C.ENCODING_PCM_24BIT),
@@ -169,7 +169,7 @@ class IntPcmConversionTest {
     }
 
     @Test
-    fun nonLinearPcmIsUnsupported() {
+    fun `非线性 PCM 不支持`() {
         assertEquals(
             AudioSink.SINK_FORMAT_UNSUPPORTED,
             intPcmFormatSupport(C.ENCODING_INVALID),

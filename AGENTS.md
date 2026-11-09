@@ -50,7 +50,7 @@ UI → ViewModel → Repository → DataStore                事件自下而上
 - 用内存 fake 实现仓库接口替代 mock 框架，不引入 Mockito / MockK。
 - 网络与磁盘不参与单测；时间与调度用 `kotlinx-coroutines-test`：`Dispatchers.setMain(StandardTestDispatcher())`
   配合 `advanceUntilIdle()`，实验性 API 显式标注 `@OptIn`。
-- 新增测试用反引号中文描述行为（如 `` `写入主题经仓库回流更新状态` ``），断言对外可见的状态，不断言私有实现。
+- 测试方法名用反引号中文描述行为（如 `` `写入主题经仓库回流更新状态` ``），断言对外可见的状态，不断言私有实现；不用驼峰英文。
 
 ## 构建验证
 

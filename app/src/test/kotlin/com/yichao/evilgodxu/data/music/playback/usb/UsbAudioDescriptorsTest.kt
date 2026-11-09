@@ -20,7 +20,7 @@ class UsbAudioDescriptorsTest {
     // ---------------------------------------------------------------- UAC1
 
     @Test
-    fun uac1DiscreteRatesAreParsedWithVolumeAndFeedback() {
+    fun `UAC1 离散采样率连同音量与反馈一并解析`() {
         val device = UsbAudioDescriptorParser.parse(uac1DiscreteRates())
 
         assertEquals(1, device.uacVersion)
@@ -51,7 +51,7 @@ class UsbAudioDescriptorsTest {
     }
 
     @Test
-    fun uac1FeatureUnitIsFoundThroughTheTerminalChain() {
+    fun `沿终端链路找到 UAC1 功能单元`() {
         val device = UsbAudioDescriptorParser.parse(uac1DiscreteRates())
 
         val feature = device.playbackFeatureUnit(device.outputs.single())
@@ -63,7 +63,7 @@ class UsbAudioDescriptorsTest {
 
     // 未声明的档位不得被判为支持：候选只按声明挑，试错建轨会拖坏设备
     @Test
-    fun uac1UndeclaredRateIsNotSupported() {
+    fun `UAC1 未声明的采样率不支持`() {
         val format = UsbAudioDescriptorParser.parse(uac1DiscreteRates()).outputs.single()
 
         assertTrue(format.supportsRate(44100))
@@ -73,7 +73,7 @@ class UsbAudioDescriptorsTest {
     }
 
     @Test
-    fun uac1ContinuousRangeKeepsDeclaredBounds() {
+    fun `UAC1 连续范围保持声明的边界`() {
         val format = UsbAudioDescriptorParser.parse(uac1ContinuousRange()).outputs.single()
 
         assertTrue(format.continuousRates)
@@ -86,7 +86,7 @@ class UsbAudioDescriptorsTest {
     // ---------------------------------------------------------------- UAC2
 
     @Test
-    fun uac2RateComesFromTheClockReachedThroughTheTerminal() {
+    fun `UAC2 采样率取自经终端到达的时钟`() {
         val device = UsbAudioDescriptorParser.parse(uac2Async())
         val format = device.outputs.single()
 
@@ -99,7 +99,7 @@ class UsbAudioDescriptorsTest {
     }
 
     @Test
-    fun uac2FormatCarriesSubslotDepthAndFeedback() {
+    fun `UAC2 格式携带子槽深度与反馈`() {
         val format = UsbAudioDescriptorParser.parse(uac2Async()).outputs.single()
 
         assertEquals(1, format.formatTag)
@@ -115,7 +115,7 @@ class UsbAudioDescriptorsTest {
     }
 
     @Test
-    fun uac2WritableVolumeIsClaimed() {
+    fun `UAC2 可写音量被认领`() {
         val device = UsbAudioDescriptorParser.parse(uac2Async(volumeControls = 0x0F))
 
         val feature = device.playbackFeatureUnit(device.outputs.single())
@@ -127,7 +127,7 @@ class UsbAudioDescriptorsTest {
 
     // 0b10 的 2 位字段不是 0b11：不可写的音量不得被当成可用控制，否则设音量会静默失败
     @Test
-    fun uac2ReadOnlyVolumeYieldsNoUsableControl() {
+    fun `UAC2 只读音量不产出可用控制`() {
         val device = UsbAudioDescriptorParser.parse(uac2Async(volumeControls = 0x02))
 
         assertNull(device.playbackFeatureUnit(device.outputs.single()))
@@ -137,14 +137,14 @@ class UsbAudioDescriptorsTest {
 
     // 回溯遇到未建模的单元（混音器、选择器）即停止：越过它就无法确定哪个 Feature Unit 服务于本链路
     @Test
-    fun featureUnitBehindAnUnknownUnitIsNotClaimed() {
+    fun `未知单元之后的功能单元不被认领`() {
         val device = UsbAudioDescriptorParser.parse(uac1DiscreteRates(featureFedByMixer = true))
 
         assertNull(device.playbackFeatureUnit(device.outputs.single()))
     }
 
     @Test
-    fun onlyTheFirstConfigurationIsParsed() {
+    fun `只解析第一份配置`() {
         val raw = uac1DiscreteRates() +
             descriptor(0x09, 0x02, 0x00, 0x00, 0x01, 0x01, 0x00, 0x80, 0x32)
 
@@ -153,7 +153,7 @@ class UsbAudioDescriptorsTest {
 
     // 长度不合法（含 0）时必须停止推进，否则会读到流之外并抛越界
     @Test
-    fun malformedLengthStopsInsteadOfReadingPastTheEnd() {
+    fun `长度异常时停止而不越界读取`() {
         val truncated = descriptor(0x12, 0x01) + descriptor(0x00, 0x04)
         val device = UsbAudioDescriptorParser.parse(truncated)
 
@@ -163,7 +163,7 @@ class UsbAudioDescriptorsTest {
     }
 
     @Test
-    fun missingFormatDescriptorYieldsNoPlayableOutput() {
+    fun `缺格式描述符时不产出可播放输出`() {
         val device = UsbAudioDescriptorParser.parse(uac1WithoutFormatDescriptor())
 
         assertEquals(1, device.uacVersion)
@@ -173,7 +173,7 @@ class UsbAudioDescriptorsTest {
     // ---------------------------------------------------------------- 速率范围展开
 
     @Test
-    fun rangeExpandsToCommonAudioRatesOnly() {
+    fun `范围只展开为常用音频采样率`() {
         // 单区间 44100..96000，步长 0（不限制）
         val data = descriptor(
             0x01, 0x00,
@@ -186,7 +186,7 @@ class UsbAudioDescriptorsTest {
     }
 
     @Test
-    fun zeroWidthRangeKeepsItsSingleRate() {
+    fun `零宽范围保留其单一采样率`() {
         val data = descriptor(
             0x01, 0x00,
             0x80, 0xBB, 0x00, 0x00,
@@ -198,7 +198,7 @@ class UsbAudioDescriptorsTest {
     }
 
     @Test
-    fun rangeOutsideTheAudioBandsYieldsNothing() {
+    fun `超出音频频段的范围不产出内容`() {
         val data = descriptor(
             0x01, 0x00,
             0x10, 0x27, 0x00, 0x00,
@@ -210,7 +210,7 @@ class UsbAudioDescriptorsTest {
     }
 
     @Test
-    fun truncatedRangeReplyIsIgnored() {
+    fun `截断的范围应答被忽略`() {
         val declared = descriptor(0x02, 0x00, 0x44, 0xAC, 0x00, 0x00)
 
         assertTrue(usbAudioRatesFromRange(declared, 0, declared.size).isEmpty())
@@ -223,7 +223,7 @@ class UsbAudioDescriptorsTest {
      * 44.1k 家族缺 44100 而只有倍率档，是这类设备的常态——故区间下界以下的档位不得混入。
      */
     @Test
-    fun continuousRangeUsesTheSameRateTableAsRangeReplies() {
+    fun `连续范围与范围应答共用同一张采样率表`() {
         assertEquals(
             listOf(48000, 88200, 96000, 176400, 192000, 352800, 384000),
             usbAudioRatesInRange(48000, 384000, 0),
@@ -231,13 +231,13 @@ class UsbAudioDescriptorsTest {
     }
 
     @Test
-    fun continuousRangeHonoursItsStep() {
+    fun `连续范围遵循自身步长`() {
         // 步长 44100 自下界起算：只有落在格点上的常见档位可用
         assertEquals(listOf(44100, 88200), usbAudioRatesInRange(44100, 96000, 44100))
     }
 
     @Test
-    fun invertedRangeYieldsNothing() {
+    fun `倒置范围不产出内容`() {
         assertTrue(usbAudioRatesInRange(96000, 48000, 0).isEmpty())
     }
 

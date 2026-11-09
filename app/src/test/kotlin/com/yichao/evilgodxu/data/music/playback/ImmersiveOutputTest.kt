@@ -15,25 +15,25 @@ class ImmersiveOutputTest {
 
     // 直出开关启用即属沉浸式：与心动模式「把每首裁成 30–45 秒片段」的取向相斥
     @Test
-    fun directOutputSwitchCountsAsImmersive() {
+    fun `直出开关计为沉浸输出`() {
         assertTrue(isImmersiveOutput(usbDirectOutputEnabled = true, usbExclusiveEnabled = false))
     }
 
     // 独占开关同样算：两条路取向一致，差别只在实现
     @Test
-    fun exclusiveSwitchCountsAsImmersive() {
+    fun `独占开关计为沉浸输出`() {
         assertTrue(isImmersiveOutput(usbDirectOutputEnabled = false, usbExclusiveEnabled = true))
     }
 
     // 两个开关互斥，但同时为真时判定不必依赖那一点
     @Test
-    fun bothSwitchesCountAsImmersive() {
+    fun `两路开关同时开启仍计为沉浸输出`() {
         assertTrue(isImmersiveOutput(usbDirectOutputEnabled = true, usbExclusiveEnabled = true))
     }
 
     // 两个开关都关着即照常可进心动模式
     @Test
-    fun bothSwitchesOffAllowHighlight() {
+    fun `两路全关才允许高亮分析`() {
         assertFalse(isImmersiveOutput(usbDirectOutputEnabled = false, usbExclusiveEnabled = false))
     }
 }

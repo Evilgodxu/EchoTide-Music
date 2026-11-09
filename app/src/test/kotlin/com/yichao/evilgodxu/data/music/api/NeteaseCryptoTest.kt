@@ -25,7 +25,7 @@ class NeteaseCryptoTest {
     }
 
     @Test
-    fun eapiCarriesPathBodyAndDigest() {
+    fun `EAPI 携带路径、正文与摘要`() {
         val path = "/api/song/enhance/player/url"
         val body = "{\"ids\":\"[1]\"}"
         val plain = decryptEapi(NeteaseCrypto.eapi(path, body))
@@ -33,7 +33,7 @@ class NeteaseCryptoTest {
     }
 
     @Test
-    fun eapiOutputIsLowercaseHexOfWholeBlocks() {
+    fun `EAPI 输出为整块的十六进制小写`() {
         val hex = NeteaseCrypto.eapi("/api/v1/playlist", "{}")
         // AES-ECB 输出按 16 字节分块，十六进制串长度必为 32 的倍数
         assertEquals(0, hex.length % 32)
@@ -41,13 +41,13 @@ class NeteaseCryptoTest {
     }
 
     @Test
-    fun eapiIsDeterministic() {
+    fun `EAPI 结果确定`() {
         assertEquals(NeteaseCrypto.eapi("/p", "b"), NeteaseCrypto.eapi("/p", "b"))
         assertNotEquals(NeteaseCrypto.eapi("/p", "b"), NeteaseCrypto.eapi("/p", "c"))
     }
 
     @Test
-    fun weapiEncryptsParamsIntoWholeBlocks() {
+    fun `WEAPI 把参数加密成整块`() {
         val result = NeteaseCrypto.weapi("{\"id\":1}")
         val params = Base64.getDecoder().decode(result.getValue("params"))
         // 两次 AES-CBC 叠加后仍是 16 字节的整数倍
@@ -56,7 +56,7 @@ class NeteaseCryptoTest {
     }
 
     @Test
-    fun weapiSecretKeyIsEncodedIn256HexDigits() {
+    fun `WEAPI 密钥编码为 256 位十六进制`() {
         // 服务端按 RSA 模数的位数（1024 bit）解析该字段，长度不足即被拒
         val key = NeteaseCrypto.weapi("{}").getValue("encSecKey")
         assertEquals(256, key.length)
@@ -64,7 +64,7 @@ class NeteaseCryptoTest {
     }
 
     @Test
-    fun weapiUsesAFreshSecretPerCall() {
+    fun `WEAPI 每次调用更换密钥`() {
         // 随机密钥每次不同，密文随之不同，否则同一请求可被重放比对
         assertNotEquals(NeteaseCrypto.weapi("{}")["params"], NeteaseCrypto.weapi("{}")["params"])
     }

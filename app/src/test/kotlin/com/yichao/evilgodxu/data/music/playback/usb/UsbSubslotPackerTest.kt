@@ -22,7 +22,7 @@ class UsbSubslotPackerTest {
 
     // 左对齐 32 位下子槽取的是高字节：子槽 3 丢掉最低字节 0x78，子槽 2 再丢 0x56
     @Test
-    fun subslotKeepsTheMostSignificantBytes() {
+    fun `子槽保留最高有效字节`() {
         assertArrayEquals(bytes(0x78, 0x56, 0x34, 0x12), subslot(0x12345678, 4))
         assertArrayEquals(bytes(0x56, 0x34, 0x12), subslot(0x12345678, 3))
         assertArrayEquals(bytes(0x34, 0x12), subslot(0x12345678, 2))
@@ -31,14 +31,14 @@ class UsbSubslotPackerTest {
 
     // 负值必须整字照搬，不能按无符号截断
     @Test
-    fun negativeSampleKeepsTwoComplement() {
+    fun `负样本保持补码`() {
         assertArrayEquals(bytes(0x00, 0x00, 0x00, 0x80), subslot(Int.MIN_VALUE, 4))
         assertArrayEquals(bytes(0xFF, 0xFF, 0xFF), subslot(-1, 3))
     }
 
     // 16 位源放进 16 位槽：一位不动。左移补零成 32 位后再取高两字节，恰好还原原值
     @Test
-    fun sixteenBitSourceSurvivesASixteenBitSlot() {
+    fun `16 位源在 16 位子槽中原样通过`() {
         val output = pack(byteBuffer(0x00, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 2)
 
         assertArrayEquals(bytes(0x00, 0x40), output)
@@ -46,7 +46,7 @@ class UsbSubslotPackerTest {
 
     // 同一个 16 位源放进更宽的槽：有效位仍在高位、低位补零，依旧逐位无损
     @Test
-    fun sixteenBitSourceIsZeroPaddedInAWiderSlot() {
+    fun `16 位源在更宽子槽中零填充`() {
         assertArrayEquals(
             bytes(0x00, 0x00, 0x40),
             pack(byteBuffer(0x00, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 3),
@@ -59,7 +59,7 @@ class UsbSubslotPackerTest {
 
     // 24 位源放进 24 位槽是最常见的搭配：值必须原样保留
     @Test
-    fun twentyFourBitSourceSurvivesAThreeByteSlot() {
+    fun `24 位源在三字节子槽中原样通过`() {
         val output = pack(byteBuffer(0x44, 0xAC, 0x00), C.ENCODING_PCM_24BIT, subslotBytes = 3)
 
         assertArrayEquals(bytes(0x44, 0xAC, 0x00), output)
@@ -67,7 +67,7 @@ class UsbSubslotPackerTest {
 
     // 缓冲长度不是样本整数倍时余数须被消费掉，否则同一缓冲会反复读出同样的余数而卡住
     @Test
-    fun leftoverBytesAreConsumedAndReported() {
+    fun `剩余字节被消费并上报`() {
         val source = byteBuffer(0x00, 0x40, 0x7F)
         val output = ByteBuffer.allocate(8).order(ByteOrder.nativeOrder())
 
@@ -80,7 +80,7 @@ class UsbSubslotPackerTest {
 
     // 样本按交错顺序逐个处理，不按帧整体搬：多声道下每个样本各自落到自己的槽里
     @Test
-    fun interleavedOrderIsPreservedSampleBySample() {
+    fun `交错顺序逐样本保持`() {
         val output = pack(byteBuffer(0x10, 0x20, 0x30, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 2)
 
         assertArrayEquals(bytes(0x10, 0x20, 0x30, 0x40), output)
@@ -88,7 +88,7 @@ class UsbSubslotPackerTest {
 
     // 与 media3 自身的读写约定对齐：源样本先经它读成左对齐 32 位，再取高字节
     @Test
-    fun packingAgreesWithMedia3sLeftJustifiedConvention() {
+    fun `打包与 media3 的左对齐约定一致`() {
         val source = byteBuffer(0xFF, 0x7F)
         val asInt = PcmAudioUtil.readAs32BitIntPcm(source, C.ENCODING_PCM_16BIT)
 
@@ -97,7 +97,7 @@ class UsbSubslotPackerTest {
 
     // 满幅音量不得动到任何一个字节：独占直出的价值就在于原样送出
     @Test
-    fun unityVolumeIsBitPerfect() {
+    fun `增益为 1 时位精确`() {
         assertArrayEquals(
             bytes(0x00, 0x40),
             pack(byteBuffer(0x00, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 2, volume = 1f),
@@ -106,7 +106,7 @@ class UsbSubslotPackerTest {
 
     // 半幅：左对齐 32 位下的取值恰好减半，取高字节后也跟着减半
     @Test
-    fun volumeHalvesTheSample() {
+    fun `音量把样本减半`() {
         assertArrayEquals(
             bytes(0x00, 0x20),
             pack(byteBuffer(0x00, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 2, volume = 0.5f),
@@ -115,7 +115,7 @@ class UsbSubslotPackerTest {
 
     // 零音量即静音：整段输出全零，不留残值
     @Test
-    fun zeroVolumeSilencesTheSample() {
+    fun `音量为零时样本静音`() {
         assertArrayEquals(
             bytes(0x00, 0x00),
             pack(byteBuffer(0x00, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 2, volume = 0f),
@@ -124,7 +124,7 @@ class UsbSubslotPackerTest {
 
     // 超过满幅的音量一律按满幅处理：放大没有意义，而越过整型边界会变成削顶失真
     @Test
-    fun overUnityVolumeClampsInsteadOfClipping() {
+    fun `超过 1 的增益钳制而非削波`() {
         assertArrayEquals(
             bytes(0x00, 0x40),
             pack(byteBuffer(0x00, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 2, volume = 4f),
@@ -134,7 +134,7 @@ class UsbSubslotPackerTest {
     // 满幅负值在任何音量下都不该翻正：移位必须保持补码语义
     // 源 0xC000（16 位补码 -16384）半幅即 -8192，落在 16 位槽里是 0xE000
     @Test
-    fun negativeSampleStaysNegativeUnderVolume() {
+    fun `负样本在音量下仍为负`() {
         assertArrayEquals(
             bytes(0x00, 0xE0),
             pack(byteBuffer(0x00, 0xC0), C.ENCODING_PCM_16BIT, subslotBytes = 2, volume = 0.5f),
@@ -143,7 +143,7 @@ class UsbSubslotPackerTest {
 
     // 定点增益的边界取值：满幅及以上一律满幅，负音量按零处理
     @Test
-    fun gainEncodingCoversTheBoundaries() {
+    fun `增益编码覆盖边界值`() {
         assertEquals(UNITY_GAIN_Q15, volumeToGainQ15(1f))
         assertEquals(UNITY_GAIN_Q15, volumeToGainQ15(2f))
         assertEquals(0, volumeToGainQ15(0f))
@@ -153,7 +153,7 @@ class UsbSubslotPackerTest {
 
     // 起止增益相同即整段等增益：音量没变时斜坡不该掺进来，逐字节与单增益的写法一致
     @Test
-    fun equalGainsLeaveNoRamp() {
+    fun `增益相等时不产生渐变`() {
         assertArrayEquals(
             pack(byteBuffer(0x00, 0x40, 0x00, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 2, volume = 0.5f),
             packRamped(
@@ -168,7 +168,7 @@ class UsbSubslotPackerTest {
     // 斜坡的两端：首样本正在起始增益上，末样本正好落在目标增益上——末样本差一点，下一块缓冲就会
     // 重新起一个台阶，那正是斜坡要消掉的东西
     @Test
-    fun rampStartsAtFromAndEndsExactlyAtTarget() {
+    fun `渐变从起点开始且精确落在目标`() {
         val samples = 5
         val source = ByteBuffer.allocate(samples * 2).order(ByteOrder.nativeOrder())
         repeat(samples) { source.putShort(0x7FFF) }
@@ -190,7 +190,7 @@ class UsbSubslotPackerTest {
 
     // 斜坡逐样本单调不减：中途回头会听成一次抖动
     @Test
-    fun rampIsMonotonic() {
+    fun `渐变单调`() {
         val samples = 16
         val source = ByteBuffer.allocate(samples * 2).order(ByteOrder.nativeOrder())
         repeat(samples) { source.putShort(0x7FFF) }
@@ -210,7 +210,7 @@ class UsbSubslotPackerTest {
 
     // 坡度是逐样本插值而不是首样本就用目标值：第二个样本必须仍在起始与目标之间
     @Test
-    fun rampInterpolatesSampleBySample() {
+    fun `渐变逐样本插值`() {
         val samples = 3
         val source = ByteBuffer.allocate(samples * 2).order(ByteOrder.nativeOrder())
         repeat(samples) { source.putShort(0x7FFF) }
@@ -231,7 +231,7 @@ class UsbSubslotPackerTest {
 
     // 斜坡下负样本仍不翻正：缩放一律按补码语义
     @Test
-    fun rampKeepsNegativeSamplesNegative() {
+    fun `渐变保持负样本为负`() {
         val samples = 4
         val source = ByteBuffer.allocate(samples * 2).order(ByteOrder.nativeOrder())
         repeat(samples) { source.putShort(-16384) }

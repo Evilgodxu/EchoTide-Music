@@ -24,7 +24,7 @@ class HighlightLocatorTest {
     private fun List<HighlightLocator.Candidate>.top(): HighlightLocator.Candidate? = firstOrNull()
 
     @Test
-    fun candidatesTakeLastCompleteChorus() {
+    fun `候选取最后一段完整副歌`() {
         // 同一副歌出现三遍，末遍之后还有一小段尾声：应取末遍，而非首遍
         val lines = timed(
             5_000L to "主歌一", 9_000L to "主歌二", 13_000L to "主歌三", 17_000L to "主歌四",
@@ -45,7 +45,7 @@ class HighlightLocatorTest {
     }
 
     @Test
-    fun candidatesAreDeterministic() {
+    fun `候选结果确定`() {
         val lines = timed(
             4_000L to "甲一", 8_000L to "甲二", 12_000L to "乙一", 16_000L to "乙二",
             21_000L to "副歌一", 25_000L to "副歌二", 30_000L to "丙一", 34_000L to "丙二",
@@ -58,7 +58,7 @@ class HighlightLocatorTest {
     }
 
     @Test
-    fun fingerprintChangesWhenLyricBodyChangesWithSameTimeline() {
+    fun `时间轴相同而歌词改变时指纹变化`() {
         // 行数与首末时间相同、正文全换：旧指纹会完全相同，导致 NoChorus 结论一直压住新歌词
         fun track(text: (Int) -> String): MusicTrack = MusicTrack(
             id = 1L,
@@ -78,7 +78,7 @@ class HighlightLocatorTest {
     }
 
     @Test
-    fun candidatesEmptyWhenNoRepeat() {
+    fun `无重复段落时无候选`() {
         val lines = timed(
             5_000L to "一", 10_000L to "二", 15_000L to "三", 20_000L to "四",
             25_000L to "五", 30_000L to "六", 35_000L to "七", 40_000L to "八",
@@ -89,7 +89,7 @@ class HighlightLocatorTest {
     }
 
     @Test
-    fun candidatesEmptyForUntimedLyrics() {
+    fun `无时间轴歌词无候选`() {
         // 无时间轴歌词（全部落在 0）：行数再多也不产出候选，且判为「时间轴不可用」
         val lines = (1..20).map { LyricLine(timeMs = 0L, text = "副歌第 $it 行") }
         assertTrue(HighlightLocator.candidates(lines, 180_000L).isEmpty())
@@ -97,7 +97,7 @@ class HighlightLocatorTest {
     }
 
     @Test
-    fun candidatesEmptyWhenTrackTooShortToBeMeaningful() {
+    fun `曲目过短时无候选`() {
         // 整曲短于片段下限的一半：取哪一段都短到没有意义，不产出候选
         val lines = timed(
             1_000L to "甲", 2_000L to "乙", 3_000L to "丙", 4_000L to "丁",
@@ -108,7 +108,7 @@ class HighlightLocatorTest {
     }
 
     @Test
-    fun shortTrackStillYieldsItsOwnCandidate() {
+    fun `短曲目仍产出自身候选`() {
         // 曲长在「下限一半」与「下限」之间：接受较短片段 ——
         // 把能唱的部分唱完，比硬凑满 30 秒更贴合听感
         val lines = timed(
@@ -122,7 +122,7 @@ class HighlightLocatorTest {
     }
 
     @Test
-    fun candidateEndsOnLyricBoundaryInsteadOfHardCut() {
+    fun `候选在歌词边界收尾而非硬切`() {
         // 收尾必须落在某一行的时间点上：最后一行会完整唱完，而不是被时长上限切在半句上
         val lines = timed(
             4_000L to "甲一", 8_000L to "甲二", 12_000L to "乙一", 16_000L to "乙二",
@@ -142,7 +142,7 @@ class HighlightLocatorTest {
     }
 
     @Test
-    fun candidateNeverExceedsMaxDurationWhenBlockItselfIsLong() {
+    fun `段落本身超长时候选不超时长上限`() {
         // 重复块自身就长过上限：必须向回收缩到 45 秒以内，而不是把整块原样返回
         val lines = timed(
             0L to "主歌一", 4_000L to "主歌二", 8_000L to "主歌三", 12_000L to "主歌四",
@@ -164,7 +164,7 @@ class HighlightLocatorTest {
     }
 
     @Test
-    fun candidateEndCoversLastWordThatOutlastsNextLine() {
+    fun `候选结尾覆盖跨行的末字`() {
         // 末字演唱终点越过后继行起点：收尾应取字终点，保证末句完整唱完，而不是在字中间截断。
         // 各遍副歌之间夹一段互不重复的桥段，避免跨段落的假重复干扰定位。
         val lines = listOf(
@@ -204,7 +204,7 @@ class HighlightLocatorTest {
     }
 
     @Test
-    fun candidatesIgnoreMetadataLines() {
+    fun `候选忽略元数据行`() {
         // 制作信息行整段重复，不得被当成副歌：候选应落在真正的副歌上
         val lines = timed(
             1_000L to "作词：甲", 2_000L to "作曲：乙", 3_000L to "编曲：丙", 4_000L to "制作人：丁",
@@ -219,7 +219,7 @@ class HighlightLocatorTest {
     }
 
     @Test
-    fun sparseCandidateLosesToDenseChorus() {
+    fun `稀疏候选让位于密集副歌`() {
         // 重复但稀松的段落（行间长间隔、收不出几行）不得胜过一个密集的副歌段
         val lines = timed(
             0L to "密一", 2_000L to "密二", 4_000L to "密三", 6_000L to "密四",

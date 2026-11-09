@@ -27,7 +27,7 @@ class WindowSlicerTest {
     }
 
     @Test
-    fun splitFeedsMatchSampleBySampleReference() = runTest {
+    fun `分段送流与逐样本参考一致`() = runTest {
         // 帧数取到超过暂存块容量（16bit 立体声下为 32768 帧），
         // 一次跑遍「装满了自动清仓」与「收尾清仓」两条路径
         val frames = 40_000
@@ -48,7 +48,7 @@ class WindowSlicerTest {
     }
 
     @Test
-    fun floatEncodingMatchesReference() = runTest {
+    fun `浮点编码与参考一致`() = runTest {
         val frames = 12_000
         val channels = 2
         val samples = FloatArray(frames * channels) { index ->
@@ -66,7 +66,7 @@ class WindowSlicerTest {
     }
 
     @Test
-    fun singlePartFlushMatchesReference() = runTest {
+    fun `单段收尾与参考一致`() = runTest {
         // 帧数低于单段下限，转换退化为单段；此时入窗路径与并行路径必须给出同一结果
         val frames = 5_000
         val channels = 1

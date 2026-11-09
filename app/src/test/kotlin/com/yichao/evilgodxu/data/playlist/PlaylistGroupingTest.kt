@@ -26,24 +26,24 @@ class PlaylistGroupingTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun resolveKeepsCollectionOrderAndSkipsUnknownIds() {
+    fun `解析保持集合顺序并跳过未知 ID`() {
         // 集合顺序即播放顺序，不能按曲库顺序重排；已删除曲目的 id 静默跳过
         assertEquals(listOf(3L, 1L), resolveTracks(tracks, listOf(3, 99, 1)).map { it.id })
     }
 
     @Test
-    fun resolveIsEmptyWhenEitherSideIsEmpty() {
+    fun `任一侧为空时解析结果为空`() {
         assertTrue(resolveTracks(tracks, emptyList()).isEmpty())
         assertTrue(resolveTracks(emptyList(), listOf(1L)).isEmpty())
     }
 
     @Test
-    fun recentTracksFollowRecentIds() {
+    fun `最近曲目跟随最近 ID 顺序`() {
         assertEquals(listOf(2L, 1L), recentTracks(tracks, listOf(2, 1)).map { it.id })
     }
 
     @Test
-    fun smartTrackCountIgnoresMissingTracks() {
+    fun `智能歌单曲目数忽略缺失曲目`() {
         assertEquals(2, smartTrackCount(tracks, listOf(1, 2, 99)))
         assertEquals(0, smartTrackCount(tracks, emptyList()))
     }
@@ -53,13 +53,13 @@ class PlaylistGroupingTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun smartSourcesResolveRecentAndFavorite() {
+    fun `智能来源解析最近与收藏`() {
         assertEquals(listOf(3L, 1L), resolveSourceTracks(tracks, emptyList(), emptySet(), listOf(3, 1), source("smart:RECENT")).map { it.id })
         assertEquals(listOf(2L), resolveSourceTracks(tracks, emptyList(), setOf(2), emptyList(), source("smart:FAVORITE")).map { it.id })
     }
 
     @Test
-    fun customSourceResolvesPlaylistTrackIds() {
+    fun `自建来源解析歌单曲目 ID`() {
         val playlists = listOf(Playlist(7, "我的", listOf(3, 1), 0L))
         assertEquals(
             listOf(3L, 1L),
@@ -68,19 +68,19 @@ class PlaylistGroupingTest {
     }
 
     @Test
-    fun albumSourceResolvesByAlbumId() {
+    fun `专辑来源按专辑 ID 解析`() {
         assertEquals(listOf(2L, 3L), resolveSourceTracks(tracks, emptyList(), emptySet(), emptyList(), source("album:20")).map { it.id })
     }
 
     @Test
-    fun artistSourceResolvesEveryListedArtist() {
+    fun `歌手来源解析列出的每位歌手`() {
         // 多歌手曲目「甲 / 乙」在两位歌手名下都应出现
         assertEquals(listOf(1L, 2L), resolveSourceTracks(tracks, emptyList(), emptySet(), emptyList(), source("artist:甲")).map { it.id })
         assertEquals(listOf(2L, 3L), resolveSourceTracks(tracks, emptyList(), emptySet(), emptyList(), source("artist:乙")).map { it.id })
     }
 
     @Test
-    fun unknownSourceResolvesNothing() {
+    fun `未知来源解析不出内容`() {
         assertTrue(resolveSourceTracks(tracks, emptyList(), emptySet(), emptyList(), source("whatever")).isEmpty())
     }
 
@@ -89,12 +89,12 @@ class PlaylistGroupingTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun smartSourcesAreAlwaysValid() {
+    fun `智能来源始终有效`() {
         assertTrue(isViewSourceValid(emptyList(), emptyList(), source("smart:RECENT")))
     }
 
     @Test
-    fun customSourceNeedsAnExistingPlaylist() {
+    fun `自建来源需要已存在的歌单`() {
         val playlists = listOf(Playlist(7, "我的", emptyList(), 0L))
         // 空歌单仍是有效状态，判据是歌单是否存在而非是否为空
         assertTrue(isViewSourceValid(playlists, emptyList(), source("custom:7")))
@@ -102,7 +102,7 @@ class PlaylistGroupingTest {
     }
 
     @Test
-    fun albumAndArtistSourcesNeedResolvableTracks() {
+    fun `专辑与歌手来源需要有可解析的曲目`() {
         assertTrue(isViewSourceValid(emptyList(), tracks, source("album:20")))
         assertFalse(isViewSourceValid(emptyList(), emptyList(), source("album:20")))
     }
@@ -112,7 +112,7 @@ class PlaylistGroupingTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun albumGroupsAreKeyedByIdAndNamedAfterFirstTrack() {
+    fun `专辑分组按 ID 归键、以首曲命名`() {
         val groups = albumGroups(tracks, "未知专辑")
         assertEquals(listOf("合辑", "甲专辑"), groups.map { it.name })
         assertEquals(listOf("album:20", "album:10"), groups.map { it.key })
@@ -122,7 +122,7 @@ class PlaylistGroupingTest {
     }
 
     @Test
-    fun albumGroupFallsBackToUnknownWhenNameIsBlank() {
+    fun `专辑名为空时分组回落到未知`() {
         val groups = albumGroups(listOf(track(1, "一", albumId = 10, albumName = " ")), "未知专辑")
         assertEquals("未知专辑", groups.single().name)
     }
@@ -132,13 +132,13 @@ class PlaylistGroupingTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun albumIdentityJoinsExistingAlbumOfSameName() {
+    fun `专辑标识并入同名既有专辑`() {
         // 库内已有同名专辑：改名曲目并入那张专辑，而不是另起一组同名分组
         assertEquals(20L, albumIdentity(tracks, " 合辑 "))
     }
 
     @Test
-    fun albumIdentityMintsStableIdForNameFirstSeenInLibrary() {
+    fun `曲库首见的专辑名分配稳定标识`() {
         val minted = albumIdentity(tracks, "New Album")
         // 负值不与 MediaStore 的正 id 相撞；名字大小写与首尾空白不改变身份，
         // 先后改到同一名字的曲目仍聚成一组
@@ -148,12 +148,12 @@ class PlaylistGroupingTest {
     }
 
     @Test
-    fun albumIdentityTreatsBlankNameAsUnknownAlbum() {
+    fun `空专辑名按未知专辑处理`() {
         assertEquals(0L, albumIdentity(tracks, "   "))
     }
 
     @Test
-    fun renamedTrackMovesToNewAlbumGroup() {
+    fun `改名的曲目迁往新专辑分组`() {
         val renamed = tracks[0].copy(
             albumName = "新专辑",
             albumId = albumIdentity(tracks, "新专辑"),
@@ -166,7 +166,7 @@ class PlaylistGroupingTest {
     }
 
     @Test
-    fun artistGroupsAttributeMultiArtistTracksToEveryArtist() {
+    fun `多歌手曲目归属到每位歌手分组`() {
         val groups = artistGroups(tracks, "未知艺术家")
         assertEquals(listOf("artist:乙", "artist:甲"), groups.map { it.key })
         // 合作曲同时进入两位歌手名下：乙为 2、3，甲为 1、2
@@ -175,13 +175,13 @@ class PlaylistGroupingTest {
     }
 
     @Test
-    fun artistGroupResolvesASingleArtistWithoutBuildingAllGroups() {
+    fun `单个歌手分组无需构建全部分组`() {
         assertEquals(listOf(1L, 2L), artistGroup(tracks, "甲").trackIds)
         assertEquals("artist:甲", artistGroup(tracks, "甲").key)
     }
 
     @Test
-    fun distinctCountsSplitMultiArtistFields() {
+    fun `去重计数拆分多歌手字段`() {
         assertEquals(2, distinctAlbumCount(tracks))
         // 按整串歌手字段计数会把「甲 / 乙」算成第三个歌手
         assertEquals(2, distinctArtistCount(tracks))
@@ -192,12 +192,12 @@ class PlaylistGroupingTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun savedOrderRearrangesListedTracksBySavedRank() {
+    fun `保存顺序按排位重排列出的曲目`() {
         assertEquals(listOf(3L, 1L, 2L), applySavedTrackOrder(tracks, listOf(3, 1, 2)).map { it.id })
     }
 
     @Test
-    fun savedOrderKeepsUnlistedTracksAfterListedOnes() {
+    fun `保存顺序把未列出曲目放在其后`() {
         // 新入库、从未参与排序的曲目一律附在存档曲目之后，且彼此保持原相对次序
         assertEquals(listOf(3L, 1L, 2L), applySavedTrackOrder(tracks, listOf(3)).map { it.id })
         // 无存档即为原顺序
@@ -205,7 +205,7 @@ class PlaylistGroupingTest {
     }
 
     @Test
-    fun savedOrderSkipsIdsThatNoLongerExist() {
+    fun `保存顺序跳过已不存在的 ID`() {
         // 曲目被删除后存档里的死 id 落空，不影响其余曲目的次序
         assertEquals(listOf(2L, 1L, 3L), applySavedTrackOrder(tracks, listOf(99, 2, 1)).map { it.id })
     }

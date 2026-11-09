@@ -14,14 +14,14 @@ import org.junit.Test
 class MusicQualityTest {
 
     @Test
-    fun losslessTiersStartAtHiResThenDegradeDownward() {
+    fun `无损档位从高解析开始逐级下降`() {
         val expected = listOf(MusicQuality.HI_RES, MusicQuality.LOSSLESS, MusicQuality.HIGH, MusicQuality.STANDARD)
         assertEquals(expected, MusicQuality.HI_RES.adaptiveCandidates())
         assertEquals(expected, MusicQuality.LOSSLESS.adaptiveCandidates())
     }
 
     @Test
-    fun highQualityPrefersItselfThenEscalatesToLossless() {
+    fun `高品质先取自身再升到无损`() {
         assertEquals(
             listOf(MusicQuality.HIGH, MusicQuality.LOSSLESS, MusicQuality.HI_RES, MusicQuality.STANDARD),
             MusicQuality.HIGH.adaptiveCandidates(),
@@ -29,7 +29,7 @@ class MusicQualityTest {
     }
 
     @Test
-    fun standardQualityEscalatesMonotonically() {
+    fun `标准音质单调递增`() {
         assertEquals(
             listOf(MusicQuality.STANDARD, MusicQuality.HIGH, MusicQuality.LOSSLESS, MusicQuality.HI_RES),
             MusicQuality.STANDARD.adaptiveCandidates(),
@@ -37,7 +37,7 @@ class MusicQualityTest {
     }
 
     @Test
-    fun everyCandidateChainEndsAtTheLowestTier() {
+    fun `每个候选链都以最低档收尾`() {
         // 全部档位都不可用才判定失败，故候选链必须覆盖全部四档且不重复
         MusicQuality.entries.forEach { quality ->
             val candidates = quality.adaptiveCandidates()
@@ -47,7 +47,7 @@ class MusicQualityTest {
     }
 
     @Test
-    fun hiResIsNotUserSelectable() {
+    fun `高解析档不可由用户选择`() {
         // Hi-Res 只作为无损档内的解析层级，不作为用户可选档位
         assertFalse(MusicQuality.HI_RES.userSelectable)
         assertTrue(MusicQuality.LOSSLESS.userSelectable)

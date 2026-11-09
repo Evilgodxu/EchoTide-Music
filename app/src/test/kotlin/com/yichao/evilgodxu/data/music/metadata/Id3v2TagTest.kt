@@ -21,14 +21,14 @@ class Id3v2TagTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun syncsafeRoundTripsWithin28Bits() {
+    fun `syncsafe 在 28 位内往返一致`() {
         for (value in listOf(0, 1, 127, 128, 16_383, 1_000_000, 0x0FFFFFFF)) {
             assertEquals("$value", value, Id3v2Tag.syncsafe(Id3v2Tag.syncsafeBytes(value), 0))
         }
     }
 
     @Test
-    fun syncsafeIgnoresTheHighBitOfEveryByte() {
+    fun `syncsafe 忽略每字节最高位`() {
         // 每字节仅低 7 位有效，最高位恒为 0 以免被误判为帧同步
         val bytes = Id3v2Tag.syncsafeBytes(0x0FFFFFFF)
         assertTrue(bytes.all { it.toInt() and 0x80 == 0 })
@@ -39,14 +39,14 @@ class Id3v2TagTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun versionIsReadFromTheTagItself() {
+    fun `版本从标签自身读出`() {
         val frames = frames { Id3v2Tag.textFrame(this, "TIT2", "标题", 4) }
         assertEquals(4, Id3v2Tag.versionOf(Id3v2Tag.buildTag(frames, 4)))
         assertEquals(3, Id3v2Tag.versionOf(Id3v2Tag.buildTag(frames, 3)))
     }
 
     @Test
-    fun unsupportedVersionFallsBackToTheWrittenVersion() {
+    fun `不支持的版本回落到写入版本`() {
         // v2.2 及更早的帧头结构不同，按新建版本重建而非按无法解析的版本读
         val tag = ByteArray(16).also {
             "ID3".toByteArray(StandardCharsets.US_ASCII).copyInto(it)
@@ -62,7 +62,7 @@ class Id3v2TagTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun buildTagDeclaresTheFrameAreaSize() {
+    fun `构建标签声明帧区大小`() {
         val frames = frames { Id3v2Tag.textFrame(this, "TIT2", "标题", 4) }
         val tag = Id3v2Tag.buildTag(frames, 4)
         assertEquals("ID3", String(tag, 0, 3, StandardCharsets.US_ASCII))
@@ -72,7 +72,7 @@ class Id3v2TagTest {
     }
 
     @Test
-    fun footerAppendsAMirroredHeaderWithoutChangingDeclaredSize() {
+    fun `尾注追加镜像头且不改变声明大小`() {
         // WAV 尾部标签需要 footer；footer 与头部除标识外字段一致，且不计入声明长度
         val frames = frames { Id3v2Tag.textFrame(this, "TIT2", "标题", 4) }
         val tag = Id3v2Tag.buildTag(frames, 4, flags = 0, footer = true)
@@ -87,7 +87,7 @@ class Id3v2TagTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun replaceFramesOverwritesTargetFrameAndKeepsTheRest() {
+    fun `替换帧覆盖目标并保留其余`() {
         val existing = Id3v2Tag.buildTag(
             frames {
                 Id3v2Tag.textFrame(this, "TIT2", "旧标题", 4)
@@ -105,7 +105,7 @@ class Id3v2TagTest {
     }
 
     @Test
-    fun replaceFramesAppendsFramesThatAreMissing() {
+    fun `替换帧追加缺失的帧`() {
         val existing = Id3v2Tag.buildTag(frames { Id3v2Tag.textFrame(this, "TIT2", "标题", 4) }, 4)
         val replaced = Id3v2Tag.replaceFrames(existing, null, null, null, null, lyrics = "新词", version = 4)
         val written = Id3v2Tag.buildTag(replaced!!, 4)
@@ -114,7 +114,7 @@ class Id3v2TagTest {
     }
 
     @Test
-    fun replaceFramesOnlyRewritesTheFirstOccurrence() {
+    fun `替换帧只改第一处出现`() {
         // 重复帧只在首次出现处被替换，其后同名帧原样保留（保留既有帧的语义优先于去重）
         val existing = Id3v2Tag.buildTag(
             frames {
@@ -131,7 +131,7 @@ class Id3v2TagTest {
     }
 
     @Test
-    fun replaceFramesReturnsNullWhenThereIsNothingToWrite() {
+    fun `无可写内容时替换返回空`() {
         assertNull(
             Id3v2Tag.replaceFrames(null, null, null, null, null, null, version = 4)
         )
@@ -142,7 +142,7 @@ class Id3v2TagTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun usltIsWrittenAsUtf8InV4AndUtf16InV3() {
+    fun `USLT 在 v4 写 UTF-8、v3 写 UTF-16`() {
         val v4 = Id3v2Tag.buildTag(frames { Id3v2Tag.usltFrame(this, "第一行\n第二行", 4) }, 4)
         assertEquals("第一行\n第二行", Id3v2Tag.readUslt(v4, 0))
         // v2.3 没有 UTF-8 文本编码，歌词必须写成带 BOM 的 UTF-16，否则按原版本读回是乱码
@@ -151,7 +151,7 @@ class Id3v2TagTest {
     }
 
     @Test
-    fun textFrameIsWrittenAsUtf8InV4AndUtf16InV3() {
+    fun `文本帧在 v4 写 UTF-8、v3 写 UTF-16`() {
         val v4 = Id3v2Tag.buildTag(
             frames {
                 Id3v2Tag.textFrame(this, "TIT2", "标题", 4)
@@ -169,21 +169,21 @@ class Id3v2TagTest {
     }
 
     @Test
-    fun textFrameIsAbsentWhenThereIsNoSuchFrame() {
+    fun `无对应帧时不产出文本帧`() {
         val tag = Id3v2Tag.buildTag(frames { Id3v2Tag.textFrame(this, "TIT2", "标题", 4) }, 4)
         assertNull(Id3v2Tag.readTextFrame(tag, 0, "TPE1"))
         assertNull(Id3v2Tag.readTextFrame(tag, 0, "TALB"))
     }
 
     @Test
-    fun apicSkipsMimeTypeAndDescriptor() {
+    fun `APIC 跳过 MIME 与描述字段`() {
         val cover = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 1, 2, 3, 4)
         val tag = Id3v2Tag.buildTag(frames { Id3v2Tag.apicFrame(this, cover, 4) }, 4)
         assertEquals(cover.toList(), Id3v2Tag.readApic(tag, 0)!!.toList())
     }
 
     @Test
-    fun apicIsAbsentWhenThereIsNoSuchFrame() {
+    fun `无对应帧时不产出 APIC`() {
         val tag = Id3v2Tag.buildTag(frames { Id3v2Tag.textFrame(this, "TIT2", "标题", 4) }, 4)
         assertNull(Id3v2Tag.readApic(tag, 0))
     }
@@ -193,7 +193,7 @@ class Id3v2TagTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun extendedFieldsAreWrittenAsTheirStandardFrames() {
+    fun `扩展字段按标准帧写出`() {
         val fields = TrackTagFields.build {
             put(TagField.ALBUM_ARTIST, "专辑艺术家")
             put(TagField.DATE, "2008-10-22")
@@ -232,7 +232,7 @@ class Id3v2TagTest {
     }
 
     @Test
-    fun dateUsesYearFrameInV3AndReadsBack() {
+    fun `日期在 v3 用年份帧并可读回`() {
         val fields = TrackTagFields.build { put(TagField.DATE, "2008") }
         val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(null, fields, null, removeCover = false, version = 3)!!, 3)
         // v2.3 没有 TDRC，日期落在 TYER 上；读取端两者都认
@@ -241,7 +241,7 @@ class Id3v2TagTest {
     }
 
     @Test
-    fun replayGainReplacesOnlyItsOwnCustomFrame() {
+    fun `ReplayGain 只替换自身的自定义帧`() {
         // 既有 TXXX 描述符与本次写入不同：它不属于本次改动，须原样保留
         val other = byteArrayOf(3) + "OTHER".toByteArray(StandardCharsets.UTF_8) + byteArrayOf(0) +
             "保留值".toByteArray(StandardCharsets.UTF_8)
@@ -257,7 +257,7 @@ class Id3v2TagTest {
     }
 
     @Test
-    fun untouchedFieldsKeepTheirOriginalFrames() {
+    fun `未改动字段保留原帧`() {
         // 只写标题：其余既有帧（含扩展字段）不得被抹掉
         val existingFields = TrackTagFields.build {
             put(TagField.TITLE, "旧标题")
@@ -275,7 +275,7 @@ class Id3v2TagTest {
     }
 
     @Test
-    fun coverIsKeptWhenUntouchedAndDroppedWhenRemoved() {
+    fun `封面未改动时保留、移除时丢弃`() {
         val cover = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe0.toByte(), 1, 2, 3, 4)
         val withCover = Id3v2Tag.buildTag(
             Id3v2Tag.replaceFrames(
@@ -318,7 +318,7 @@ class Id3v2TagTest {
     }
 
     @Test
-    fun v4ExtendedHeaderSizeIncludesItsOwnLengthField() {
+    fun `v4 扩展头大小含自身长度字段`() {
         // v2.4 扩展头长度已包含自身的 4 字节；按 v2.3 的「4 + 长度」跳会落进首帧内容，
         // 只改标题时原有 TALB 会被当作解析失败而整段丢掉
         val album = frames { Id3v2Tag.textFrame(this, "TALB", "必须保留", 4) }
@@ -341,7 +341,7 @@ class Id3v2TagTest {
     }
 
     @Test
-    fun v3GlobalUnsynchronisationIsReversedBeforeRewriting() {
+    fun `v3 全局去同步在重写前还原`() {
         // v2.3 的 0x00 是在帧构造完成后插入的，帧长度不含它们；不先还原就按声明长度遍历，
         // 未编辑的 PRIV 帧会被错位截断
         val original = byteArrayOf(0x12, 0xFF.toByte(), 0xE0.toByte(), 0x34)

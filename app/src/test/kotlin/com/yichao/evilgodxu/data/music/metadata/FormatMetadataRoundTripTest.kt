@@ -18,7 +18,7 @@ import org.junit.runners.Parameterized
 class OpusPageLayoutTest {
 
     @Test
-    fun rewriteKeepsHeaderPageGranuleZero() {
+    fun `重写后头页粒度仍为零`() {
         val source = File(FIXTURE_DIR + "sample.opus").readBytes()
         val sourcePages = AudioMetaProbe.oggPages(source)
         assertEquals("样本首页未标记 BOS", 2, sourcePages.first().headerType and 2)
@@ -55,7 +55,7 @@ class OpusPageLayoutTest {
 class FormatMetadataRoundTripTest(private val fixture: String) {
 
     @Test
-    fun metadataRoundTripsAcrossContainers() {
+    fun `元数据在各类容器间往返一致`() {
         val source = fixtureFile(fixture).readBytes()
 
         // 首轮：无标签样本建立标签

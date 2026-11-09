@@ -18,7 +18,7 @@ import org.junit.Test
 class FrameOrdererTest {
 
     @Test
-    fun emitsInIndexOrderWhenSubmittedOutOfOrder() = runTest {
+    fun `乱序提交时按序号顺序产出`() = runTest {
         val emitted = mutableListOf<Float>()
         val orderer = FrameOrderer { emitted += it[0] }
 
@@ -30,7 +30,7 @@ class FrameOrdererTest {
     }
 
     @Test
-    fun withholdsFramesUntilTheGapIsFilled() = runTest {
+    fun `缺口补齐前暂不下发`() = runTest {
         val emitted = mutableListOf<Float>()
         val orderer = FrameOrderer { emitted += it[0] }
 
@@ -45,7 +45,7 @@ class FrameOrdererTest {
     }
 
     @Test
-    fun keepsOrderWhenSubmittedConcurrently() = runTest {
+    fun `并发提交仍保持顺序`() = runTest {
         val count = 512
         val emitted = mutableListOf<Float>()
         val orderer = FrameOrderer { emitted += it[0] }

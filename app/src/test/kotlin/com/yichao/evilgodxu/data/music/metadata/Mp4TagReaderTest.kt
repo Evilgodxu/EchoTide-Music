@@ -20,7 +20,7 @@ import org.junit.Test
 class Mp4TagReaderTest {
 
     @Test
-    fun fieldsAreReadAfterCoverLargerThanHeaderWindow() {
+    fun `封面大于头窗口之后仍能读到字段`() {
         // 封面 1MB：超过旧实现的 512KB 头窗，标签原子全部排在其后
         val source = MemorySource(
             mp4(
@@ -46,7 +46,7 @@ class Mp4TagReaderTest {
     }
 
     @Test
-    fun freeformAtomsCarryFieldsWithoutOwnAtomName() {
+    fun `自由格式原子不靠自身原子名携带字段`() {
         val source = MemorySource(
             mp4("----" to freeformAtom("REPLAYGAIN_TRACK_GAIN", "-3.14 dB")),
         )
@@ -54,7 +54,7 @@ class Mp4TagReaderTest {
     }
 
     @Test
-    fun freeformValueWrittenByWriterReadsBackWithoutControlBytes() {
+    fun `写入的自由格式值读回时不含控制字节`() {
         // 自由格式原子的 data 子原子只该有一层；多套一层 data 会让读取端把 type/locale
         // 当成值的一部分，ReplayGain 等字段读回时多出八个字节
         val source = java.io.File("src/test/resources/audio/sample.m4a").readBytes()
@@ -67,7 +67,7 @@ class Mp4TagReaderTest {
     }
 
     @Test
-    fun nonStandardAtomNamesAreIgnored() {
+    fun `非标准原子名被忽略`() {
         // 认不出的原子名不给推断值：猜出来的名字比没有更糟
         val source = MemorySource(
             mp4(
@@ -79,7 +79,7 @@ class Mp4TagReaderTest {
     }
 
     @Test
-    fun missingStructureYieldsNoFields() {
+    fun `结构缺失时不产出字段`() {
         // 只有标签原子而没有 moov/udta/meta/ilst 的字节串不是 M4A 标签结构
         val flat = box("ftyp", ByteArray(16)) + box("©nam", dataAtom("标题".toByteArray(StandardCharsets.UTF_8)))
         assertNull(Mp4TagReader.readFields(flat.size.toLong()) { offset, count ->
@@ -88,7 +88,7 @@ class Mp4TagReaderTest {
     }
 
     @Test
-    fun largeBoxHeaderIsFollowed() {
+    fun `大盒头可被跟随`() {
         // 64 位长度字段（size==1）的盒子：读取不得因它而中断
         val meta = box("meta", ByteArray(4) + box("ilst", box("©nam", dataAtom("大长度".toByteArray(StandardCharsets.UTF_8)))))
         val moov = box("moov", box("udta", meta))

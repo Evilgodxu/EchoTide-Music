@@ -20,7 +20,7 @@ class WavRealFileProbeTest {
     private val sample = File("../Temporary Test Resources/徐誉滕 - 等一分钟.wav")
 
     @Test
-    fun realWavCoverAndLyricsRoundTrip() {
+    fun `真实 WAV 的封面与歌词往返一致`() {
         if (!sample.isFile) {
             println("样本缺失，跳过: ${sample.absolutePath}")
             return

@@ -13,14 +13,14 @@ import org.junit.Test
 class LosslessFormatTest {
 
     @Test
-    fun containerNamesAreRecognizedCaseInsensitively() {
+    fun `容器名不区分大小写`() {
         assertTrue(isLosslessFormatName("flac"))
         assertTrue(isLosslessFormatName("FLAC"))
         assertTrue(isLosslessFormatName("AppleLossless"))
     }
 
     @Test
-    fun lossyNamesAreRejected() {
+    fun `有损格式名被拒绝`() {
         assertFalse(isLosslessFormatName("mp3"))
         assertFalse(isLosslessFormatName("aac"))
         assertFalse(isLosslessFormatName("ogg"))
@@ -28,21 +28,21 @@ class LosslessFormatTest {
     }
 
     @Test
-    fun unknownNameIsRejected() {
+    fun `未知格式名被拒绝`() {
         // 格式未知时不视为无损，避免把未知项展示成真实信息
         assertFalse(isLosslessFormatName(""))
         assertFalse(isLosslessFormatName("audio/mpeg"))
     }
 
     @Test
-    fun signalPathFormatStripsMimePrefix() {
+    fun `信号路径格式剥离 MIME 前缀`() {
         assertTrue(isLosslessFormat(format("audio/flac")))
         assertTrue(isLosslessFormat(format("audio/x-lossless")))
         assertFalse(isLosslessFormat(format("audio/mpeg")))
     }
 
     @Test
-    fun missingFormatIsNotLossless() {
+    fun `缺格式名时不算无损`() {
         assertFalse(isLosslessFormat(format(null)))
     }
 

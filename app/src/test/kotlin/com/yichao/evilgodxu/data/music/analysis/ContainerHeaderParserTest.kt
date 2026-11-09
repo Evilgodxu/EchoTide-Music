@@ -12,20 +12,20 @@ import org.junit.Test
 class ContainerHeaderParserTest {
 
     @Test
-    fun flacStreaminfoIsParsed() {
+    fun `FLAC 的 streaminfo 可被解析`() {
         val bytes = flac(44_100, 16, 2)
         assertEquals(ContainerFormat(44_100, 16, 2), ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()))
     }
 
     @Test
-    fun flacHighBitDepthDoesNotAliasTo16Bit() {
+    fun `FLAC 高比特深度不会被误当作 16 位`() {
         // 32bit 的位深域值为 31，低 4 位进位曾使旧实现误读为 16bit
         val bytes = flac(192_000, 32, 2)
         assertEquals(ContainerFormat(192_000, 32, 2), ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()))
     }
 
     @Test
-    fun id3v2PrefixIsReportedSoContainerCanBeRelocated() {
+    fun `ID3v2 前缀被报出，容器可据此重定位`() {
         val tag = id3Tag(payloadBytes = 1024)
         val bytes = tag + flac(48_000, 24, 2)
         assertEquals(tag.size, ContainerHeaderParser.id3v2TagSize(bytes))
@@ -38,25 +38,25 @@ class ContainerHeaderParserTest {
     }
 
     @Test
-    fun plainAudioHasNoId3Tag() {
+    fun `裸音频没有 ID3 标签`() {
         val bytes = flac(44_100, 16, 2)
         assertEquals(0, ContainerHeaderParser.id3v2TagSize(bytes))
     }
 
     @Test
-    fun wavFmtChunkIsParsed() {
+    fun `WAV 的 fmt 块可被解析`() {
         val bytes = wav(channels = 2, sampleRate = 48_000, bitDepth = 24)
         assertEquals(ContainerFormat(48_000, 24, 2), ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()))
     }
 
     @Test
-    fun wavFmtAfterOtherChunkIsFoundByWalkingChunks() {
+    fun `fmt 块不在首位时按块遍历找到`() {
         val bytes = wav(channels = 2, sampleRate = 44_100, bitDepth = 16, leadingChunkId = "JUNK", leadingChunkBytes = 64)
         assertEquals(ContainerFormat(44_100, 16, 2), ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()))
     }
 
     @Test
-    fun wavExtensiblePrefersValidBitsOverContainerBits() {
+    fun `WAV 扩展格式取有效位深而非容器位深`() {
         val bytes = wav(
             channels = 2,
             sampleRate = 96_000,
@@ -68,7 +68,7 @@ class ContainerHeaderParserTest {
     }
 
     @Test
-    fun alacBitDepthComesFromMagicCookie() {
+    fun `ALAC 位深取自 magic cookie`() {
         // 采样描述自带的 samplesize（16）对 ALAC 是名义值，真实位深在 alac 幻数盒中；
         // 幻数盒成立也正面认定了码流，容器因此能给出码流名（扩展名 .m4a 说不出这个）
         val bytes = alacFile(bitDepth = 24, channels = 2, sampleRate = 48_000)
@@ -79,7 +79,7 @@ class ContainerHeaderParserTest {
     }
 
     @Test
-    fun nonAlacMp4TrackNamesNoCodec() {
+    fun `MP4 里的非 ALAC 轨道不报编码名`() {
         // mp4a 可能是 AAC 也可能不是，容器头无从正面认定，故码流名留空；
         // 位深同理——有损编码的 msamplesize 只是名义值
         val bytes = mp4aFile(bitDepth = 16, channels = 2, sampleRate = 44_100)
@@ -90,7 +90,7 @@ class ContainerHeaderParserTest {
     }
 
     @Test
-    fun mp4BoxOffsetSkipsBoxLargerThanWindow() {
+    fun `MP4 盒偏移跳过超出窗口的大盒`() {
         // moov 后置：头窗在超大 mdat 处被截断，据其声明尺寸外推出 moov 起点
         val ftyp = box("ftyp", Builder().ascii("M4A ").u32be(0).ascii("M4A ").toBytes())
         val truncatedMdat = Builder().u32be(MDAT_DECLARED_BYTES).ascii("mdat").toBytes()
@@ -103,12 +103,12 @@ class ContainerHeaderParserTest {
     }
 
     @Test
-    fun unknownHeaderIsRejected() {
+    fun `未知文件头被拒绝`() {
         assertNull(ContainerHeaderParser.parse(ByteArray(64), 0, 64))
     }
 
     @Test
-    fun truncatedHeaderIsRejected() {
+    fun `截断的文件头被拒绝`() {
         val bytes = flac(44_100, 16, 2)
         assertNull(ContainerHeaderParser.parse(bytes.copyOfRange(0, 12), 0, bytes.size.toLong()))
     }

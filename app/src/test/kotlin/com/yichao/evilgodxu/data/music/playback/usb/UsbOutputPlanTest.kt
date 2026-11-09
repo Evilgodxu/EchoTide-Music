@@ -14,7 +14,7 @@ import org.junit.Test
 class UsbOutputPlanTest {
 
     @Test
-    fun picksTheLeastBitDepthThatStillHoldsTheSource() {
+    fun `挑选仍能容纳源的最小位深`() {
         val plan = planUsbOutput(
             sampleRate = 44100,
             channelCount = 2,
@@ -31,7 +31,7 @@ class UsbOutputPlanTest {
 
     // 有效位深相同时取更窄的子槽：3 字节槽装 24 位，比 4 字节槽少一个补零字节
     @Test
-    fun prefersTheNarrowerSlotOnEqualBitDepth() {
+    fun `位深相同时优先更窄的子槽`() {
         val plan = planUsbOutput(
             sampleRate = 44100,
             channelCount = 2,
@@ -47,7 +47,7 @@ class UsbOutputPlanTest {
 
     // 子槽再宽也救不了有效位深不足：32 位源进 24 位通道，低八位注定被丢
     @Test
-    fun rejectsBitDepthsTooShallowForTheSource() {
+    fun `拒绝比源更浅的位深`() {
         val plan = planUsbOutput(
             sampleRate = 96000,
             channelCount = 2,
@@ -63,7 +63,7 @@ class UsbOutputPlanTest {
 
     // 16 位源优先落在 16 位通道上，而不是设备最宽的那一档
     @Test
-    fun sixteenBitSourcePrefersASixteenBitMode() {
+    fun `16 位源优先 16 位模式`() {
         val plan = planUsbOutput(
             sampleRate = 48000,
             channelCount = 2,
@@ -80,7 +80,7 @@ class UsbOutputPlanTest {
 
     // 声道数不匹配时不做映射：映射属于另一条链路的事，这里只送原样数据
     @Test
-    fun rejectsChannelCountMismatch() {
+    fun `声道数不匹配被拒绝`() {
         val plan = planUsbOutput(
             sampleRate = 44100,
             channelCount = 1,
@@ -92,7 +92,7 @@ class UsbOutputPlanTest {
     }
 
     @Test
-    fun rejectsFormatsThatAreNotPcm() {
+    fun `非 PCM 格式被拒绝`() {
         val plan = planUsbOutput(
             sampleRate = 44100,
             channelCount = 2,
@@ -105,7 +105,7 @@ class UsbOutputPlanTest {
 
     // UAC2 的档位不在描述符里：未声明任何档位时不得判为不支持，否则所有 UAC2 设备都会被挡在门外
     @Test
-    fun acceptsFormatsThatDeclareNoRatesAtAll() {
+    fun `未声明采样率的格式可接受`() {
         val plan = planUsbOutput(
             sampleRate = 176400,
             channelCount = 2,
@@ -117,7 +117,7 @@ class UsbOutputPlanTest {
     }
 
     @Test
-    fun rejectsDeclaredRatesThatLackTheSourceRate() {
+    fun `声明的采样率不含源采样率时被拒绝`() {
         val plan = planUsbOutput(
             sampleRate = 176400,
             channelCount = 2,
@@ -129,7 +129,7 @@ class UsbOutputPlanTest {
     }
 
     @Test
-    fun continuousRangeIsJudgedByItsBounds() {
+    fun `连续范围按边界判定`() {
         val candidates = listOf(format(rates = emptyList(), continuousRates = true, minRate = 44100, maxRate = 96000))
 
         assertEquals(
@@ -140,7 +140,7 @@ class UsbOutputPlanTest {
     }
 
     @Test
-    fun returnsNullOnEmptyOrNonsenseInput() {
+    fun `空或无效输入返回空`() {
         assertNull(planUsbOutput(44100, 2, 24, emptyList()))
         assertNull("采样率未知时不挑格式", planUsbOutput(0, 2, 24, listOf(format())))
         assertNull("声道数未知时不挑格式", planUsbOutput(44100, 0, 24, listOf(format())))

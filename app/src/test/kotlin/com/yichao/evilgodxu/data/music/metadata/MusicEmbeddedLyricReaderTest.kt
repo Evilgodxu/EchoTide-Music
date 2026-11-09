@@ -18,21 +18,21 @@ class MusicEmbeddedLyricReaderTest {
     private val lyrics = "[00:01.00]第一行\n[00:03.50]第二行"
 
     @Test
-    fun mp4LyricsAtomIsDecoded() {
+    fun `MP4 歌词原子可解码`() {
         // 载荷取 22KB：大于定点读取的小块窗口，顺带覆盖大块直读分支
         val payload = lyrics + " ".repeat(DATA_ATOM_PAYLOAD_BYTES - lyrics.toByteArray(StandardCharsets.UTF_8).size)
         assertEquals(payload, MusicEmbeddedLyricReader.extractLyrics(mp4("©lyr" to dataAtom(payload))))
     }
 
     @Test
-    fun mp4LyricsAtomWithShortDataAtomIsRejected() {
+    fun `数据原子过短的 MP4 歌词被拒绝`() {
         // data 子原子只声明 8 字节、容纳不下版本与区域设置字段：视为损坏，不得解码出脏数据
         val shortData = int32BE(8) + "data".toByteArray(StandardCharsets.ISO_8859_1)
         assertNull(MusicEmbeddedLyricReader.extractLyrics(mp4("©lyr" to shortData)))
     }
 
     @Test
-    fun mp4LyricsAfterCoverLargerThanHeaderWindowAreFound() {
+    fun `封面大于头窗口之后的 MP4 歌词仍能找到`() {
         // 实测样本的形态：ilst 下 covr 排在 ©lyr 之前且远超头窗（旧实现的 512KB），
         // 按固定头窗解析会因 covr 越窗而把整份标签读空，歌词也就一并丢掉
         val bytes = mp4(
@@ -43,7 +43,7 @@ class MusicEmbeddedLyricReaderTest {
     }
 
     @Test
-    fun flacVorbisCommentLyricsIsDecoded() {        val comment = ByteArrayOutputStream()
+    fun `FLAC 的 Vorbis 注释歌词可解码`() {        val comment = ByteArrayOutputStream()
         val vendor = "EdgeGesture".toByteArray(StandardCharsets.UTF_8)
         val fields = listOf("TITLE=标题", "LYRICS=$lyrics")
         comment.write(intLE(vendor.size)); comment.write(vendor); comment.write(intLE(fields.size))
@@ -58,7 +58,7 @@ class MusicEmbeddedLyricReaderTest {
     }
 
     @Test
-    fun oggVorbisLyricsFromEncodedFixtureAreDecoded() {
+    fun `编码样本里的 Ogg Vorbis 歌词可解码`() {
         // 真实 Ogg Vorbis 样本：注释头包的 LYRICS 字段由生成脚本写入（页 CRC 同步重算）。
         // 注释头包以「包类型 3 + vorbis」起头，不含任何 "vorbis_comment" 字面
         val bytes = File("src/test/resources/audio/sample.ogg").readBytes()

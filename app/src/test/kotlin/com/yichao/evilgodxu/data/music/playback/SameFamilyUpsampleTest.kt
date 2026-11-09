@@ -36,7 +36,7 @@ class SameFamilyUpsampleTest {
     }
 
     @Test
-    fun sameFamilyMultipleOnlyAcceptsSameFamilyPowerOfTwo() {
+    fun `同族倍率只接受二的幂`() {
         // 同族：44.1 族与 48 族各自成族，2 的幂倍
         assertEquals(2, sameFamilyMultiple(SOURCE_RATE, 88200))
         assertEquals(4, sameFamilyMultiple(SOURCE_RATE, 176400))
@@ -59,7 +59,7 @@ class SameFamilyUpsampleTest {
     }
 
     @Test
-    fun interpolatableEncodingsAreLinearPcmOnly() {
+    fun `可插值编码仅限线性 PCM`() {
         assertTrue(canInterpolatePcm(FLOAT))
         assertTrue(canInterpolatePcm(SHORT))
         assertTrue(canInterpolatePcm(C.ENCODING_PCM_24BIT))
@@ -73,7 +73,7 @@ class SameFamilyUpsampleTest {
 
     // 原样本必须原样落在偶位上，且位置只由「半程抽头」的延迟决定——错一位整个信号就错位
     @Test
-    fun originalSamplesLandBitExactOnEvenPositions() {
+    fun `原始样本在位精确落在偶数位`() {
         val channels = 2
         val frames = 257
         val input = randomSamples(frames * channels)
@@ -97,7 +97,7 @@ class SameFamilyUpsampleTest {
 
     // 级联两级（×4）之后，原样本仍逐位落在每第 4 个样点上
     @Test
-    fun cascadeKeepsOriginalsOnEveryFourthSample() {
+    fun `级联后每第四点仍是原始样本`() {
         val channels = 1
         val frames = 199
         val input = randomSamples(frames)
@@ -119,7 +119,7 @@ class SameFamilyUpsampleTest {
 
     // 常值输入下插值样本必须等于原值：插值相位的直流增益不是 1，插值样本就会带上固定偏置
     @Test
-    fun constantInputProducesConstantOutput() {
+    fun `恒值输入产出恒值输出`() {
         val frames = 400
         val level = 0.25
         val input = DoubleArray(frames) { level }
@@ -142,7 +142,7 @@ class SameFamilyUpsampleTest {
 
     // 状态必须跨缓冲连续：分块喂入与整块喂入的结果要逐位相同，否则每次缓冲边界都会有一道接缝
     @Test
-    fun chunkedInputMatchesWholeInput() {
+    fun `分块输入与整块输入一致`() {
         val frames = 1000
         val chunk = 137
         val input = randomSamples(frames)
@@ -177,7 +177,7 @@ class SameFamilyUpsampleTest {
      * 三项一起看才有意义——只压镜像不看通带，把增益做低也能通过。
      */
     @Test
-    fun imageIsSuppressedWhileContentFrequencyAndPassbandHold() {
+    fun `镜像被压制且内容频率与通带保持`() {
         val tone = 18900.0
         val frames = SOURCE_RATE * 3
         val input = DoubleArray(frames) { 0.5 * cos(2 * PI * tone * it / SOURCE_RATE) }
@@ -200,7 +200,7 @@ class SameFamilyUpsampleTest {
     // 打包整型一侧：原样写回要逐位相同，插值样本要贴着理想值——读入、插值、按位深取整整条路径都得对。
     // 用平滑的 1kHz 正弦而不是锯齿：锯齿不是带限信号，任何插值器在阶跃处都有振铃，那验不出对错
     @Test
-    fun packedIntPassthroughIsBitExactAndInterpolationTracksIdeal() {
+    fun `打包整型直通位精确且插值贴合理想`() {
         val frames = 2000
         val amplitude = 10000.0
         val frequency = 1000.0
