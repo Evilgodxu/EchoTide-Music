@@ -46,9 +46,8 @@ fun SettingsScreen(
         factory = viewModelFactory {
             initializer {
                 SettingsViewModel(
-                    application = application,
                     settingsRepository = settingsRepository,
-                    localizationManager = localizationManager,
+                    environment = AndroidSettingsEnvironment(application, localizationManager),
                 )
             }
         },

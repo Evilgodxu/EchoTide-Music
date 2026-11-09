@@ -15,7 +15,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 
-// 应用级状态持有者：验证仓库回流为初始状态，以及写入后经同一条路径回到 UI
+// 应用级状态持有者：验证仓库回流为初始状态，以及写入后经同一条路径回到 UI。
+// 写入入口在设置页，故这里直接经仓库写入——VM 只做聚合，不另开写口
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest {
 
@@ -50,15 +51,13 @@ class MainViewModelTest {
 
     @Test
     fun `写入主题经仓库回流更新状态`() = runTest(dispatcher) {
-        val viewModel = MainViewModel(
-            settingsRepository = FakeSettingsRepository(),
-            appVersion = "1.0.0",
-        )
+        val repository = FakeSettingsRepository()
+        val viewModel = MainViewModel(repository, appVersion = "1.0.0")
 
         advanceUntilIdle()
         assertEquals(ThemeMode.SYSTEM, viewModel.uiState.value.themeMode)
 
-        viewModel.setThemeMode(ThemeMode.LIGHT)
+        repository.saveThemeMode(ThemeMode.LIGHT)
         advanceUntilIdle()
 
         assertEquals(ThemeMode.LIGHT, viewModel.uiState.value.themeMode)
@@ -66,15 +65,13 @@ class MainViewModelTest {
 
     @Test
     fun `写入语言经仓库回流更新状态`() = runTest(dispatcher) {
-        val viewModel = MainViewModel(
-            settingsRepository = FakeSettingsRepository(),
-            appVersion = "1.0.0",
-        )
+        val repository = FakeSettingsRepository()
+        val viewModel = MainViewModel(repository, appVersion = "1.0.0")
 
         advanceUntilIdle()
         assertEquals(AppLanguage.SYSTEM, viewModel.uiState.value.language)
 
-        viewModel.setLanguage(AppLanguage.CHINESE)
+        repository.setAppLanguage(AppLanguage.CHINESE)
         advanceUntilIdle()
 
         assertEquals(AppLanguage.CHINESE, viewModel.uiState.value.language)

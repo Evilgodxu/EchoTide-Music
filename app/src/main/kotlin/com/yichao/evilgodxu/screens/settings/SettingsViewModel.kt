@@ -1,57 +1,31 @@
 package com.yichao.evilgodxu.screens.settings
 
-import android.app.Application
-import android.content.Context
-import android.content.SharedPreferences
-import android.provider.Settings
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.yichao.evilgodxu.data.cache.CacheInventory
-import com.yichao.evilgodxu.data.music.api.MusicHttpClient
-import com.yichao.evilgodxu.data.music.proxy.ProxyParseResult
-import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
-import com.yichao.evilgodxu.data.music.playback.usb.UsbAccessRequest
-import com.yichao.evilgodxu.permission.OverlayGrantMonitor
-import com.yichao.evilgodxu.permission.PermissionType
-import com.yichao.evilgodxu.permission.isNotificationPolicyGranted
-import com.yichao.evilgodxu.permission.PermissionReturnMonitor
-import com.yichao.evilgodxu.permission.bringAppToFront
 import com.yichao.evilgodxu.data.repository.SettingsRepository
 import com.yichao.evilgodxu.data.settings.AppLanguage
 import com.yichao.evilgodxu.data.settings.ThemeMode
 import com.yichao.evilgodxu.data.settings.UsbOutputKind
 import com.yichao.evilgodxu.data.settings.usbOutputSwitchesAfter
-import com.yichao.evilgodxu.log.CrashLogManager
-import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.localization.LocalizationManager
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.Request
 
+/**
+ * 设置页状态持有者。
+ *
+ * 不持有 Context：平台能力（代理音源存储、缓存采样、三条授权流程）经 [SettingsEnvironment] 注入，
+ * 因此可在 JVM 单测里用假环境替换；状态与判定留在本类，写盘统一走 [SettingsRepository]。
+ */
 class SettingsViewModel(
-    application: Application,
     private val settingsRepository: SettingsRepository,
-    private val localizationManager: LocalizationManager,
-) : AndroidViewModel(application) {
-
-    private val context get() = getApplication<Application>()
-
-    // 代理音源存储变更监听：分享导入等外部写入不经过本 ViewModel，存储变化后统一驱动列表刷新
-    private val proxyChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-        refreshProxySources()
-    }
-
-    override fun onCleared() {
-        ProxySourceStore.unregisterChangeListener(context, proxyChangeListener)
-    }
+    private val environment: SettingsEnvironment,
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
-        SettingsUiState(version = getVersion()),
+        SettingsUiState(version = environment.appVersion),
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
@@ -66,46 +40,34 @@ class SettingsViewModel(
         }
         viewModelScope.launch {
             settingsRepository.playbackSettings.collect { playback ->
-                _uiState.update {
-                    it.copy(
-                        miniPlayerEnabled = playback.miniPlayerEnabled,
-                        wordByWordRendering = playback.wordByWordRendering,
-                        swipeToChangeTrack = playback.swipeToChangeTrack,
-                        backgroundFlow = playback.backgroundFlow,
-                        usbDirectOutput = playback.usbDirectOutput,
-                        usbExclusiveOutput = playback.usbExclusiveOutput,
-                    )
-                }
+                _uiState.update { it.copy(playback = playback) }
             }
         }
         refreshProxySources()
         refreshCacheUsage()
-        // 注册外部导入（如系统分享）引发的数据变更监听，确保列表即时同步
-        ProxySourceStore.registerChangeListener(context, proxyChangeListener)
+        // 分享导入等外部写入不经过本 ViewModel，注册监听后由存储变化统一驱动列表刷新
+        environment.registerProxySourceChanges(::refreshProxySources)
+    }
+
+    override fun onCleared() {
+        environment.unregisterProxySourceChanges()
     }
 
     fun setMiniPlayerEnabled(enabled: Boolean) {
-        _uiState.update { it.copy(miniPlayerEnabled = enabled) }
+        _uiState.update { it.copy(playback = it.playback.copy(miniPlayerEnabled = enabled)) }
         viewModelScope.launch {
             settingsRepository.updatePlaybackSettings { it.copy(miniPlayerEnabled = enabled) }
-            if (enabled && !Settings.canDrawOverlays(context)) {
-                // 置为待授权状态：设置页 UI 通过 ActivityResultLauncher 打开系统悬浮窗设置页，
+            if (enabled && !environment.canDrawOverlays()) {
+                // 置为待授权状态：界面通过 ActivityResultLauncher 打开系统悬浮窗设置页，
                 // 返回时（含 Activity 重建、进程回收后的结果重投递）统一由 onOverlaySettingsReturned 对账
                 _uiState.update { it.copy(overlayPermissionPending = true) }
-                startOverlayGrantMonitor()
+                environment.startOverlayGrantMonitor()
             } else if (!enabled) {
                 // 主动关闭开关时结束监控，避免无意义轮询
-                OverlayGrantMonitor.stop()
+                environment.stopOverlayGrantMonitor()
                 _uiState.update { it.copy(overlayPermissionPending = false) }
             }
         }
-    }
-
-    // 申请免打扰访问权：已授予时什么都不做，未授予则置位由界面打开授权页
-    private fun requestNotificationPolicyAccess() {
-        if (isNotificationPolicyGranted(context)) return
-        PermissionReturnMonitor.watch(context, PermissionType.NOTIFICATION_POLICY)
-        _uiState.update { it.copy(notificationPolicyPermissionPending = true) }
     }
 
     // 用户从免打扰授权页返回（ActivityResultLauncher 回调）：授权与否都只需收尾置位，
@@ -117,41 +79,32 @@ class SettingsViewModel(
     // 用户从系统悬浮窗设置页返回（ActivityResultLauncher 回调）
     fun onOverlaySettingsReturned() {
         _uiState.update { it.copy(overlayPermissionPending = false) }
-        if (!Settings.canDrawOverlays(context)) {
+        if (!environment.canDrawOverlays()) {
             // 未授予：停止监控并回滚开关，避免界面状态与真实权限不一致
-            OverlayGrantMonitor.stop()
+            environment.stopOverlayGrantMonitor()
             viewModelScope.launch {
                 settingsRepository.updatePlaybackSettings { it.copy(miniPlayerEnabled = false) }
-                _uiState.update { it.copy(miniPlayerEnabled = false) }
+                _uiState.update { it.copy(playback = it.playback.copy(miniPlayerEnabled = false)) }
             }
         }
     }
 
-    // 应用级监控悬浮窗授权：授权后尝试自动将应用带回前台。
-    // 监控生命周期独立于 Activity/ViewModel；若系统（如部分 ROM 的后台弹出限制）拦截后台拉起，
-    // 用户手动返回时仍会走 onOverlaySettingsReturned 完成状态对账。
-    private fun startOverlayGrantMonitor() {
-        OverlayGrantMonitor.start(context) { appContext ->
-            bringAppToFront(appContext)
-        }
-    }
-
     fun setWordByWordRendering(enabled: Boolean) {
-        _uiState.update { it.copy(wordByWordRendering = enabled) }
+        _uiState.update { it.copy(playback = it.playback.copy(wordByWordRendering = enabled)) }
         viewModelScope.launch {
             settingsRepository.updatePlaybackSettings { it.copy(wordByWordRendering = enabled) }
         }
     }
 
     fun setSwipeToChangeTrack(enabled: Boolean) {
-        _uiState.update { it.copy(swipeToChangeTrack = enabled) }
+        _uiState.update { it.copy(playback = it.playback.copy(swipeToChangeTrack = enabled)) }
         viewModelScope.launch {
             settingsRepository.updatePlaybackSettings { it.copy(swipeToChangeTrack = enabled) }
         }
     }
 
     fun setBackgroundFlow(enabled: Boolean) {
-        _uiState.update { it.copy(backgroundFlow = enabled) }
+        _uiState.update { it.copy(playback = it.playback.copy(backgroundFlow = enabled)) }
         viewModelScope.launch {
             settingsRepository.updatePlaybackSettings { it.copy(backgroundFlow = enabled) }
         }
@@ -162,7 +115,7 @@ class SettingsViewModel(
         if (enabled) {
             // 面板的设备能力按描述符给（支持采样率、支持编码都取自这里），读描述符要 USB 授权。
             // 开关打开是用户明确表示"要走这台解码器"的时刻，此时要授权有上下文，也不会打断日常听歌
-            UsbAccessRequest.requestIfNeeded(context)
+            environment.requestUsbAccess()
             // 直出期间要把系统置为「仅闹钟」：免打扰访问权在这一刻申请。
             // 与悬浮窗授权同一套——授权页由界面在同任务内打开，这里只负责置位与跟随：
             // 该页在用户勾选后不会自己关闭，得靠跟随把应用带回前台
@@ -180,6 +133,13 @@ class SettingsViewModel(
         }
     }
 
+    // 申请免打扰访问权：已授予时什么都不做，未授予则置位由界面打开授权页
+    private fun requestNotificationPolicyAccess() {
+        if (environment.isNotificationPolicyGranted()) return
+        environment.watchNotificationPolicyGrant()
+        _uiState.update { it.copy(notificationPolicyPermissionPending = true) }
+    }
+
     /**
      * 界面状态先行更新，落盘随后异步进行。
      *
@@ -190,8 +150,10 @@ class SettingsViewModel(
         val switches = usbOutputSwitchesAfter(kind, enabled)
         _uiState.update { state ->
             state.copy(
-                usbDirectOutput = switches[UsbOutputKind.FORMAT_LOCKED] ?: state.usbDirectOutput,
-                usbExclusiveOutput = switches[UsbOutputKind.EXCLUSIVE] ?: state.usbExclusiveOutput,
+                playback = state.playback.copy(
+                    usbDirectOutput = switches[UsbOutputKind.FORMAT_LOCKED] ?: state.playback.usbDirectOutput,
+                    usbExclusiveOutput = switches[UsbOutputKind.EXCLUSIVE] ?: state.playback.usbExclusiveOutput,
+                ),
             )
         }
     }
@@ -204,33 +166,18 @@ class SettingsViewModel(
 
     fun setLanguage(language: AppLanguage) {
         _uiState.update { it.copy(language = language) }
-        localizationManager.applyAppLocale(localizationManager.resolveLanguage(language))
+        environment.applyLanguage(language)
         viewModelScope.launch {
             settingsRepository.setAppLanguage(language)
         }
     }
 
-    // 导入代理音源：链接内容先拉取，文本内容直接解析；成功不显示提示，失败提示自动消失
+    // 导入代理音源：链接先拉取、文本直接解析；成功不显示提示，失败提示自动消失
     fun importProxySource(content: String) {
         viewModelScope.launch {
-            val (message, failed) = withContext(Dispatchers.IO) {
-                val raw = if (looksLikeUrl(content)) fetchUrl(content) else content
-                when {
-                    raw.isNullOrBlank() -> context.getString(
-                        R.string.settings_proxy_source_import_failed,
-                        context.getString(R.string.settings_proxy_source_link_error),
-                    ) to true
-                    else -> when (val result = ProxySourceStore.import(context, raw)) {
-                        is ProxyParseResult.Success -> null to false
-                        is ProxyParseResult.Failure -> context.getString(
-                            R.string.settings_proxy_source_import_failed,
-                            result.reason,
-                        ) to true
-                    }
-                }
-            }
+            val message = environment.importProxySource(content)
             _uiState.update {
-                it.copy(proxyImportMessage = message, proxyImportFailed = failed)
+                it.copy(proxyImportMessage = message.text, proxyImportFailed = message.failed)
             }
             // 列表刷新由存储变更监听统一驱动
         }
@@ -238,52 +185,27 @@ class SettingsViewModel(
 
     // 切换代理音源启用状态，停用的音源即时停止参与解析
     fun setProxySourceEnabled(name: String, enabled: Boolean) {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) { ProxySourceStore.setEnabled(context, name, enabled) }
-        }
+        viewModelScope.launch { environment.setProxySourceEnabled(name, enabled) }
     }
 
     fun removeProxySource(name: String) {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) { ProxySourceStore.remove(context, name) }
-        }
+        viewModelScope.launch { environment.removeProxySource(name) }
     }
 
     fun clearProxyImportMessage() {
         _uiState.update { it.copy(proxyImportMessage = null, proxyImportFailed = false) }
     }
 
-    // 采样缓存合计占用：目录遍历为阻塞 IO，先在 IO 线程取结果再回填状态。
+    // 采样缓存合计占用：目录遍历为阻塞 IO，由环境侧切到 IO 线程。
     // 明细与清理在缓存页进行，此处只需总量供入口展示
     private fun refreshCacheUsage() {
         viewModelScope.launch {
-            val totalBytes = withContext(Dispatchers.IO) {
-                CacheInventory.sample(context).sumOf { it.sizeBytes }
-            }
+            val totalBytes = environment.sampleCacheBytes()
             _uiState.update { it.copy(cacheTotalBytes = totalBytes) }
         }
     }
 
     private fun refreshProxySources() {
-        _uiState.update { it.copy(proxySources = ProxySourceStore.all(context)) }
-    }
-
-    private fun looksLikeUrl(content: String): Boolean =
-        content.startsWith("http://") || content.startsWith("https://")
-
-    private fun fetchUrl(url: String): String? {
-        return try {
-            MusicHttpClient.client.newCall(Request.Builder().url(url).build()).execute().use { resp ->
-                if (resp.isSuccessful) resp.body.string().trim() else null
-            }
-        } catch (e: Exception) {
-            CrashLogManager.logException("SettingsViewModel", "拉取代理音源链接失败: $url", e)
-            null
-        }
-    }
-
-    private fun getVersion(): String {
-        return context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
+        _uiState.update { it.copy(proxySources = environment.proxySources()) }
     }
 }
-

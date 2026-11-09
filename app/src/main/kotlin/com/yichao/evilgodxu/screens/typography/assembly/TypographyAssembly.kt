@@ -6,9 +6,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.tooling.preview.Preview
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.screens.typography.TypographyUiState
 import com.yichao.evilgodxu.screens.typography.component.TypographyGroups
+import com.yichao.evilgodxu.theme.MyApplicationTheme
 import com.yichao.evilgodxu.ui.component.ContentPane
 import com.yichao.evilgodxu.ui.component.PageTopBar
 import com.yichao.evilgodxu.windowsize.WindowSizeClass
@@ -54,3 +56,29 @@ internal fun TypographyAssembly(
         }
     }
 }
+
+@Composable
+private fun TypographyAssemblyPreviewContent(windowSizeClass: WindowSizeClass) {
+    MyApplicationTheme {
+        TypographyAssembly(
+            windowSizeClass = windowSizeClass,
+            uiState = TypographyUiState(),
+            onBack = {},
+            onHomePortraitFontSizeChange = {},
+            onHomePortraitLinesChange = {},
+            onHomePortraitLineSpacingChange = {},
+            onLandscapeFontSizeChange = {},
+            onLandscapeLinesChange = {},
+            onLandscapeLineSpacingChange = {},
+            onLandscape3DChange = {},
+        )
+    }
+}
+
+@Preview(name = "字体 · 窄窗", widthDp = 412, heightDp = 860, showBackground = true)
+@Composable
+private fun TypographyAssemblyCompactPreview() = TypographyAssemblyPreviewContent(WindowSizeClass.Compact)
+
+@Preview(name = "字体 · 宽窗", widthDp = 1000, heightDp = 700, showBackground = true)
+@Composable
+private fun TypographyAssemblyExpandedPreview() = TypographyAssemblyPreviewContent(WindowSizeClass.Expanded)

@@ -12,8 +12,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-// 应用级（Activity 作用域）UI 状态持有者：以 DataStore 为单一事实源，聚合主题与语言，
-// 供全局主题与本地化共同消费，UI 层不直连数据源
+// 应用级（Activity 作用域）UI 状态持有者：以 DataStore 为单一事实源聚合主题与语言。
+// 写入由设置页经仓库完成，这里只做聚合，不另开写入口
 class MainViewModel(
     private val settingsRepository: SettingsRepository,
     appVersion: String,
@@ -34,14 +34,6 @@ class MainViewModel(
             }
         }
     }
-
-    fun setThemeMode(mode: ThemeMode) {
-        viewModelScope.launch { settingsRepository.saveThemeMode(mode) }
-    }
-
-    fun setLanguage(language: AppLanguage) {
-        viewModelScope.launch { settingsRepository.setAppLanguage(language) }
-    }
 }
 
 // 应用级 UI 状态：聚合全局主题、语言与版本，供主题、本地化与各页面 UI 共同消费。
@@ -52,7 +44,6 @@ data class AppUiState(
     val version: String = "",
 )
 
-// 供界面树消费的 CompositionLocal，由宿主 Activity 提供
-val LocalMainViewModel = staticCompositionLocalOf<MainViewModel> {
-    error("MainViewModel is not provided")
-}
+// 应用级状态的只读下发通道：宿主把 ViewModel 的 StateFlow 收集成值后提供，消费者按值取用。
+// 默认值使主题与本地化在没有宿主的场景（预览、单测）下也能独立渲染，无需伪造 ViewModel
+val LocalAppUiState = staticCompositionLocalOf { AppUiState() }

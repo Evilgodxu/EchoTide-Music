@@ -17,9 +17,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.SystemBarStyle
 import androidx.activity.viewModels
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.yichao.evilgodxu.data.music.proxy.ProxyParseResult
@@ -121,8 +123,9 @@ class MainActivity : ComponentActivity() {
         })
 
         setContent {
+            val appUiState by activityViewModel.uiState.collectAsStateWithLifecycle()
             ProvideAppDependencies(app.container) {
-                CompositionLocalProvider(LocalMainViewModel provides activityViewModel) {
+                CompositionLocalProvider(LocalAppUiState provides appUiState) {
                     ProvideLocalizedContext(localizationManager) {
                         AppContent()
                     }

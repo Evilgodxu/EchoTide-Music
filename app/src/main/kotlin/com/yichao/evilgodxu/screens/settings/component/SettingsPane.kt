@@ -61,17 +61,17 @@ internal fun SettingsPane(
         )
         Language(uiState.language, onShowDialog = onShowLanguageDialog)
         Playback(
-            miniPlayerEnabled = uiState.miniPlayerEnabled,
+            miniPlayerEnabled = uiState.playback.miniPlayerEnabled,
             onMiniPlayerEnabledChange = onMiniPlayerEnabledChange,
-            wordByWordRendering = uiState.wordByWordRendering,
+            wordByWordRendering = uiState.playback.wordByWordRendering,
             onWordByWordRenderingChange = onWordByWordRenderingChange,
-            swipeToChangeTrack = uiState.swipeToChangeTrack,
+            swipeToChangeTrack = uiState.playback.swipeToChangeTrack,
             onSwipeToChangeTrackChange = onSwipeToChangeTrackChange,
-            backgroundFlow = uiState.backgroundFlow,
+            backgroundFlow = uiState.playback.backgroundFlow,
             onBackgroundFlowChange = onBackgroundFlowChange,
-            usbDirectOutput = uiState.usbDirectOutput,
+            usbDirectOutput = uiState.playback.usbDirectOutput,
             onUsbDirectOutputChange = onUsbDirectOutputChange,
-            usbExclusiveOutput = uiState.usbExclusiveOutput,
+            usbExclusiveOutput = uiState.playback.usbExclusiveOutput,
             onUsbExclusiveOutputChange = onUsbExclusiveOutputChange,
             onTypographyClick = onOpenTypography,
         )

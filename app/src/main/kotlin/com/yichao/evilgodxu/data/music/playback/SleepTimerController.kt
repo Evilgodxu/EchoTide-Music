@@ -2,7 +2,6 @@ package com.yichao.evilgodxu.data.music.playback
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
