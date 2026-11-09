@@ -444,7 +444,6 @@
     <string name="cache_category_search_history">搜索历史</string>
     <string name="cache_category_playlist_cache">播放列表缓存</string>
     <string name="cache_category_boot_mirror">启动镜像</string>
-    <string name="cache_category_boot_language">启动语言</string>
     <string name="cache_category_update_info">待更新信息</string>
     <string name="cache_category_settings">设置与播放状态</string>
     <string name="cache_category_highlight">心动高亮段</string>

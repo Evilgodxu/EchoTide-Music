@@ -77,8 +77,7 @@ class HomeViewModel(
      * 说明无从比对，同样按需要扫处理，宁可多扫一轮也不漏掉新入库的歌。
      */
     private suspend fun needsLibraryScan(context: Application, state: MusicPlaybackState): Boolean {
-        if (!state.hasLibraryCache(context)) return true
-        val saved = state.readLibrarySignature(context) ?: return true
+        val saved = state.readLibrarySignature() ?: return true
         val current = MusicScanner.signature(context) ?: return true
         if (current != saved) return true
         // 签名相同但缓存里的曲目比它少：上一轮的歌单落盘被进程结束打断，按需要补扫。

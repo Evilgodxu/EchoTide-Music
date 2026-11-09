@@ -255,8 +255,8 @@ internal fun PlaylistTracksPage(
     playlist: Playlist,
     playbackState: MusicPlaybackState,
 ) {
-    val context = LocalContext.current
     val playlistStore = LocalPlaylistStore.current
+    val scope = rememberCoroutineScope()
     // 实时读取最新歌单，添加/移除歌曲后立即刷新列表
     val currentPlaylist = playlistStore.playlists.find { it.id == playlist.id } ?: playlist
     val tracks = remember(playbackState.libraryTracks, currentPlaylist.trackIds) {
@@ -287,7 +287,7 @@ internal fun PlaylistTracksPage(
         },
         onTrackLongClick = { removeTrack = it },
         onReorder = { ordered ->
-            playlistStore.setTrackOrder(context, playlist.id, ordered.map { it.id })
+            scope.launch { playlistStore.setTrackOrder(playlist.id, ordered.map { it.id }) }
         },
     )
     AddSongsPicker(
@@ -296,7 +296,7 @@ internal fun PlaylistTracksPage(
         candidateTracks = playbackState.libraryTracks,
         existingIds = currentPlaylist.trackIds.toSet(),
         onConfirm = { ids ->
-            playlistStore.addTracks(context, playlist.id, ids)
+            scope.launch { playlistStore.addTracks(playlist.id, ids) }
             showPicker = false
         },
         onDismiss = { showPicker = false },
@@ -304,7 +304,7 @@ internal fun PlaylistTracksPage(
     RemoveTrackDialog(
         track = removeTrack,
         onConfirm = { track ->
-            playlistStore.removeTracks(context, playlist.id, listOf(track.id))
+            scope.launch { playlistStore.removeTracks(playlist.id, listOf(track.id)) }
             removeTrack = null
         },
         onDismiss = { removeTrack = null },

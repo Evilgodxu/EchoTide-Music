@@ -44,7 +44,7 @@ internal suspend fun performSearch(
     try {
         // 代理音源一次拉取全量（多数代理不支持分页），本地按页切分展示
         val proxyResults = ProxySourceEngine.search(
-            context,
+            playbackState.proxySourceStore,
             playbackState.searchSource,
             query,
             page = 1,
@@ -93,7 +93,7 @@ private suspend fun fetchSearchPage(
     page: Int,
 ): List<NeteaseSongSearchResult> {
     val proxyResults = ProxySourceEngine.search(
-        context,
+        playbackState.proxySourceStore,
         playbackState.searchSource,
         query,
         page = page,
@@ -170,7 +170,7 @@ private fun fillProxySearchCovers(playbackState: MusicPlaybackState, context: Co
     if (pending.isEmpty()) return
     playbackState.playbackScope.launch {
         pending.forEach { result ->
-            val url = ProxySourceEngine.coverUrl(context, result) ?: return@forEach
+            val url = ProxySourceEngine.coverUrl(playbackState.proxySourceStore, result) ?: return@forEach
             withContext(Dispatchers.Main) {
                 val index = playbackState.searchResults.indexOfFirst { it.id == result.id }
                 if (index >= 0) {

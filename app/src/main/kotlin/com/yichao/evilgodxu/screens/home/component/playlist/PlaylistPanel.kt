@@ -43,7 +43,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -66,7 +65,6 @@ import com.yichao.evilgodxu.data.playlist.distinctArtistCount
 import com.yichao.evilgodxu.data.playlist.smartTrackCount
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.LocalArtistOrderStore
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.screens.home.component.playlist.expanded.PlaylistWidePanel
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
@@ -96,15 +94,7 @@ internal fun PlaylistPanel(
     pendingArtist: String? = null,
     onPendingArtistHandled: () -> Unit = {},
 ) {
-    val context = LocalContext.current
     val playlistStore = LocalPlaylistStore.current
-    val artistOrderStore = LocalArtistOrderStore.current
-    // 读盘切到 IO：首次 getSharedPreferences 需同步解析整份歌单 JSON，在主线程执行会阻塞首帧。
-    // 歌手曲序在此一并预读：歌手页按存档顺序铺列表，等进页才读会让该页先按曲库顺序成形再整体重排
-    LaunchedEffect(Unit) {
-        playlistStore.awaitLoaded(context)
-        artistOrderStore.awaitLoaded(context)
-    }
     // 新建/重命名/删除歌单弹窗
     var showCreate by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<Playlist?>(null) }

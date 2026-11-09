@@ -12,16 +12,13 @@ import com.yichao.evilgodxu.data.settings.SettingsKeys
 import com.yichao.evilgodxu.data.settings.SettingsState
 import com.yichao.evilgodxu.data.settings.ThemeMode
 import com.yichao.evilgodxu.data.settings.toPlaybackSettings
-import com.yichao.evilgodxu.data.settings.writeBootLanguage
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.withContext
 
 // 设置仓库契约：数据层入口，由 App 注入实现，单测注入内存 fake。
-// ViewModel 只依赖本接口，不直接触碰 DataStore 与启动语言镜像
+// ViewModel 只依赖本接口，不直接触碰 DataStore
 interface SettingsRepository {
 
     // 设置状态流：主题模式驱动全局配色
@@ -49,7 +46,7 @@ interface SettingsRepository {
 }
 
 // DataStore 实现：以 DataStore 为设置项的唯一事实源。
-// 上下文由构造注入，供启动语言镜像复用同一份存储位置
+// 上下文由构造注入，供设置读写复用同一份存储位置
 class DataStoreSettingsRepository(private val context: Context) : SettingsRepository {
 
     // 设置状态流：主题模式驱动全局配色。
@@ -88,8 +85,6 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
         context.settingsDataStore.edit { preferences ->
             preferences[SettingsKeys.LANGUAGE] = language.languageTag.orEmpty()
         }
-        // 同步刷新启动语言镜像：下次冷启动才无需读 DataStore 即可同步拿到刚选的语言
-        withContext(Dispatchers.IO) { writeBootLanguage(context, language) }
     }
 
     override suspend fun updatePlaybackSettings(transform: (PlaybackSettings) -> PlaybackSettings) {

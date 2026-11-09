@@ -1,96 +1,131 @@
 package com.yichao.evilgodxu.data.music.proxy
 
 import android.content.Context
-import android.content.SharedPreferences
-import androidx.core.content.edit
+import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.dataStore
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
+import com.yichao.evilgodxu.data.persistence.JsonSerializer
 import com.yichao.evilgodxu.data.persistence.PersistedData
 import com.yichao.evilgodxu.data.persistence.PersistedFileKind
-import org.json.JSONArray
+import com.yichao.evilgodxu.data.persistence.catchPersistenceIo
+import com.yichao.evilgodxu.log.CrashLogManager
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
 
-// 同名音源重复导入时覆盖
-internal object ProxySourceStore {
+// 代理音源的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
+internal val PROXY_SOURCE_STORE = PersistedData("proxy_sources", PersistedFileKind.DATA_STORE_JSON)
 
-    // 代理音源的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
-    internal val PERSISTED = PersistedData("proxy_sources", PersistedFileKind.SHARED_PREFS)
-    private const val KEY_SOURCES = "sources_json"
-    private const val KEY_ENABLED = "enabled_names"
+@Serializable
+private data class ProxySourceArchive(
+    // 原始音源 JSON 文本：解析结果按原文缓存，导入/移除只替换原文
+    val sources: List<String> = emptyList(),
+    val enabled: List<String> = emptyList(),
+)
 
-    // 写路径统一串行化，避免并发导入/移除/启停的读-改-写交错丢失更新
-    @Synchronized
-    fun import(context: Context, raw: String): ProxyParseResult {
+private val Context.proxySourceDataStore: DataStore<ProxySourceArchive> by dataStore(
+    fileName = "${PROXY_SOURCE_STORE.name}.json",
+    serializer = JsonSerializer(ProxySourceArchive.serializer(), ProxySourceArchive()),
+    corruptionHandler = ReplaceFileCorruptionHandler { throwable ->
+        CrashLogManager.logException("ProxySourceStore", "代理音源数据损坏，已重置为空", throwable)
+        ProxySourceArchive()
+    },
+)
+
+/**
+ * 代理音源存储：DataStore 持有原始文本与启用状态，内存侧只缓存解析结果。
+ *
+ * 音源解析结果被搜索、平台菜单与设置页反复读取，逐次重新解析全部文本代价过高；
+ * [sources] 在原文变化时才重新解析，启用状态变化只重映射标记。
+ */
+class ProxySourceStore(context: Context, scope: CoroutineScope) {
+
+    private val appContext = context.applicationContext
+    private val _sources = MutableStateFlow<List<ProxySourceSpec>>(emptyList())
+    private val loaded = CompletableDeferred<Unit>()
+
+    /** 当前音源快照：设置页与平台菜单据此刷新，停用的音源也包含在内。 */
+    val sources: StateFlow<List<ProxySourceSpec>> = _sources.asStateFlow()
+
+    // 解析结果按原始 JSON 文本缓存：导入 / 移除会替换原文，缓存键不命中即重新解析
+    private var cachedRawKey: String? = null
+    private var cachedSpecs: List<ProxySourceSpec> = emptyList()
+
+    init {
+        scope.launch {
+            appContext.proxySourceDataStore.data
+                .catchPersistenceIo("ProxySourceStore") { ProxySourceArchive() }
+                .collect { archive ->
+                    _sources.value = parseArchive(archive)
+                    loaded.complete(Unit)
+                }
+        }
+    }
+
+    /** 等待首次读盘完成：搜索与播放路径在取音源前调用，避免拿到尚未开始的空快照。 */
+    suspend fun awaitLoaded() {
+        loaded.await()
+    }
+
+    suspend fun import(raw: String): ProxyParseResult {
         val parsed = ProxySourceParser.parse(raw)
         if (parsed is ProxyParseResult.Failure) return parsed
         val spec = (parsed as ProxyParseResult.Success).spec
-        val list = rawList(context).toMutableList()
-        list.removeAll { rawJson ->
-            val existing = ProxySourceParser.parse(rawJson)
-            existing is ProxyParseResult.Success && existing.spec.name == spec.name
-        }
-        list.add(spec.rawJson)
-        val enabled = enabledNames(context).toMutableSet()
-        enabled.add(spec.name)
-        // 音源列表与启用状态同属一份 XML，合并为一次落盘：拆成两次会多一倍 I/O，
-        // 且中途进程被杀会留下「音源已导入但未启用」的不一致状态
-        prefs(context).edit(commit = true) {
-            putString(KEY_SOURCES, encodeStringList(list))
-            putString(KEY_ENABLED, encodeStringList(enabled))
+        // 音源列表与启用状态同属一份文件，合并为一次提交：拆成两次会留下
+        // 「音源已导入但未启用」的中间态
+        appContext.proxySourceDataStore.updateData { archive ->
+            val sources = archive.sources.filterNot { rawJson ->
+                val existing = ProxySourceParser.parse(rawJson)
+                existing is ProxyParseResult.Success && existing.spec.name == spec.name
+            } + spec.rawJson
+            archive.copy(
+                sources = sources,
+                enabled = (archive.enabled + spec.name).distinct(),
+            )
         }
         return parsed
     }
 
-    @Synchronized
-    fun remove(context: Context, name: String) {
-        val list = rawList(context).toMutableList()
-        list.removeAll { rawJson ->
-            val existing = ProxySourceParser.parse(rawJson)
-            existing is ProxyParseResult.Success && existing.spec.name == name
-        }
-        val enabled = enabledNames(context).toMutableSet()
-        enabled.remove(name)
-        prefs(context).edit(commit = true) {
-            putString(KEY_SOURCES, encodeStringList(list))
-            putString(KEY_ENABLED, encodeStringList(enabled))
+    suspend fun remove(name: String) {
+        appContext.proxySourceDataStore.updateData { archive ->
+            archive.copy(
+                sources = archive.sources.filterNot { rawJson ->
+                    val existing = ProxySourceParser.parse(rawJson)
+                    existing is ProxyParseResult.Success && existing.spec.name == name
+                },
+                enabled = archive.enabled.filterNot { it == name },
+            )
         }
     }
 
     // 停用的音源即时停止参与解析
-    @Synchronized
-    fun setEnabled(context: Context, name: String, enabled: Boolean) {
-        val names = enabledNames(context).toMutableSet()
-        if (enabled) names.add(name) else names.remove(name)
-        prefs(context).edit(commit = true) {
-            putString(KEY_ENABLED, encodeStringList(names))
+    suspend fun setEnabled(name: String, enabled: Boolean) {
+        appContext.proxySourceDataStore.updateData { archive ->
+            archive.copy(
+                enabled = if (enabled) {
+                    (archive.enabled + name).distinct()
+                } else {
+                    archive.enabled.filterNot { it == name }
+                },
+            )
         }
     }
 
-    // 与写互斥保证列表与启用状态读取一致
-    @Synchronized
-    fun all(context: Context): List<ProxySourceSpec> {
-        val enabled = enabledNames(context)
-        return parsedSpecs(context).map { it.copy(enabled = enabled.contains(it.name)) }
-    }
-
-    // 自定义搜索平台：平台键 -> 平台名称，供平台切换菜单列举内置平台之外的候选。
-    // 自定义平台没有内置搜索，缺搜索动作的平台选中后必然无结果，故只取声明了搜索动作的音源
-    @Synchronized
-    fun customSearchPlatforms(context: Context): Map<String, String> {
-        val names = mutableMapOf<String, String>()
-        for (spec in all(context)) {
-            if (!spec.enabled) continue
-            for ((key, platform) in spec.platforms) {
-                if (key in MusicSearchSource.builtInKeys || platform.search == null) continue
-                platform.name?.let { names[key] = it }
-            }
-        }
-        return names
+    /** 全部音源（含停用项），按导入顺序。 */
+    suspend fun all(): List<ProxySourceSpec> {
+        awaitLoaded()
+        return _sources.value
     }
 
     // 指定平台的生效音源：同一平台多音源时各动作独立取最近配置该动作的音源，
     // 不同音源可分别覆盖搜索/播放/歌词/封面等动作而不互相顶替
-    fun platformSpec(context: Context, platform: String): ProxyPlatformSpec? {
-        val covering = all(context)
-            .filter { it.enabled && it.platforms.containsKey(platform) }
+    suspend fun platformSpec(platform: String): ProxyPlatformSpec? {
+        val covering = all().filter { it.enabled && it.platforms.containsKey(platform) }
         if (covering.isEmpty()) return null
         fun latest(selector: (ProxyPlatformSpec) -> ProxyActionSpec?): ProxyActionSpec? {
             // 正序遍历保留最近一个非空动作：后导入且配置了该动作的音源生效
@@ -108,65 +143,36 @@ internal object ProxySourceStore {
         ).takeIf { it.hasAnyAction }
     }
 
-    // 注册存储变更监听：分享导入等外部写入路径不经过 ViewModel，界面借此感知数据变化后刷新
-    fun registerChangeListener(
-        context: Context,
-        listener: SharedPreferences.OnSharedPreferenceChangeListener,
-    ) {
-        prefs(context).registerOnSharedPreferenceChangeListener(listener)
-    }
-
-    fun unregisterChangeListener(
-        context: Context,
-        listener: SharedPreferences.OnSharedPreferenceChangeListener,
-    ) {
-        prefs(context).unregisterOnSharedPreferenceChangeListener(listener)
-    }
-
-    // 交由调用方与其它键合并到同一次落盘
-    private fun encodeStringList(values: Collection<String>): String {
-        val array = JSONArray()
-        values.forEach { array.put(it) }
-        return array.toString()
-    }
-
-    // 解析结果按原始 JSON 文本缓存：平台候选与展示名读取频繁，逐次重新解析全部音源文本代价过高；
-    // 导入 / 移除会替换原文，缓存键不命中即重新解析
-    private var cachedRawSources: String? = null
-    private var cachedSpecs: List<ProxySourceSpec> = emptyList()
-
-    private fun parsedSpecs(context: Context): List<ProxySourceSpec> {
-        val raw = prefs(context).getString(KEY_SOURCES, null).orEmpty()
-        if (raw == cachedRawSources) return cachedSpecs
-        val specs = decodeRawList(raw).mapNotNull { rawJson ->
-            (ProxySourceParser.parse(rawJson) as? ProxyParseResult.Success)?.spec
+    private fun parseArchive(archive: ProxySourceArchive): List<ProxySourceSpec> {
+        val rawKey = archive.sources.joinToString("\u0000")
+        val specs = if (rawKey == cachedRawKey) {
+            cachedSpecs
+        } else {
+            decodeRawList(archive.sources).mapNotNull { rawJson ->
+                (ProxySourceParser.parse(rawJson) as? ProxyParseResult.Success)?.spec
+            }.also {
+                cachedRawKey = rawKey
+                cachedSpecs = it
+            }
         }
-        cachedRawSources = raw
-        cachedSpecs = specs
-        return specs
+        val enabled = archive.enabled.toSet()
+        return specs.map { it.copy(enabled = enabled.contains(it.name)) }
     }
-
-    private fun rawList(context: Context): List<String> =
-        decodeRawList(prefs(context).getString(KEY_SOURCES, null).orEmpty())
 
     // 音源文本列表本身也是 JSON 数组文本，整体损坏时按无音源处理
-    private fun decodeRawList(raw: String): List<String> = try {
-        val array = JSONArray(raw)
-        List(array.length()) { array.optString(it).trim() }.filter { it.isNotEmpty() }
-    } catch (e: Exception) {
-        emptyList()
-    }
+    private fun decodeRawList(values: List<String>): List<String> =
+        values.map(String::trim).filter(String::isNotEmpty)
+}
 
-    private fun enabledNames(context: Context): Set<String> {
-        val raw = prefs(context).getString(KEY_ENABLED, null) ?: return emptySet()
-        return try {
-            val array = JSONArray(raw)
-            List(array.length()) { array.optString(it).trim() }.filter { it.isNotEmpty() }.toSet()
-        } catch (e: Exception) {
-            emptySet()
+// 自定义搜索平台：平台键 -> 平台名称。纯函数，供内存快照与平台菜单共用同一份判定
+internal fun customSearchPlatforms(sources: List<ProxySourceSpec>): Map<String, String> {
+    val names = mutableMapOf<String, String>()
+    for (spec in sources) {
+        if (!spec.enabled) continue
+        for ((key, platform) in spec.platforms) {
+            if (key in MusicSearchSource.builtInKeys || platform.search == null) continue
+            platform.name?.let { names[key] = it }
         }
     }
-
-    private fun prefs(context: Context) =
-        context.getSharedPreferences(PERSISTED.name, Context.MODE_PRIVATE)
+    return names
 }

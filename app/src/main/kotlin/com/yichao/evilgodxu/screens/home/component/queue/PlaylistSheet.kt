@@ -83,12 +83,8 @@ internal fun PlaylistSheet(
     // 面板展示的曲目：跟随播放队列时取播放队列，浏览态按来源歌单从全量库解析。
     // 浏览态只决定展示内容，与播放队列解耦，切换时不动播放器
     val playlistStore = LocalPlaylistStore.current
-    // 自定义歌单需先完成读盘才能解析，否则浏览态会短暂展示空列表
-    var playlistStoreLoaded by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        playlistStore.awaitLoaded(context)
-        playlistStoreLoaded = true
-    }
+    // 自定义歌单读盘完成前先按空列表处理，避免「暂无歌单」与「尚未读完」混淆
+    val playlistStoreLoaded = playlistStore.isLoaded
     val followsQueue = playbackState.viewedFollowsQueue
     val viewedSource = playbackState.viewedSource
     val library = playbackState.libraryTracks

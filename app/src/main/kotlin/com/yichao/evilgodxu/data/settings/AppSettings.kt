@@ -10,7 +10,6 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.yichao.evilgodxu.data.persistence.PersistedData
 import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import com.yichao.evilgodxu.log.CrashLogManager
-import kotlinx.coroutines.flow.first
 
 // 设置 DataStore 的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
 internal val SETTINGS_STORE = PersistedData("settings", PersistedFileKind.DATA_STORE)
@@ -29,12 +28,6 @@ object SettingsKeys {
     val THEME_MODE = stringPreferencesKey("theme_mode")
     // 语言统一落 DataStore，由 Compose 层驱动热切换
     val LANGUAGE = stringPreferencesKey("language")
-}
-
-// 冷启动引导：在依赖容器就绪前读取持久化语言，
-// 供 attachBaseContext 配置启动语言，避免在此阶段创建依赖实例
-suspend fun Context.bootstrapAppLanguage(): AppLanguage = settingsDataStore.data.first().let { preferences ->
-    AppLanguage.fromTag(preferences[SettingsKeys.LANGUAGE])
 }
 
 enum class ThemeMode(val value: String) {

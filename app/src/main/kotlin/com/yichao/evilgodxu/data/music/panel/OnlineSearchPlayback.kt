@@ -95,7 +95,7 @@ internal suspend fun downloadAndPlay(
     // 异常已在块内捕获并返回 null，不会向作用域抛出
     val lyricsJob = playbackState.playbackScope.async(Dispatchers.IO) {
         try {
-            val lines = ProxySourceEngine.lyricLines(context, result.source, result)
+            val lines = ProxySourceEngine.lyricLines(playbackState.proxySourceStore, result)
                 ?: fetchPlatformLyrics(result)
             if (lines.isEmpty()) return@async null
             val lyricPath = MusicMetadataCache.saveLyrics(context, result.title, result.artist, lines).orEmpty()
@@ -122,7 +122,7 @@ internal suspend fun downloadAndPlay(
     val coverJob = playbackState.playbackScope.async(Dispatchers.IO) {
         try {
             // 代理音源优先按 coverId 换取封面，失败时回退搜索结果的封面直链
-            ProxySourceEngine.coverBytes(context, result)
+            ProxySourceEngine.coverBytes(playbackState.proxySourceStore, result)
                 ?: run {
                     val coverUrl = result.coverUrl?.takeIf { it.isNotBlank() } ?: return@run null
                     NeteaseMusicApi.loadCoverBytes(coverUrl)
@@ -216,11 +216,11 @@ internal suspend fun tryPlayLocalMatch(
 
 // 代理音源优先，返回 null 表示该音质不可用
 internal suspend fun resolvePlayUrlByQuality(
-    context: Context,
+    sourceStore: com.yichao.evilgodxu.data.music.proxy.ProxySourceStore,
     target: NeteaseSongSearchResult,
     quality: MusicQuality,
 ): String? = withContext(Dispatchers.IO) {
-    ProxySourceEngine.resolveUrl(context, target, quality) ?: when (target.source) {
+    ProxySourceEngine.resolveUrl(sourceStore, target, quality) ?: when (target.source) {
         MusicSearchSource.NETEASE -> NeteaseMusicApi.songUrl(target.id, quality)
         MusicSearchSource.QQ -> QQMusicApi.songUrl(target.sourceId.orEmpty(), quality)
         MusicSearchSource.KUGOU -> KugouMusicApi.songUrl(target.sourceId.orEmpty())
@@ -232,11 +232,11 @@ internal suspend fun resolvePlayUrlByQuality(
 // 按用户选定音质自适应解析播放地址：选定档优先，其次向上匹配更高档，最后降级到更低档；
 // 全部档位都无直链才返回 null（此时保留音质对话框供用户改选）
 private suspend fun resolveAdaptivePlayUrl(
-    context: Context,
+    sourceStore: com.yichao.evilgodxu.data.music.proxy.ProxySourceStore,
     target: NeteaseSongSearchResult,
     requested: MusicQuality,
 ): String? = requested.adaptiveCandidates().firstNotNullOfOrNull { candidate ->
-    resolvePlayUrlByQuality(context, target, candidate)?.takeIf { url ->
+    resolvePlayUrlByQuality(sourceStore, target, candidate)?.takeIf { url ->
         url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)
     }
 }
@@ -251,7 +251,7 @@ internal suspend fun playSearchResultWithQuality(
     metadataEnricher: MetadataEnricher,
     playlistRefresher: PlaylistRefresher,
 ): Boolean {
-    val url = resolveAdaptivePlayUrl(context, target, quality) ?: return false
+    val url = resolveAdaptivePlayUrl(playbackState.proxySourceStore, target, quality) ?: return false
     playbackState.pendingQualityPlayTrackId = target.playlistTrackId
     playbackState.closeSearchResultsOnReady = true
     downloadAndPlay(context, playbackState, target, url, metadataEnricher, playlistRefresher)

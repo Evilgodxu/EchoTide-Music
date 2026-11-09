@@ -6,15 +6,11 @@ import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
-import androidx.core.content.edit
 import androidx.core.net.toUri
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
-import com.yichao.evilgodxu.data.persistence.PersistedData
-import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import com.yichao.evilgodxu.data.persistence.StoragePaths
 import com.yichao.evilgodxu.log.CrashLogManager
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -40,14 +36,6 @@ sealed class DownloadState {
 
 object UpdateManager {
 
-    // 待更新信息的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
-    internal val PERSISTED = PersistedData("update_prefs", PersistedFileKind.SHARED_PREFS)
-    private const val KEY_LAST_CHECK_DAY = "last_check_day"
-    private const val KEY_PENDING_VERSION = "pending_version"
-    private const val KEY_PENDING_URL = "pending_url"
-    private const val KEY_PENDING_CHANGELOG = "pending_changelog"
-    private const val KEY_PENDING_SHA256 = "pending_sha256"
-    private const val KEY_IGNORED_VERSION = "ignored_version"
     private const val TAG = "UpdateManager"
 
     private const val GITHUB_OWNER = "Evilgodxu"
@@ -55,13 +43,6 @@ object UpdateManager {
     const val GITHUB_REPOSITORY_URL = "https://github.com/$GITHUB_OWNER/$GITHUB_REPO"
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val prefsMap = ConcurrentHashMap<String, android.content.SharedPreferences>()
-
-    private fun prefs(context: Context): android.content.SharedPreferences {
-        return prefsMap.getOrPut(context.packageName) {
-            context.getSharedPreferences(PERSISTED.name, Context.MODE_PRIVATE)
-        }
-    }
 
     // 仅声明用到的字段，其余由 ignoreUnknownKeys 忽略
     @Serializable
@@ -79,28 +60,22 @@ object UpdateManager {
         val digest: String = ""
     )
 
-    fun shouldCheckUpdate(context: Context): Boolean {
-        val lastCheckDay = prefs(context).getString(KEY_LAST_CHECK_DAY, null)
-        return lastCheckDay != currentDay()
-    }
-
-    private fun currentDay(): String =
+    fun currentDay(): String =
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
 
     suspend fun checkForUpdate(
+        store: UpdateStore,
         context: Context,
         force: Boolean = false,
         onError: ((Exception) -> Unit)? = null
     ): UpdateInfo? {
-        val prefs = prefs(context)
-
+        val day = currentDay()
         // 非强制检查仅当进入新的一天时才执行
-        if (!force && !shouldCheckUpdate(context)) {
+        if (!force && !store.shouldCheckUpdate(day)) {
             return null
         }
 
         return try {
-            val day = currentDay()
             val release = withContext(Dispatchers.IO) {
                 val url = "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases/latest"
                 json.decodeFromString<GitHubRelease>(readJson(url))
@@ -108,7 +83,7 @@ object UpdateManager {
 
             val latest = normalizeVersion(release.tag_name)
             val current = getCurrentVersion(context)
-            val ignored = prefs.getString(KEY_IGNORED_VERSION, null)?.let(::normalizeVersion)
+            val ignored = store.ignoredVersion()?.let(::normalizeVersion)
             val offerUpdate = isNewerVersion(latest, current) && latest != ignored
 
             // 检查更新顺带清理安装包：只保留本次可安装的那份，其余（旧版本、升级后残留）一并删掉；
@@ -126,16 +101,16 @@ object UpdateManager {
                 // 缺失时留空，下载阶段会因无法校验而拒绝安装
                 val sha256 = apkAsset.digest.substringAfter("sha256:", "").trim().lowercase()
 
-                // 同步写盘：待更新信息用于冷启动恢复，异步落盘存在进程被杀丢失窗口
-                withContext(Dispatchers.IO) {
-                    prefs.edit(commit = true) {
-                        putString(KEY_LAST_CHECK_DAY, day)
-                        putString(KEY_PENDING_VERSION, latest)
-                        putString(KEY_PENDING_URL, downloadUrl)
-                        putString(KEY_PENDING_CHANGELOG, release.body)
-                        putString(KEY_PENDING_SHA256, sha256)
-                    }
-                }
+                // 一次提交写入检查日与待更新信息：拆开写会留下「已检查但无提示」的中间态
+                store.recordCheck(
+                    today = day,
+                    pending = PendingUpdate(
+                        version = latest,
+                        url = downloadUrl,
+                        changelog = release.body,
+                        sha256 = sha256,
+                    ),
+                )
 
                 UpdateInfo(
                     latestVersion = latest,
@@ -144,9 +119,7 @@ object UpdateManager {
                     sha256 = sha256
                 )
             } else {
-                withContext(Dispatchers.IO) {
-                    prefs.edit(commit = true) { putString(KEY_LAST_CHECK_DAY, day) }
-                }
+                store.recordCheck(today = day, pending = null)
                 null
             }
         } catch (e: Exception) {
@@ -212,6 +185,7 @@ object UpdateManager {
      * @return true 表示已启动安装界面，false 表示下载失败
      */
     suspend fun downloadAndInstall(
+        store: UpdateStore,
         context: Context,
         updateInfo: UpdateInfo,
         onProgress: (Float) -> Unit = {}
@@ -231,7 +205,7 @@ object UpdateManager {
             if (outFile.exists()) {
                 if (verifyApkHash(outFile, updateInfo.sha256)) {
                     onProgress(1f)
-                    installApk(context, outFile)
+                    installApk(store, context, outFile)
                     return@withContext true
                 }
                 outFile.delete()
@@ -270,7 +244,7 @@ object UpdateManager {
                             onProgress(-1f)
                             return@withContext false
                         }
-                        installApk(context, outFile)
+                        installApk(store, context, outFile)
                         return@withContext true
                     }
                     DownloadManager.STATUS_FAILED -> {
@@ -303,7 +277,7 @@ object UpdateManager {
     }
 
     // 安装即视为用户已处理该版本，先清掉待更新信息，避免下次冷启动重复提示
-    private suspend fun installApk(context: Context, apkFile: java.io.File) {
+    private suspend fun installApk(store: UpdateStore, context: Context, apkFile: java.io.File) {
         val uri = androidx.core.content.FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
@@ -315,7 +289,7 @@ object UpdateManager {
             addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(installIntent)
-        clearPendingUpdate(context)
+        clearPendingUpdate(store)
     }
 
     // 校验已下载 APK 的 SHA-256：期望哈希缺失视为不可校验，与不符一律判失败
@@ -357,44 +331,26 @@ object UpdateManager {
         return url
     }
 
-    suspend fun clearPendingUpdate(context: Context) {
-        withContext(Dispatchers.IO) {
-            prefs(context).edit(commit = true) {
-                remove(KEY_PENDING_VERSION)
-                remove(KEY_PENDING_URL)
-                remove(KEY_PENDING_CHANGELOG)
-                remove(KEY_PENDING_SHA256)
-            }
-        }
+    suspend fun clearPendingUpdate(store: UpdateStore) {
+        store.clearPending()
     }
 
     /**
      * 读取待更新信息：进程在提示出现后被回收时，同一天重开不再自动检查，
      * 只能从这里恢复尚未处理的更新提示。
      */
-    fun readPendingUpdate(context: Context): UpdateInfo? {
-        val prefs = prefs(context)
-        val version = prefs.getString(KEY_PENDING_VERSION, null)?.trim().orEmpty()
-        val url = prefs.getString(KEY_PENDING_URL, null)?.trim().orEmpty()
-        if (version.isBlank() || url.isBlank()) return null
+    suspend fun readPendingUpdate(store: UpdateStore): UpdateInfo? {
+        val pending = store.readPending() ?: return null
         return UpdateInfo(
-            latestVersion = version,
-            downloadUrl = url,
-            changelog = prefs.getString(KEY_PENDING_CHANGELOG, null).orEmpty(),
-            sha256 = prefs.getString(KEY_PENDING_SHA256, null).orEmpty(),
+            latestVersion = pending.version,
+            downloadUrl = pending.url,
+            changelog = pending.changelog,
+            sha256 = pending.sha256,
         )
     }
 
-    suspend fun ignoreVersion(context: Context, version: String) {
-        withContext(Dispatchers.IO) {
-            prefs(context).edit(commit = true) {
-                putString(KEY_IGNORED_VERSION, version)
-                remove(KEY_PENDING_VERSION)
-                remove(KEY_PENDING_URL)
-                remove(KEY_PENDING_CHANGELOG)
-                remove(KEY_PENDING_SHA256)
-            }
-        }
+    suspend fun ignoreVersion(store: UpdateStore, version: String) {
+        store.ignore(version)
     }
 
     // 逐段按整数比较：字符串比较会把 "1.10" 判为小于 "1.9"

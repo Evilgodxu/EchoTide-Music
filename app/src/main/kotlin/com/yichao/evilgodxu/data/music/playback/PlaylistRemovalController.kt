@@ -48,17 +48,15 @@ internal class PlaylistRemovalController(private val state: MusicPlaybackState) 
                 state.currentPosition = 0L
                 state.duration = 0L
                 state.errorMsg = null
-                state.appContext?.let { context ->
-                    state.playbackScope.launch {
-                        playTrackAt(
-                            context,
-                            state,
-                            nextIndex,
-                            autoPlay = wasPlaying,
-                            clearQueue = false,
-                            switchKind = TrackSwitchKind.Next,
-                        )
-                    }
+                state.playbackScope.launch {
+                    playTrackAt(
+                        state.appContext,
+                        state,
+                        nextIndex,
+                        autoPlay = wasPlaying,
+                        clearQueue = false,
+                        switchKind = TrackSwitchKind.Next,
+                    )
                 }
             } else {
                 state.mediaController?.stop()
@@ -92,9 +90,7 @@ internal class PlaylistRemovalController(private val state: MusicPlaybackState) 
         remove(track.id, advanceToNext = true)
         state.likedIds = state.likedIds - track.id
         state.removeFromRecentPlayed(track.id)
-        // 读盘切到 IO：首次 getSharedPreferences 需同步解析整份歌单 JSON，不应占用主线程
-        state.playlistStore.awaitLoaded(context)
-        state.playlistStore.removeTrackFromAll(context, track.id)
+        state.playlistStore.removeTrackFromAll(track.id)
         deleteLyricCache(context, track)
     }
 

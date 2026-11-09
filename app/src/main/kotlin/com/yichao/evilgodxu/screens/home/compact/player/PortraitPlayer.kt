@@ -265,7 +265,7 @@ internal fun PortraitPlayer(
                     lyricsTargetId = playbackState.currentTrack?.id
                     showLyricsRefresh = true
                     playbackState.currentTrack?.let { track ->
-                        scope.launch { searchLyricsCandidates(context, playbackState, track, playbackState.lyricsRefreshSource) }
+                        scope.launch { searchLyricsCandidates(playbackState, track, playbackState.lyricsRefreshSource) }
                     }
                 },
                 onLocalImport = {
@@ -392,14 +392,14 @@ internal fun PortraitPlayer(
                 if (track != null && track.id == lyricsTargetId && source != playbackState.lyricsRefreshSource) {
                     playbackState.setLyricsRefreshSource(source)
                     selectedLyricsCandidate = null
-                    scope.launch { searchLyricsCandidates(context, playbackState, track, source) }
+                    scope.launch { searchLyricsCandidates(playbackState, track, source) }
                 }
             },
             onRefresh = {
                 val track = playbackState.currentTrack
                 if (track != null && track.id == lyricsTargetId) {
                     selectedLyricsCandidate = null
-                    scope.launch { searchLyricsCandidates(context, playbackState, track, playbackState.lyricsRefreshSource) }
+                    scope.launch { searchLyricsCandidates(playbackState, track, playbackState.lyricsRefreshSource) }
                 }
             },
             onConfirm = {

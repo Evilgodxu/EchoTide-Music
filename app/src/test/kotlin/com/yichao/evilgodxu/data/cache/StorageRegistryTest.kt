@@ -47,14 +47,17 @@ class StorageRegistryTest {
     // 落盘文件名由形态推导，读写与统计都按它定位文件，推导错会让统计永远读到空
     @Test
     fun `落盘文件名按形态推导`() {
-        assertEquals("playlists.xml", PersistedData("playlists", PersistedFileKind.SHARED_PREFS).fileName)
+        assertEquals(
+            "playlists.json",
+            PersistedData("playlists", PersistedFileKind.DATA_STORE_JSON).fileName,
+        )
         assertEquals(
             "settings.preferences_pb",
             PersistedData("settings", PersistedFileKind.DATA_STORE).fileName,
         )
         assertEquals(
-            "highlight_segments.json",
-            PersistedData("highlight_segments.json", PersistedFileKind.APP_FILE).fileName,
+            "boot_mirror.json",
+            PersistedData("boot_mirror.json", PersistedFileKind.APP_FILE).fileName,
         )
     }
 

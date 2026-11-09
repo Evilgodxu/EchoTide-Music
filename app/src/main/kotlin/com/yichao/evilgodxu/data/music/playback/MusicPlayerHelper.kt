@@ -23,7 +23,6 @@ import kotlinx.coroutines.withContext
 
 private suspend fun getController(context: Context, state: MusicPlaybackState): MediaController {
     state.mediaController?.let { return it }
-    state.appContext = context.applicationContext
     val token = SessionToken(context, ComponentName(context, MusicPlaybackService::class.java))
     val controller = withContext(Dispatchers.Main) {
         MediaController.Builder(context, token).buildAsync().await()
@@ -304,7 +303,7 @@ fun togglePlayPause(state: MusicPlaybackState) {
     state.playbackScope.launch {
         val controller = state.mediaController
         if (controller == null) {
-            val context = state.appContext ?: return@launch
+            val context = state.appContext
             val index = state.currentIndex
             if (index >= 0) {
                 // 恢复当前曲目而非切歌，保留插队队列
@@ -345,7 +344,7 @@ fun seekToAndPlay(state: MusicPlaybackState, positionMs: Long) {
  * 不清空插队队列，与 [togglePlayPause] 的续播路径一致。
  */
 private fun playTrackAtPosition(state: MusicPlaybackState, positionMs: Long) {
-    val context = state.appContext ?: return
+    val context = state.appContext
     val index = state.currentIndex
     val track = state.playlist.getOrNull(index) ?: return
     state.pendingSavedUri = track.audioUri

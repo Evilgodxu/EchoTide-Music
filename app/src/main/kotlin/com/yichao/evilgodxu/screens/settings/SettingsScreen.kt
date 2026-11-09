@@ -19,6 +19,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.yichao.evilgodxu.LocalApplication
+import com.yichao.evilgodxu.LocalProxySourceStore
 import com.yichao.evilgodxu.permission.notificationPolicyAccessIntent
 import com.yichao.evilgodxu.LocalLocalizationManager
 import com.yichao.evilgodxu.LocalSettingsRepository
@@ -42,12 +43,13 @@ fun SettingsScreen(
     val application = LocalApplication.current
     val settingsRepository = LocalSettingsRepository.current
     val localizationManager = LocalLocalizationManager.current
+    val proxySourceStore = LocalProxySourceStore.current
     val viewModel: SettingsViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
                 SettingsViewModel(
                     settingsRepository = settingsRepository,
-                    environment = AndroidSettingsEnvironment(application, localizationManager),
+                    environment = AndroidSettingsEnvironment(application, localizationManager, proxySourceStore),
                 )
             }
         },

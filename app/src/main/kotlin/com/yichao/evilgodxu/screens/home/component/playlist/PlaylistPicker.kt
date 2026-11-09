@@ -29,11 +29,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -49,6 +49,7 @@ import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.ui.component.DialogCard
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.PlaylistArt
+import kotlinx.coroutines.launch
 
 // 新建歌单弹窗，创建成功后回调返回新歌单
 @Composable
@@ -58,8 +59,8 @@ internal fun CreatePlaylistDialog(
     onDismiss: () -> Unit,
 ) {
     if (!visible) return
-    val context = LocalContext.current
     val playlistStore = LocalPlaylistStore.current
+    val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
     DialogCard(onDismiss = onDismiss) {
         Column(
@@ -108,8 +109,10 @@ internal fun CreatePlaylistDialog(
                     onClick = {
                         val trimmed = name.trim()
                         if (trimmed.isNotEmpty()) {
-                            val created = playlistStore.create(context, trimmed)
-                            if (created != null) onCreated(created)
+                            scope.launch {
+                                val created = playlistStore.create(trimmed)
+                                if (created != null) onCreated(created)
+                            }
                         }
                     },
                 ) {
@@ -133,8 +136,8 @@ internal fun RenamePlaylistDialog(
     onDismiss: () -> Unit,
 ) {
     if (playlist == null) return
-    val context = LocalContext.current
     val playlistStore = LocalPlaylistStore.current
+    val scope = rememberCoroutineScope()
     var name by remember(playlist.id) { mutableStateOf(playlist.name) }
     DialogCard(onDismiss = onDismiss) {
         Column(
@@ -183,7 +186,7 @@ internal fun RenamePlaylistDialog(
                     onClick = {
                         val trimmed = name.trim()
                         if (trimmed.isNotEmpty()) {
-                            playlistStore.rename(context, playlist.id, trimmed)
+                            scope.launch { playlistStore.rename(playlist.id, trimmed) }
                             onDismiss()
                         }
                     },
@@ -208,8 +211,8 @@ internal fun DeletePlaylistDialog(
     onDismiss: () -> Unit,
 ) {
     if (playlist == null) return
-    val context = LocalContext.current
     val playlistStore = LocalPlaylistStore.current
+    val scope = rememberCoroutineScope()
     DialogCard(onDismiss = onDismiss) {
         Column(
             modifier = Modifier
@@ -255,7 +258,7 @@ internal fun DeletePlaylistDialog(
                     shape = RoundedCornerShape(10.dp),
                     color = MaterialTheme.colorScheme.error,
                     onClick = {
-                        playlistStore.delete(context, playlist.id)
+                        scope.launch { playlistStore.delete(playlist.id) }
                         onDismiss()
                     },
                 ) {

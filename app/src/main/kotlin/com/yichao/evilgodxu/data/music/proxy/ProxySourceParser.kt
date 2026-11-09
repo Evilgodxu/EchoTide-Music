@@ -5,7 +5,7 @@ import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import org.json.JSONObject
 
 // Failure.reason 直接面向用户展示
-internal sealed interface ProxyParseResult {
+sealed interface ProxyParseResult {
     data class Success(val spec: ProxySourceSpec) : ProxyParseResult
     data class Failure(val reason: String) : ProxyParseResult
 }

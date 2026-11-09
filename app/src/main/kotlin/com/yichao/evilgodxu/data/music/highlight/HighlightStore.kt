@@ -1,17 +1,48 @@
 package com.yichao.evilgodxu.data.music.highlight
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.dataStore
 import com.yichao.evilgodxu.data.music.model.MusicTrack
+import com.yichao.evilgodxu.data.persistence.JsonSerializer
 import com.yichao.evilgodxu.data.persistence.PersistedData
 import com.yichao.evilgodxu.data.persistence.PersistedFileKind
+import com.yichao.evilgodxu.data.persistence.catchPersistenceIo
 import com.yichao.evilgodxu.log.CrashLogManager
-import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.serialization.Serializable
+
+// 心动高亮段的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
+internal val HIGHLIGHT_STORE = PersistedData("highlight", PersistedFileKind.DATA_STORE_JSON)
+
+@Serializable
+private data class StoredHighlight(
+    val id: Long,
+    val fingerprint: String,
+    val kind: String,
+    val start: Long = -1L,
+    val end: Long = -1L,
+)
+
+@Serializable
+private data class HighlightArchive(
+    val version: Int = HighlightStore.CURRENT_VERSION,
+    val entries: List<StoredHighlight> = emptyList(),
+)
+
+private val Context.highlightDataStore: DataStore<HighlightArchive> by dataStore(
+    fileName = "${HIGHLIGHT_STORE.name}.json",
+    serializer = JsonSerializer(HighlightArchive.serializer(), HighlightArchive()),
+    corruptionHandler = ReplaceFileCorruptionHandler { throwable ->
+        CrashLogManager.logException("HighlightStore", "副歌片段表损坏，已重置", throwable)
+        HighlightArchive()
+    },
+)
 
 /**
  * 单曲的片段判定结果。
@@ -40,10 +71,7 @@ internal sealed interface HighlightEntry {
  */
 internal object HighlightStore {
 
-    // 心动高亮段的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
-    internal val PERSISTED = PersistedData("highlight_segments.json", PersistedFileKind.APP_FILE)
-    private const val KEY_VERSION = "version"
-    private const val CURRENT_VERSION = 1
+    internal const val CURRENT_VERSION = 1
 
     // 定位算法版本：参与指纹，算法改动后旧结果自动作废重算
     private const val ALGORITHM_VERSION = "v5"
@@ -134,67 +162,48 @@ internal object HighlightStore {
     )
 
     private suspend fun read(context: Context): Map<Long, Stored> = withContext(Dispatchers.IO) {
-        try {
-            val file = PERSISTED.locate(context)
-            if (!file.isFile) return@withContext emptyMap()
-            val root = JSONObject(file.readText())
-            // 版本不认识时按空表处理：下次扫描会整表重建，不做迁移尝试
-            if (root.optInt(KEY_VERSION) != CURRENT_VERSION) return@withContext emptyMap()
-            val entries = root.optJSONArray("entries") ?: JSONArray()
-            buildMap {
-                for (index in 0 until entries.length()) {
-                    val item = entries.optJSONObject(index) ?: continue
-                    val id = item.optLong("id")
-                    val fingerprint = item.optString("fp")
-                    val entry = entryFrom(item) ?: continue
-                    put(id, Stored(fingerprint, entry))
-                }
+        val archive = context.highlightDataStore.data
+            .catchPersistenceIo("HighlightStore") { HighlightArchive() }
+            .first()
+        // 版本不认识时按空表处理：下次扫描会整表重建，不做迁移尝试
+        if (archive.version != CURRENT_VERSION) return@withContext emptyMap()
+        buildMap {
+            archive.entries.forEach { item ->
+                val entry = entryFrom(item) ?: return@forEach
+                put(item.id, Stored(item.fingerprint, entry))
             }
-        } catch (e: Exception) {
-            // 结构损坏时按空表处理：下一轮扫描整表重建即可恢复，不做修复尝试
-            CrashLogManager.logException("HighlightStore", "读取副歌片段表失败", e)
-            emptyMap()
         }
     }
 
     private suspend fun write(context: Context, values: Map<Long, Stored>) = withContext(Dispatchers.IO) {
-        try {
-            val array = JSONArray()
-            values.forEach { (trackId, stored) -> array.put(itemTo(trackId, stored)) }
-            val root = JSONObject().put(KEY_VERSION, CURRENT_VERSION).put("entries", array)
-            val file = PERSISTED.locate(context)
-            val temp = File(file.parentFile, "${PERSISTED.name}.tmp")
-            val content = root.toString()
-            temp.writeText(content)
-            // 先写中转文件再改名：更新期间读表的装载不会读到半截 JSON
-            if (!temp.renameTo(file)) {
-                temp.delete()
-                file.writeText(content)
-            }
-        } catch (e: Exception) {
-            CrashLogManager.logException("HighlightStore", "写入副歌片段表失败", e)
+        // 整表覆盖：调用方持有完整内存表，合并旧文件只会留下已作废的条目
+        context.highlightDataStore.updateData {
+            HighlightArchive(
+                version = CURRENT_VERSION,
+                entries = values.map { (trackId, stored) -> itemTo(trackId, stored) },
+            )
         }
     }
 
-    private fun itemTo(trackId: Long, stored: Stored): JSONObject = JSONObject().apply {
-        put("id", trackId)
-        put("fp", stored.fingerprint)
-        when (val entry = stored.entry) {
-            is HighlightEntry.Segment -> {
-                put("kind", KIND_SEGMENT)
-                put("start", entry.highlight.startMs)
-                put("end", entry.highlight.endMs)
-            }
-            HighlightEntry.Unresolved -> put("kind", KIND_UNRESOLVED)
-            HighlightEntry.NoChorus -> put("kind", KIND_NO_CHORUS)
-        }
+    private fun itemTo(trackId: Long, stored: Stored): StoredHighlight = when (val entry = stored.entry) {
+        is HighlightEntry.Segment -> StoredHighlight(
+            id = trackId,
+            fingerprint = stored.fingerprint,
+            kind = KIND_SEGMENT,
+            start = entry.highlight.startMs,
+            end = entry.highlight.endMs,
+        )
+        HighlightEntry.Unresolved -> StoredHighlight(trackId, stored.fingerprint, KIND_UNRESOLVED)
+        HighlightEntry.NoChorus -> StoredHighlight(trackId, stored.fingerprint, KIND_NO_CHORUS)
     }
 
-    private fun entryFrom(item: JSONObject): HighlightEntry? = when (item.optString("kind")) {
+    private fun entryFrom(item: StoredHighlight): HighlightEntry? = when (item.kind) {
         KIND_SEGMENT -> {
-            val start = item.optLong("start", -1L)
-            val end = item.optLong("end", -1L)
-            if (start in 0L until end) HighlightEntry.Segment(Highlight(start, end)) else null
+            if (item.start in 0L until item.end) {
+                HighlightEntry.Segment(Highlight(item.start, item.end))
+            } else {
+                null
+            }
         }
         KIND_UNRESOLVED, KIND_LEGACY_NO_LYRICS -> HighlightEntry.Unresolved
         KIND_NO_CHORUS -> HighlightEntry.NoChorus

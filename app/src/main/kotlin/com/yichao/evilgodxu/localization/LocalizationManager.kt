@@ -1,6 +1,7 @@
 package com.yichao.evilgodxu.localization
 
 import android.app.Activity
+import android.app.LocaleManager
 import android.content.Context
 import android.content.res.Configuration
 import android.content.res.Resources
@@ -25,9 +26,11 @@ fun AppLanguage.toLocale(systemLocale: Locale = Locale.getDefault()): Locale = w
 class LocalizationManager(
     private val context: Context,
 ) {
-    // 构造时捕获系统语言。此时进程默认语言尚未被应用内切换改写，
-    // 确保跟随系统始终解析为真实系统语言
-    private val systemLocale: Locale = Locale.getDefault()
+    // 构造时捕获设备语言。取系统资源而非 Locale.getDefault()：后者会随应用内切换改写，
+    // 也可能已是上个进程写入的系统「应用语言」，跟随系统时应解析为真实的设备语言
+    private val systemLocale: Locale = Resources.getSystem().configuration.locales.let { locales ->
+        if (locales.isEmpty()) Locale.getDefault() else locales[0]
+    }
 
     fun resolveLanguage(language: AppLanguage): Locale = language.toLocale(systemLocale)
 
@@ -57,6 +60,24 @@ class LocalizationManager(
         applyToResources(context.applicationContext.resources, locale)
         activity?.let { applyToResources(it.resources, locale) }
         Locale.setDefault(locale)
+    }
+
+    /**
+     * 把应用语言写入系统级「应用语言」偏好。
+     *
+     * 系统在下次启动创建 Activity 之前即按它配置资源，因此冷启动首帧不再需要自建同步镜像。
+     * 跟随系统时写入空列表，由系统按设备语言解析。
+     */
+    fun applySystemLocale(language: AppLanguage) {
+        val localeManager = context.getSystemService(LocaleManager::class.java) ?: return
+        val locales = language.languageTag
+            ?.let(LocaleList::forLanguageTags)
+            ?: LocaleList.getEmptyLocaleList()
+        // 按语言标签比较：LocaleList 的相等判定可能不认逐项相同的两个实例，
+        // 误判会每次启动都写一次系统偏好并触发配置变更
+        if (localeManager.applicationLocales.toLanguageTags() != locales.toLanguageTags()) {
+            localeManager.applicationLocales = locales
+        }
     }
 
     private fun applyToResources(resources: Resources, locale: Locale) {

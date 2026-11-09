@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -31,6 +32,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yichao.evilgodxu.LocalProxySourceStore
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
@@ -57,6 +60,7 @@ internal fun CoverRefreshDialog(
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    val proxySources by LocalProxySourceStore.current.sources.collectAsStateWithLifecycle()
     RefreshCandidateDialog(
         visible = visible && track != null,
         searching = playbackState.isCoverSearching || saving,
@@ -64,7 +68,7 @@ internal fun CoverRefreshDialog(
         candidates = playbackState.coverCandidates,
         selectedId = selectedId,
         source = playbackState.coverRefreshSource,
-        titleText = OnlinePlatformRegistry.displayName(context, playbackState.coverRefreshSource),
+        titleText = OnlinePlatformRegistry.displayName(context, proxySources, playbackState.coverRefreshSource),
         refreshLabel = stringResource(R.string.music_panel_refresh_cover),
         noCandidatesText = stringResource(R.string.music_panel_cover_no_candidates),
         onSourceSelected = onSourceSelected,

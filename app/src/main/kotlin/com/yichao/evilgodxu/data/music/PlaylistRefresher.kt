@@ -111,7 +111,7 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
                 }
                 // 签名随本轮结果落盘：冷启动据此判定曲库是否变过，未变则跳过整轮扫描
                 scannedSignature?.let { signature ->
-                    withContext(Dispatchers.IO) { state.writeLibrarySignature(context, signature) }
+                    state.writeLibrarySignature(signature)
                 }
                 afterMerge()
             } finally {
@@ -143,23 +143,20 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
         state: MusicPlaybackState,
         library: List<MusicTrack>,
         source: PlaylistSource,
-    ): List<MusicTrack> {
-        playlistStore.awaitLoaded(context)
-        return when {
-            source.key.startsWith("smart:FORMAT:") -> {
-                val format = source.key.removePrefix("smart:FORMAT:")
-                // 格式类目逐曲判定在 IO 执行，避免占用主线程
-                withContext(Dispatchers.IO) {
-                    library.filter { trackFormatCategory(context, it) == format }
-                }
+    ): List<MusicTrack> = when {
+        source.key.startsWith("smart:FORMAT:") -> {
+            val format = source.key.removePrefix("smart:FORMAT:")
+            // 格式类目逐曲判定在 IO 执行，避免占用主线程
+            withContext(Dispatchers.IO) {
+                library.filter { trackFormatCategory(context, it) == format }
             }
-            else -> resolveSourceTracks(
-                all = library,
-                playlists = playlistStore.playlists,
-                likedIds = state.likedIds,
-                recentPlayedIds = state.recentPlayedIds,
-                source = source,
-            )
         }
+        else -> resolveSourceTracks(
+            all = library,
+            playlists = playlistStore.playlists,
+            likedIds = state.likedIds,
+            recentPlayedIds = state.recentPlayedIds,
+            source = source,
+        )
     }
 }

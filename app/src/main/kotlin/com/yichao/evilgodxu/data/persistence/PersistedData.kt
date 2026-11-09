@@ -6,16 +6,16 @@ import java.io.File
 /**
  * 持久化落盘形态：决定名字如何变成磁盘文件名、文件落在哪个目录。
  *
- * 三种形态的生成规则由各自框架固定（SharedPreferences 写 `<名>.xml`、DataStore 写
- * `<名>.preferences_pb`、自管文件名字即文件名），故解析只在此实现一次，读写方与统计方共用，
- * 不在别处再拼一遍路径。
+ * 形态的生成规则由各自框架固定（Preferences DataStore 写 `<名>.preferences_pb`、
+ * 类型化 DataStore 写 `<名>.json`、自管文件名字即文件名），故解析只在此实现一次，
+ * 读写方与统计方共用，不在别处再拼一遍路径。
  */
 enum class PersistedFileKind {
-    /** SharedPreferences：应用数据根目录下的 shared_prefs/<名>.xml */
-    SHARED_PREFS,
-
-    /** DataStore：filesDir/datastore/<名>.preferences_pb */
+    /** Preferences DataStore：filesDir/datastore/<名>.preferences_pb */
     DATA_STORE,
+
+    /** 类型化 DataStore：filesDir/datastore/<名>.json */
+    DATA_STORE_JSON,
 
     /** 自管文件：直接落在 filesDir 下，名字即文件名 */
     APP_FILE,
@@ -34,23 +34,23 @@ data class PersistedData(
 ) {
     /** 落盘文件名：供存储页推导「已主张落点」，也供一致性检查使用，不依赖 Context */
     val fileName: String = when (kind) {
-        PersistedFileKind.SHARED_PREFS -> "$name.xml"
         PersistedFileKind.DATA_STORE -> "$name.preferences_pb"
+        PersistedFileKind.DATA_STORE_JSON -> "$name.json"
         PersistedFileKind.APP_FILE -> name
     }
 
     /** 落点：目录布局只在此拼装 */
     fun locate(context: Context): File = when (kind) {
-        PersistedFileKind.SHARED_PREFS -> File(sharedPrefsDir(context), fileName)
-        PersistedFileKind.DATA_STORE -> File(File(context.filesDir, DATA_STORE_DIR), fileName)
+        PersistedFileKind.DATA_STORE, PersistedFileKind.DATA_STORE_JSON ->
+            File(File(context.filesDir, DATA_STORE_DIR), fileName)
         PersistedFileKind.APP_FILE -> File(context.filesDir, fileName)
     }
 
     companion object {
-        /** SharedPreferences 目录名：框架写在应用数据根目录下，与 filesDir 同级 */
+        /** 旧版 SharedPreferences 目录名：仅用于存储页兜底统计升级遗留文件 */
         const val SHARED_PREFS_DIR = "shared_prefs"
 
-        /** DataStore 目录名：位于 filesDir 下，由 preferencesDataStore 按名生成 */
+        /** DataStore 目录名：位于 filesDir 下，由 DataStore 按名生成 */
         const val DATA_STORE_DIR = "datastore"
 
         /** shared_prefs 目录：从未写入过任何偏好时可能不存在，统计按 0 计即可 */

@@ -1,20 +1,22 @@
 package com.yichao.evilgodxu.data.cache
 
 import android.content.Context
-import com.yichao.evilgodxu.data.music.highlight.HighlightStore
+import com.yichao.evilgodxu.data.music.highlight.HIGHLIGHT_STORE
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
 import com.yichao.evilgodxu.data.music.metadata.LargeCoverStore
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
-import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
-import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
+import com.yichao.evilgodxu.data.music.playback.BOOT_MIRROR_STORE
+import com.yichao.evilgodxu.data.music.playback.PLAYBACK_QUEUE_STORE
+import com.yichao.evilgodxu.data.music.playback.RECENT_PLAYED_STORE
+import com.yichao.evilgodxu.data.music.playback.SEARCH_HISTORY_STORE
+import com.yichao.evilgodxu.data.music.proxy.PROXY_SOURCE_STORE
 import com.yichao.evilgodxu.data.persistence.PersistedData
 import com.yichao.evilgodxu.data.persistence.StoragePaths
-import com.yichao.evilgodxu.data.playlist.ArtistOrderStore
-import com.yichao.evilgodxu.data.playlist.PlaylistStore
-import com.yichao.evilgodxu.data.settings.BOOT_LANGUAGE_STORE
+import com.yichao.evilgodxu.data.playlist.ARTIST_ORDER_STORE
+import com.yichao.evilgodxu.data.playlist.PLAYLISTS_STORE
 import com.yichao.evilgodxu.data.settings.SETTINGS_STORE
 import com.yichao.evilgodxu.log.CrashLogManager
-import com.yichao.evilgodxu.update.UpdateManager
+import com.yichao.evilgodxu.update.UPDATE_STORE
 import java.io.File
 
 /**
@@ -63,9 +65,6 @@ enum class CacheCategory {
 
     /** 启动镜像：冷启动首帧所需的播放现场镜像 */
     BOOT_MIRROR,
-
-    /** 启动语言 */
-    BOOT_LANGUAGE,
 
     /** 待更新信息 */
     UPDATE_INFO,
@@ -161,19 +160,18 @@ internal object StorageRegistry {
         // 更新安装包：校验后即删，隔日残留由冷启动回收；清理作用域内由用户整批删除
         CacheEntry(CacheCategory.UPDATE_PACKAGE, CacheScope.CLEARABLE) { context -> updatePackages(context) },
         // 以下各项为具名持久化数据：逐份存储各占一类，逐项与合计都能对上
-        persisted(CacheCategory.PLAYLIST, CacheScope.USER_DATA, PlaylistStore.PERSISTED),
-        persisted(CacheCategory.ARTIST_ORDER, CacheScope.USER_DATA, ArtistOrderStore.PERSISTED),
-        persisted(CacheCategory.PROXY_SOURCE, CacheScope.USER_DATA, ProxySourceStore.PERSISTED),
-        persisted(CacheCategory.RECENT_PLAYED, CacheScope.USER_DATA, MusicPlaybackState.RECENT_PLAYED_STORE),
-        persisted(CacheCategory.SEARCH_HISTORY, CacheScope.USER_DATA, MusicPlaybackState.SEARCH_HISTORY_STORE),
-        persisted(CacheCategory.PLAYLIST_CACHE, CacheScope.USER_DATA, MusicPlaybackState.PLAYLIST_CACHE_STORE),
-        persisted(CacheCategory.BOOT_MIRROR, CacheScope.USER_DATA, MusicPlaybackState.BOOT_MIRROR_STORE),
-        persisted(CacheCategory.BOOT_LANGUAGE, CacheScope.USER_DATA, BOOT_LANGUAGE_STORE),
-        persisted(CacheCategory.UPDATE_INFO, CacheScope.USER_DATA, UpdateManager.PERSISTED),
+        persisted(CacheCategory.PLAYLIST, CacheScope.USER_DATA, PLAYLISTS_STORE),
+        persisted(CacheCategory.ARTIST_ORDER, CacheScope.USER_DATA, ARTIST_ORDER_STORE),
+        persisted(CacheCategory.PROXY_SOURCE, CacheScope.USER_DATA, PROXY_SOURCE_STORE),
+        persisted(CacheCategory.RECENT_PLAYED, CacheScope.USER_DATA, RECENT_PLAYED_STORE),
+        persisted(CacheCategory.SEARCH_HISTORY, CacheScope.USER_DATA, SEARCH_HISTORY_STORE),
+        persisted(CacheCategory.PLAYLIST_CACHE, CacheScope.USER_DATA, PLAYBACK_QUEUE_STORE),
+        persisted(CacheCategory.BOOT_MIRROR, CacheScope.USER_DATA, BOOT_MIRROR_STORE),
+        persisted(CacheCategory.UPDATE_INFO, CacheScope.USER_DATA, UPDATE_STORE),
         // 设置与播放状态单文件承载设置项、保存的背景取色与续播现场
         persisted(CacheCategory.SETTINGS, CacheScope.USER_DATA, SETTINGS_STORE),
         // 心动高亮段：心动模式的分析结果，重建要重扫全库，属用户数据
-        persisted(CacheCategory.HIGHLIGHT, CacheScope.USER_DATA, HighlightStore.PERSISTED),
+        persisted(CacheCategory.HIGHLIGHT, CacheScope.USER_DATA, HIGHLIGHT_STORE),
     )
 
     /**

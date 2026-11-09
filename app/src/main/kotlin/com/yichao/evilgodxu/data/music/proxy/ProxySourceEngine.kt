@@ -1,6 +1,5 @@
 package com.yichao.evilgodxu.data.music.proxy
 
-import android.content.Context
 import com.yichao.evilgodxu.data.music.api.builtInSourceOf
 import com.yichao.evilgodxu.data.music.api.mergeTranslations
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
@@ -28,13 +27,13 @@ internal object ProxySourceEngine {
     private const val SEARCH_COUNT = 20
 
     suspend fun search(
-        context: Context,
+        sourceStore: ProxySourceStore,
         source: MusicSearchSource,
         keyword: String,
         page: Int = 1,
         pageSize: Int = SEARCH_COUNT,
     ): List<NeteaseSongSearchResult>? = withContext(Dispatchers.IO) {
-        val action = ProxySourceStore.platformSpec(context, source.key)?.search
+        val action = sourceStore.platformSpec(source.key)?.search
             ?: return@withContext null
         val body = executeAction(
             action,
@@ -55,13 +54,13 @@ internal object ProxySourceEngine {
     // 按平台搜索的统一入口：代理音源优先，未配置或解析失败时回退内置实现。
     // 自定义平台没有内置实现，代理不可用时只能返回空列表
     suspend fun searchPlatform(
-        context: Context,
+        sourceStore: ProxySourceStore,
         source: MusicSearchSource,
         keyword: String,
         page: Int = 1,
         pageSize: Int = SEARCH_COUNT,
     ): List<NeteaseSongSearchResult> {
-        search(context, source, keyword, page, pageSize)?.let { return it }
+        search(sourceStore, source, keyword, page, pageSize)?.let { return it }
         return builtInSourceOf(source)?.let { builtIn ->
             runCatching { builtIn.search(keyword, page, pageSize) }.getOrDefault(emptyList())
         }.orEmpty()
@@ -69,11 +68,11 @@ internal object ProxySourceEngine {
 
     // 按音质档位解析播放直链：直链同时用于播放与缓存下载
     suspend fun resolveUrl(
-        context: Context,
+        sourceStore: ProxySourceStore,
         target: NeteaseSongSearchResult,
         quality: MusicQuality,
     ): String? = withContext(Dispatchers.IO) {
-        val action = ProxySourceStore.platformSpec(context, target.source.key)?.url
+        val action = sourceStore.platformSpec(target.source.key)?.url
             ?: return@withContext null
         val qualityValue = action.qualities[quality]
         // qualities 未声明时任意音质都执行动作（{quality} 渲染为空串），适配固定直链音源
@@ -87,11 +86,10 @@ internal object ProxySourceEngine {
     }
 
     suspend fun lyricLines(
-        context: Context,
-        source: MusicSearchSource,
+        sourceStore: ProxySourceStore,
         target: NeteaseSongSearchResult,
     ): List<LyricLine>? = withContext(Dispatchers.IO) {
-        val action = ProxySourceStore.platformSpec(context, source.key)?.lyric
+        val action = sourceStore.platformSpec(target.source.key)?.lyric
             ?: return@withContext null
         val body = executeAction(action, placeholders(target)) ?: return@withContext null
         val lrc = resolveString(body, action.result.lyric) ?: return@withContext null
@@ -101,11 +99,11 @@ internal object ProxySourceEngine {
     }
 
     // 换取封面直链：优先搜索结果中的 coverUrl，否则经 pic 动作按 coverId 解析
-    suspend fun coverUrl(context: Context, target: NeteaseSongSearchResult): String? =
+    suspend fun coverUrl(sourceStore: ProxySourceStore, target: NeteaseSongSearchResult): String? =
         withContext(Dispatchers.IO) {
             target.coverUrl?.takeIf { it.isNotBlank() }?.let { return@withContext it }
             val coverId = target.coverId?.takeIf { it.isNotBlank() } ?: return@withContext null
-            val action = ProxySourceStore.platformSpec(context, target.source.key)?.pic
+            val action = sourceStore.platformSpec(target.source.key)?.pic
                 ?: return@withContext null
             val body = executeAction(action, placeholders(target)) ?: return@withContext null
             // 响应体即图片直链时 result.url 同样可省略
@@ -113,9 +111,9 @@ internal object ProxySourceEngine {
         }
 
     // 下载封面字节：供在线播放时落盘缓存封面
-    suspend fun coverBytes(context: Context, target: NeteaseSongSearchResult): ByteArray? =
+    suspend fun coverBytes(sourceStore: ProxySourceStore, target: NeteaseSongSearchResult): ByteArray? =
         withContext(Dispatchers.IO) {
-            val url = coverUrl(context, target) ?: return@withContext null
+            val url = coverUrl(sourceStore, target) ?: return@withContext null
             try {
                 MusicHttpClient.client.newCall(Request.Builder().url(url).build()).execute().use { resp ->
                     if (resp.isSuccessful) resp.body.bytes() else null

@@ -368,7 +368,7 @@ internal suspend fun upgradeTrackToLossless(
     // 只判断 URL 是否解析成功时，Hi-Res 返回坏直链会让本可用的普通无损也轮不到
     var newUri: String? = null
     for (tier in LOSSLESS_TIERS) {
-        val candidateUrl = resolvePlayUrlByQuality(context, candidate, tier) ?: continue
+        val candidateUrl = resolvePlayUrlByQuality(playbackState.proxySourceStore, candidate, tier) ?: continue
         newUri = downloadLosslessToDownloads(context, candidate, candidateUrl)
         if (newUri != null) break
     }
@@ -438,7 +438,7 @@ internal suspend fun upgradeTrackToLossless(
         // 否则删旧条目后这些关联会随旧 ID 一起失忆
         if (newPath.isNotBlank()) {
             findAudioMediaId(context, newPath)?.takeIf { it != track.id }?.let { newId ->
-                playbackState.migrateTrackId(context, track.id, newId)
+                playbackState.migrateTrackId(track.id, newId)
             }
         }
     } else {

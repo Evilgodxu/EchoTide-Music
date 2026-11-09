@@ -1,12 +1,10 @@
 package com.yichao.evilgodxu
 
-import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
-import android.os.LocaleList
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -25,15 +23,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.yichao.evilgodxu.data.music.proxy.ProxyParseResult
-import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
-import com.yichao.evilgodxu.data.settings.AppLanguage
-import com.yichao.evilgodxu.data.settings.readBootLanguage
 import com.yichao.evilgodxu.permission.PermissionReturnMonitor
 import com.yichao.evilgodxu.theme.SystemBarAppearance
 import com.yichao.evilgodxu.floatingwindow.MiniPlayerController
 import com.yichao.evilgodxu.localization.LocalizationManager
 import com.yichao.evilgodxu.localization.ProvideLocalizedContext
-import com.yichao.evilgodxu.localization.toLocale
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import kotlinx.coroutines.Dispatchers
@@ -84,20 +78,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 冷启动按持久化语言创建配置上下文，进入界面即正确语言
-    override fun attachBaseContext(newBase: Context) {
-        val config = Configuration(newBase.resources.configuration).apply {
-            setLocales(LocaleList(resolveBootLanguage(newBase).toLocale()))
-        }
-        super.attachBaseContext(newBase.createConfigurationContext(config))
-    }
-
-    // 启动语言优先同步命中轻量镜像（单键读取），避免在 attachBaseContext 主线程阻塞读 DataStore；
-    // 镜像缺失（首次安装 / 从旧版本升级）时本次回退为跟随系统——界面层语言流会即时纠正 Compose 侧文案，
-    // 同时 Application 预热任务补写镜像，使下次冷启动同步命中
-    private fun resolveBootLanguage(context: Context): AppLanguage =
-        readBootLanguage(context) ?: AppLanguage.SYSTEM
-
+    // 冷启动语言由系统「应用语言」偏好在创建 Activity 前配置好，无需自建同步镜像
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
@@ -214,7 +195,7 @@ class MainActivity : ComponentActivity() {
             }.getOrNull()
             val message = when {
                 text.isNullOrBlank() -> getString(R.string.settings_proxy_source_import_read_error)
-                else -> when (val result = ProxySourceStore.import(this@MainActivity, text)) {
+                else -> when (val result = app.container.proxySourceStore.import(text)) {
                     is ProxyParseResult.Success ->
                         getString(R.string.settings_proxy_source_import_success)
                     is ProxyParseResult.Failure -> getString(

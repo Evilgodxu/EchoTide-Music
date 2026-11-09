@@ -18,10 +18,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -35,6 +35,7 @@ import com.yichao.evilgodxu.ui.component.AppDialog
 import com.yichao.evilgodxu.ui.component.DIALOG_LIST_HEIGHT_FRACTION
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.icons.AppIcons
+import kotlinx.coroutines.launch
 
 /**
  * 曲目歌单归属弹窗：列出全部自定义歌单，勾选即加入、取消勾选即移出。
@@ -49,8 +50,8 @@ internal fun TrackPlaylistDialog(
     onDismiss: () -> Unit,
 ) {
     if (track == null) return
-    val context = LocalContext.current
     val playlistStore = LocalPlaylistStore.current
+    val scope = rememberCoroutineScope()
     val playlists = playlistStore.playlists
     // 行内取封面按 id 查表，避免每行线性扫描全库
     val libraryById = remember(libraryTracks) { libraryTracks.associateBy { it.id } }
@@ -99,10 +100,12 @@ internal fun TrackPlaylistDialog(
                         isMember = isMember,
                         coverTrack = playlist.trackIds.firstOrNull()?.let { libraryById[it] },
                         onClick = {
-                            if (isMember) {
-                                playlistStore.removeTracks(context, playlist.id, listOf(track.id))
-                            } else {
-                                playlistStore.addTracks(context, playlist.id, listOf(track.id))
+                            scope.launch {
+                                if (isMember) {
+                                    playlistStore.removeTracks(playlist.id, listOf(track.id))
+                                } else {
+                                    playlistStore.addTracks(playlist.id, listOf(track.id))
+                                }
                             }
                         },
                     )

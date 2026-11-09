@@ -15,7 +15,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 internal suspend fun searchLyricsCandidates(
-    context: Context,
     playbackState: MusicPlaybackState,
     track: MusicTrack,
     source: MusicSearchSource,
@@ -24,7 +23,9 @@ internal suspend fun searchLyricsCandidates(
     playbackState.lyricsCandidates = emptyList()
     playbackState.lyricsRefreshError = null
     try {
-        playbackState.lyricsCandidates = searchSingleSourceCandidates(context, source, track.title, track.artist)
+        playbackState.lyricsCandidates = searchSingleSourceCandidates(
+            playbackState.proxySourceStore, source, track.title, track.artist,
+        )
             .filter { matchesTrackTitle(track.title, it) }
             .take(30)
     } catch (e: Exception) {
@@ -54,7 +55,7 @@ internal suspend fun applyLyricsCandidate(
     playbackState.lyricsRefreshError = null
     return try {
         val updated = withContext(Dispatchers.IO) {
-            val lines = ProxySourceEngine.lyricLines(context, candidate.source, candidate)
+            val lines = ProxySourceEngine.lyricLines(playbackState.proxySourceStore, candidate)
                 ?: fetchPlatformLyrics(candidate)
             if (lines.isEmpty()) return@withContext null
             val path = MusicMetadataCache.saveLyrics(context, track.title, track.artist, lines).orEmpty()

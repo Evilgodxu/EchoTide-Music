@@ -2,6 +2,9 @@ package com.yichao.evilgodxu.screens.settings
 
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceSpec
 import com.yichao.evilgodxu.data.settings.AppLanguage
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 // 内存版平台能力：记录调用而不触达系统，用于验证 ViewModel 的判定与状态流转
 class FakeSettingsEnvironment(
@@ -17,30 +20,13 @@ class FakeSettingsEnvironment(
     var overlayMonitorStopped = false
     var notificationPolicyWatched = false
     var appliedLanguage: AppLanguage? = null
-    var proxyChangesRegistered = false
-    var proxyChangesUnregistered = false
 
-    private var sources: List<ProxySourceSpec> = emptyList()
-    private var onProxyChange: (() -> Unit)? = null
+    private val sourcesState = MutableStateFlow<List<ProxySourceSpec>>(emptyList())
+
+    override val proxySources: StateFlow<List<ProxySourceSpec>> = sourcesState.asStateFlow()
 
     fun setSources(value: List<ProxySourceSpec>) {
-        sources = value
-    }
-
-    fun notifyProxyChanged() {
-        onProxyChange?.invoke()
-    }
-
-    override fun proxySources(): List<ProxySourceSpec> = sources
-
-    override fun registerProxySourceChanges(onChange: () -> Unit) {
-        proxyChangesRegistered = true
-        onProxyChange = onChange
-    }
-
-    override fun unregisterProxySourceChanges() {
-        proxyChangesUnregistered = true
-        onProxyChange = null
+        sourcesState.value = value
     }
 
     override suspend fun importProxySource(content: String): ProxyImportMessage = importResult

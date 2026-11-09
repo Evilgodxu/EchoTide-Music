@@ -432,7 +432,7 @@ class MetadataViewModel(
         val target = findTrack() ?: return
         _uiState.update { it.copy(coverRefreshVisible = true, coverRefreshSelectedId = null, message = null) }
         viewModelScope.launch {
-            searchCoverCandidates(getApplication(), playbackState, target, playbackState.coverRefreshSource)
+            searchCoverCandidates(playbackState, target, playbackState.coverRefreshSource)
         }
     }
 
@@ -441,14 +441,14 @@ class MetadataViewModel(
         if (source == playbackState.coverRefreshSource) return
         playbackState.setCoverRefreshSource(source)
         _uiState.update { it.copy(coverRefreshSelectedId = null) }
-        viewModelScope.launch { searchCoverCandidates(getApplication(), playbackState, target, source) }
+        viewModelScope.launch { searchCoverCandidates(playbackState, target, source) }
     }
 
     fun onCoverRefreshReload() {
         val target = findTrack() ?: return
         _uiState.update { it.copy(coverRefreshSelectedId = null) }
         viewModelScope.launch {
-            searchCoverCandidates(getApplication(), playbackState, target, playbackState.coverRefreshSource)
+            searchCoverCandidates(playbackState, target, playbackState.coverRefreshSource)
         }
     }
 

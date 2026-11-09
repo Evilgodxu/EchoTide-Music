@@ -50,7 +50,7 @@ internal fun handleMediaItemTransition(
             if (queuedIndex >= 0) {
                 state.playbackScope.launch {
                     playTrackAt(
-                        state.appContext ?: return@launch,
+                        state.appContext,
                         state,
                         queuedIndex,
                         clearQueue = false,
@@ -67,7 +67,7 @@ internal fun handleMediaItemTransition(
                 if (next in state.playlist.indices && next != state.currentIndex) {
                     state.playbackScope.launch {
                         playTrackAt(
-                            state.appContext ?: return@launch,
+                            state.appContext,
                             state,
                             next,
                             clearQueue = false,
@@ -88,7 +88,7 @@ internal fun handleMediaItemTransition(
         state.pendingQueueStartIndex = null
         state.playbackScope.launch {
             playTrackAt(
-                state.appContext ?: return@launch,
+                state.appContext,
                 state,
                 pendingStart.coerceIn(0, state.playlist.size - 1),
                 clearQueue = false,
@@ -129,7 +129,7 @@ internal fun handleMediaItemTransition(
         // 切歌即落盘该曲目封面与背景取色，冷启动首帧可直接出图出背景，不依赖退出时机
         state.artworkCache.cacheCurrentCoverAndColor(state.playlist[index])
         // 切歌后主动预读新曲源格式，避免信息条等待解码回填而长时间空白
-        state.appContext?.let { state.refreshIdleTrackFormatInfo(it) }
+        state.refreshIdleTrackFormatInfo(state.appContext)
     }
     // 切换曲目后清理未在播放的在线歌曲，避免在线播放曲目在播放列表中常驻；
     // 元数据补全只在缓存完成时执行一次，切歌不再触发，避免重复写封面并触发系统级文件扫描
@@ -181,7 +181,7 @@ internal fun handlePlaybackStateChanged(state: MusicPlaybackState, playbackState
             if (next >= 0) {
                 state.playbackScope.launch {
                     playTrackAt(
-                        state.appContext ?: return@launch,
+                        state.appContext,
                         state,
                         next,
                         clearQueue = false,
@@ -199,10 +199,10 @@ internal fun handlePlaybackStateChanged(state: MusicPlaybackState, playbackState
 
 internal fun handlePlayerError(state: MusicPlaybackState) {
     // 音质试播失败：移除刚加入的试播曲目（不残留播放列表），保留对话框供用户换其它音质
-    state.searchPanel.onPlaybackFailed(state.appContext?.getString(R.string.music_panel_quality_failed))
+    state.searchPanel.onPlaybackFailed(state.appContext.getString(R.string.music_panel_quality_failed))
         ?.let(state::removeTrack)
-    // errorMsg 为可空类型，appContext 为空时置 null（播放不会发生，正常显示无错误）
-    state.errorMsg = state.appContext?.getString(R.string.music_panel_play_failed)
+    // errorMsg 为可空类型，播放失败时写入可展示的文案
+    state.errorMsg = state.appContext.getString(R.string.music_panel_play_failed)
     state.isPlaying = false
     state.isPrepared = false
     state.progress.stopTicker()

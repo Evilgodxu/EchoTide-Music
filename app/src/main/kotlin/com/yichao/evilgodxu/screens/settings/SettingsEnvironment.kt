@@ -1,7 +1,6 @@
 package com.yichao.evilgodxu.screens.settings
 
 import android.content.Context
-import android.content.SharedPreferences
 import android.provider.Settings
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.cache.CacheInventory
@@ -19,6 +18,7 @@ import com.yichao.evilgodxu.permission.PermissionType
 import com.yichao.evilgodxu.permission.bringAppToFront
 import com.yichao.evilgodxu.permission.isNotificationPolicyGranted
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 
@@ -29,19 +29,15 @@ data class ProxyImportMessage(val text: String?, val failed: Boolean)
  * 设置页需要的平台能力出口。
  *
  * 存在的唯一理由是让 [SettingsViewModel] 不持有 Context：代理音源、缓存采样与三条授权流程都是
- * 静态单例或系统服务，直接调用会把 ViewModel 钉死在 Android 运行时上，JVM 单测无从构造。
+ * 数据层单例或系统服务，直接调用会把 ViewModel 钉死在 Android 运行时上，JVM 单测无从构造。
  * 这里只做委托，不含业务判定——判定留在 ViewModel，能力留在各自的实现。
  */
 interface SettingsEnvironment {
 
     val appVersion: String
 
-    fun proxySources(): List<ProxySourceSpec>
-
-    // 外部写入（如系统分享导入）也要驱动列表刷新，故监听注册在本层
-    fun registerProxySourceChanges(onChange: () -> Unit)
-
-    fun unregisterProxySourceChanges()
+    // 音源状态流：设置页订阅它，外部导入（系统分享）与页内增删都经同一份状态回流
+    val proxySources: StateFlow<List<ProxySourceSpec>>
 
     suspend fun importProxySource(content: String): ProxyImportMessage
 
@@ -71,28 +67,16 @@ interface SettingsEnvironment {
 class AndroidSettingsEnvironment(
     private val context: Context,
     private val localizationManager: LocalizationManager,
+    private val proxySourceStore: ProxySourceStore,
 ) : SettingsEnvironment {
-
-    private var proxyChangeListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
     override val appVersion: String
         get() = context.packageManager
             .getPackageInfo(context.packageName, 0)
             .versionName.orEmpty()
 
-    override fun proxySources(): List<ProxySourceSpec> = ProxySourceStore.all(context)
-
-    override fun registerProxySourceChanges(onChange: () -> Unit) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> onChange() }
-        proxyChangeListener = listener
-        ProxySourceStore.registerChangeListener(context, listener)
-    }
-
-    override fun unregisterProxySourceChanges() {
-        val listener = proxyChangeListener ?: return
-        ProxySourceStore.unregisterChangeListener(context, listener)
-        proxyChangeListener = null
-    }
+    override val proxySources: StateFlow<List<ProxySourceSpec>>
+        get() = proxySourceStore.sources
 
     // 链接先拉取、文本直接解析；失败原因来自解析器，文案在此拼好后交给状态
     override suspend fun importProxySource(content: String): ProxyImportMessage =
@@ -110,7 +94,7 @@ class AndroidSettingsEnvironment(
                     ),
                     failed = true,
                 )
-                else -> when (val result = ProxySourceStore.import(context, raw)) {
+                else -> when (val result = proxySourceStore.import(raw)) {
                     is ProxyParseResult.Success -> ProxyImportMessage(text = null, failed = false)
                     is ProxyParseResult.Failure -> ProxyImportMessage(
                         text = context.getString(R.string.settings_proxy_source_import_failed, result.reason),
@@ -121,11 +105,11 @@ class AndroidSettingsEnvironment(
         }
 
     override suspend fun setProxySourceEnabled(name: String, enabled: Boolean) {
-        withContext(Dispatchers.IO) { ProxySourceStore.setEnabled(context, name, enabled) }
+        withContext(Dispatchers.IO) { proxySourceStore.setEnabled(name, enabled) }
     }
 
     override suspend fun removeProxySource(name: String) {
-        withContext(Dispatchers.IO) { ProxySourceStore.remove(context, name) }
+        withContext(Dispatchers.IO) { proxySourceStore.remove(name) }
     }
 
     override suspend fun sampleCacheBytes(): Long = withContext(Dispatchers.IO) {
@@ -134,6 +118,7 @@ class AndroidSettingsEnvironment(
 
     override fun applyLanguage(language: AppLanguage) {
         localizationManager.applyAppLocale(localizationManager.resolveLanguage(language))
+        localizationManager.applySystemLocale(language)
     }
 
     override fun canDrawOverlays(): Boolean = Settings.canDrawOverlays(context)

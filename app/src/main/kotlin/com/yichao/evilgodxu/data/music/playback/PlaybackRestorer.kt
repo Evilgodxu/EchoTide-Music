@@ -16,19 +16,18 @@ import kotlinx.coroutines.withContext
 internal class PlaybackRestorer(private val state: MusicPlaybackState) {
 
     suspend fun restore(context: Context) {
-        state.appContext = context
         val restored = state.startupStateLoader.load(context)
-        state.searchHistoryStore.replaceAll(restored.searchHistory)
-        state.recentPlayedStore.replaceAll(restored.recentPlayEvents)
         val preferences = restored.preferences
-        val cachedPlaylist = restored.cachedPlaylist
-        val orderedCachedPlaylist = restored.orderedPlaylist
-        val cachedBackup = restored.cachedBackup
-        val savedSource = restored.savedSource
-        val savedSortField = restored.savedSortField
-        val savedSortDescending = restored.savedSortDescending
-        val savedFollowsQueue = restored.savedFollowsQueue
-        val savedViewedSource = restored.savedViewedSource
+        val queue = restored.queue
+        val cachedPlaylist = queue.tracks
+        // 无过滤时缓存列表即默认队列，套用保存的排序规则；有过滤时缓存列表是过滤结果，保持来源自身顺序
+        val orderedCachedPlaylist = if (queue.source == null) {
+            sortTracks(cachedPlaylist, queue.sortField, queue.sortDescending)
+        } else {
+            cachedPlaylist
+        }
+        val cachedBackup = queue.backup
+        val savedSource = queue.source
         val savedState = state.playbackStateStore.read(preferences)
         val savedUri = savedState.audioUri
         val savedPosition = savedState.position
@@ -36,9 +35,9 @@ internal class PlaybackRestorer(private val state: MusicPlaybackState) {
         withContext(Dispatchers.Main) {
             // 无保存过滤来源时播放默认队列全集
             state.queueFilter = savedSource
-            state.applyRestoredViewedState(savedFollowsQueue, savedViewedSource)
-            state.playlistSortField = savedSortField
-            state.playlistSortDescending = savedSortDescending
+            state.applyRestoredViewedState(queue.followsQueue, queue.viewedSource)
+            state.playlistSortField = queue.sortField
+            state.playlistSortDescending = queue.sortDescending
             // 默认队列：无过滤时以缓存列表为准（已按保存规则排序）；有过滤时取单独保存的默认队列。
             // 旧缓存缺失时退回过滤结果，待扫描刷新重建完整队列
             state.defaultPlaylist = when {

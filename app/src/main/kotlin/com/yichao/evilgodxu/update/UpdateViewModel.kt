@@ -20,6 +20,7 @@ class UpdateViewModel(
     application: Application,
     private val settingsRepository: SettingsRepository,
     private val localizationManager: LocalizationManager,
+    private val updateStore: UpdateStore,
 ) : AndroidViewModel(application) {
 
     private val context get() = getApplication<Application>().applicationContext
@@ -36,9 +37,7 @@ class UpdateViewModel(
     init {
         // 提示出现后进程被回收、同一天重开不会再自动检查，故冷启动先恢复尚未处理的待更新信息
         viewModelScope.launch {
-            val pending = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                UpdateManager.readPendingUpdate(context)
-            }
+            val pending = UpdateManager.readPendingUpdate(updateStore)
             if (pending != null && _updateInfo.value == null) {
                 _updateInfo.value = pending
                 _showUpdateDialog.value = true
@@ -56,7 +55,8 @@ class UpdateViewModel(
         viewModelScope.launch {
             var checkFailed = false
             val result = UpdateManager.checkForUpdate(
-                context,
+                store = updateStore,
+                context = context,
                 force = force,
                 onError = { checkFailed = true }
             )
@@ -81,7 +81,7 @@ class UpdateViewModel(
                 localizationManager.resolveLanguage(language),
             )
             val success = try {
-                UpdateManager.downloadAndInstall(localizedContext, info) { progress ->
+                UpdateManager.downloadAndInstall(updateStore, localizedContext, info) { progress ->
                     _downloadState.value = if (progress < 0f) {
                         DownloadState.Failed("download_failed")
                     } else {
@@ -112,7 +112,7 @@ class UpdateViewModel(
     fun dismissUpdateDialog() {
         _showUpdateDialog.value = false
         _downloadState.value = DownloadState.Idle
-        viewModelScope.launch { UpdateManager.clearPendingUpdate(context) }
+        viewModelScope.launch { UpdateManager.clearPendingUpdate(updateStore) }
     }
 }
 

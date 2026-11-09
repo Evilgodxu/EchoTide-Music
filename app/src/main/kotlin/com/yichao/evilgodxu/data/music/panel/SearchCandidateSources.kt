@@ -1,31 +1,31 @@
 package com.yichao.evilgodxu.data.music.panel
 
-import android.content.Context
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceEngine
+import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
 
 // 单来源单次查询候选：每来源对每条查询各取前 limit 条，单源失败不影响其它查询。
 // 走平台搜索统一入口：代理音源优先，自定义平台没有内置搜索，其候选完全由代理音源提供
 private suspend fun searchSourceCandidates(
-    context: Context,
+    sourceStore: ProxySourceStore,
     source: MusicSearchSource,
     query: String,
     limit: Int = 10,
 ): List<NeteaseSongSearchResult> =
-    runCatching { ProxySourceEngine.searchPlatform(context, source, query, page = 1, pageSize = limit).take(limit) }
+    runCatching { ProxySourceEngine.searchPlatform(sourceStore, source, query, page = 1, pageSize = limit).take(limit) }
         .getOrDefault(emptyList())
 
 // 单来源候选：两条查询各取前 10 后合并去重
 internal suspend fun searchSingleSourceCandidates(
-    context: Context,
+    sourceStore: ProxySourceStore,
     source: MusicSearchSource,
     title: String,
     artist: String,
 ): List<NeteaseSongSearchResult> {
     val combined = listOf(title, artist).filter { it.isNotBlank() }.joinToString(" ")
-    val occupied = if (combined.isBlank()) emptyList() else searchSourceCandidates(context, source, combined)
-    val titleOnly = if (title.isBlank()) emptyList() else searchSourceCandidates(context, source, title)
+    val occupied = if (combined.isBlank()) emptyList() else searchSourceCandidates(sourceStore, source, combined)
+    val titleOnly = if (title.isBlank()) emptyList() else searchSourceCandidates(sourceStore, source, title)
     return mergeCandidates(occupied, titleOnly)
 }
 

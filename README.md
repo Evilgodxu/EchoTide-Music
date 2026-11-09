@@ -41,7 +41,7 @@ Portrait or landscape, immersion is the only goal.
 | Playback | Media3 ExoPlayer 1.11.1 + MediaSessionService (USB exclusive output goes through the native isochronous layer) |
 | Navigation | AndroidX Navigation3 1.2.1 (type-safe routes) |
 | Dependency injection | Manual DI (singletons held on Application) |
-| Persistence | DataStore Preferences 1.3.0 |
+| Persistence | DataStore 1.3.0 (Preferences + typed stores via kotlinx.serialization) |
 | Image loading | Coil 3.6.3 |
 | Network | OkHttp 5.5.1 |
 | Serialization | kotlinx.serialization 1.12.0 |
@@ -77,7 +77,7 @@ Portrait or landscape, immersion is the only goal.
 │       │   │   ├── persistence/         #   Persisted-data declarations & shared paths (single source of truth for on-disk file names)
 │       │   │   ├── playlist/            #   Playlist store (smart / custom), grouping & per-artist track order
 │       │   │   ├── repository/          #   Settings repository
-│       │   │   └── settings/            #   Settings DataStore, playback & lyric-layout preferences, boot language mirror
+│       │   │   └── settings/            #   Settings DataStore, playback & lyric-layout preferences, system app-locale mirror
 │       │   ├── floatingwindow/          # Mini player overlay manager & controller
 │       │   │   └── miniplayer/          #   Mini player overlay / compact bar / expandable playlist
 │       │   ├── localization/            # In-app language management
@@ -103,7 +103,7 @@ Portrait or landscape, immersion is the only goal.
 │       │   ├── windowsize/              # Window size classes & landscape form detection
 │       │   ├── App.kt                   # Application entry (holds singletons & CompositionLocals)
 │       │   ├── AppContent.kt            # Root composable (navigation host & global dialogs)
-│       │   ├── MainActivity.kt          # Sole Activity (system bars, external intents, boot language)
+│       │   ├── MainActivity.kt          # Sole Activity (system bars, external intents, app locale)
 │       │   └── MainViewModel.kt         # Activity-scoped ViewModel (incl. AppUiState)
 │       ├── cpp/                         # Native layer: usbfs isochronous transfer for USB exclusive output (JNI bridge + isochronous stream)
 │       └── res/                         # Resources (values / values-en)

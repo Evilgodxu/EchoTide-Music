@@ -6,11 +6,11 @@ import coil3.SingletonImageLoader
 import coil3.memory.MemoryCache
 import coil3.request.allowHardware
 import com.yichao.evilgodxu.data.cache.CacheInventory
-import com.yichao.evilgodxu.data.settings.bootstrapAppLanguage
+import com.yichao.evilgodxu.data.settings.AppLanguage
+import com.yichao.evilgodxu.data.settings.SettingsKeys
 import com.yichao.evilgodxu.data.settings.settingsDataStore
 import com.yichao.evilgodxu.data.settings.usbDirectOutputModeFlow
 import com.yichao.evilgodxu.data.settings.usbExclusiveOutputModeFlow
-import com.yichao.evilgodxu.data.settings.writeBootLanguage
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.service.setUsbAttachEntryEnabled
 import kotlinx.coroutines.flow.combine
@@ -30,8 +30,6 @@ class App : Application() {
         val playbackState = container.playbackState
         // 最先初始化崩溃日志，捕获启动阶段异常
         CrashLogManager.init(this)
-        // 上下文先于内容绑定：首启动没有任何可预置的内容，但后续落盘路径仍要取用上下文
-        playbackState.attachContext(this)
         // 首帧前同步预置上次播放状态（见 seedFromBootMirror），使首页首帧即是完整内容而非空态；
         // 这是启动关键路径上的刻意读盘，异步化会把空窗推回首帧之后。
         // 首启动没有镜像可读，跳过这段同步读盘——首帧本就是空态，没有内容可预置
@@ -39,18 +37,19 @@ class App : Application() {
             playbackState.seedFromBootMirror(this)
         }
         // 冷启动尽早恢复持久化播放列表：恢复任务由首个调用方触发（见 restoreSavedState），
-        // 此处预触发使首帧渲染时歌单与当前曲目已就绪。
-        // 首启动没有歌单缓存，预触发只会空跑一轮读盘，故跳过
-        if (playbackState.hasLibraryCache(this)) {
-            appScope.launch {
-                runCatching { playbackState.restoreSavedState(applicationContext) }
-            }
-        }
-        // 预热设置 DataStore，并把启动语言写入轻量镜像：
-        // 下次冷启动 attachBaseContext 即可同步命中镜像，无需等待 DataStore 首次读取
+        // 此处预触发使首帧渲染时歌单与当前曲目已就绪。首启动读盘结果为空，直接空跑一轮即可
         appScope.launch {
-            runCatching { settingsDataStore.data.first() }
-            runCatching { writeBootLanguage(applicationContext, applicationContext.bootstrapAppLanguage()) }
+            runCatching { playbackState.restoreSavedState(applicationContext) }
+        }
+        // 预热设置 DataStore，并把持久化语言同步到系统「应用语言」偏好：
+        // 系统据此在下次启动创建 Activity 前配置资源，冷启动首帧即正确语言
+        appScope.launch {
+            val preferences = runCatching { settingsDataStore.data.first() }.getOrNull()
+            preferences?.let {
+                container.localizationManager.applySystemLocale(
+                    AppLanguage.fromTag(it[SettingsKeys.LANGUAGE]),
+                )
+            }
         }
         // USB 接入入口跟着两个 USB 开关的任一开启而启用：独占要用它换接管授权，直出要用那份授权读描述符
         // （面板的设备能力只认描述符，见 UsbAudioCapabilities）。两者都关着时该入口不认领设备，

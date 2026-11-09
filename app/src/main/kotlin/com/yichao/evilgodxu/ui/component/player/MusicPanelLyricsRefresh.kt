@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,11 +28,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yichao.evilgodxu.LocalProxySourceStore
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.proxy.OnlinePlatformRegistry
+import com.yichao.evilgodxu.data.music.proxy.ProxySourceSpec
 import com.yichao.evilgodxu.R
 
 @Composable
@@ -47,6 +51,7 @@ internal fun LyricsRefreshDialog(
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    val proxySources by LocalProxySourceStore.current.sources.collectAsStateWithLifecycle()
     RefreshCandidateDialog(
         visible = visible && track != null,
         searching = playbackState.isLyricsSearching || playbackState.isLyricsRefreshing,
@@ -54,7 +59,7 @@ internal fun LyricsRefreshDialog(
         candidates = playbackState.lyricsCandidates,
         selectedId = selectedId,
         source = playbackState.lyricsRefreshSource,
-        titleText = OnlinePlatformRegistry.displayName(context, playbackState.lyricsRefreshSource),
+        titleText = OnlinePlatformRegistry.displayName(context, proxySources, playbackState.lyricsRefreshSource),
         refreshLabel = stringResource(R.string.music_panel_refresh_lyrics),
         noCandidatesText = stringResource(R.string.music_panel_lyrics_no_candidates),
         onSourceSelected = onSourceSelected,
@@ -63,7 +68,13 @@ internal fun LyricsRefreshDialog(
         onConfirm = onConfirm,
         onCancel = onCancel,
         candidateItem = { candidate, selected ->
-            LyricsCandidateItem(candidate = candidate, selected = selected, context = context, onSelected = onCandidateSelected)
+            LyricsCandidateItem(
+                candidate = candidate,
+                selected = selected,
+                context = context,
+                proxySources = proxySources,
+                onSelected = onCandidateSelected,
+            )
         },
         footer = {
             playbackState.lyricsRefreshError?.let { error ->
@@ -85,6 +96,7 @@ private fun LyricsCandidateItem(
     candidate: NeteaseSongSearchResult,
     selected: Boolean,
     context: Context,
+    proxySources: List<ProxySourceSpec>,
     onSelected: (NeteaseSongSearchResult) -> Unit,
 ) {
     Column(
@@ -108,7 +120,7 @@ private fun LyricsCandidateItem(
                     )
                 } else {
                     Text(
-                        OnlinePlatformRegistry.displayName(context, candidate.source),
+                        OnlinePlatformRegistry.displayName(context, proxySources, candidate.source),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
                         textAlign = TextAlign.Center,

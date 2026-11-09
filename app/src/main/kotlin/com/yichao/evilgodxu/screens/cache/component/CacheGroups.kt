@@ -227,7 +227,6 @@ private val CacheCategory.labelRes: Int
         CacheCategory.SEARCH_HISTORY -> R.string.cache_category_search_history
         CacheCategory.PLAYLIST_CACHE -> R.string.cache_category_playlist_cache
         CacheCategory.BOOT_MIRROR -> R.string.cache_category_boot_mirror
-        CacheCategory.BOOT_LANGUAGE -> R.string.cache_category_boot_language
         CacheCategory.UPDATE_INFO -> R.string.cache_category_update_info
         CacheCategory.SETTINGS -> R.string.cache_category_settings
         CacheCategory.HIGHLIGHT -> R.string.cache_category_highlight

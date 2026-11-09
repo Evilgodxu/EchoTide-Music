@@ -302,15 +302,17 @@ internal fun ArtistSongsContent(
     orderedTracks: List<MusicTrack>,
     playbackState: MusicPlaybackState,
 ) {
-    val context = LocalContext.current
     val artistOrderStore = LocalArtistOrderStore.current
+    val scope = rememberCoroutineScope()
     TracksContent(
         tracks = orderedTracks,
         source = PlaylistSource(group.key, group.name),
         playbackState = playbackState,
         trailingAction = {},
         onTrackLongClick = {},
-        onReorder = { ordered -> artistOrderStore.setOrder(context, group.name, ordered.map { it.id }) },
+        onReorder = { ordered ->
+            scope.launch { artistOrderStore.setOrder(group.name, ordered.map { it.id }) }
+        },
     )
 }
 

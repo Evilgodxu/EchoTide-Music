@@ -8,6 +8,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
 import com.yichao.evilgodxu.data.playlist.ArtistOrderStore
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.repository.DataStoreSettingsRepository
@@ -16,6 +17,7 @@ import com.yichao.evilgodxu.floatingwindow.LocalMiniPlayerController
 import com.yichao.evilgodxu.floatingwindow.MiniPlayerController
 import com.yichao.evilgodxu.localization.LocalizationManager
 import com.yichao.evilgodxu.update.LocalUpdateViewModel
+import com.yichao.evilgodxu.update.UpdateStore
 import com.yichao.evilgodxu.update.UpdateViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,16 +43,24 @@ class AppContainer(val application: Application) {
 
     val localizationManager: LocalizationManager by lazy { LocalizationManager(application) }
 
-    val playlistStore: PlaylistStore by lazy { PlaylistStore() }
+    val playlistStore: PlaylistStore by lazy { PlaylistStore(application, appScope) }
 
-    val artistOrderStore: ArtistOrderStore by lazy { ArtistOrderStore() }
+    val artistOrderStore: ArtistOrderStore by lazy { ArtistOrderStore(application, appScope) }
+
+    val proxySourceStore: ProxySourceStore by lazy { ProxySourceStore(application, appScope) }
 
     val metadataEnricher: MetadataEnricher by lazy { MetadataEnricher() }
 
     val playlistRefresher: PlaylistRefresher by lazy { PlaylistRefresher(playlistStore) }
 
     val playbackState: MusicPlaybackState by lazy {
-        MusicPlaybackState(metadataEnricher, playlistStore)
+        MusicPlaybackState(
+            appContext = application,
+            persistenceScope = appScope,
+            metadataEnricher = metadataEnricher,
+            playlistStore = playlistStore,
+            proxySourceStore = proxySourceStore,
+        )
     }
 
     // 迷你播放器控制器单例：应用级悬浮窗生命周期，全库共享同一实例
@@ -59,8 +69,10 @@ class AppContainer(val application: Application) {
     }
 
     // 更新检查以单例共享，主页自动检查与设置页手动检查读写同一状态
+    val updateStore: UpdateStore by lazy { UpdateStore(application, appScope) }
+
     val updateViewModel: UpdateViewModel by lazy {
-        UpdateViewModel(application, settingsRepository, localizationManager)
+        UpdateViewModel(application, settingsRepository, localizationManager, updateStore)
     }
 
     // 应用版本号：冷启动读取一次
@@ -83,6 +95,10 @@ val LocalPlaylistStore = staticCompositionLocalOf<PlaylistStore> {
 
 val LocalArtistOrderStore = staticCompositionLocalOf<ArtistOrderStore> {
     error("ArtistOrderStore is not provided")
+}
+
+val LocalProxySourceStore = staticCompositionLocalOf<ProxySourceStore> {
+    error("ProxySourceStore is not provided")
 }
 
 val LocalMetadataEnricher = staticCompositionLocalOf<MetadataEnricher> {
@@ -114,6 +130,7 @@ fun ProvideAppDependencies(container: AppContainer, content: @Composable () -> U
         LocalPlaybackState provides container.playbackState,
         LocalPlaylistStore provides container.playlistStore,
         LocalArtistOrderStore provides container.artistOrderStore,
+        LocalProxySourceStore provides container.proxySourceStore,
         LocalMetadataEnricher provides container.metadataEnricher,
         LocalPlaylistRefresher provides container.playlistRefresher,
         LocalApplication provides container.application,

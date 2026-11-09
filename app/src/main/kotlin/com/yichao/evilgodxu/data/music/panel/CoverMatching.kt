@@ -13,7 +13,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 internal suspend fun searchCoverCandidates(
-    context: Context,
     playbackState: MusicPlaybackState,
     track: MusicTrack,
     source: MusicSearchSource,
@@ -21,7 +20,9 @@ internal suspend fun searchCoverCandidates(
     playbackState.isCoverSearching = true
     playbackState.coverCandidates = emptyList()
     try {
-        playbackState.coverCandidates = searchSingleSourceCandidates(context, source, track.title, track.artist)
+        playbackState.coverCandidates = searchSingleSourceCandidates(
+            playbackState.proxySourceStore, source, track.title, track.artist,
+        )
             .filter { matchesTrackTitle(track.title, it) && !it.coverUrl.isNullOrBlank() }
             .take(30)
     } catch (e: Exception) {
@@ -42,7 +43,7 @@ internal suspend fun applyCoverCandidate(
         val writeSuccess = withContext(Dispatchers.IO) {
             // 代理音源优先按 coverId 换取封面，未配置或失败时回退候选自带的封面直链；
             // 自定义平台没有内置封面地址，两者都取不到时视为该候选不可用
-            val bytes = ProxySourceEngine.coverBytes(context, candidate)
+            val bytes = ProxySourceEngine.coverBytes(playbackState.proxySourceStore, candidate)
                 ?: NeteaseMusicApi.loadCoverBytes(candidate.coverUrl.orEmpty())
                 ?: return@withContext false
             // 手动刷新封面：按音频容器格式原生写入元数据；系统据此重建封面略缩图，

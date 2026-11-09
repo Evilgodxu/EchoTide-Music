@@ -41,7 +41,7 @@
 | 播放 | Media3 ExoPlayer 1.11.1 + MediaSessionService（USB 独占另走原生等时层） |
 | 导航 | AndroidX Navigation3 1.2.1（类型安全路由） |
 | 依赖注入 | 手动 DI（单例挂在 Application） |
-| 持久化 | DataStore Preferences 1.3.0 |
+| 持久化 | DataStore 1.3.0（Preferences + kotlinx.serialization 类型化存储） |
 | 图片加载 | Coil 3.6.3 |
 | 网络 | OkHttp 5.5.1 |
 | 序列化 | kotlinx.serialization 1.12.0 |
@@ -77,7 +77,7 @@
 │       │   │   ├── persistence/         #   持久化落点声明与共享路径(磁盘文件名的唯一事实来源)
 │       │   │   ├── playlist/            #   歌单存储(智能 / 自定义)、分组与歌手页曲序
 │       │   │   ├── repository/          #   设置仓库
-│       │   │   └── settings/            #   设置 DataStore、播放与歌词排版偏好、启动语言镜像
+│       │   │   └── settings/            #   设置 DataStore、播放与歌词排版偏好、系统应用语言镜像
 │       │   ├── floatingwindow/          # 迷你播放器悬浮窗管理与控制器
 │       │   │   └── miniplayer/          #   迷你播放器浮层 / 紧凑条 / 展开式播放列表
 │       │   ├── localization/            # 应用内多语言管理
@@ -103,7 +103,7 @@
 │       │   ├── windowsize/              # 窗口尺寸类与横屏形态判定
 │       │   ├── App.kt                   # Application 入口(持有单例与组合局部)
 │       │   ├── AppContent.kt            # 根可组合项(导航宿主与全局弹窗)
-│       │   ├── MainActivity.kt          # 唯一 Activity(系统栏、外部意图、启动语言)
+│       │   ├── MainActivity.kt          # 唯一 Activity(系统栏、外部意图、应用语言)
 │       │   └── MainViewModel.kt         # Activity 专属 ViewModel(含 AppUiState)
 │       ├── cpp/                         # 原生层:USB 独占的 usbfs 等时传输(JNI 桥 + 等时流)
 │       └── res/                         # 资源(values / values-en)

@@ -17,8 +17,7 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.model.PlayMode
 import com.yichao.evilgodxu.data.music.model.RecentCover
-import com.yichao.evilgodxu.data.persistence.PersistedData
-import com.yichao.evilgodxu.data.persistence.PersistedFileKind
+import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.playlist.albumIdentity
 import kotlin.jvm.JvmName
@@ -32,8 +31,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 class MusicPlaybackState(
+    val appContext: Context,
+    private val persistenceScope: CoroutineScope,
     private val metadataEnricher: MetadataEnricher,
     internal val playlistStore: PlaylistStore,
+    internal val proxySourceStore: ProxySourceStore,
 ) {
 
     companion object {
@@ -41,23 +43,12 @@ class MusicPlaybackState(
         const val TIMER_STEP_MINUTES = 5
         const val TIMER_MIN_MINUTES = 5
         const val TIMER_MAX_MINUTES = 999
-
-        // 播放器持久化的四份落盘落点：名字即持久化标识，读写与存储页统计共用这些声明
-        internal val PLAYLIST_CACHE_STORE =
-            PersistedData("music_playlist_cache_preferences", PersistedFileKind.SHARED_PREFS)
-        internal val SEARCH_HISTORY_STORE =
-            PersistedData("music_search_history_preferences", PersistedFileKind.SHARED_PREFS)
-        internal val RECENT_PLAYED_STORE =
-            PersistedData("music_recent_played_preferences", PersistedFileKind.SHARED_PREFS)
-        internal val BOOT_MIRROR_STORE =
-            PersistedData("music_boot_mirror_preferences", PersistedFileKind.SHARED_PREFS)
     }
 
     // 冷启动恢复任务去重：并发调用方共享同一恢复任务并等待完成，
     // 避免界面、悬浮窗与授权扫描各自触发重复的读盘与解析
     private val restoreMutex = Mutex()
     private var restoreJob: Deferred<Unit>? = null
-    var appContext: Context? = null
     var mediaController: MediaController? by mutableStateOf(null)
     var player: Player? by mutableStateOf(null)
     internal var suppressAutoNext = false
@@ -242,16 +233,16 @@ class MusicPlaybackState(
     var likedIds by mutableStateOf<Set<Long>>(emptySet())
 
     internal val recentPlayedStore = RecentPlayedStore(
-        scope = { playbackScope },
-        context = { appContext },
+        context = appContext,
+        scope = persistenceScope,
     )
     internal val searchHistoryStore = SearchHistoryStore(
-        scope = { playbackScope },
-        context = { appContext },
+        context = appContext,
+        scope = persistenceScope,
     )
     private val playlistPersistence = PlaylistPersistence(
-        scope = { playbackScope },
-        context = { appContext },
+        context = appContext,
+        scope = persistenceScope,
     )
     internal val startupStateLoader = StartupStateLoader(
         searchHistoryStore = searchHistoryStore,
@@ -557,38 +548,25 @@ class MusicPlaybackState(
     )
 
     /**
-     * 绑定应用上下文。
-     *
-     * 与镜像、缓存无关，因此独立于两条启动路径：首启动没有任何可预置的内容，
-     * 但后续的落盘路径仍要取用上下文。
+     * 是否有可预置的启动镜像：首启动没有，据此跳过首帧前的同步读盘。
      */
-    fun attachContext(context: Context) {
-        appContext = context.applicationContext
-    }
-
-    /** 是否存在可预置的启动镜像：首启动没有，据此跳过首帧前的同步读盘 */
     fun hasBootMirror(context: Context): Boolean = bootMirrorStore.has(context)
 
-    /** 是否有已落盘的曲库缓存：首启动没有，恢复与差分都无从谈起 */
-    fun hasLibraryCache(context: Context): Boolean = playlistPersistence.hasLibraryCache(context)
-
     /** 落盘本轮扫描所用的曲库签名，供下次冷启动比对 */
-    fun writeLibrarySignature(context: Context, signature: String) {
-        playlistPersistence.writeLibrarySignature(context, signature)
+    suspend fun writeLibrarySignature(signature: String) {
+        playlistPersistence.writeLibrarySignature(signature)
     }
 
     /** 上次扫描时的曲库签名：为空表示从未扫完过，需按首启动处理 */
-    fun readLibrarySignature(context: Context): String? =
-        playlistPersistence.readLibrarySignature(context)
+    suspend fun readLibrarySignature(): String? = playlistPersistence.readLibrarySignature()
 
     /**
      * 同步读取启动镜像并预置首帧状态：曲目、进度、背景取色、封面位图与歌词内容一并就位。
      *
-     * 只可在冷启动的 Application.onCreate 主线程调用一次。读盘量固定为一个单键偏好、一张封面缩略图
-     * 与一份歌词缓存文件，换取首帧即是完整界面、启动不出现空态与占位符。
+     * 只可在冷启动的 Application.onCreate 主线程调用一次。读盘量固定为一份 JSON 镜像、
+     * 一张封面缩略图与一份歌词缓存文件，换取首帧即是完整界面、启动不出现空态与占位符。
      */
     fun seedFromBootMirror(context: Context) {
-        attachContext(context)
         val snapshot = bootMirrorStore.read(context) ?: return
         val track = snapshot.track
         // 歌词内容随首帧一并读出：歌词区不再经历「空白 → 内容」。
@@ -757,8 +735,8 @@ class MusicPlaybackState(
         return updated.copy(albumId = albumIdentity(libraryTracks, updated.albumName))
     }
 
-    suspend fun migrateTrackId(context: Context, oldId: Long, newId: Long) {
-        playlistEditor.migrateTrackId(context, oldId, newId)
+    suspend fun migrateTrackId(oldId: Long, newId: Long) {
+        playlistEditor.migrateTrackId(oldId, newId)
     }
 
     fun batchUpdateTracks(updates: List<MusicTrack>, persist: Boolean = true) {
@@ -769,9 +747,8 @@ class MusicPlaybackState(
     // 已具备缓存、已标记失败或在全量补全排期中的曲目自动跳过
     fun requestMetadata(track: MusicTrack?) {
         if (track == null) return
-        val context = appContext ?: return
         playbackScope.launch {
-            metadataEnricher.ensureMetadata(context, this@MusicPlaybackState, track)
+            metadataEnricher.ensureMetadata(appContext, this@MusicPlaybackState, track)
         }
     }
 
@@ -856,10 +833,9 @@ class MusicPlaybackState(
         if (mode != PlayMode.Highlight) mediaController?.volume = 1f
         // 队列项随模式变化，缓存作废；下面重建后会写回
         cachedMediaItems = null
-        val context = appContext ?: return
         // 片段取自持久化表，切换只做查表与重建队列、不含任何解析；
         // 当前曲目一并生效：进入自片段起点起播，退出还原到整曲的绝对位置
-        applyHighlightModeChange(context, this)
+        applyHighlightModeChange(appContext, this)
         // 表可能尚未扫完（首次启用、曲库刚变化）：后台补齐，已扫到的先按现有结果播放
         if (mode == PlayMode.Highlight) highlightScan.ensureScan()
     }

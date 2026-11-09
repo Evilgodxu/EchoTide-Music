@@ -43,14 +43,13 @@ class SettingsViewModel(
                 _uiState.update { it.copy(playback = playback) }
             }
         }
-        refreshProxySources()
+        // 音源列表由存储状态流驱动：页内增删与系统分享导入走同一条回流路径
+        viewModelScope.launch {
+            environment.proxySources.collect { sources ->
+                _uiState.update { it.copy(proxySources = sources) }
+            }
+        }
         refreshCacheUsage()
-        // 分享导入等外部写入不经过本 ViewModel，注册监听后由存储变化统一驱动列表刷新
-        environment.registerProxySourceChanges(::refreshProxySources)
-    }
-
-    override fun onCleared() {
-        environment.unregisterProxySourceChanges()
     }
 
     fun setMiniPlayerEnabled(enabled: Boolean) {
@@ -203,9 +202,5 @@ class SettingsViewModel(
             val totalBytes = environment.sampleCacheBytes()
             _uiState.update { it.copy(cacheTotalBytes = totalBytes) }
         }
-    }
-
-    private fun refreshProxySources() {
-        _uiState.update { it.copy(proxySources = environment.proxySources()) }
     }
 }

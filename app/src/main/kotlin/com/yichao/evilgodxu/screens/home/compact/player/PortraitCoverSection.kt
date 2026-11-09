@@ -106,7 +106,7 @@ internal fun PortraitCoverSection(
                 coverTargetId = playbackState.currentTrack?.id
                 showCoverRefresh = true
                 playbackState.currentTrack?.let { track ->
-                    scope.launch { searchCoverCandidates(context, playbackState, track, playbackState.coverRefreshSource) }
+                    scope.launch { searchCoverCandidates(playbackState, track, playbackState.coverRefreshSource) }
                 }
             },
             onLocalCover = {
@@ -208,14 +208,14 @@ internal fun PortraitCoverSection(
                 if (track != null && track.id == coverTargetId && source != playbackState.coverRefreshSource) {
                     playbackState.setCoverRefreshSource(source)
                     selectedCoverCandidate = null
-                    scope.launch { searchCoverCandidates(context, playbackState, track, source) }
+                    scope.launch { searchCoverCandidates(playbackState, track, source) }
                 }
             },
             onRefresh = {
                 val track = playbackState.currentTrack
                 if (track != null && track.id == coverTargetId) {
                     selectedCoverCandidate = null
-                    scope.launch { searchCoverCandidates(context, playbackState, track, playbackState.coverRefreshSource) }
+                    scope.launch { searchCoverCandidates(playbackState, track, playbackState.coverRefreshSource) }
                 }
             },
             onConfirm = {

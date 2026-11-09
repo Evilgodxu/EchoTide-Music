@@ -1,8 +1,8 @@
 package com.yichao.evilgodxu.data.music.proxy
 
 import android.content.Context
-import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 
 internal data class OnlinePlatformOption(
     val source: MusicSearchSource,
@@ -14,11 +14,11 @@ internal data class OnlinePlatformOption(
 internal object OnlinePlatformRegistry {
 
     // 可选平台：内置平台在前，自定义平台按音源导入顺序追加
-    fun options(context: Context): List<OnlinePlatformOption> {
+    fun options(context: Context, sources: List<ProxySourceSpec>): List<OnlinePlatformOption> {
         val builtIn = MusicSearchSource.BUILT_IN.map { source ->
             OnlinePlatformOption(source, builtInNameRes(source)?.let(context::getString) ?: source.key)
         }
-        val custom = ProxySourceStore.customSearchPlatforms(context).map { (key, name) ->
+        val custom = customSearchPlatforms(sources).map { (key, name) ->
             OnlinePlatformOption(MusicSearchSource(key), name)
         }
         return builtIn + custom
@@ -26,9 +26,13 @@ internal object OnlinePlatformRegistry {
 
     // 平台展示名：候选标签等按平台取名的场景使用。
     // 音源被移除后其历史结果已查不到名称，此时回退平台键，取值可能不是人类可读文本
-    fun displayName(context: Context, source: MusicSearchSource): String {
+    fun displayName(
+        context: Context,
+        sources: List<ProxySourceSpec>,
+        source: MusicSearchSource,
+    ): String {
         builtInNameRes(source)?.let { return context.getString(it) }
-        return ProxySourceStore.customSearchPlatforms(context)[source.key] ?: source.key
+        return customSearchPlatforms(sources)[source.key] ?: source.key
     }
 
     // 自定义平台无对应资源，返回 null

@@ -1,5 +1,6 @@
 package com.yichao.evilgodxu.screens.settings
 
+import com.yichao.evilgodxu.data.music.proxy.ProxySourceSpec
 import com.yichao.evilgodxu.data.repository.FakeSettingsRepository
 import com.yichao.evilgodxu.data.settings.AppLanguage
 import com.yichao.evilgodxu.data.settings.ThemeMode
@@ -204,12 +205,24 @@ class SettingsViewModelTest {
         val viewModel = viewModel(environment = environment)
 
         advanceUntilIdle()
-        assertTrue(environment.proxyChangesRegistered)
-
-        environment.setSources(emptyList())
-        environment.notifyProxyChanged()
-
         assertTrue(viewModel.uiState.value.proxySources.isEmpty())
+
+        environment.setSources(
+            listOf(
+                ProxySourceSpec(
+                    name = "示例音源",
+                    version = "1",
+                    author = "",
+                    homepage = "",
+                    description = "",
+                    platforms = emptyMap(),
+                    rawJson = "{}",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.proxySources.size)
     }
 
     @Test

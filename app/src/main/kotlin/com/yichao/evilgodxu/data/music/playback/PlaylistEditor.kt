@@ -115,14 +115,11 @@ internal class PlaylistEditor(private val state: MusicPlaybackState) {
      * 无损升级换 MediaStore ID 后迁移用户关联：收藏、最近播放与自定义歌单都按曲目 ID 记录，
      * 只更新音频 URI 而保留旧 ID，会在删旧条目后把这些关联一起丢掉。
      */
-    suspend fun migrateTrackId(context: Context, oldId: Long, newId: Long) {
+    suspend fun migrateTrackId(oldId: Long, newId: Long) {
         if (oldId == newId) return
         if (oldId in state.likedIds) state.likedIds = (state.likedIds - oldId) + newId
         state.recentPlayedStore.migrateTrackId(oldId, newId)
-        withContext(Dispatchers.IO) {
-            state.playlistStore.awaitLoaded(context)
-            state.playlistStore.replaceTrackId(context, oldId, newId)
-        }
+        state.playlistStore.replaceTrackId(oldId, newId)
         state.persistPlaylist()
     }
 

@@ -38,12 +38,10 @@ fun AppContent() {
     val lifecycleOwner = LocalLifecycleOwner.current
     val miniPlayerController = LocalMiniPlayerController.current
 
-    // 回前台时自动检查更新（每日仅检查一次）
+    // 回前台时自动检查更新（每日仅检查一次，是否到期由更新仓库判定）
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME &&
-                UpdateManager.shouldCheckUpdate(context.applicationContext)
-            ) {
+            if (event == Lifecycle.Event.ON_RESUME) {
                 updateViewModel.checkForUpdate()
             }
         }

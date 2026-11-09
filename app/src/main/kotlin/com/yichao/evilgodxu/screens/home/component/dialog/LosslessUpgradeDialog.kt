@@ -70,7 +70,7 @@ internal fun LosslessUpgradeDialog(
     LaunchedEffect(visible, track?.id, playbackState.losslessUpgradeSource) {
         if (visible && track != null) {
             selectedCandidate = null
-            searchLosslessUpgradeCandidates(context, playbackState, track, playbackState.losslessUpgradeSource)
+            searchLosslessUpgradeCandidates(playbackState, track, playbackState.losslessUpgradeSource)
         }
     }
 
@@ -124,7 +124,7 @@ internal fun LosslessUpgradeDialog(
                     onClick = {
                         selectedCandidate = null
                         scope.launch {
-                            searchLosslessUpgradeCandidates(context, playbackState, track, playbackState.losslessUpgradeSource)
+                            searchLosslessUpgradeCandidates(playbackState, track, playbackState.losslessUpgradeSource)
                         }
                     },
                     enabled = !playbackState.isLosslessUpgradeSearching && !playbackState.losslessUpgradeBusy,
