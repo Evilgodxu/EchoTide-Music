@@ -89,7 +89,10 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
         debug {
-            isDebuggable = false
+            // 调试变体按标准语义可调试：可断点、可挂监视、可连 Profiler。
+            // 基线配置生成以 release 变体为被测对象（见 :baselineprofile 的 targetProjectPath），
+            // 且 debug 不走 R8 与资源缩减，故与本开关互不影响
+            isDebuggable = true
         }
     }
 
