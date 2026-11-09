@@ -1,26 +1,24 @@
-package com.yichao.evilgodxu.screens.cache.expanded
+package com.yichao.evilgodxu.screens.cache.assembly
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.screens.cache.CacheUiState
 import com.yichao.evilgodxu.screens.cache.component.CacheUsageGroups
+import com.yichao.evilgodxu.ui.component.ContentPane
 import com.yichao.evilgodxu.ui.component.PageTopBar
+import com.yichao.evilgodxu.windowsize.WindowSizeClass
+import com.yichao.evilgodxu.windowsize.contentMaxWidth
 
-// 宽屏下缓存内容的可读宽度上限，避免超宽窗口把明细行拉伸过长
-private val CACHE_CONTENT_MAX_WIDTH = 720.dp
-
-// 宽屏组装器：限宽居中的缓存分组，清理入口随合计占用收在末尾
+// 缓存页组装器：骨架为 Scaffold + 单栏内容区，形态差异经 ContentPane 的行宽上限表达；
+// 清理入口随合计占用收在分组末尾
 @Composable
-internal fun ExpandedAssembly(
+internal fun CacheAssembly(
+    windowSizeClass: WindowSizeClass,
     uiState: CacheUiState,
     onBack: () -> Unit,
     onClearCache: () -> Unit,
@@ -34,7 +32,10 @@ internal fun ExpandedAssembly(
         },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        ContentPane(
+            maxContentWidth = windowSizeClass.contentMaxWidth,
+            modifier = Modifier.fillMaxSize(),
+        ) {
             CacheUsageGroups(
                 usages = uiState.usages,
                 clearing = uiState.clearing,
@@ -42,7 +43,6 @@ internal fun ExpandedAssembly(
                 onRefresh = onRefresh,
                 onClear = onClearCache,
                 innerPadding = innerPadding,
-                modifier = Modifier.widthIn(max = CACHE_CONTENT_MAX_WIDTH),
             )
         }
     }

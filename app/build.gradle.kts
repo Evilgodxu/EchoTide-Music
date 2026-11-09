@@ -1,5 +1,6 @@
 import java.io.FileInputStream
 import java.util.Properties
+import com.android.build.api.variant.HasUnitTestBuilder
 
 plugins {
     alias(libs.plugins.android.application)
@@ -66,6 +67,8 @@ android {
     androidResources {
         // 禁用按语言分包，支持应用内语言切换
         localeFilters += listOf("zh", "en")
+        // 由 AGP 依据资源目录生成 locale_config 并写入清单，避免手写文件与资源漂移
+        generateLocaleConfig = true
     }
 
     // 语言资源不分包，确保运行时语言切换可用
@@ -132,6 +135,8 @@ android {
     }
     testOptions {
         unitTests {
+            // Compose Preview 任务依赖编译后的 Android 资源解析 XML 与主题属性
+            isIncludeAndroidResources = true
             // 失败分支的日志与扫描调用经 android.util 桩：桩默认抛异常会让「记录日志后跳过」的
             // 分支无法在 JVM 上验证，改为按默认值返回，使这类分支可被测试覆盖
             isReturnDefaultValues = true
@@ -147,6 +152,16 @@ android {
         disable += "ChromeOsAbiSupport"
         // 定向抑制（如 media3 通知图标的覆盖资源）写在 lint.xml，避免整体关掉某项检查
         lintConfig = file("lint.xml")
+        // 质量门禁：Lint Error 阻断构建，release 变体同规则
+        abortOnError = true
+        checkReleaseBuilds = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        // Kotlin 编译警告提级为 Error：弃用与冗余写法必须在当轮清理
+        allWarningsAsErrors.set(true)
     }
 }
 
@@ -160,6 +175,11 @@ baselineProfile {
 val apkVersionName = android.defaultConfig.versionName ?: "0.0.0"
 
 androidComponents {
+    // AGP 9.5 会为开启 compose 的每个变体注册 Compose Preview 任务，变体未启用单元测试时创建即失败，
+    // 使 tasks 与 IDE 同步中断；该开关在 VariantBuilder 上已隐藏，需经 HasUnitTestBuilder 设置
+    beforeVariants(selector().all()) { variant ->
+        (variant as HasUnitTestBuilder).enableUnitTest = true
+    }
     onVariants(selector().all()) { variant ->
         variant.outputs.forEach { output ->
             output.outputFileName.set("EchoTideMusic-$apkVersionName-arm64-v8a.apk")
@@ -178,11 +198,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
-
-    // 自适应窗口（WindowSizeClass 响应式布局）
-    implementation(libs.androidx.window)
-    implementation(libs.androidx.material3.adaptive)
-    implementation(libs.androidx.material3.adaptive.layout)
+    // Navigation3 页面级 ViewModel 作用域：ViewModel 随导航条目创建与回收
+    implementation(libs.androidx.lifecycle.viewmodel.navigation3)
 
     // 导航框架 Navigation3
     implementation(libs.androidx.navigation3.runtime)

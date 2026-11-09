@@ -12,11 +12,10 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.yichao.evilgodxu.LocalApplication
 import com.yichao.evilgodxu.LocalPlaybackState
+import com.yichao.evilgodxu.screens.metadata.assembly.MetadataAssembly
 import com.yichao.evilgodxu.screens.metadata.component.MetadataPermissionRequest
-import com.yichao.evilgodxu.screens.metadata.compact.CompactAssembly
-import com.yichao.evilgodxu.screens.metadata.expanded.ExpandedAssembly
 import com.yichao.evilgodxu.theme.StatusBarStyleEffect
-import com.yichao.evilgodxu.windowsize.rememberExpandedForm
+import com.yichao.evilgodxu.windowsize.rememberWindowSizeClass
 
 // 页面入口：形态分发 + 跨形态副作用，不承载布局
 @Composable
@@ -68,54 +67,29 @@ fun MetadataScreen(
     // 仅在编辑态下拦截系统返回键，其余情况交给导航栈自行回退
     BackHandler(enabled = uiState.editing != null, onBack = handleBack)
 
-    // 形态分派：旋转状态与窗口宽度尺寸类共同决定显示内容
-    if (rememberExpandedForm()) {
-        ExpandedAssembly(
-            uiState = uiState,
-            onBack = handleBack,
-            onEditStart = viewModel::onEditStart,
-            onEditEnd = viewModel::onEditEnd,
-            onFieldChange = viewModel::onFieldChange,
-            onLyricRawChange = viewModel::onLyricRawChange,
-            onLyricTranslationChange = viewModel::onLyricTranslationChange,
-            onLyricLineTranslate = viewModel::onLyricLineTranslate,
-            onLyricsWholeModeToggle = viewModel::onLyricsWholeModeToggle,
-            onCoverSelected = viewModel::onCoverSelected,
-            onCoverRemoved = viewModel::onCoverRemoved,
-            onCoverExport = viewModel::onCoverExport,
-            onSameAlbumRequest = viewModel::onSameAlbumCoversRequest,
-            onSameAlbumDismiss = viewModel::onSameAlbumCoversDismiss,
-            onCoverRefreshOpen = viewModel::onCoverRefreshOpen,
-            onCoverRefreshSourceSelected = viewModel::onCoverRefreshSourceSelected,
-            onCoverRefreshReload = viewModel::onCoverRefreshReload,
-            onCoverRefreshCandidateSelected = viewModel::onCoverRefreshCandidateSelected,
-            onCoverRefreshConfirm = viewModel::onCoverRefreshConfirm,
-            onCoverRefreshCancel = viewModel::onCoverRefreshCancel,
-            modifier = modifier,
-        )
-    } else {
-        CompactAssembly(
-            uiState = uiState,
-            onBack = handleBack,
-            onEditStart = viewModel::onEditStart,
-            onEditEnd = viewModel::onEditEnd,
-            onFieldChange = viewModel::onFieldChange,
-            onLyricRawChange = viewModel::onLyricRawChange,
-            onLyricTranslationChange = viewModel::onLyricTranslationChange,
-            onLyricLineTranslate = viewModel::onLyricLineTranslate,
-            onLyricsWholeModeToggle = viewModel::onLyricsWholeModeToggle,
-            onCoverSelected = viewModel::onCoverSelected,
-            onCoverRemoved = viewModel::onCoverRemoved,
-            onCoverExport = viewModel::onCoverExport,
-            onSameAlbumRequest = viewModel::onSameAlbumCoversRequest,
-            onSameAlbumDismiss = viewModel::onSameAlbumCoversDismiss,
-            onCoverRefreshOpen = viewModel::onCoverRefreshOpen,
-            onCoverRefreshSourceSelected = viewModel::onCoverRefreshSourceSelected,
-            onCoverRefreshReload = viewModel::onCoverRefreshReload,
-            onCoverRefreshCandidateSelected = viewModel::onCoverRefreshCandidateSelected,
-            onCoverRefreshConfirm = viewModel::onCoverRefreshConfirm,
-            onCoverRefreshCancel = viewModel::onCoverRefreshCancel,
-            modifier = modifier,
-        )
-    }
+    // 窗口尺寸类在此计算一次后下传，组装器不自行读取窗口尺寸
+    MetadataAssembly(
+        windowSizeClass = rememberWindowSizeClass(),
+        uiState = uiState,
+        onBack = handleBack,
+        onEditStart = viewModel::onEditStart,
+        onEditEnd = viewModel::onEditEnd,
+        onFieldChange = viewModel::onFieldChange,
+        onLyricRawChange = viewModel::onLyricRawChange,
+        onLyricTranslationChange = viewModel::onLyricTranslationChange,
+        onLyricLineTranslate = viewModel::onLyricLineTranslate,
+        onLyricsWholeModeToggle = viewModel::onLyricsWholeModeToggle,
+        onCoverSelected = viewModel::onCoverSelected,
+        onCoverRemoved = viewModel::onCoverRemoved,
+        onCoverExport = viewModel::onCoverExport,
+        onSameAlbumRequest = viewModel::onSameAlbumCoversRequest,
+        onSameAlbumDismiss = viewModel::onSameAlbumCoversDismiss,
+        onCoverRefreshOpen = viewModel::onCoverRefreshOpen,
+        onCoverRefreshSourceSelected = viewModel::onCoverRefreshSourceSelected,
+        onCoverRefreshReload = viewModel::onCoverRefreshReload,
+        onCoverRefreshCandidateSelected = viewModel::onCoverRefreshCandidateSelected,
+        onCoverRefreshConfirm = viewModel::onCoverRefreshConfirm,
+        onCoverRefreshCancel = viewModel::onCoverRefreshCancel,
+        modifier = modifier,
+    )
 }

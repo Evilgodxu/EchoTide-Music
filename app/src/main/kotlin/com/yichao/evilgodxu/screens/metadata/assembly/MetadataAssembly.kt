@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.screens.metadata.expanded
+package com.yichao.evilgodxu.screens.metadata.assembly
 
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,13 +17,17 @@ import com.yichao.evilgodxu.screens.metadata.MetadataEditTarget
 import com.yichao.evilgodxu.screens.metadata.MetadataUiState
 import com.yichao.evilgodxu.screens.metadata.component.MetadataForm
 import com.yichao.evilgodxu.ui.component.PageTopBar
+import com.yichao.evilgodxu.windowsize.WindowSizeClass
 
-// 宽屏下内容左右留白：可视区充裕，让表单与屏幕边缘分离
-private val EXPANDED_CONTENT_PADDING = 12.dp
+// 内容左右留白：窄窗空间紧张按 16dp 留足触控边距，宽窗可视区充裕，
+// 收到 12dp 让表单与屏幕边缘分离而不显空
+private val COMPACT_HORIZONTAL_PADDING = 16.dp
+private val EXPANDED_HORIZONTAL_PADDING = 12.dp
 
-// 宽屏组装器：常驻标题栏 + 留白内的纵向表单
+// 元数据页组装器：骨架为 Scaffold + 纵向滚动的表单，形态差异只体现在左右留白
 @Composable
-internal fun ExpandedAssembly(
+internal fun MetadataAssembly(
+    windowSizeClass: WindowSizeClass,
     uiState: MetadataUiState,
     onBack: () -> Unit,
     onEditStart: (MetadataEditTarget) -> Unit,
@@ -46,7 +50,11 @@ internal fun ExpandedAssembly(
     onCoverRefreshCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val playbackState = LocalPlaybackState.current
+    val horizontalPadding = if (windowSizeClass == WindowSizeClass.Compact) {
+        COMPACT_HORIZONTAL_PADDING
+    } else {
+        EXPANDED_HORIZONTAL_PADDING
+    }
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -56,7 +64,7 @@ internal fun ExpandedAssembly(
     ) { innerPadding ->
         MetadataForm(
             uiState = uiState,
-            playbackState = playbackState,
+            playbackState = LocalPlaybackState.current,
             onEditStart = onEditStart,
             onEditEnd = onEditEnd,
             onFieldChange = onFieldChange,
@@ -79,8 +87,8 @@ internal fun ExpandedAssembly(
                 .fillMaxSize()
                 .padding(innerPadding)
                 // 只留左右白边，底缘不留固定内边距：它在滚动容器之外，键盘弹出时会变成
-                // 键盘上沿一条不随内容滚动的页面底色间隙
-                .padding(horizontal = EXPANDED_CONTENT_PADDING),
+                // 键盘上沿一条不随内容滚动的页面底色空隙
+                .padding(horizontal = horizontalPadding),
         )
     }
 }

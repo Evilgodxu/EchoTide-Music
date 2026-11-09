@@ -8,10 +8,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.yichao.evilgodxu.LocalApplication
-import com.yichao.evilgodxu.screens.typography.compact.CompactAssembly
-import com.yichao.evilgodxu.screens.typography.expanded.ExpandedAssembly
+import com.yichao.evilgodxu.screens.typography.assembly.TypographyAssembly
 import com.yichao.evilgodxu.theme.StatusBarStyleEffect
-import com.yichao.evilgodxu.windowsize.rememberExpandedForm
+import com.yichao.evilgodxu.windowsize.rememberWindowSizeClass
 
 // 页面入口：形态分发 + 跨形态副作用，不承载布局
 @Composable
@@ -31,32 +30,18 @@ fun TypographyScreen(
     // 状态栏图标跟随主题：浅色主题深色图标，深色主题白色图标
     StatusBarStyleEffect()
 
-    // 形态分派：旋转状态与窗口宽度尺寸类共同决定显示内容
-    if (rememberExpandedForm()) {
-        ExpandedAssembly(
-            uiState = uiState,
-            onBack = onBack,
-            onHomePortraitFontSizeChange = viewModel::adjustHomePortraitFontSize,
-            onHomePortraitLinesChange = viewModel::adjustHomePortraitLines,
-            onHomePortraitLineSpacingChange = viewModel::adjustHomePortraitLineSpacing,
-            onLandscapeFontSizeChange = viewModel::adjustLandscapeFontSize,
-            onLandscapeLinesChange = viewModel::adjustLandscapeLines,
-            onLandscapeLineSpacingChange = viewModel::adjustLandscapeLineSpacing,
-            onLandscape3DChange = viewModel::adjustLandscape3D,
-            modifier = modifier,
-        )
-    } else {
-        CompactAssembly(
-            uiState = uiState,
-            onBack = onBack,
-            onHomePortraitFontSizeChange = viewModel::adjustHomePortraitFontSize,
-            onHomePortraitLinesChange = viewModel::adjustHomePortraitLines,
-            onHomePortraitLineSpacingChange = viewModel::adjustHomePortraitLineSpacing,
-            onLandscapeFontSizeChange = viewModel::adjustLandscapeFontSize,
-            onLandscapeLinesChange = viewModel::adjustLandscapeLines,
-            onLandscapeLineSpacingChange = viewModel::adjustLandscapeLineSpacing,
-            onLandscape3DChange = viewModel::adjustLandscape3D,
-            modifier = modifier,
-        )
-    }
+    // 窗口尺寸类在此计算一次后下传，组装器不自行读取窗口尺寸
+    TypographyAssembly(
+        windowSizeClass = rememberWindowSizeClass(),
+        uiState = uiState,
+        onBack = onBack,
+        onHomePortraitFontSizeChange = viewModel::adjustHomePortraitFontSize,
+        onHomePortraitLinesChange = viewModel::adjustHomePortraitLines,
+        onHomePortraitLineSpacingChange = viewModel::adjustHomePortraitLineSpacing,
+        onLandscapeFontSizeChange = viewModel::adjustLandscapeFontSize,
+        onLandscapeLinesChange = viewModel::adjustLandscapeLines,
+        onLandscapeLineSpacingChange = viewModel::adjustLandscapeLineSpacing,
+        onLandscape3DChange = viewModel::adjustLandscape3D,
+        modifier = modifier,
+    )
 }

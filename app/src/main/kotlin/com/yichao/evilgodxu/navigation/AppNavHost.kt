@@ -13,8 +13,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalPlaybackState
@@ -78,6 +80,12 @@ fun AppNavHost(
         backStack = backStack,
         onBack = { onBack() },
         modifier = modifier,
+        // 保留默认的可保存状态装饰器，并叠加 ViewModel 作用域装饰器：
+        // 页面级 ViewModel 的生命周期与导航条目对齐，出栈即回收，回栈新建
+        entryDecorators = listOf(
+            rememberSaveableStateHolderNavEntryDecorator(),
+            rememberViewModelStoreNavEntryDecorator(),
+        ),
         entryProvider = { key ->
             when (key) {
                 is Home -> NavEntry(key) {

@@ -137,7 +137,7 @@ class MiniPlayerViewManager(
             setContent {
                 // 悬浮窗独立于 Activity 组合树，须自行为应用级依赖提供值，
                 // 否则内部组件读取组合局部会触发默认 error 崩溃
-                ProvideAppDependencies(app()) {
+                ProvideAppDependencies(app().container) {
                     MiniPlayerOverlay(
                         playbackState = playbackState,
                         barHeightPx = barH,

@@ -19,11 +19,10 @@ import com.yichao.evilgodxu.LocalApplication
 import com.yichao.evilgodxu.permission.notificationPolicyAccessIntent
 import com.yichao.evilgodxu.LocalLocalizationManager
 import com.yichao.evilgodxu.LocalSettingsRepository
-import com.yichao.evilgodxu.screens.settings.compact.CompactAssembly
-import com.yichao.evilgodxu.screens.settings.expanded.ExpandedAssembly
+import com.yichao.evilgodxu.screens.settings.assembly.SettingsAssembly
 import com.yichao.evilgodxu.theme.LocalThemeTransitionController
 import com.yichao.evilgodxu.theme.StatusBarStyleEffect
-import com.yichao.evilgodxu.windowsize.rememberExpandedForm
+import com.yichao.evilgodxu.windowsize.rememberWindowSizeClass
 import com.yichao.evilgodxu.update.LocalUpdateViewModel
 
 // 页面入口：形态分发 + 跨形态副作用，不承载布局
@@ -89,50 +88,27 @@ fun SettingsScreen(
     // 状态栏图标跟随主题：浅色主题深色图标，深色主题白色图标
     StatusBarStyleEffect()
 
-    // 形态分派：旋转状态与窗口宽度尺寸类共同决定显示内容
-    if (rememberExpandedForm()) {
-        ExpandedAssembly(
-            uiState = uiState,
-            onBack = onBack,
-            onThemeSelected = viewModel::setThemeMode,
-            onLanguageSelected = viewModel::setLanguage,
-            onThemeClick = onThemeClick,
-            onMiniPlayerEnabledChange = viewModel::setMiniPlayerEnabled,
-            onWordByWordRenderingChange = viewModel::setWordByWordRendering,
-            onSwipeToChangeTrackChange = viewModel::setSwipeToChangeTrack,
-            onBackgroundFlowChange = viewModel::setBackgroundFlow,
-            onUsbDirectOutputChange = viewModel::setUsbDirectOutput,
-            onUsbExclusiveOutputChange = viewModel::setUsbExclusiveOutput,
-            onVersionClick = { updateViewModel.checkForUpdate(force = true) },
-            onOpenTypography = onOpenTypography,
-            onProxySourceImport = viewModel::importProxySource,
-            onProxySourceToggle = viewModel::setProxySourceEnabled,
-            onProxySourceRemove = viewModel::removeProxySource,
-            onProxyImportMessageDismiss = viewModel::clearProxyImportMessage,
-            onOpenCache = onOpenCache,
-            modifier = modifier,
-        )
-    } else {
-        CompactAssembly(
-            uiState = uiState,
-            onBack = onBack,
-            onThemeSelected = viewModel::setThemeMode,
-            onLanguageSelected = viewModel::setLanguage,
-            onThemeClick = onThemeClick,
-            onMiniPlayerEnabledChange = viewModel::setMiniPlayerEnabled,
-            onWordByWordRenderingChange = viewModel::setWordByWordRendering,
-            onSwipeToChangeTrackChange = viewModel::setSwipeToChangeTrack,
-            onBackgroundFlowChange = viewModel::setBackgroundFlow,
-            onUsbDirectOutputChange = viewModel::setUsbDirectOutput,
-            onUsbExclusiveOutputChange = viewModel::setUsbExclusiveOutput,
-            onVersionClick = { updateViewModel.checkForUpdate(force = true) },
-            onOpenTypography = onOpenTypography,
-            onProxySourceImport = viewModel::importProxySource,
-            onProxySourceToggle = viewModel::setProxySourceEnabled,
-            onProxySourceRemove = viewModel::removeProxySource,
-            onProxyImportMessageDismiss = viewModel::clearProxyImportMessage,
-            onOpenCache = onOpenCache,
-            modifier = modifier,
-        )
-    }
+    // 窗口尺寸类在此计算一次后下传，组装器不自行读取窗口尺寸
+    SettingsAssembly(
+        windowSizeClass = rememberWindowSizeClass(),
+        uiState = uiState,
+        onBack = onBack,
+        onThemeSelected = viewModel::setThemeMode,
+        onLanguageSelected = viewModel::setLanguage,
+        onThemeClick = onThemeClick,
+        onMiniPlayerEnabledChange = viewModel::setMiniPlayerEnabled,
+        onWordByWordRenderingChange = viewModel::setWordByWordRendering,
+        onSwipeToChangeTrackChange = viewModel::setSwipeToChangeTrack,
+        onBackgroundFlowChange = viewModel::setBackgroundFlow,
+        onUsbDirectOutputChange = viewModel::setUsbDirectOutput,
+        onUsbExclusiveOutputChange = viewModel::setUsbExclusiveOutput,
+        onVersionClick = { updateViewModel.checkForUpdate(force = true) },
+        onOpenTypography = onOpenTypography,
+        onProxySourceImport = viewModel::importProxySource,
+        onProxySourceToggle = viewModel::setProxySourceEnabled,
+        onProxySourceRemove = viewModel::removeProxySource,
+        onProxyImportMessageDismiss = viewModel::clearProxyImportMessage,
+        onOpenCache = onOpenCache,
+        modifier = modifier,
+    )
 }

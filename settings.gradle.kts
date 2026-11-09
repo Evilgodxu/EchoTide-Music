@@ -1,7 +1,8 @@
 pluginManagement {
-    // 依赖版本巡检插件改用本地维护分支构建，源码位于项目同级目录
-    includeBuild("../refreshVersions/plugins")
+    // 版本巡检插件由本机仓库（~/.m2）消费：源码分支改完执行一次 publishToMavenLocal 即可生效，
+    // 不再 includeBuild 源码工程，避免每次构建都为它配置并编译插件
     repositories {
+        mavenLocal()
         // 依赖与插件统一走腾讯云镜像：maven-public 聚合了 Google Maven 与 Maven Central
         maven { url = uri("https://mirrors.cloud.tencent.com/nexus/repository/maven-public/") }
         // Gradle 插件门户，插件标记与插件实现均由该仓库提供
@@ -10,8 +11,9 @@ pluginManagement {
 }
 
 plugins {
-    // 依赖版本巡检：在 libs.versions.toml 中标注可用更新，是否升级仍由人工决定
-    id("de.fayard.refreshVersions")
+    // 依赖版本巡检：在 libs.versions.toml 中标注可用更新，是否升级仍由人工决定。
+    // 版本号须与 ../refreshVersions/plugins/version.txt 一致
+    id("de.fayard.refreshVersions") version "1.0.1"
 }
 
 refreshVersions {

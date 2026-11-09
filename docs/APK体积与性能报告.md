@@ -1,8 +1,8 @@
 # APK 体检报告：EchoTideMusic-6.2.3-arm64-v8a.apk
 
 - 应用：`com.yichao.evilgodxu` 6.2.3
-- 体积：3.33 MiB（3496251 字节）
-- 条目：46，容器开销 30.7 KiB
+- 体积：3.33 MiB（3496515 字节）
+- 条目：47，容器开销 35.4 KiB
 - 构建工具：build-tools 37.0.0
 - ZIP 对齐：通过
 - 后处理可回收：97 B
@@ -17,26 +17,26 @@
 
 | 分组 | 条目 | 原始 | 占用 | 占比 |
 | --- | ---: | ---: | ---: | ---: |
-| `classes2.dex` | 1 | 5.12 MiB | 2.72 MiB | 82.3% |
+| `classes2.dex` | 1 | 5.11 MiB | 2.72 MiB | 82.3% |
 | `lib/**/*.so` | 3 | 395.6 KiB | 395.6 KiB | 11.7% |
-| `resources.arsc` | 1 | 68.9 KiB | 68.9 KiB | 2.0% |
-| `assets/` | 3 | 141.4 KiB | 53.2 KiB | 1.6% |
-| `res/` | 23 | 50.4 KiB | 48.1 KiB | 1.4% |
-| `classes.dex` | 1 | 32.6 KiB | 16.1 KiB | 0.5% |
+| `resources.arsc` | 1 | 68.8 KiB | 68.8 KiB | 2.0% |
+| `assets/` | 3 | 141.4 KiB | 53.3 KiB | 1.6% |
+| `res/` | 24 | 50.9 KiB | 48.3 KiB | 1.4% |
+| `classes.dex` | 1 | 31.0 KiB | 15.4 KiB | 0.5% |
 | `kotlin/` | 8 | 52.7 KiB | 12.1 KiB | 0.4% |
-| `AndroidManifest.xml` | 1 | 13.6 KiB | 3.3 KiB | 0.1% |
-| `META-INF/` | 5 | 186 B | 186 B | 0.0% |
+| `AndroidManifest.xml` | 1 | 13.4 KiB | 3.3 KiB | 0.1% |
+| `META-INF/` | 5 | 186 B | 185 B | 0.0% |
 
 ## 最大条目
 
 | 条目 | 原始 | 占用 | 方式 |
 | --- | ---: | ---: | --- |
-| `classes2.dex` | 5.12 MiB | 2.72 MiB | DEFLATE |
+| `classes2.dex` | 5.11 MiB | 2.72 MiB | DEFLATE |
 | `lib/arm64-v8a/libechotide_usb_iso.so` | 375.6 KiB | 375.6 KiB | STORED |
-| `resources.arsc` | 68.9 KiB | 68.9 KiB | STORED |
+| `resources.arsc` | 68.8 KiB | 68.8 KiB | STORED |
 | `assets/PublicSuffixDatabase.list` | 129.6 KiB | 41.5 KiB | DEFLATE |
-| `classes.dex` | 32.6 KiB | 16.1 KiB | DEFLATE |
-| `assets/dexopt/baseline.prof` | 10.4 KiB | 10.4 KiB | STORED |
+| `classes.dex` | 31.0 KiB | 15.4 KiB | DEFLATE |
+| `assets/dexopt/baseline.prof` | 10.5 KiB | 10.5 KiB | STORED |
 | `lib/arm64-v8a/libdatastore_shared_counter.so` | 10.1 KiB | 10.1 KiB | STORED |
 | `lib/arm64-v8a/libandroidx.graphics.path.so` | 9.9 KiB | 9.9 KiB | STORED |
 | `res/sK.webp` | 7.9 KiB | 7.9 KiB | STORED |
@@ -52,9 +52,9 @@
 | 条目 | 体积变化 | 原因 |
 | --- | ---: | --- |
 | `assets/PublicSuffixDatabase.list` | -28 B | 已 deflate，压缩级别提升至 9 |
-| `META-INF/services/bb0` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
-| `META-INF/services/gx2` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
-| `META-INF/services/w7` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
+| `META-INF/services/hx2` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
+| `META-INF/services/qa0` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
+| `META-INF/services/v7` | -2 B | deflate 无收益，改回未压缩存储以减少解压开销 |
 | `kotlin/collections/collections.kotlin_builtins` | -18 B | 已 deflate，压缩级别提升至 9 |
 | `kotlin/kotlin.kotlin_builtins` | -36 B | 已 deflate，压缩级别提升至 9 |
 | `kotlin/reflect/reflect.kotlin_builtins` | -9 B | 已 deflate，压缩级别提升至 9 |

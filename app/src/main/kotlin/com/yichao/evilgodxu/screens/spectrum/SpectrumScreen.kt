@@ -9,10 +9,9 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.yichao.evilgodxu.LocalApplication
 import com.yichao.evilgodxu.LocalPlaybackState
-import com.yichao.evilgodxu.screens.spectrum.compact.CompactAssembly
-import com.yichao.evilgodxu.screens.spectrum.expanded.ExpandedAssembly
+import com.yichao.evilgodxu.screens.spectrum.assembly.SpectrumAssembly
 import com.yichao.evilgodxu.theme.StatusBarStyleEffect
-import com.yichao.evilgodxu.windowsize.rememberExpandedForm
+import com.yichao.evilgodxu.windowsize.rememberWindowSizeClass
 
 // 页面入口：形态分发 + 跨形态副作用，不承载布局
 @Composable
@@ -40,10 +39,11 @@ fun SpectrumScreen(
     // 状态栏图标跟随主题：浅色主题深色图标，深色主题白色图标
     StatusBarStyleEffect()
 
-    // 形态分派：旋转状态与窗口宽度尺寸类共同决定显示内容
-    if (rememberExpandedForm()) {
-        ExpandedAssembly(uiState = uiState, onBack = onBack, modifier = modifier)
-    } else {
-        CompactAssembly(uiState = uiState, onBack = onBack, modifier = modifier)
-    }
+    // 窗口尺寸类在此计算一次后下传，组装器不自行读取窗口尺寸
+    SpectrumAssembly(
+        windowSizeClass = rememberWindowSizeClass(),
+        uiState = uiState,
+        onBack = onBack,
+        modifier = modifier,
+    )
 }

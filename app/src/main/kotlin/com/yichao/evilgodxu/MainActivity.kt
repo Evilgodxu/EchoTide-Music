@@ -28,7 +28,6 @@ import com.yichao.evilgodxu.data.settings.AppLanguage
 import com.yichao.evilgodxu.data.settings.readBootLanguage
 import com.yichao.evilgodxu.permission.PermissionReturnMonitor
 import com.yichao.evilgodxu.theme.SystemBarAppearance
-import com.yichao.evilgodxu.windowsize.ProvideWindowSizeClass
 import com.yichao.evilgodxu.floatingwindow.MiniPlayerController
 import com.yichao.evilgodxu.localization.LocalizationManager
 import com.yichao.evilgodxu.localization.ProvideLocalizedContext
@@ -69,15 +68,15 @@ class MainActivity : ComponentActivity() {
     private val app: App
         get() = application as App
     private val localizationManager: LocalizationManager
-        get() = app.localizationManager
+        get() = app.container.localizationManager
     private val miniPlayerController: MiniPlayerController
-        get() = app.miniPlayerController
+        get() = app.container.miniPlayerController
     private val activityViewModel: MainViewModel by viewModels {
         viewModelFactory {
             initializer {
                 MainViewModel(
-                    settingsRepository = app.settingsRepository,
-                    appVersion = app.appVersion,
+                    settingsRepository = app.container.settingsRepository,
+                    appVersion = app.container.appVersion,
                 )
             }
         }
@@ -122,12 +121,10 @@ class MainActivity : ComponentActivity() {
         })
 
         setContent {
-            ProvideAppDependencies(app) {
+            ProvideAppDependencies(app.container) {
                 CompositionLocalProvider(LocalMainViewModel provides activityViewModel) {
                     ProvideLocalizedContext(localizationManager) {
-                        ProvideWindowSizeClass {
-                            AppContent()
-                        }
+                        AppContent()
                     }
                 }
             }

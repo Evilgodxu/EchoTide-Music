@@ -10,10 +10,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.yichao.evilgodxu.LocalApplication
-import com.yichao.evilgodxu.screens.cache.compact.CompactAssembly
-import com.yichao.evilgodxu.screens.cache.expanded.ExpandedAssembly
+import com.yichao.evilgodxu.screens.cache.assembly.CacheAssembly
 import com.yichao.evilgodxu.theme.StatusBarStyleEffect
-import com.yichao.evilgodxu.windowsize.rememberExpandedForm
+import com.yichao.evilgodxu.windowsize.rememberWindowSizeClass
 
 // 页面入口：形态分发 + 跨形态副作用，不承载布局
 @Composable
@@ -35,22 +34,13 @@ fun CacheScreen(
     // 进入页面即采样一次，回到前台同样重采，使占用不受后台期间缓存涨落影响
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
-    // 形态分派：旋转状态与窗口宽度尺寸类共同决定显示内容
-    if (rememberExpandedForm()) {
-        ExpandedAssembly(
-            uiState = uiState,
-            onBack = onBack,
-            onClearCache = viewModel::clearSystemCache,
-            onRefresh = viewModel::refresh,
-            modifier = modifier,
-        )
-    } else {
-        CompactAssembly(
-            uiState = uiState,
-            onBack = onBack,
-            onClearCache = viewModel::clearSystemCache,
-            onRefresh = viewModel::refresh,
-            modifier = modifier,
-        )
-    }
+    // 窗口尺寸类在此计算一次后下传，组装器不自行读取窗口尺寸
+    CacheAssembly(
+        windowSizeClass = rememberWindowSizeClass(),
+        uiState = uiState,
+        onBack = onBack,
+        onClearCache = viewModel::clearSystemCache,
+        onRefresh = viewModel::refresh,
+        modifier = modifier,
+    )
 }

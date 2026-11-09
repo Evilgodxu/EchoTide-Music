@@ -7,6 +7,9 @@
      删掉它会静默回落到库自带的默认图标（两者字节不同，本文件是自定义图标）。
      置于 drawable-nodpi：通知小图标须按原尺寸呈现，不随屏幕密度缩放 -->
 <lint>
+    <!-- 弃用 API 与未标注的实验性 API 提级为 error：须迁移到等价接口而非就地抑制 -->
+    <issue id="Deprecated" severity="error" />
+    <issue id="UnsafeOptInUsageError" severity="error" />
     <issue id="UnusedResources">
         <ignore path="src/main/res/drawable-nodpi/media3_icon_circular_play.png" />
     </issue>

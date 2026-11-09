@@ -43,7 +43,7 @@ class UsbAttachActivity : Activity() {
         // 落盘值的读取是异步的，而本入口没有界面，故读盘期间保持透明窗口，读完再决定去留。
         // 走进程级作用域：本入口紧接着就结束，绑定 Activity 生命周期的作用域会被随即取消
         val app = application as App
-        app.appScope.launch {
+        app.container.appScope.launch {
             // 开关刚被关掉、系统的这次启动已在投递途中时，只有这道核对拦得住——组件状态那时已来不及改
             val entryWanted = usbExclusiveOutputModeFlow().first() || usbDirectOutputModeFlow().first()
             withContext(Dispatchers.Main) {
