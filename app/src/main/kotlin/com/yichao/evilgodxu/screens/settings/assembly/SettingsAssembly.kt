@@ -8,8 +8,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.res.stringResource
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.data.settings.AppLanguage
-import com.yichao.evilgodxu.data.settings.ThemeMode
 import com.yichao.evilgodxu.screens.settings.SettingsUiState
 import com.yichao.evilgodxu.screens.settings.component.SettingsPane
 import com.yichao.evilgodxu.ui.component.ContentPane
@@ -23,9 +21,8 @@ internal fun SettingsAssembly(
     windowSizeClass: WindowSizeClass,
     uiState: SettingsUiState,
     onBack: () -> Unit,
-    onThemeSelected: (ThemeMode) -> Unit,
-    onLanguageSelected: (AppLanguage) -> Unit,
     onThemeClick: (Offset) -> Unit,
+    onShowLanguageDialog: () -> Unit,
     onMiniPlayerEnabledChange: (Boolean) -> Unit,
     onWordByWordRenderingChange: (Boolean) -> Unit,
     onSwipeToChangeTrackChange: (Boolean) -> Unit,
@@ -55,9 +52,8 @@ internal fun SettingsAssembly(
             SettingsPane(
                 uiState = uiState,
                 innerPadding = innerPadding,
-                onThemeSelected = onThemeSelected,
-                onLanguageSelected = onLanguageSelected,
                 onThemeClick = onThemeClick,
+                onShowLanguageDialog = onShowLanguageDialog,
                 onMiniPlayerEnabledChange = onMiniPlayerEnabledChange,
                 onWordByWordRenderingChange = onWordByWordRenderingChange,
                 onSwipeToChangeTrackChange = onSwipeToChangeTrackChange,

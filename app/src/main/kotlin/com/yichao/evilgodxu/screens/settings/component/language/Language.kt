@@ -9,7 +9,7 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 
 @Composable
-fun Language(language: AppLanguage, onLanguageSelected: (AppLanguage) -> Unit, onShowDialog: () -> Unit) {
+fun Language(language: AppLanguage, onShowDialog: () -> Unit) {
     GroupCard(title = stringResource(R.string.settings_section_language)) {
         SettingsEntry(
             icon = AppIcons.Language,

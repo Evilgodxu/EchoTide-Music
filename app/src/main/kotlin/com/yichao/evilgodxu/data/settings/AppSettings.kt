@@ -34,7 +34,7 @@ object SettingsKeys {
 // 冷启动引导：在依赖容器就绪前读取持久化语言，
 // 供 attachBaseContext 配置启动语言，避免在此阶段创建依赖实例
 suspend fun Context.bootstrapAppLanguage(): AppLanguage = settingsDataStore.data.first().let { preferences ->
-    AppLanguage.entries.find { it.languageTag == preferences[SettingsKeys.LANGUAGE] } ?: AppLanguage.SYSTEM
+    AppLanguage.fromTag(preferences[SettingsKeys.LANGUAGE])
 }
 
 enum class ThemeMode(val value: String) {
@@ -51,6 +51,11 @@ enum class AppLanguage(val languageTag: String?) {
     SYSTEM(null),
     CHINESE("zh"),
     ENGLISH("en");
+
+    companion object {
+        // 已落盘值与枚举标签的对照集中在此：未知值或缺键一律回落到跟随系统，不抛错
+        fun fromTag(tag: String?): AppLanguage = entries.find { it.languageTag == tag } ?: SYSTEM
+    }
 }
 
 data class SettingsState(

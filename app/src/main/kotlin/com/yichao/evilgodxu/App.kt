@@ -1,8 +1,6 @@
 package com.yichao.evilgodxu
 
 import android.app.Application
-import android.content.pm.ApplicationInfo
-import android.os.StrictMode
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.memory.MemoryCache
@@ -30,8 +28,6 @@ class App : Application() {
         super.onCreate()
         val appScope = container.appScope
         val playbackState = container.playbackState
-        // 调试构建启用线程策略：让主线程磁盘/网络访问在开发期直接暴露
-        enableStrictModeInDebugBuild()
         // 最先初始化崩溃日志，捕获启动阶段异常
         CrashLogManager.init(this)
         // 上下文先于内容绑定：首启动没有任何可预置的内容，但后续落盘路径仍要取用上下文
@@ -87,18 +83,5 @@ class App : Application() {
         appScope.launch {
             runCatching { CacheInventory.reclaimOnColdStart(this@App) }
         }
-    }
-
-    // 用日志而非崩溃作为惩罚：生命周期内必要的 I/O 不该把调试包打断
-    private fun enableStrictModeInDebugBuild() {
-        if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0) return
-        StrictMode.setThreadPolicy(
-            StrictMode.ThreadPolicy.Builder()
-                .detectDiskReads()
-                .detectDiskWrites()
-                .detectNetwork()
-                .penaltyLog()
-                .build(),
-        )
     }
 }

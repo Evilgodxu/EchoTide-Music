@@ -182,7 +182,7 @@ object UpdateManager {
         }
     }
 
-    private fun normalizeVersion(version: String): String {
+    internal fun normalizeVersion(version: String): String {
         return version.trim().trimStart('v', 'V')
     }
 
@@ -398,7 +398,7 @@ object UpdateManager {
     }
 
     // 逐段按整数比较：字符串比较会把 "1.10" 判为小于 "1.9"
-    private fun isNewerVersion(latest: String, current: String): Boolean {
+    internal fun isNewerVersion(latest: String, current: String): Boolean {
         val l = latest.split(".").mapNotNull { it.toIntOrNull() }
         val c = current.split(".").mapNotNull { it.toIntOrNull() }
         for (i in 0 until maxOf(l.size, c.size)) {

@@ -6,6 +6,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
@@ -20,6 +23,9 @@ import com.yichao.evilgodxu.permission.notificationPolicyAccessIntent
 import com.yichao.evilgodxu.LocalLocalizationManager
 import com.yichao.evilgodxu.LocalSettingsRepository
 import com.yichao.evilgodxu.screens.settings.assembly.SettingsAssembly
+import com.yichao.evilgodxu.data.settings.AppLanguage
+import com.yichao.evilgodxu.screens.settings.component.dialog.LanguageSelectionDialog
+import com.yichao.evilgodxu.screens.settings.component.dialog.ThemeSelectionDialog
 import com.yichao.evilgodxu.theme.LocalThemeTransitionController
 import com.yichao.evilgodxu.theme.StatusBarStyleEffect
 import com.yichao.evilgodxu.windowsize.rememberWindowSizeClass
@@ -49,7 +55,7 @@ fun SettingsScreen(
     )
     val updateViewModel = LocalUpdateViewModel.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val onThemeClick: (Offset) -> Unit = LocalThemeTransitionController.current::revealAt
+    val revealThemeAt: (Offset) -> Unit = LocalThemeTransitionController.current::revealAt
     val context = LocalContext.current
 
     // 用 ActivityResultLauncher 打开悬浮窗系统设置页：结果由 ActivityResultRegistry 托管，
@@ -88,14 +94,29 @@ fun SettingsScreen(
     // 状态栏图标跟随主题：浅色主题深色图标，深色主题白色图标
     StatusBarStyleEffect()
 
+    // 弹层与形态无关，挂在骨架层：组装器只上抛"请求打开"，不持有弹窗状态
+    var showThemeDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
+    var pendingLanguage by remember { mutableStateOf<AppLanguage?>(null) }
+    var pendingThemeClickPosition by remember { mutableStateOf(Offset.Zero) }
+
+    // 先关闭弹窗，下一帧再切语言，避免切换瞬间闪现旧语言
+    LaunchedEffect(pendingLanguage) {
+        val language = pendingLanguage ?: return@LaunchedEffect
+        pendingLanguage = null
+        viewModel.setLanguage(language)
+    }
+
     // 窗口尺寸类在此计算一次后下传，组装器不自行读取窗口尺寸
     SettingsAssembly(
         windowSizeClass = rememberWindowSizeClass(),
         uiState = uiState,
         onBack = onBack,
-        onThemeSelected = viewModel::setThemeMode,
-        onLanguageSelected = viewModel::setLanguage,
-        onThemeClick = onThemeClick,
+        onThemeClick = { position ->
+            pendingThemeClickPosition = position
+            showThemeDialog = true
+        },
+        onShowLanguageDialog = { showLanguageDialog = true },
         onMiniPlayerEnabledChange = viewModel::setMiniPlayerEnabled,
         onWordByWordRenderingChange = viewModel::setWordByWordRendering,
         onSwipeToChangeTrackChange = viewModel::setSwipeToChangeTrack,
@@ -111,4 +132,28 @@ fun SettingsScreen(
         onOpenCache = onOpenCache,
         modifier = modifier,
     )
+
+    if (showThemeDialog) {
+        ThemeSelectionDialog(
+            currentTheme = uiState.themeMode,
+            onDismiss = { showThemeDialog = false },
+            onThemeSelected = { mode ->
+                // 先从点击位置播放圆形揭示，再落库主题：揭示动画需要旧主题画面作为底图
+                revealThemeAt(pendingThemeClickPosition)
+                viewModel.setThemeMode(mode)
+                showThemeDialog = false
+            },
+        )
+    }
+
+    if (showLanguageDialog) {
+        LanguageSelectionDialog(
+            currentLanguage = uiState.language,
+            onDismiss = { showLanguageDialog = false },
+            onLanguageSelected = { language ->
+                showLanguageDialog = false
+                pendingLanguage = language
+            },
+        )
+    }
 }

@@ -2,6 +2,7 @@ package com.yichao.evilgodxu.data.settings
 
 import android.content.Context
 import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -10,6 +11,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+
+// 本文件的键与读写规则即播放设置的唯一事实源。
+// 界面侧经 SettingsRepository 读写（见 DataStoreSettingsRepository），播放引擎与启动编排没有
+// ViewModel 上下文，直接订阅下面的流；两条路径读的是同一组键，不要再引入第三种。
 
 private val miniPlayerEnabledKey = booleanPreferencesKey("mini_player_enabled")
 private val wordByWordRenderingKey = booleanPreferencesKey("word_by_word_rendering")
@@ -21,33 +26,17 @@ private val usbDirectOutputModeKey = booleanPreferencesKey("usb_exclusive_mode")
 fun Context.miniPlayerEnabledFlow(): Flow<Boolean> =
     settingsDataStore.data.map { it[miniPlayerEnabledKey] ?: false }
 
-suspend fun Context.saveMiniPlayerEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
-    settingsDataStore.edit { it[miniPlayerEnabledKey] = enabled }
-}
-
 // 逐字渲染默认开启：关闭后歌词退化为整行高亮
 fun Context.wordByWordRenderingFlow(): Flow<Boolean> =
     settingsDataStore.data.map { it[wordByWordRenderingKey] ?: true }
-
-suspend fun Context.saveWordByWordRendering(enabled: Boolean) = withContext(Dispatchers.IO) {
-    settingsDataStore.edit { it[wordByWordRenderingKey] = enabled }
-}
 
 // 滑动切歌默认开启：关闭后首页上下滑动不再切换歌曲
 fun Context.swipeToChangeTrackFlow(): Flow<Boolean> =
     settingsDataStore.data.map { it[swipeToChangeTrackKey] ?: true }
 
-suspend fun Context.saveSwipeToChangeTrack(enabled: Boolean) = withContext(Dispatchers.IO) {
-    settingsDataStore.edit { it[swipeToChangeTrackKey] = enabled }
-}
-
 // 背景流动默认关闭：关闭时首页背景只渲染一帧静态的封面衍生背景，开启后按固定默认值缓慢流动
 fun Context.backgroundFlowEnabledFlow(): Flow<Boolean> =
     settingsDataStore.data.map { it[backgroundFlowEnabledKey] ?: false }
-
-suspend fun Context.saveBackgroundFlowEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
-    settingsDataStore.edit { it[backgroundFlowEnabledKey] = enabled }
-}
 
 // USB 直出默认关闭：开启后按设备声明的条目为播放申请止步于源格式的专用输出流，由播放服务读取生效
 fun Context.usbDirectOutputModeFlow(): Flow<Boolean> =
@@ -103,6 +92,59 @@ suspend fun Context.saveUsbDirectOutputMode(enabled: Boolean) = withContext(Disp
 suspend fun Context.saveUsbExclusiveOutputMode(enabled: Boolean) = withContext(Dispatchers.IO) {
     settingsDataStore.edit { applyUsbOutputSwitch(it, UsbOutputKind.EXCLUSIVE, enabled) }
 }
+
+/**
+ * 播放相关设置的快照。
+ *
+ * 默认值即各键缺失时的取值（首次安装、从旧版本升级）：逐字渲染、滑动切歌默认开启，
+ * 其余默认关闭。
+ */
+data class PlaybackSettings(
+    val miniPlayerEnabled: Boolean = false,
+    val wordByWordRendering: Boolean = true,
+    val swipeToChangeTrack: Boolean = true,
+    val backgroundFlow: Boolean = false,
+    val usbDirectOutput: Boolean = false,
+    val usbExclusiveOutput: Boolean = false,
+)
+
+// 键缺失时取默认值的规则集中在这一处，界面与仓库读的是同一份判定
+internal fun playbackSettingsOf(
+    miniPlayerEnabled: Boolean?,
+    wordByWordRendering: Boolean?,
+    swipeToChangeTrack: Boolean?,
+    backgroundFlow: Boolean?,
+    usbDirectOutput: Boolean?,
+    usbExclusiveOutput: Boolean?,
+): PlaybackSettings = PlaybackSettings(
+    miniPlayerEnabled = miniPlayerEnabled ?: false,
+    wordByWordRendering = wordByWordRendering ?: true,
+    swipeToChangeTrack = swipeToChangeTrack ?: true,
+    backgroundFlow = backgroundFlow ?: false,
+    usbDirectOutput = usbDirectOutput ?: false,
+    usbExclusiveOutput = usbExclusiveOutput ?: false,
+)
+
+internal fun Preferences.toPlaybackSettings(): PlaybackSettings = playbackSettingsOf(
+    miniPlayerEnabled = this[miniPlayerEnabledKey],
+    wordByWordRendering = this[wordByWordRenderingKey],
+    swipeToChangeTrack = this[swipeToChangeTrackKey],
+    backgroundFlow = this[backgroundFlowEnabledKey],
+    usbDirectOutput = this[usbDirectOutputModeKey],
+    usbExclusiveOutput = this[usbExclusiveOutputModeKey],
+)
+
+// 整组字段在同一次编辑里落盘：调用方改一项也只写这一项，其余按键取回快照原值
+internal fun MutablePreferences.applyPlaybackSettings(transform: (PlaybackSettings) -> PlaybackSettings) {
+    val next = transform(toPlaybackSettings())
+    this[miniPlayerEnabledKey] = next.miniPlayerEnabled
+    this[wordByWordRenderingKey] = next.wordByWordRendering
+    this[swipeToChangeTrackKey] = next.swipeToChangeTrack
+    this[backgroundFlowEnabledKey] = next.backgroundFlow
+    this[usbDirectOutputModeKey] = next.usbDirectOutput
+    this[usbExclusiveOutputModeKey] = next.usbExclusiveOutput
+}
+
 
 /**
  * 两个键在同一次编辑里落盘，互斥因此是原子的。

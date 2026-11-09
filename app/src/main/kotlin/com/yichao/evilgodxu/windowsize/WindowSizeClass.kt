@@ -21,7 +21,9 @@ val WindowSizeClass.contentMaxWidth: Dp
 
 // 读取当前窗口宽度尺寸类；窗口尺寸变化时自动重组。
 // 取窗口容器实测尺寸而非 Configuration.screenWidthDp：后者与 inset 行为耦合且被四舍五入，
-// 不能准确反映实际可用窗口宽度
+// 不能准确反映实际可用窗口宽度。
+// 只看宽度、不看朝向：横屏手机（宽度仍在 compact/medium 区间）按窄窗处理，内容满宽；
+// 朝向只参与首页与播放面板的横竖形态分派（见 rememberExpandedForm）
 @Composable
 fun rememberWindowSizeClass(): WindowSizeClass {
     val width = LocalWindowInfo.current.containerDpSize.width

@@ -18,21 +18,9 @@ import com.yichao.evilgodxu.permission.PermissionReturnMonitor
 import com.yichao.evilgodxu.permission.bringAppToFront
 import com.yichao.evilgodxu.data.repository.SettingsRepository
 import com.yichao.evilgodxu.data.settings.AppLanguage
-import com.yichao.evilgodxu.data.settings.backgroundFlowEnabledFlow
-import com.yichao.evilgodxu.data.settings.miniPlayerEnabledFlow
-import com.yichao.evilgodxu.data.settings.saveBackgroundFlowEnabled
-import com.yichao.evilgodxu.data.settings.saveMiniPlayerEnabled
-import com.yichao.evilgodxu.data.settings.saveSwipeToChangeTrack
-import com.yichao.evilgodxu.data.settings.saveUsbDirectOutputMode
-import com.yichao.evilgodxu.data.settings.saveUsbExclusiveOutputMode
-import com.yichao.evilgodxu.data.settings.UsbOutputKind
-import com.yichao.evilgodxu.data.settings.usbExclusiveOutputModeFlow
-import com.yichao.evilgodxu.data.settings.usbOutputSwitchesAfter
-import com.yichao.evilgodxu.data.settings.saveWordByWordRendering
-import com.yichao.evilgodxu.data.settings.swipeToChangeTrackFlow
 import com.yichao.evilgodxu.data.settings.ThemeMode
-import com.yichao.evilgodxu.data.settings.usbDirectOutputModeFlow
-import com.yichao.evilgodxu.data.settings.wordByWordRenderingFlow
+import com.yichao.evilgodxu.data.settings.UsbOutputKind
+import com.yichao.evilgodxu.data.settings.usbOutputSwitchesAfter
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.localization.LocalizationManager
@@ -77,33 +65,17 @@ class SettingsViewModel(
             _uiState.update { it.copy(language = settingsRepository.getAppLanguage()) }
         }
         viewModelScope.launch {
-            context.miniPlayerEnabledFlow().collect { enabled ->
-                _uiState.update { it.copy(miniPlayerEnabled = enabled) }
-            }
-        }
-        viewModelScope.launch {
-            context.wordByWordRenderingFlow().collect { enabled ->
-                _uiState.update { it.copy(wordByWordRendering = enabled) }
-            }
-        }
-        viewModelScope.launch {
-            context.swipeToChangeTrackFlow().collect { enabled ->
-                _uiState.update { it.copy(swipeToChangeTrack = enabled) }
-            }
-        }
-        viewModelScope.launch {
-            context.backgroundFlowEnabledFlow().collect { enabled ->
-                _uiState.update { it.copy(backgroundFlow = enabled) }
-            }
-        }
-        viewModelScope.launch {
-            context.usbDirectOutputModeFlow().collect { enabled ->
-                _uiState.update { it.copy(usbDirectOutput = enabled) }
-            }
-        }
-        viewModelScope.launch {
-            context.usbExclusiveOutputModeFlow().collect { enabled ->
-                _uiState.update { it.copy(usbExclusiveOutput = enabled) }
+            settingsRepository.playbackSettings.collect { playback ->
+                _uiState.update {
+                    it.copy(
+                        miniPlayerEnabled = playback.miniPlayerEnabled,
+                        wordByWordRendering = playback.wordByWordRendering,
+                        swipeToChangeTrack = playback.swipeToChangeTrack,
+                        backgroundFlow = playback.backgroundFlow,
+                        usbDirectOutput = playback.usbDirectOutput,
+                        usbExclusiveOutput = playback.usbExclusiveOutput,
+                    )
+                }
             }
         }
         refreshProxySources()
@@ -115,7 +87,7 @@ class SettingsViewModel(
     fun setMiniPlayerEnabled(enabled: Boolean) {
         _uiState.update { it.copy(miniPlayerEnabled = enabled) }
         viewModelScope.launch {
-            context.saveMiniPlayerEnabled(enabled)
+            settingsRepository.updatePlaybackSettings { it.copy(miniPlayerEnabled = enabled) }
             if (enabled && !Settings.canDrawOverlays(context)) {
                 // 置为待授权状态：设置页 UI 通过 ActivityResultLauncher 打开系统悬浮窗设置页，
                 // 返回时（含 Activity 重建、进程回收后的结果重投递）统一由 onOverlaySettingsReturned 对账
@@ -149,7 +121,7 @@ class SettingsViewModel(
             // 未授予：停止监控并回滚开关，避免界面状态与真实权限不一致
             OverlayGrantMonitor.stop()
             viewModelScope.launch {
-                context.saveMiniPlayerEnabled(false)
+                settingsRepository.updatePlaybackSettings { it.copy(miniPlayerEnabled = false) }
                 _uiState.update { it.copy(miniPlayerEnabled = false) }
             }
         }
@@ -167,21 +139,21 @@ class SettingsViewModel(
     fun setWordByWordRendering(enabled: Boolean) {
         _uiState.update { it.copy(wordByWordRendering = enabled) }
         viewModelScope.launch {
-            context.saveWordByWordRendering(enabled)
+            settingsRepository.updatePlaybackSettings { it.copy(wordByWordRendering = enabled) }
         }
     }
 
     fun setSwipeToChangeTrack(enabled: Boolean) {
         _uiState.update { it.copy(swipeToChangeTrack = enabled) }
         viewModelScope.launch {
-            context.saveSwipeToChangeTrack(enabled)
+            settingsRepository.updatePlaybackSettings { it.copy(swipeToChangeTrack = enabled) }
         }
     }
 
     fun setBackgroundFlow(enabled: Boolean) {
         _uiState.update { it.copy(backgroundFlow = enabled) }
         viewModelScope.launch {
-            context.saveBackgroundFlowEnabled(enabled)
+            settingsRepository.updatePlaybackSettings { it.copy(backgroundFlow = enabled) }
         }
     }
 
@@ -197,14 +169,14 @@ class SettingsViewModel(
             requestNotificationPolicyAccess()
         }
         viewModelScope.launch {
-            context.saveUsbDirectOutputMode(enabled)
+            settingsRepository.setUsbDirectOutput(enabled)
         }
     }
 
     fun setUsbExclusiveOutput(enabled: Boolean) {
         applyUsbOutputSwitch(UsbOutputKind.EXCLUSIVE, enabled)
         viewModelScope.launch {
-            context.saveUsbExclusiveOutputMode(enabled)
+            settingsRepository.setUsbExclusiveOutput(enabled)
         }
     }
 

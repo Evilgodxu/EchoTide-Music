@@ -3,10 +3,15 @@ package com.yichao.evilgodxu.data.repository
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import com.yichao.evilgodxu.data.settings.AppLanguage
+import com.yichao.evilgodxu.data.settings.PlaybackSettings
+import com.yichao.evilgodxu.data.settings.applyPlaybackSettings
+import com.yichao.evilgodxu.data.settings.saveUsbDirectOutputMode
+import com.yichao.evilgodxu.data.settings.saveUsbExclusiveOutputMode
 import com.yichao.evilgodxu.data.settings.settingsDataStore
 import com.yichao.evilgodxu.data.settings.SettingsKeys
 import com.yichao.evilgodxu.data.settings.SettingsState
 import com.yichao.evilgodxu.data.settings.ThemeMode
+import com.yichao.evilgodxu.data.settings.toPlaybackSettings
 import com.yichao.evilgodxu.data.settings.writeBootLanguage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -25,11 +30,22 @@ interface SettingsRepository {
     // 应用语言流：统一读 DataStore
     val appLanguage: Flow<AppLanguage>
 
+    // 播放相关设置：迷你播放器、歌词渲染、滑动切歌、背景流动与两路 USB 输出
+    val playbackSettings: Flow<PlaybackSettings>
+
     suspend fun saveThemeMode(mode: ThemeMode)
 
     suspend fun getAppLanguage(): AppLanguage
 
     suspend fun setAppLanguage(language: AppLanguage)
+
+    // 整组播放设置一次编辑落盘，调用方只改需要的字段
+    suspend fun updatePlaybackSettings(transform: (PlaybackSettings) -> PlaybackSettings)
+
+    // 两路 USB 输出互斥：开启一路必然关闭另一路
+    suspend fun setUsbDirectOutput(enabled: Boolean)
+
+    suspend fun setUsbExclusiveOutput(enabled: Boolean)
 }
 
 // DataStore 实现：以 DataStore 为设置项的唯一事实源。
@@ -47,7 +63,12 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
 
     // 按语言值去重，理由同上
     override val appLanguage: Flow<AppLanguage> = context.settingsDataStore.data.map { preferences ->
-        AppLanguage.entries.find { it.languageTag == preferences[SettingsKeys.LANGUAGE] } ?: AppLanguage.SYSTEM
+        AppLanguage.fromTag(preferences[SettingsKeys.LANGUAGE])
+    }.distinctUntilChanged()
+
+    // 播放设置同理：任一设置写入都会重发整份 Preferences，按快照去重避免无效刷新
+    override val playbackSettings: Flow<PlaybackSettings> = context.settingsDataStore.data.map { preferences ->
+        preferences.toPlaybackSettings()
     }.distinctUntilChanged()
 
     override suspend fun saveThemeMode(mode: ThemeMode) {
@@ -58,7 +79,7 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
 
     override suspend fun getAppLanguage(): AppLanguage {
         return context.settingsDataStore.data.first().let { preferences ->
-            AppLanguage.entries.find { it.languageTag == preferences[SettingsKeys.LANGUAGE] } ?: AppLanguage.SYSTEM
+            AppLanguage.fromTag(preferences[SettingsKeys.LANGUAGE])
         }
     }
 
@@ -69,5 +90,18 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
         }
         // 同步刷新启动语言镜像：下次冷启动才无需读 DataStore 即可同步拿到刚选的语言
         withContext(Dispatchers.IO) { writeBootLanguage(context, language) }
+    }
+
+    override suspend fun updatePlaybackSettings(transform: (PlaybackSettings) -> PlaybackSettings) {
+        context.settingsDataStore.edit { preferences -> preferences.applyPlaybackSettings(transform) }
+    }
+
+    // 复用设置模块的整组落盘：两路互斥的两个键在同一次编辑内写完，不留中间态
+    override suspend fun setUsbDirectOutput(enabled: Boolean) {
+        context.saveUsbDirectOutputMode(enabled)
+    }
+
+    override suspend fun setUsbExclusiveOutput(enabled: Boolean) {
+        context.saveUsbExclusiveOutputMode(enabled)
     }
 }
