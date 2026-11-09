@@ -16,6 +16,9 @@
 /captures
 /local.properties
 
+# 本地开发约定文件：不随本仓库发布
+/AGENTS.md
+
 jh.keystore
 recollection
 Material Symbols
