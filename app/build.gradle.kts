@@ -25,14 +25,13 @@ android {
         applicationId = "com.yichao.evilgodxu"
         minSdk = 34
         targetSdk = 37
-        versionCode = 108
-        versionName = "6.2.5"
+        versionCode = 109
+        versionName = "6.2.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            // 仅打包 arm64：ChromeOS 上的 Android 运行时为 x86_64，加入该 ABI 会显著增大
-            // 安装包体积，而本应用的音频直通与 USB 直出面向的是 arm64 移动设备
+            // 仅打包 arm64
             abiFilters += listOf("arm64-v8a")
         }
 
@@ -57,8 +56,7 @@ android {
             storePassword = localProperties.getProperty("KEYSTORE_PASSWORD", "")
             keyAlias = localProperties.getProperty("KEY_ALIAS", "jh")
             keyPassword = localProperties.getProperty("KEY_PASSWORD", "")
-            // minSdk 34 下 v2 已覆盖全部目标设备；显式关闭 v3，否则签名器
-            // 会因 minSdk ≥ 28 判定 v3 更优而省略 v2
+            // minSdk 34 下 v2 已覆盖全部目标设备；显式关闭 v3，否则签名器会因 minSdk ≥ 28 判定 v3 更优而省略 v2
             enableV2Signing = true
             enableV3Signing = false
         }
