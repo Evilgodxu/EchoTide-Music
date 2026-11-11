@@ -50,7 +50,7 @@ private const val COVER_CACHE_HEAP_RESERVE_BYTES = 300 * 1024 * 1024
 // 列表行封面按显示尺寸取图后单张约 16–64 KB
 private const val COVER_CACHE_MIN_BYTES = 32 * 1024 * 1024
 
-// 驻留上限：再高的堆也只用到这里。封面缓存之外还有 Coil 的图片缓存（见 App 的 0.10）、
+// 驻留上限：再高的堆也只用到这里。封面缓存之外还有远程封面的内存缓存（见 RemoteCoverLoader）、
 // 大封面常驻档与音频内嵌封面缓存，图片类常驻不能无限跟着堆放大
 private const val COVER_CACHE_MAX_BYTES = 128 * 1024 * 1024
 

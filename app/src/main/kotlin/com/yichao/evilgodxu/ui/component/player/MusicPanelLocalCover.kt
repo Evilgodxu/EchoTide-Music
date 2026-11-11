@@ -25,11 +25,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
 import com.yichao.evilgodxu.permission.hasAllFilesAccess
 import com.yichao.evilgodxu.data.music.model.MusicTrack
@@ -38,6 +36,7 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.DialogCard
+import com.yichao.evilgodxu.ui.component.RemoteCover
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -136,10 +135,10 @@ private fun LocalCoverContent(
                     modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp)).clickable { onSelected(cover) },
                     contentAlignment = Alignment.Center
                 ) {
-                    AsyncImage(
-                        model = cover.uri,
+                    RemoteCover(
+                        url = cover.uri.toString(),
                         contentDescription = stringResource(R.string.music_panel_local_cover),
-                        contentScale = ContentScale.Crop,
+                        targetSize = 84.dp,
                         modifier = Modifier.fillMaxSize()
                     )
                     if (cover == selected) {

@@ -218,10 +218,6 @@ dependencies {
     // 协程 Guava 桥接（MediaController buildAsync）
     implementation(libs.kotlinx.coroutines.guava)
 
-    // Coil 图片加载
-    implementation(libs.coil.compose)
-    implementation(libs.coil.network.okhttp)
-
     // Media3 ExoPlayer
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)

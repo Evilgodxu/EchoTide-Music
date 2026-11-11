@@ -138,7 +138,7 @@ internal object StorageRegistry {
     /** 登记条目：顺序即存储页展示顺序 */
     val entries: List<CacheEntry> = listOf(
         // 封面落盘缓存：当前曲目封面（换歌即覆盖，只留一张）与首页大封面（保留上一/当前/下一三张）；
-        // 网络封面不落盘（Coil 的磁盘缓存已整体关闭，见 App），清理随 clearSystemCache 整清 cacheDir 完成
+        // 网络封面不落盘（远程封面只驻留内存，见 RemoteCoverLoader），清理随 clearSystemCache 整清 cacheDir 完成
         CacheEntry(CacheCategory.IMAGE, CacheScope.CLEARABLE) { context ->
             listOf(
                 CurrentCoverCache.location(context),

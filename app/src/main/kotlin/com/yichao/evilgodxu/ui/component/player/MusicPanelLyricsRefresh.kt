@@ -21,13 +21,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yichao.evilgodxu.LocalProxySourceStore
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
@@ -37,6 +35,7 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.proxy.OnlinePlatformRegistry
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceSpec
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.ui.component.RemoteCover
 
 @Composable
 internal fun LyricsRefreshDialog(
@@ -112,10 +111,10 @@ private fun LyricsCandidateItem(
             val coverUrl = candidate.coverUrl?.takeIf { it.isNotBlank() }
             Box(Modifier.size(96.dp).clip(RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
                 if (coverUrl != null) {
-                    AsyncImage(
-                        model = coverUrl,
+                    RemoteCover(
+                        url = coverUrl,
                         contentDescription = candidate.title,
-                        contentScale = ContentScale.Crop,
+                        targetSize = 96.dp,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {

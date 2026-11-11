@@ -1,10 +1,6 @@
 package com.yichao.evilgodxu
 
 import android.app.Application
-import coil3.ImageLoader
-import coil3.SingletonImageLoader
-import coil3.memory.MemoryCache
-import coil3.request.allowHardware
 import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.settings.AppLanguage
 import com.yichao.evilgodxu.data.settings.SettingsKeys
@@ -61,23 +57,6 @@ class App : Application() {
                 }.collect { setUsbAttachEntryEnabled(it) }
             }
         }
-        // 内存缓存收窄到进程堆的 10%，把堆留给 ExoPlayer 的高解析度音频缓冲；磁盘缓存关闭：
-        // 其私有键值格式的占用不可见，且与 LargeCoverStore 的封面落盘重复，
-        // 需要跨进程留存的只有当前/上一/下一三张大图
-        SingletonImageLoader.setSafe { context ->
-            ImageLoader.Builder(context)
-                // 关掉硬件位图：主题切换的整屏快照以软件画布重绘，硬件位图进不了软件画布会打断快照；
-                // 封面同步从系统缩略图侧收口到软件位图（见 MusicCoverLoader）
-                .allowHardware(false)
-                .memoryCache {
-                    MemoryCache.Builder()
-                        .maxSizePercent(context, 0.10)
-                        .build()
-                }
-                .diskCache(null)
-                .build()
-        }
-
         // 冷启动回收上一次进程遗留的中转文件：启动时刻必然不存在本次下载，可整批清理
         appScope.launch {
             runCatching { CacheInventory.reclaimOnColdStart(this@App) }

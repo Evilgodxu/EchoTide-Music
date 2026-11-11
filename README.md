@@ -42,7 +42,7 @@ Portrait or landscape, immersion is the only goal.
 | Navigation | AndroidX Navigation3 1.2.1 (type-safe routes) |
 | Dependency injection | Manual DI (singletons held on Application) |
 | Persistence | DataStore 1.3.0 (Preferences + typed stores via kotlinx.serialization) |
-| Image loading | Coil 3.6.3 |
+| Image loading | OkHttp + BitmapFactory, in-house memory LRU |
 | Network | OkHttp 5.5.1 |
 | Serialization | kotlinx.serialization 1.12.0 |
 | Async | kotlinx.coroutines 1.11.0 (incl. coroutines-guava bridging MediaController futures) |

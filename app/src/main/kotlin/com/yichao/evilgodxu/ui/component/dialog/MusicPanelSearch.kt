@@ -43,7 +43,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -52,11 +51,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.panel.loadMoreSearchResults
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.ui.component.LIST_COVER_FADE_IN_MS
+import com.yichao.evilgodxu.ui.component.RemoteCover
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.delay
 
@@ -85,10 +85,12 @@ internal fun SearchResultRow(
         ) {
             val coverModel = (result.coverThumbUrl ?: result.coverUrl)?.takeIf { it.isNotBlank() }
             if (coverModel != null) {
-                AsyncImage(
-                    model = coverModel,
+                RemoteCover(
+                    url = coverModel,
                     contentDescription = result.title,
-                    contentScale = ContentScale.Crop,
+                    targetSize = 28.dp,
+                    // 搜索行与播放列表行同为 28dp、同屏可能十余行同时到图，沿用列表行的短淡入
+                    fadeInMillis = LIST_COVER_FADE_IN_MS,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {

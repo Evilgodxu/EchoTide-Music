@@ -24,14 +24,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yichao.evilgodxu.LocalProxySourceStore
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
@@ -42,6 +40,7 @@ import com.yichao.evilgodxu.data.music.proxy.OnlinePlatformRegistry
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.DialogCard
 import com.yichao.evilgodxu.ui.component.coverThumbnailSize
+import com.yichao.evilgodxu.ui.component.RemoteCover
 
 // 换封面预览的封面显示边长
 private val COVER_PREVIEW_DP = 96.dp
@@ -98,10 +97,10 @@ private fun CoverCandidateItem(
             border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
             color = MaterialTheme.colorScheme.surfaceVariant
         ) {
-            AsyncImage(
-                model = candidate.coverUrl,
+            RemoteCover(
+                url = candidate.coverUrl,
                 contentDescription = candidate.title,
-                contentScale = ContentScale.Crop,
+                targetSize = 84.dp,
                 modifier = Modifier.size(84.dp).clip(RoundedCornerShape(8.dp))
             )
         }
@@ -170,10 +169,10 @@ private fun CoverReplaceContent(
                 // 预览封面不大，按控件实际渲染尺寸换算请求档位，不沿用轮播的 512 大档
                 thumbnailSize = coverThumbnailSize(LocalDensity.current, COVER_PREVIEW_DP),
             )
-            AsyncImage(
-                model = candidate.coverUrl,
+            RemoteCover(
+                url = candidate.coverUrl,
                 contentDescription = candidate.title,
-                contentScale = ContentScale.Crop,
+                targetSize = COVER_PREVIEW_DP,
                 modifier = Modifier.size(COVER_PREVIEW_DP).clip(RoundedCornerShape(10.dp))
             )
         }

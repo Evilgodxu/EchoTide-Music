@@ -42,7 +42,7 @@
 | 导航 | AndroidX Navigation3 1.2.1（类型安全路由） |
 | 依赖注入 | 手动 DI（单例挂在 Application） |
 | 持久化 | DataStore 1.3.0（Preferences + kotlinx.serialization 类型化存储） |
-| 图片加载 | Coil 3.6.3 |
+| 图片加载 | OkHttp + BitmapFactory，自研内存 LRU |
 | 网络 | OkHttp 5.5.1 |
 | 序列化 | kotlinx.serialization 1.12.0 |
 | 异步 | kotlinx.coroutines 1.11.0（含 coroutines-guava 桥接 MediaController Future） |
