@@ -15,16 +15,15 @@ import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.audio.AudioRendererEventListener
-import androidx.media3.exoplayer.audio.AudioSink
-import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
-import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.yichao.evilgodxu.App
+import com.yichao.evilgodxu.data.music.playback.AudioExtractorsFactory
+import com.yichao.evilgodxu.data.music.playback.AudioMediaSourceFactory
+import com.yichao.evilgodxu.data.music.playback.AudioOnlyRenderersFactory
 import com.yichao.evilgodxu.data.music.playback.DecodedOutputFormat
 import com.yichao.evilgodxu.data.music.playback.DirectOutputDoNotDisturb
 import com.yichao.evilgodxu.data.music.playback.ExclusiveVolume
@@ -33,7 +32,6 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PerDeviceAudioSink
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.UsbDirectOutput
-import com.yichao.evilgodxu.data.music.playback.alac.AlacAudioRenderer
 import com.yichao.evilgodxu.data.music.playback.handleTracksChanged
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveAudioSink
@@ -54,7 +52,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import java.util.ArrayList
 
 @OptIn(UnstableApi::class)
 class MusicPlaybackService : MediaSessionService() {
@@ -226,43 +223,13 @@ class MusicPlaybackService : MediaSessionService() {
         playbackState.audioSinkWrittenFrames = perDeviceSink::writtenOutputFrames
         // 独占路径没有音频轨可读，延迟读数只能由写出侧按自己的缓冲算出；不在那条路上时它自行返回 null
         playbackState.usbExclusiveLatency = exclusiveSink::latencyReading
-        val renderersFactory = object : DefaultRenderersFactory(this) {
-            override fun buildAudioSink(
-                context: android.content.Context,
-                enableFloatOutput: Boolean,
-                enableAudioOutputPlaybackParameters: Boolean,
-            ): AudioSink = audioSink
-
-            /**
-             * 补上系统缺失的 ALAC 解码渲染器。
-             *
-             * 追加在默认渲染器之后，优先级低于系统渲染器：厂商自带的 `audio/alac` 解码器仍被优先选中。
-             * 无解码器时媒体3 会把整条音频轨判为不可解码、播放器不选中该轨——表现为静音走完且不报错。
-             */
-            override fun buildAudioRenderers(
-                context: android.content.Context,
-                extensionRendererMode: Int,
-                mediaCodecSelector: MediaCodecSelector,
-                enableDecoderFallback: Boolean,
-                audioSink: AudioSink,
-                eventHandler: Handler,
-                eventListener: AudioRendererEventListener,
-                out: ArrayList<Renderer>,
-            ) {
-                super.buildAudioRenderers(
-                    context,
-                    extensionRendererMode,
-                    mediaCodecSelector,
-                    enableDecoderFallback,
-                    audioSink,
-                    eventHandler,
-                    eventListener,
-                    out,
-                )
-                out.add(AlacAudioRenderer(eventHandler, eventListener, audioSink))
-            }
-        }
-        player = ExoPlayer.Builder(this, renderersFactory)
+        // 三类装配件都给全（媒体3 为这类裁剪留的构造器）：默认渲染器工厂与默认媒体源工厂
+        // 因此不再被引用，视频/字幕/图片渲染器与用不到的容器解析器都可被 R8 裁掉
+        player = ExoPlayer.Builder(
+            this,
+            AudioOnlyRenderersFactory(this, audioSink),
+            AudioMediaSourceFactory(DefaultDataSource.Factory(this), AudioExtractorsFactory()),
+        )
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
