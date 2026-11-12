@@ -100,7 +100,7 @@ internal fun TypographyGroups(
                 selected = uiState.homePortrait.alignment,
                 onSelect = onHomePortraitAlignmentChange,
             )
-            // 渐隐与留白均以半行为一档：留白自上下边缘向内空出，渐隐自留白内缘起算
+            // 渐隐与留白均以半行为一档：留白是视口内缩的纯空白（歌词不进入该区间），渐隐自留白内缘起算
             FadeRows(
                 fadeLines = uiState.homePortrait.fadeLines,
                 fadeInsetLines = uiState.homePortrait.fadeInsetLines,

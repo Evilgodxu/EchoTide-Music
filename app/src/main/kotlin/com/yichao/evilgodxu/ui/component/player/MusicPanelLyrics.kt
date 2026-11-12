@@ -17,6 +17,7 @@ import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -101,8 +102,8 @@ internal fun LyricsPanel(
     alignment: LyricAlignment = LyricAlignment.CENTER,
     // 上下边缘的渐隐长度（行）：自留白内缘起算，越往边缘越透明
     fadeLines: Float = LyricLayoutDefaults.FADE_LINES_DEFAULT,
-    // 渐隐留白（行）：自上下边缘向内空出，渐隐自留白内缘起算。
-    // 把最淡的几行推离窗口边缘，避免字形/光晕在极边缘处以亚像素细线残留
+    // 渐隐留白（行）：自上下边缘向内的纯空白，歌词视口整体内缩该距离，行只在留白以内排布与滚动，
+    // 渐隐自留白内缘起算。最淡的几行因此离窗口边缘更远，不会以亚像素细线贴边残留
     fadeInsetLines: Float = LyricLayoutDefaults.FADE_INSET_LINES_DEFAULT,
     // 纵向快速滑动的切歌出口（true 为下一曲）：由首页提供，用于把「一甩即走」的滑动归给切歌——
     // 这类滑动全程不让歌词跟随移动；为 null 的场景（无切歌手势）不做快速滑动仲裁，
@@ -215,6 +216,13 @@ internal fun LyricsPanel(
     val standardSlotHeight = with(density) { (lyricLineHeightPx + 4.dp.roundToPx()).toDp() }
     // 拖拽换算的兜底行距：仅在窗口尚无实测行高时使用，正常路径均由实测行高换算
     val fallbackSlotPx = with(density) { standardSlotHeight.toPx() } + lineSpacingPx
+    // 渐隐留白：视口上下各内缩这么多行，行只在留白以内排布与滚动，留白区间不出现歌词。
+    // 上下等量内缩，中线不变，当前行仍居视口正中；最多内缩到只剩一行可排，避免视口被吃空
+    val effectiveInsetLines = fadeInsetLines.coerceIn(0f, (visibleLines - 1) / 2f)
+    val blankHeight = (standardSlotHeight + lineSpacing) * effectiveInsetLines
+    // 内缩后视口覆盖的行数：渐隐比例按它换算，设定值仍是「几行」
+    val innerLines = (visibleLines - effectiveInsetLines * 2f).coerceAtLeast(1f)
+    val viewportHeight = with(density) { maxViewportHeight.toDp() }
 
     // 显示位置（浮点行号）：正常播放由跟随动画推进，拖拽与回弹期间由手势/回弹动画驱动。
     // 用普通状态直接承载动画输出，释放瞬间即可同步写入，避免显示回退到过期的动画值
@@ -445,91 +453,98 @@ internal fun LyricsPanel(
                 )
             }
         } else {
-            // 窗口容器固定：滚动都在其内部进行，行溢出与滚出内容经过边缘即被裁剪
+            // 窗口容器高度固定：滚动都在其内部进行，行溢出与滚出内容经过边缘即被裁剪
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clipToBounds()
-                    // 上下边缘渐隐：行在视口边缘整体出现/消失过于生硬，蒙层让进出更连贯。
-                    // 视口高度按 visibleLines 行计，故行数除以它即得占高度的比例
-                    .verticalFadeMask(
-                        fadeFraction = fadeLines / visibleLines,
-                        insetFraction = fadeInsetLines / visibleLines,
-                    )
+                    .height(viewportHeight),
             ) {
-                // 以显示位置所在行为窗口锚点，上下各多渲染 buffer 行：滚动或拖拽时新行已在窗口内、
-                // 被移除的行已完全移出视口，两者在同一坐标系整体平移，因此只会连续上移，不会突兀替换
-                val anchorIndex = displayPosition.roundToInt().coerceIn(0, lines.lastIndex)
-                // 拖拽时高亮跟随中线最近的候选行，作为「释放会选中哪一行」的反馈；其余时间跟随播放
-                val highlightIndex = if (scrubbing) anchorIndex else activeIndex
-                val windowStart = anchorIndex - offset - LYRIC_WINDOW_BUFFER
-                LyricColumnLayout(
-                    windowStart = windowStart,
-                    animatedPosition = displayPosition,
-                    maxViewportHeight = maxViewportHeight,
-                    geometry = dragGeometry,
-                    spacingPx = lineSpacingPx,
-                    fallbackSlotPx = fallbackSlotPx,
-                    modifier = Modifier.fillMaxWidth(),
+                // 歌词视口按留白内缩：留白区间内不排布任何行，歌词自留白内缘才开始，
+                // 上下各留一段纯留白，边缘的极端字形不再贴着窗口边缘出现
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(vertical = blankHeight)
+                        .clipToBounds()
+                        // 上下边缘渐隐：行在视口边缘整体出现/消失过于生硬，蒙层让进出更连贯。
+                        // 渐隐自留白内缘起算，比例按内缩后的行数换算
+                        .verticalFadeMask(fadeFraction = fadeLines / innerLines)
                 ) {
-                    repeat(visibleLines + LYRIC_WINDOW_BUFFER * 2) { row ->
-                        val index = windowStart + row
-                        // 以行下标为键：窗口平移时同一行的状态（高亮进度等）得以保留，不会跳变
-                        key(index) {
-                            val line = lines.getOrNull(index)
-                            if (line == null) {
-                                LyricSpacer(height = standardSlotHeight)
-                            } else {
-                                val isCurrent = index == highlightIndex
-                                val emphasis by animateFloatAsState(
-                                    targetValue = if (isCurrent) 1f else 0f,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                        stiffness = Spring.StiffnessMediumLow
-                                    ),
-                                    label = "lyric_emphasis"
-                                )
-                                val scale = LYRIC_ROW_SCALE_BASE + LYRIC_ROW_SCALE_AMPLITUDE * emphasis
-                                // 非当前行整体降低不透明度，弱化其视觉存在感；随高亮进度平滑过渡
-                                val rowAlpha = LYRIC_INACTIVE_ALPHA + (1f - LYRIC_INACTIVE_ALPHA) * emphasis
-                                val nextTimeMs = lines.getOrNull(index + 1)?.timeMs ?: line.timeMs + 3000L
-                                LyricText(
-                                    line = line,
-                                    nextTimeMs = nextTimeMs,
-                                    positionMs = lyricPosition,
-                                    isCurrent = isCurrent,
-                                    wordByWordEnabled = wordByWordEnabled,
-                                    fontSize = fontSize,
-                                    fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
-                                    activeColor = activeColor,
-                                    pendingColor = pendingColor,
-                                    alignment = alignment,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        // 留白置于缩放层之外：缩放原点因此落在文本起始侧，
-                                        // 靠左版式下当前行放大只向右展开，不会连同留白一起被放大
-                                        .padding(
-                                            start = rowStartInset,
-                                            top = 2.dp,
-                                            end = LYRIC_ROW_INSET,
-                                            bottom = 2.dp,
-                                        )
-                                        .graphicsLayer {
-                                            alpha = rowAlpha
-                                            scaleX = scale
-                                            scaleY = scale
-                                            transformOrigin = if (alignment == LyricAlignment.START) {
-                                                TransformOrigin(0f, 0.5f)
-                                            } else {
-                                                TransformOrigin.Center
+                    // 以显示位置所在行为窗口锚点，上下各多渲染 buffer 行：滚动或拖拽时新行已在窗口内、
+                    // 被移除的行已完全移出视口，两者在同一坐标系整体平移，因此只会连续上移，不会突兀替换
+                    val anchorIndex = displayPosition.roundToInt().coerceIn(0, lines.lastIndex)
+                    // 拖拽时高亮跟随中线最近的候选行，作为「释放会选中哪一行」的反馈；其余时间跟随播放
+                    val highlightIndex = if (scrubbing) anchorIndex else activeIndex
+                    val windowStart = anchorIndex - offset - LYRIC_WINDOW_BUFFER
+                    LyricColumnLayout(
+                        windowStart = windowStart,
+                        animatedPosition = displayPosition,
+                        maxViewportHeight = maxViewportHeight,
+                        geometry = dragGeometry,
+                        spacingPx = lineSpacingPx,
+                        fallbackSlotPx = fallbackSlotPx,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        repeat(visibleLines + LYRIC_WINDOW_BUFFER * 2) { row ->
+                            val index = windowStart + row
+                            // 以行下标为键：窗口平移时同一行的状态（高亮进度等）得以保留，不会跳变
+                            key(index) {
+                                val line = lines.getOrNull(index)
+                                if (line == null) {
+                                    LyricSpacer(height = standardSlotHeight)
+                                } else {
+                                    val isCurrent = index == highlightIndex
+                                    val emphasis by animateFloatAsState(
+                                        targetValue = if (isCurrent) 1f else 0f,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        ),
+                                        label = "lyric_emphasis"
+                                    )
+                                    val scale = LYRIC_ROW_SCALE_BASE + LYRIC_ROW_SCALE_AMPLITUDE * emphasis
+                                    // 非当前行整体降低不透明度，弱化其视觉存在感；随高亮进度平滑过渡
+                                    val rowAlpha = LYRIC_INACTIVE_ALPHA + (1f - LYRIC_INACTIVE_ALPHA) * emphasis
+                                    val nextTimeMs = lines.getOrNull(index + 1)?.timeMs ?: line.timeMs + 3000L
+                                    LyricText(
+                                        line = line,
+                                        nextTimeMs = nextTimeMs,
+                                        positionMs = lyricPosition,
+                                        isCurrent = isCurrent,
+                                        wordByWordEnabled = wordByWordEnabled,
+                                        fontSize = fontSize,
+                                        fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
+                                        activeColor = activeColor,
+                                        pendingColor = pendingColor,
+                                        alignment = alignment,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            // 留白置于缩放层之外：缩放原点因此落在文本起始侧，
+                                            // 靠左版式下当前行放大只向右展开，不会连同留白一起被放大
+                                            .padding(
+                                                start = rowStartInset,
+                                                top = 2.dp,
+                                                end = LYRIC_ROW_INSET,
+                                                bottom = 2.dp,
+                                            )
+                                            .graphicsLayer {
+                                                alpha = rowAlpha
+                                                scaleX = scale
+                                                scaleY = scale
+                                                transformOrigin = if (alignment == LyricAlignment.START) {
+                                                    TransformOrigin(0f, 0.5f)
+                                                } else {
+                                                    TransformOrigin.Center
+                                                }
                                             }
-                                        }
-                                )
+                                    )
+                                }
                             }
                         }
                     }
                 }
-                // 拖拽基准标识：固定在视口中线、不随内容滚动，仅拖拽时淡入；对齐后转为确认色
+                // 拖拽基准标识：固定在视口中线、不随内容滚动，仅拖拽时淡入；对齐后转为确认色。
+                // 挂在留白层之外，留白不影响标识位置
                 LyricScrubMarker(
                     visible = scrubbing,
                     color = activeColor,
@@ -865,33 +880,22 @@ private fun alignedScrubRow(position: Float, lastIndex: Int): Int? {
 }
 
 // 上下边缘淡出：按纵向透明度梯度对内容做 DstIn 蒙层，使上下行渐变消失。
-// 留白区内整段透明——渐隐自留白内缘起算，最淡的几行因此不与窗口边缘重合；
+// 作用范围已是扣掉留白后的视口，渐隐因此自留白内缘起算，与窗口最外缘无关。
 // 边缘两端还各保留一段完全透明区间，杜绝子像素级残影——行带 graphicsLayer 缩放、以小数 y 放置时，
 // 字形/光晕可能仅以 ≤1dp 的细线越过边缘，单点透明 stop 只掩到精确边界，仍会残留原色细线
-private fun Modifier.verticalFadeMask(
-    fadeFraction: Float = 0.25f,
-    // 自上下边缘向内空出的比例，该区间整段透明
-    insetFraction: Float = 0f,
-): Modifier = drawWithCache {
-    // 留白与渐隐都按比例给出，二者相加越过半高时按半高收敛；
-    // 留白单独也吃到半高则没有可渐隐的余地，一并收在半高之内
-    val inset = insetFraction.coerceIn(0f, MAX_FADE_EDGE_FRACTION)
-    val fade = fadeFraction.coerceIn(0f, MAX_FADE_EDGE_FRACTION - inset)
-    val innerEdge = inset + fade
+private fun Modifier.verticalFadeMask(fadeFraction: Float = 0.25f): Modifier = drawWithCache {
+    val fade = fadeFraction.coerceIn(0f, MAX_FADE_EDGE_FRACTION)
     // 完全透明保护带：覆盖边缘残影的像素宽度
     val guard = fade * 0.12f
     val brush = Brush.verticalGradient(
-        colorStops = buildList {
-            add(0f to Color.Transparent)
-            // 留白为 0 时不重复写同位置的 stop，渐变按非递减顺序排布
-            if (inset > 0f) add(inset to Color.Transparent)
-            add(inset + guard to Color.Transparent)
-            add(innerEdge to Color.Black)
-            add(1f - innerEdge to Color.Black)
-            add(1f - inset - guard to Color.Transparent)
-            if (inset > 0f) add(1f - inset to Color.Transparent)
-            add(1f to Color.Transparent)
-        }.toTypedArray(),
+        colorStops = arrayOf(
+            0f to Color.Transparent,
+            guard to Color.Transparent,
+            fade to Color.Black,
+            1f - fade to Color.Black,
+            1f - guard to Color.Transparent,
+            1f to Color.Transparent,
+        )
     )
     onDrawWithContent {
         val bounds = Rect(Offset.Zero, size)

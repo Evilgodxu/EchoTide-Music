@@ -46,8 +46,8 @@ object LyricLayoutDefaults {
     const val FADE_LINES_DEFAULT = 1.5f
     const val FADE_LINES_MIN = 0.5f
     const val FADE_LINES_MAX = 3f
-    // 渐隐留白：自歌词区上下边缘向内空出的行数，渐隐自留白内缘起算。
-    // 默认不留白，保持既有版式；留白用于把最淡的几行推离窗口边缘
+    // 渐隐留白：歌词视口自上下边缘向内缩进的行数。该区间为纯空白——行不排布、不滚动到这里，
+    // 渐隐自留白内缘起算。默认不留白，保持既有版式
     const val FADE_INSET_LINES_DEFAULT = 0f
     const val FADE_INSET_LINES_MIN = 0f
     const val FADE_INSET_LINES_MAX = 2f
