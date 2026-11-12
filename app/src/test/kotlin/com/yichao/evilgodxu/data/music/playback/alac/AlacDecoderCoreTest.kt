@@ -13,11 +13,12 @@ import org.junit.Test
 /**
  * ALAC 解码核心的实测：以一条真实 ALAC 曲目的帧为样本，逐帧核对解出 PCM 的 SHA-256。
  *
- * 样本取自 `Temporary Test Resources` 下的《02. 願我可以學會放低你 [ALAC] [16 bit - 44.1 kHz].m4a》
- * （按容器样本表切成裸帧，即本解码器实际的输入）。期望摘要是同一条曲目经 FFmpeg 解码所得的 PCM——
+ * 样本取自 `YiChaoTmp` 下的《陈慧娴 - 千千阕歌.m4a》（24 bit - 96 kHz，按容器样本表切成裸帧，
+ * 即本解码器实际的输入）。期望摘要是同一条曲目经 FFmpeg（PyAV / libalac）解码所得的 PCM——
  * 即本实现与另一条独立实现逐位一致，而非与自身既有输出比对：任何一位偏差都会让摘要不同。
  *
- * 前缀段覆盖静音帧、低熵帧与接近满帧的高熵帧；末尾一帧是唯一自带样本数的分片帧。
+ * 24 bit 是覆盖重点：附加低位段只在 24/32 bit 的写法中并入样本，16 bit 走不到该分支。
+ * 前缀段由中熵帧过渡到高熵帧；末尾一帧是唯一自带样本数的分片帧。
  */
 class AlacDecoderCoreTest {
 
@@ -26,12 +27,12 @@ class AlacDecoderCoreTest {
     @Test
     fun `magic cookie 解析出编码参数`() {
         assertEquals(4096, config.frameLength)
-        assertEquals(16, config.bitDepth)
+        assertEquals(24, config.bitDepth)
         assertEquals(40, config.pb)
         assertEquals(10, config.mb)
         assertEquals(14, config.kb)
         assertEquals(2, config.channelCount)
-        assertEquals(44100, config.sampleRate)
+        assertEquals(96000, config.sampleRate)
     }
 
     @Test
@@ -111,7 +112,7 @@ class AlacDecoderCoreTest {
             assertEquals(
                 "第 $index 帧（$size 字节）解出的 PCM 与参考解码器不一致",
                 EXPECTED_DIGESTS[index],
-                sha256(encodePcm(decoder, AlacOutputEncoding.INT16)),
+                sha256(encodePcm(decoder, AlacOutputEncoding.INT32)),
             )
             offset += size
         }
@@ -129,7 +130,7 @@ class AlacDecoderCoreTest {
         assertEquals(
             "分片帧解出的 PCM 与参考解码器不一致",
             EXPECTED_PARTIAL_DIGEST,
-            sha256(encodePcm(decoder, AlacOutputEncoding.INT16)),
+            sha256(encodePcm(decoder, AlacOutputEncoding.INT32)),
         )
     }
 
@@ -175,6 +176,8 @@ class AlacDecoderCoreTest {
         assertEquals(-1f / 32768f, floats.getFloat(Float.SIZE_BYTES), 0f)
     }
 
+    // 摘要比对取 32 位落盘而非 16 位：24 bit 源低位若解错，右移到 16 位会把它抹掉，
+    // 那正是本用例要守的部分
     private fun encodePcm(decoder: AlacFrameDecoder, encoding: AlacOutputEncoding): ByteArray =
         encodeChannels(decoder.channels, decoder.sampleCount, config.bitDepth, encoding)
 
@@ -223,35 +226,36 @@ class AlacDecoderCoreTest {
     }
 
     private companion object {
-        /** Temporary Test Resources 曲目的 magic cookie，即容器下发的 ALACSpecificConfig */
-        val COOKIE = hex("000010000010280a0e0200ff00004004001588800000ac44")
+        /** 容器下发的 magic cookie，即 ALACSpecificConfig（frameLength/位深/pb/mb/kb/声道/采样率） */
+        val COOKIE = hex("000010000018280a0e0200ff000060040046500000017700")
 
         /** 前缀夹具里逐帧的字节数，按容器样本表原样抄录 */
         val FRAME_SIZES =
-            intArrayOf(32, 32, 668, 808, 738, 1382, 2629, 6778, 7546, 8076, 6278, 7212, 6598, 6103)
+            intArrayOf(8224, 8224, 8224, 8237, 8224, 8224, 12655, 16767, 15671, 15260, 15049, 15187, 16175, 17149)
 
-        /** 各帧解出 PCM 的 SHA-256，由 FFmpeg（PyAV，自带 libalac）解码同一曲目生成 */
+        /** 各帧解出 PCM（32 位落盘）的 SHA-256，由 FFmpeg（PyAV，自带 libalac）解码同一曲目生成 */
         val EXPECTED_DIGESTS = arrayOf(
-            "4fe7b59af6de3b665b67788cc2f99892ab827efae3a467342b3bb4e3bc8e5bfe",
-            "4fe7b59af6de3b665b67788cc2f99892ab827efae3a467342b3bb4e3bc8e5bfe",
-            "6b15dda61c83b7e816d0dd48f3d1c9c3588c221191e99d9fed45ddac6b3d27b4",
-            "23caab1aa59df621f62db6360d4df1afb57d476261ca43a4483d537439891a32",
-            "11fa5b5b1379b39c5fb9b7f9cc806027fde8da7b76bdd4a6a13a452d2f3fc94c",
-            "a71d61dbfb5a3059c9201d71adad149608a01fe7c3a257c3334e45d7134024d4",
-            "3baf9519ab23adb29ee4313b4a298c622b3934d02e67557a40cf9d805fd4a6e0",
-            "ca6e2a3551cd559e76220aec525fd6d4d206183effea4784e3ccbcff307f249a",
-            "7e65143fe81829093889d2de4d0ea223a345392142f30d3696ec2bb9bffd30f9",
-            "be42b940b0c1c550f31dcb6354f8e557083dd0e862497c683a9eccce835b1dc3",
-            "e521552d690b1b1424e7411418ca564dcd9d02580ef369b075d0d1241aa5ef13",
-            "f7292fd105d5a0a5f526a5ed7ad7a4b2af47fa7f8e62473d2152c370b1a10963",
-            "e0b8afc3238fc321c2ac4e611f06e558ae9c77047608f5f52dadc7a46d98105a",
-            "61976489ea9d12494935dcec58f277eef1c287e4bc4e27147c5507cab4063778",
+            "7a57d4e7a2eed0bef0ed78ca897abebe2f92cc14cc814ee3d07a9f8690729b45",
+            "dc9eb23358622728282f53c4a8e98710c7dd83a1d672a945095d7d8329f9fc5c",
+            "4bb1046071752770dbe9c7b8b6224861b2a4475c0148f33235d6994f1116c595",
+            "0105df8acca6563b889d13628579b721464a045c2cda52c91f9384336c4bcc86",
+            "64972e0699a1125b543038ebdf8d4afacbc1e3eeb999a7c8641ba68e1c1322de",
+            "a2c3acc00804a184ffd65b6f543cddfb8124e88a03a1d0bd0f4a139c847e6089",
+            "80f4fb59f113ac3113d7764b5fd846c3db48dd5324a01e8f85eba9bb48c281c4",
+            "b27b32536e3a3713c4ff8dd651c73abcdd05a48a7863da4cf7fa4eece85aa100",
+            "d1c4c78c09af9742fd17f624e7a15f9e08aef585a85f56f98f7a54dcf6f2afcc",
+            "f10c29d23607ed1bf10b026104fa23f18b1be9f175f8a969648df5ce803d951a",
+            "ffb570c3da28698967de6f90c7dd9685f7f62445232bf1aab8fbad6a6999b6bc",
+            "e53606ff47c837981e3290836d8c6009986ca41dc7e0adb3a1be21398a196b39",
+            "1cfb8566c3ddb00564c2a9308dad6d7470a0b4e52af3c7621816e43cbc65698d",
+            "a751c9bce1fbac6d8dd211ccfedbed28a3882a22189b75ea98f0a24edd810077",
         )
+
         const val PREFIX_FIXTURE = "alac-frames-prefix.bin"
         const val PARTIAL_FRAME_FIXTURE = "alac-frame-partial.bin"
-        const val PARTIAL_FRAME_SAMPLES = 1248
+        const val PARTIAL_FRAME_SAMPLES = 154
         const val EXPECTED_PARTIAL_DIGEST =
-            "3b628fecece8197f561fb51e00f8fb1ad33c4e4bc3ff7b0a5d8ba1eb9ed8cb49"
+            "5b45929db3579a09eca88f37ff3b86ef69cfe3af1e424aa84e11c47bd60cc86b"
 
         /** 原子头长度，与 [AlacSpecificConfig] 跳过的一致 */
         const val ATOM_HEADER_BYTES = 12

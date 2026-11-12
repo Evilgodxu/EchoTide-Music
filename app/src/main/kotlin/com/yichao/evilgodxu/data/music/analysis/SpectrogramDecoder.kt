@@ -4,6 +4,8 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import com.yichao.evilgodxu.data.music.model.MusicTrack
+import com.yichao.evilgodxu.data.music.playback.alac.AlacFrameDecoder
+import com.yichao.evilgodxu.data.music.playback.alac.AlacSpecificConfig
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -23,12 +25,19 @@ import kotlinx.coroutines.launch
 // 全曲时频分析：把整首音频解码为 PCM，逐窗做短时傅里叶变换，
 // 产出可直接渲染成频谱图的强度矩阵。
 //
-// 计算摊到多核的四处：解码线程独占推进 MediaCodec 并按块搬运 PCM；
+// 解码来源有两处，之后的步骤完全共用：平台解码器（MediaCodec）覆盖 mp3/flac/aac 等多数码流；
+// AOSP 不含 audio/alac 的解码组件，该码流改由自研帧解码接管（与播放侧同一份实现）。
+// 两条来源只负责把交错 PCM 交给同一个投递口，分帧口径与进度算法因此不分叉。
+//
+// 计算摊到多核的四处：解码线程独占推进解码并按块搬运 PCM；
 // 切片阶段把暂存的 PCM 分段并行转成单声道整窗；变换线程组并行做加窗变换与半谱归并；
 // 收尾归一化按列并行。
 // 跨越并行边界的顺序仍由单点按时间序执行（帧序经重排器归位、列序本就互不依赖），
 // 故输出与逐帧串行处理逐位一致——并行只换取吞吐，不改变分析口径。
 internal object SpectrogramDecoder {
+
+    // ALAC 的码流 MIME：AOSP 没有它的解码组件，缺失时由自研帧解码接管
+    private const val MIME_ALAC = "audio/alac"
 
     // 分析参数：2048 点 FFT，44.1k 下约 21.5Hz/桶；跳步取半窗保 50% 重叠，
     // 既满足 Hann 窗的相邻帧连续性，也让变换覆盖全部采样而非抽样
@@ -43,6 +52,7 @@ internal object SpectrogramDecoder {
     private const val CODEC_TIMEOUT_US = 10_000L
     // 进度上报档数：按容器时长的百分比分档回调，避免逐缓冲上报引发无谓重组
     private const val PROGRESS_STEPS = 50
+    private const val MICROS_PER_SECOND = 1_000_000L
     // 输入缓冲只做非阻塞轮询：喂满解码器内部队列即转去取输出，节流交给输出端的等待
     private const val INPUT_POLL_TIMEOUT_US = 0L
     // 解码线程可领先变换线程的整窗数，同时也是空闲窗口缓冲池的容量。
@@ -61,7 +71,7 @@ internal object SpectrogramDecoder {
     private val analysisWorkerCount: Int =
         (Runtime.getRuntime().availableProcessors() - 1).coerceIn(1, MAX_ANALYSIS_WORKERS)
 
-    // 解码并分析整首音频；进度取已解码采样数相对容器时长的比例，协程取消时即时释放解码器。
+    // 解码并分析整首音频；进度取已解码时长相对容器时长的比例，协程取消时即时释放解码器。
     // 无法解出任何有效帧时返回 null，由调用方按失败处理
     suspend fun decode(
         track: MusicTrack,
@@ -87,17 +97,18 @@ internal object SpectrogramDecoder {
             val channels = mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT, 0)
             if (sampleRate <= 0 || channels <= 0) return null
 
-            val codec = MediaCodec.createDecoderByType(mime)
-            decoder = codec
-            codec.configure(mediaFormat, null, null, 0)
-            codec.start()
+            // 平台解码器优先：厂商若带 audio/alac 解码器也在此命中，与播放侧的选取顺序一致，
+            // 频谱与播放因此对同一文件用同一只解码器
+            val platformDecoder = openPlatformDecoder(mediaFormat, mime)
+            decoder = platformDecoder
+            // 系统解不了 audio/alac 时由自研帧解码接管；cookie 取不到就无从接管，按失败处理
+            val alacConfig = if (platformDecoder == null) alacConfigOf(mediaFormat) else null
 
-            // 预期采样数取容器时长优先、曲目时长兜底：仅作进度分母，
+            // 预期时长取容器时长优先、曲目时长兜底：仅作进度分母，
             // 分析帧数由跳步与帧数上限决定，不依赖时长是否准确
             val containerDurationUs = mediaFormat.getLong(MediaFormat.KEY_DURATION, 0L)
             val durationUs =
                 if (containerDurationUs > 0L) containerDurationUs else track.duration * 1000L
-            val expectedSamples = (durationUs * sampleRate / 1_000_000L).coerceAtLeast(1L)
 
             coroutineScope {
                 // 窗口缓冲池：池空即说明解码已跑到变换前面，取缓冲处自然形成背压，
@@ -108,21 +119,31 @@ internal object SpectrogramDecoder {
                 val collector = FrameCollector()
                 val orderer = FrameOrderer(collector::store)
                 val slicer = WindowSlicer(freeWindows, analysisWorkerCount)
+                // 切片、进度与输出规格收在投递口一处：两条解码来源只负责把 PCM 交来，
+                // 分帧口径与进度算法因此不需要各写一份
+                val sink = PcmSink(
+                    slicer = slicer,
+                    windows = windows,
+                    durationUs = durationUs,
+                    initialSampleRate = sampleRate,
+                    onProgress = onProgress,
+                )
 
                 val workers = List(analysisWorkerCount) {
                     launch { analyseWindows(windows, orderer, freeWindows) }
                 }
                 launch {
                     try {
-                        drainToWindows(
-                            decoder = codec,
-                            extractor = extractor,
-                            channels = channels,
-                            expectedSamples = expectedSamples,
-                            slicer = slicer,
-                            windows = windows,
-                            onProgress = onProgress,
-                        )
+                        when {
+                            platformDecoder != null ->
+                                drainCodec(platformDecoder, extractor, channels, sink)
+
+                            alacConfig != null -> drainAlac(extractor, alacConfig, sink)
+
+                            // 既无平台解码器、也不在自研实现的覆盖范围内：不产出任何 PCM，
+                            // 收集器据空帧集合交回 null
+                            else -> Unit
+                        }
                     } finally {
                         // 关闭窗口通道即通知变换线程收工
                         windows.close()
@@ -131,7 +152,7 @@ internal object SpectrogramDecoder {
                 // 变换线程退出的前提是解码已结束且窗口通道已取空，故此处同时等到解码收尾；
                 // 解码中抛出异常会取消本作用域，不会让收集器在残缺数据上继续收尾
                 workers.joinAll()
-                collector.build(sampleRate, analysisWorkerCount)
+                collector.build(sink.sampleRate, analysisWorkerCount)
             }
         } catch (e: CancellationException) {
             // 协程取消（如退出页面）属正常流程：不记日志，重新抛出
@@ -146,23 +167,87 @@ internal object SpectrogramDecoder {
         }
     }
 
-    // 解码线程主循环：独占推进解码器，把输出 PCM 解交织成单声道后按跳步切整窗交给变换线程，
+    // 取平台解码器。只有 audio/alac 允许以「本机无此解码器」收场，因为自研帧解码能接管它；
+    // 其余码流取不到解码器就是分析失败，异常照旧抛出交由外层记录，不在此处静默吞掉
+    private fun openPlatformDecoder(format: MediaFormat, mime: String): MediaCodec? {
+        val codec = try {
+            MediaCodec.createDecoderByType(mime)
+        } catch (e: Exception) {
+            if (mime == MIME_ALAC) return null else throw e
+        }
+        return try {
+            codec.configure(format, null, null, 0)
+            codec.start()
+            codec
+        } catch (e: Exception) {
+            // 配置或启动失败：实例已取到但不可用，先释放再按缺失处理
+            runCatching { codec.release() }
+            if (mime == MIME_ALAC) null else throw e
+        }
+    }
+
+    // ALAC 的 magic cookie：ISO-BMFF 的 alac 采样描述由 MediaExtractor 放在 csd-0，
+    // 内容即 ALACSpecificConfig 本身。解析不出参数时返回 null，不以默认值猜一条流
+    private fun alacConfigOf(format: MediaFormat): AlacSpecificConfig? {
+        val buffer = format.getByteBuffer("csd-0") ?: return null
+        val cookie = ByteArray(buffer.remaining()).also { buffer.duplicate().get(it) }
+        return AlacSpecificConfig.parse(cookie)
+    }
+
+    // 解码产出的投递口：把交错 PCM 交给切片器，并按已解码时长推进进度。
+    // 采样率跟着解码器上报的输出格式走，而不是容器声明值——HE-AAC 的 SBR 让输出采样率翻倍，
+    // 频率轴与进度都必须按实际输出计算
+    private class PcmSink(
+        private val slicer: WindowSlicer,
+        private val windows: SendChannel<IndexedWindow>,
+        private val durationUs: Long,
+        initialSampleRate: Int,
+        private val onProgress: (Float) -> Unit,
+    ) {
+
+        var sampleRate: Int = initialSampleRate
+
+        private var elapsedUs = 0L
+        private var progressStep = -1
+
+        // 消费一块 PCM 并推进进度。进度按时间而非采样数计比例，
+        // 解码器中途改采样率时比例才不会跳变
+        suspend fun accept(
+            buffer: ByteBuffer,
+            offset: Int,
+            size: Int,
+            channels: Int,
+            encoding: Int,
+        ) {
+            val frames = slicer.feedBuffer(buffer, offset, size, channels, encoding, windows)
+            if (frames <= 0L) return
+            elapsedUs += frames * MICROS_PER_SECOND / sampleRate
+            val total = durationUs.coerceAtLeast(1L)
+            val step = (elapsedUs * PROGRESS_STEPS / total).toInt()
+            if (step == progressStep) return
+            progressStep = step
+            onProgress((elapsedUs.toDouble() / total).coerceIn(0.0, 1.0).toFloat())
+        }
+
+        // 解码收尾：暂存块里可能还剩不足一块的采样，不清仓就会丢掉末尾若干帧
+        suspend fun flush() {
+            slicer.flush(windows)
+        }
+    }
+
+    // 平台解码器主循环：独占推进解码器，把输出 PCM 交给投递口，
     // 本线程不承担变换计算，两者因此得以并行推进
-    private suspend fun drainToWindows(
+    private suspend fun drainCodec(
         decoder: MediaCodec,
         extractor: MediaExtractor,
-        channels: Int,
-        expectedSamples: Long,
-        slicer: WindowSlicer,
-        windows: SendChannel<IndexedWindow>,
-        onProgress: (Float) -> Unit,
+        containerChannels: Int,
+        sink: PcmSink,
     ) {
         val info = MediaCodec.BufferInfo()
         var pcmEncoding = PcmFormat.ENCODING_16BIT
+        var channels = containerChannels
         var inputEos = false
         var outputEos = false
-        var decodedSamples = 0L
-        var progressStep = -1
         while (!outputEos) {
             // 分析进行中保持可取消：离开页面即中止，解码器由外层 finally 释放
             coroutineContext.ensureActive()
@@ -186,13 +271,19 @@ internal object SpectrogramDecoder {
                     extractor.advance()
                 }
             }
-            // 取出：连续取到取空为止；每块 PCM 就地解交织并切窗投递。
+            // 取出：连续取到取空为止；每块 PCM 直接交给投递口。
             // 投递可能因背压挂起，此时输出缓冲仍归本线程所有，解码器只是暂停产出，不会丢数据
             while (true) {
                 val outIndex = decoder.dequeueOutputBuffer(info, CODEC_TIMEOUT_US)
                 if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    // 24bit FLAC 在部分设备按 24bit/32bit 输出，字节宽必须跟随编码而非固定 16 位
-                    pcmEncoding = PcmFormat.encodingOf(decoder.outputFormat)
+                    // 输出规格以解码器上报为准：24bit FLAC 在部分设备按 24bit/32bit 输出，
+                    // HE-AAC 的 SBR 又让输出采样率高于容器声明值；缺失或非法值保留原值
+                    val outputFormat = decoder.outputFormat
+                    pcmEncoding = PcmFormat.encodingOf(outputFormat)
+                    outputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE, 0)
+                        .takeIf { it > 0 }?.let { sink.sampleRate = it }
+                    outputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT, 0)
+                        .takeIf { it > 0 }?.let { channels = it }
                     continue
                 }
                 // 取空（含旧版缓冲区变更通知）：本轮输出结束，回到外层补喂输入
@@ -202,23 +293,7 @@ internal object SpectrogramDecoder {
                     if (isConfig || info.size <= 0) null
                     else decoder.getOutputBuffer(outIndex)
                 if (outputBuffer != null) {
-                    decodedSamples += slicer.feedBuffer(
-                        buffer = outputBuffer,
-                        offset = info.offset,
-                        size = info.size,
-                        channels = channels,
-                        encoding = pcmEncoding,
-                        windows = windows,
-                    )
-                    val step = (decodedSamples * PROGRESS_STEPS / expectedSamples).toInt()
-                    if (step != progressStep) {
-                        progressStep = step
-                        onProgress(
-                            (decodedSamples.toDouble() / expectedSamples)
-                                .coerceIn(0.0, 1.0)
-                                .toFloat(),
-                        )
-                    }
+                    sink.accept(outputBuffer, info.offset, info.size, channels, pcmEncoding)
                 }
                 decoder.releaseOutputBuffer(outIndex, false)
                 if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
@@ -227,8 +302,42 @@ internal object SpectrogramDecoder {
                 }
             }
         }
-        // 解码收尾：暂存块里可能还剩不足一块的采样，不清仓就会丢掉末尾若干帧
-        slicer.flush(windows)
+        sink.flush()
+    }
+
+    // 自研 ALAC 主循环：容器只交出逐帧字节与 magic cookie，解帧交给与播放侧共用的帧解码。
+    // ALAC 每帧自带全部参数（预测系数与自适应 Golomb 参数都在帧内），逐帧解码无需跨帧状态，
+    // 故这里与平台解码器一样按样本表顺序读一帧、解一帧、交一帧
+    private suspend fun drainAlac(
+        extractor: MediaExtractor,
+        config: AlacSpecificConfig,
+        sink: PcmSink,
+    ) {
+        val frameDecoder = AlacFrameDecoder(config)
+        val pcm = AlacFramePcm(config)
+        // 单帧字节按 cookie 声明的上限预置；样本超出该上限时随即扩容，不为个别大帧长期占用
+        var frame = ByteArray(config.maxFrameBytes)
+        // 采样率取 cookie：ALAC 是线性 PCM 编码，容器声明的采样率就是输出采样率
+        sink.sampleRate = config.sampleRate
+        while (true) {
+            coroutineContext.ensureActive()
+            // -1 表示样本表已读完
+            val sampleSize = extractor.sampleSize.toInt()
+            if (sampleSize < 0) break
+            if (sampleSize > frame.size) frame = ByteArray(sampleSize)
+            if (extractor.readSampleData(ByteBuffer.wrap(frame), 0) < 0) break
+            frameDecoder.decode(frame, sampleSize)
+            val decoded = pcm.encode(frameDecoder)
+            sink.accept(
+                buffer = decoded,
+                offset = 0,
+                size = decoded.limit(),
+                channels = config.channelCount,
+                encoding = PcmFormat.ENCODING_FLOAT,
+            )
+            extractor.advance()
+        }
+        sink.flush()
     }
 
     // 变换线程循环：逐窗独立变换，行数据按序号交给重排器后立即归还窗口缓冲。
