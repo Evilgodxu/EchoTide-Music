@@ -294,7 +294,7 @@
     <string name="settings_usb_exclusive_title">USB audio exclusive</string>
     <string name="settings_usb_exclusive_desc">Takes over the DAC and writes directly; the device is unavailable to the system meanwhile</string>
     <string name="settings_typography_title">Playback layout</string>
-    <string name="settings_typography_desc">Font size, line spacing and alignment for lyrics and track info</string>
+    <string name="settings_typography_desc">Font size, line spacing, alignment and edge fade for lyrics and track info</string>
 
     <!-- Playlist swipe actions -->
     <string name="playlist_advanced_menu_title">Advanced menu</string>
@@ -462,6 +462,9 @@
     <string name="typography_alignment">Alignment</string>
     <string name="typography_align_start">Left</string>
     <string name="typography_align_center">Center</string>
+    <string name="typography_fade">Fade extent</string>
+    <string name="typography_fade_inset">Fade inset</string>
+    <string name="typography_line_value">%1$s lines</string>
     <string name="typography_3d_intensity">3D intensity</string>
 
     <!-- Home playlists -->

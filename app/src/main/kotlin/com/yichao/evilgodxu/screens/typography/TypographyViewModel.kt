@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yichao.evilgodxu.data.settings.homePortraitLyricLayoutFlow
 import com.yichao.evilgodxu.data.settings.landscapeLyricLayoutFlow
+import com.yichao.evilgodxu.data.settings.LandscapeLyricLayoutParams
 import com.yichao.evilgodxu.data.settings.LyricAlignment
 import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
 import com.yichao.evilgodxu.data.settings.LyricLayoutParams
@@ -63,65 +64,84 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
         applyHomePortrait(_uiState.value.homePortrait.copy(alignment = alignment))
     }
 
+    fun adjustHomePortraitFade(delta: Int) {
+        val current = _uiState.value.homePortrait
+        applyHomePortrait(
+            current.copy(
+                fadeLines = stepHalfLines(
+                    current.fadeLines, delta,
+                    LyricLayoutDefaults.FADE_LINES_MIN, LyricLayoutDefaults.FADE_LINES_MAX,
+                ),
+            ),
+        )
+    }
+
+    fun adjustHomePortraitFadeInset(delta: Int) {
+        val current = _uiState.value.homePortrait
+        applyHomePortrait(
+            current.copy(
+                fadeInsetLines = stepHalfLines(
+                    current.fadeInsetLines, delta,
+                    LyricLayoutDefaults.FADE_INSET_LINES_MIN, LyricLayoutDefaults.FADE_INSET_LINES_MAX,
+                ),
+            ),
+        )
+    }
+
     fun adjustLandscapeFontSize(delta: Int) {
-        val state = _uiState.value
-        val next = adjustFontSize(state.homeLandscape.fontSizeSp, delta)
-        _uiState.update { it.copy(homeLandscape = it.homeLandscape.copy(fontSizeSp = next)) }
-        viewModelScope.launch {
-            context.saveLandscapeLyricLayout(
-                next,
-                _uiState.value.homeLandscape.visibleLines,
-                _uiState.value.homeLandscape.lineSpacingDp,
-                _uiState.value.homeLandscape.threeDIntensity,
-            )
-        }
+        val current = _uiState.value.homeLandscape
+        applyLandscape(current.copy(fontSizeSp = adjustFontSize(current.fontSizeSp, delta)))
     }
 
     fun adjustLandscapeLines(delta: Int) {
-        val state = _uiState.value
-        val next = adjustLines(LyricLayoutDefaults.LANDSCAPE_LINE_PRESETS, state.homeLandscape.visibleLines, delta)
-        _uiState.update { it.copy(homeLandscape = it.homeLandscape.copy(visibleLines = next)) }
-        viewModelScope.launch {
-            context.saveLandscapeLyricLayout(
-                _uiState.value.homeLandscape.fontSizeSp,
-                next,
-                _uiState.value.homeLandscape.lineSpacingDp,
-                _uiState.value.homeLandscape.threeDIntensity,
-            )
-        }
+        val current = _uiState.value.homeLandscape
+        applyLandscape(
+            current.copy(
+                visibleLines = adjustLines(
+                    LyricLayoutDefaults.LANDSCAPE_LINE_PRESETS, current.visibleLines, delta,
+                ),
+            ),
+        )
     }
 
     fun adjustLandscapeLineSpacing(delta: Int) {
-        val state = _uiState.value
-        val next = adjustLineSpacing(state.homeLandscape.lineSpacingDp, delta)
-        _uiState.update { it.copy(homeLandscape = it.homeLandscape.copy(lineSpacingDp = next)) }
-        viewModelScope.launch {
-            context.saveLandscapeLyricLayout(
-                _uiState.value.homeLandscape.fontSizeSp,
-                _uiState.value.homeLandscape.visibleLines,
-                next,
-                _uiState.value.homeLandscape.threeDIntensity,
-            )
-        }
+        val current = _uiState.value.homeLandscape
+        applyLandscape(current.copy(lineSpacingDp = adjustLineSpacing(current.lineSpacingDp, delta)))
     }
 
     fun adjustLandscape3D(delta: Int) {
-        val state = _uiState.value
+        val current = _uiState.value.homeLandscape
         val steps = ((LyricLayoutDefaults.THREE_D_MAX - LyricLayoutDefaults.THREE_D_MIN) /
                 LyricLayoutDefaults.THREE_D_STEP).toInt()
-        val currentStep = ((state.homeLandscape.threeDIntensity - LyricLayoutDefaults.THREE_D_MIN) /
+        val currentStep = ((current.threeDIntensity - LyricLayoutDefaults.THREE_D_MIN) /
                 LyricLayoutDefaults.THREE_D_STEP).roundToInt()
         val next = LyricLayoutDefaults.THREE_D_MIN +
                 (currentStep + delta).coerceIn(0, steps) * LyricLayoutDefaults.THREE_D_STEP
-        _uiState.update { it.copy(homeLandscape = it.homeLandscape.copy(threeDIntensity = next)) }
-        viewModelScope.launch {
-            context.saveLandscapeLyricLayout(
-                _uiState.value.homeLandscape.fontSizeSp,
-                _uiState.value.homeLandscape.visibleLines,
-                _uiState.value.homeLandscape.lineSpacingDp,
-                next,
-            )
-        }
+        applyLandscape(current.copy(threeDIntensity = next))
+    }
+
+    fun adjustLandscapeFade(delta: Int) {
+        val current = _uiState.value.homeLandscape
+        applyLandscape(
+            current.copy(
+                fadeLines = stepHalfLines(
+                    current.fadeLines, delta,
+                    LyricLayoutDefaults.FADE_LINES_MIN, LyricLayoutDefaults.FADE_LINES_MAX,
+                ),
+            ),
+        )
+    }
+
+    fun adjustLandscapeFadeInset(delta: Int) {
+        val current = _uiState.value.homeLandscape
+        applyLandscape(
+            current.copy(
+                fadeInsetLines = stepHalfLines(
+                    current.fadeInsetLines, delta,
+                    LyricLayoutDefaults.FADE_INSET_LINES_MIN, LyricLayoutDefaults.FADE_INSET_LINES_MAX,
+                ),
+            ),
+        )
     }
 
     // 竖屏各调节入口共用同一条落盘路径：整份排版参数一次性提交，避免某个字段取错当前值
@@ -133,6 +153,23 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
                 layout.visibleLines,
                 layout.lineSpacingDp,
                 layout.alignment,
+                layout.fadeLines,
+                layout.fadeInsetLines,
+            )
+        }
+    }
+
+    // 横屏同理：字号、行数、行间距、3D 强度与渐隐一起整份提交
+    private fun applyLandscape(layout: LandscapeLyricLayoutParams) {
+        _uiState.update { it.copy(homeLandscape = layout) }
+        viewModelScope.launch {
+            context.saveLandscapeLyricLayout(
+                layout.fontSizeSp,
+                layout.visibleLines,
+                layout.lineSpacingDp,
+                layout.threeDIntensity,
+                layout.fadeLines,
+                layout.fadeInsetLines,
             )
         }
     }
@@ -151,4 +188,10 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
             LyricLayoutDefaults.LINE_SPACING_MIN_DP,
             LyricLayoutDefaults.LINE_SPACING_MAX_DP,
         )
+
+    // 半行档位步进：先折算成档数再加减，反复调节不会因浮点累加漂到档位之外
+    private fun stepHalfLines(current: Float, delta: Int, min: Float, max: Float): Float {
+        val step = LyricLayoutDefaults.FADE_STEP_LINES
+        return (((current / step).roundToInt() + delta) * step).coerceIn(min, max)
+    }
 }

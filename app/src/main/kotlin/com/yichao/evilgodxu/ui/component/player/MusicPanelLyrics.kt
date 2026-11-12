@@ -99,6 +99,11 @@ internal fun LyricsPanel(
     lineSpacing: Dp = LyricLayoutDefaults.LINE_SPACING_DEFAULT_DP.dp,
     // 歌词行的水平对齐：由排版设置传入，逐字、逐词与整行三条渲染路径共用同一取值
     alignment: LyricAlignment = LyricAlignment.CENTER,
+    // 上下边缘的渐隐长度（行）：自留白内缘起算，越往边缘越透明
+    fadeLines: Float = LyricLayoutDefaults.FADE_LINES_DEFAULT,
+    // 渐隐留白（行）：自上下边缘向内空出，渐隐自留白内缘起算。
+    // 把最淡的几行推离窗口边缘，避免字形/光晕在极边缘处以亚像素细线残留
+    fadeInsetLines: Float = LyricLayoutDefaults.FADE_INSET_LINES_DEFAULT,
     // 纵向快速滑动的切歌出口（true 为下一曲）：由首页提供，用于把「一甩即走」的滑动归给切歌——
     // 这类滑动全程不让歌词跟随移动；为 null 的场景（无切歌手势）不做快速滑动仲裁，
     // 纵向拖拽一律按歌词跳转处理
@@ -445,8 +450,12 @@ internal fun LyricsPanel(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clipToBounds()
-                    // 上下边缘渐隐：行在视口边缘整体出现/消失过于生硬，蒙层让进出更连贯
-                    .verticalFadeMask(fadeFraction = FADE_TOTAL_LINES / visibleLines)
+                    // 上下边缘渐隐：行在视口边缘整体出现/消失过于生硬，蒙层让进出更连贯。
+                    // 视口高度按 visibleLines 行计，故行数除以它即得占高度的比例
+                    .verticalFadeMask(
+                        fadeFraction = fadeLines / visibleLines,
+                        insetFraction = fadeInsetLines / visibleLines,
+                    )
             ) {
                 // 以显示位置所在行为窗口锚点，上下各多渲染 buffer 行：滚动或拖拽时新行已在窗口内、
                 // 被移除的行已完全移出视口，两者在同一坐标系整体平移，因此只会连续上移，不会突兀替换
@@ -855,26 +864,34 @@ private fun alignedScrubRow(position: Float, lastIndex: Int): Int? {
     return candidate.takeIf { abs(position - candidate) <= LYRIC_SCRUB_SNAP_ROWS }
 }
 
-// 上下边缘渐隐蒙层覆盖的总行数（上下各半）：随可见行数换算比例，行数增减时淡出区间保持一致。
-// 取 ≥1.5 行：当容器高度不足以容纳设定行数时，顶部溢出行被裁成一薄片，仅靠窄渐变/单点透明
-// 仍会残留纯色细线，需让渐变区覆盖一整个溢出行，使薄片深陷透明区
-private const val FADE_TOTAL_LINES = 1.6f
-
 // 上下边缘淡出：按纵向透明度梯度对内容做 DstIn 蒙层，使上下行渐变消失。
-// 边缘两端各保留一段完全透明区间，杜绝子像素级残影——行带 graphicsLayer 缩放、以小数 y 放置时，
+// 留白区内整段透明——渐隐自留白内缘起算，最淡的几行因此不与窗口边缘重合；
+// 边缘两端还各保留一段完全透明区间，杜绝子像素级残影——行带 graphicsLayer 缩放、以小数 y 放置时，
 // 字形/光晕可能仅以 ≤1dp 的细线越过边缘，单点透明 stop 只掩到精确边界，仍会残留原色细线
-private fun Modifier.verticalFadeMask(fadeFraction: Float = 0.25f): Modifier = drawWithCache {
-    // 完全透明保护带：fadeFraction 随可见行数缩放，覆盖边缘残影的像素宽度
-    val edgeGuard = fadeFraction * 0.12f
+private fun Modifier.verticalFadeMask(
+    fadeFraction: Float = 0.25f,
+    // 自上下边缘向内空出的比例，该区间整段透明
+    insetFraction: Float = 0f,
+): Modifier = drawWithCache {
+    // 留白与渐隐都按比例给出，二者相加越过半高时按半高收敛；
+    // 留白单独也吃到半高则没有可渐隐的余地，一并收在半高之内
+    val inset = insetFraction.coerceIn(0f, MAX_FADE_EDGE_FRACTION)
+    val fade = fadeFraction.coerceIn(0f, MAX_FADE_EDGE_FRACTION - inset)
+    val innerEdge = inset + fade
+    // 完全透明保护带：覆盖边缘残影的像素宽度
+    val guard = fade * 0.12f
     val brush = Brush.verticalGradient(
-        colorStops = arrayOf(
-            0.0f to Color.Transparent,
-            edgeGuard to Color.Transparent,
-            fadeFraction to Color.Black,
-            1f - fadeFraction to Color.Black,
-            1f - edgeGuard to Color.Transparent,
-            1f to Color.Transparent,
-        )
+        colorStops = buildList {
+            add(0f to Color.Transparent)
+            // 留白为 0 时不重复写同位置的 stop，渐变按非递减顺序排布
+            if (inset > 0f) add(inset to Color.Transparent)
+            add(inset + guard to Color.Transparent)
+            add(innerEdge to Color.Black)
+            add(1f - innerEdge to Color.Black)
+            add(1f - inset - guard to Color.Transparent)
+            if (inset > 0f) add(1f - inset to Color.Transparent)
+            add(1f to Color.Transparent)
+        }.toTypedArray(),
     )
     onDrawWithContent {
         val bounds = Rect(Offset.Zero, size)
@@ -893,3 +910,6 @@ private fun Modifier.verticalFadeMask(fadeFraction: Float = 0.25f): Modifier = d
         }
     }
 }
+
+// 单侧留白与渐隐合计的比例上限：停在半高以内，保证上下两段不会相接、中段始终有全亮区
+private const val MAX_FADE_EDGE_FRACTION = 0.45f

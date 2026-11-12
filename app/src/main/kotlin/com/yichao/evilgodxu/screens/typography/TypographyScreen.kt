@@ -39,10 +39,14 @@ fun TypographyScreen(
         onHomePortraitLinesChange = viewModel::adjustHomePortraitLines,
         onHomePortraitLineSpacingChange = viewModel::adjustHomePortraitLineSpacing,
         onHomePortraitAlignmentChange = viewModel::selectHomePortraitAlignment,
+        onHomePortraitFadeChange = viewModel::adjustHomePortraitFade,
+        onHomePortraitFadeInsetChange = viewModel::adjustHomePortraitFadeInset,
         onLandscapeFontSizeChange = viewModel::adjustLandscapeFontSize,
         onLandscapeLinesChange = viewModel::adjustLandscapeLines,
         onLandscapeLineSpacingChange = viewModel::adjustLandscapeLineSpacing,
         onLandscape3DChange = viewModel::adjustLandscape3D,
+        onLandscapeFadeChange = viewModel::adjustLandscapeFade,
+        onLandscapeFadeInsetChange = viewModel::adjustLandscapeFadeInset,
         modifier = modifier,
     )
 }

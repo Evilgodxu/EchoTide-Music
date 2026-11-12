@@ -41,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yichao.evilgodxu.data.settings.landscapeLyricLayoutFlow
-import com.yichao.evilgodxu.data.settings.LandscapeLyricLayoutParams
 import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
@@ -242,14 +241,7 @@ private fun LyricsPerspectiveZone(
 ) {
     val context = LocalContext.current
     val landscapeLayout by context.landscapeLyricLayoutFlow()
-        .collectAsStateWithLifecycle(
-            initialValue = LandscapeLyricLayoutParams(
-                LyricLayoutDefaults.LANDSCAPE_FONT_SIZE_SP,
-                LyricLayoutDefaults.LANDSCAPE_VISIBLE_LINES,
-                LyricLayoutDefaults.LINE_SPACING_DEFAULT_DP,
-                LyricLayoutDefaults.LANDSCAPE_3D_INTENSITY,
-            ),
-        )
+        .collectAsStateWithLifecycle(initialValue = LyricLayoutDefaults.LANDSCAPE_LAYOUT)
     // 强度映射：旋转角随强度增大，相机距离随强度减小，透视随之增强
     val intensity = landscapeLayout.threeDIntensity
     val rotationYDegrees = (BASE_ROTATION_Y_DEGREES * intensity).coerceIn(-75f, 0f)
@@ -274,6 +266,8 @@ private fun LyricsPerspectiveZone(
             contentColor = Color.White,
             visibleLines = landscapeLayout.visibleLines,
             lineSpacing = landscapeLayout.lineSpacingDp.dp,
+            fadeLines = landscapeLayout.fadeLines,
+            fadeInsetLines = landscapeLayout.fadeInsetLines,
             onVerticalFling = onVerticalFling,
         )
     }

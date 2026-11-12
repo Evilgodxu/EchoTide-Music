@@ -127,6 +127,8 @@ internal fun PortraitLyricsSection(
                         visibleLines = homePortraitLayout.visibleLines,
                         lineSpacing = homePortraitLayout.lineSpacingDp.dp,
                         alignment = homePortraitLayout.alignment,
+                        fadeLines = homePortraitLayout.fadeLines,
+                        fadeInsetLines = homePortraitLayout.fadeInsetLines,
                         contentColor = Color.White,
                         onVerticalFling = onVerticalFling,
                         onVerticalDragClaim = onVerticalDragClaim,

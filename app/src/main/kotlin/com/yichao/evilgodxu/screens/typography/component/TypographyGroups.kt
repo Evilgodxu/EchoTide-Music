@@ -44,10 +44,14 @@ internal fun TypographyGroups(
     onHomePortraitLinesChange: (Int) -> Unit,
     onHomePortraitLineSpacingChange: (Int) -> Unit,
     onHomePortraitAlignmentChange: (LyricAlignment) -> Unit,
+    onHomePortraitFadeChange: (Int) -> Unit,
+    onHomePortraitFadeInsetChange: (Int) -> Unit,
     onLandscapeFontSizeChange: (Int) -> Unit,
     onLandscapeLinesChange: (Int) -> Unit,
     onLandscapeLineSpacingChange: (Int) -> Unit,
     onLandscape3DChange: (Int) -> Unit,
+    onLandscapeFadeChange: (Int) -> Unit,
+    onLandscapeFadeInsetChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -96,6 +100,13 @@ internal fun TypographyGroups(
                 selected = uiState.homePortrait.alignment,
                 onSelect = onHomePortraitAlignmentChange,
             )
+            // 渐隐与留白均以半行为一档：留白自上下边缘向内空出，渐隐自留白内缘起算
+            FadeRows(
+                fadeLines = uiState.homePortrait.fadeLines,
+                fadeInsetLines = uiState.homePortrait.fadeInsetLines,
+                onFadeChange = onHomePortraitFadeChange,
+                onFadeInsetChange = onHomePortraitFadeInsetChange,
+            )
         }
         // 首页横屏：独立调节，含 3D 强度
         GroupCard(title = stringResource(R.string.typography_section_home_landscape)) {
@@ -134,6 +145,12 @@ internal fun TypographyGroups(
                 increaseEnabled = uiState.homeLandscape.threeDIntensity < LyricLayoutDefaults.THREE_D_MAX,
                 onDecrease = { onLandscape3DChange(-1) },
                 onIncrease = { onLandscape3DChange(1) },
+            )
+            FadeRows(
+                fadeLines = uiState.homeLandscape.fadeLines,
+                fadeInsetLines = uiState.homeLandscape.fadeInsetLines,
+                onFadeChange = onLandscapeFadeChange,
+                onFadeInsetChange = onLandscapeFadeInsetChange,
             )
         }
     }
@@ -231,3 +248,33 @@ private fun LyricAlignment.labelRes(): Int = when (this) {
     LyricAlignment.START -> R.string.typography_align_start
     LyricAlignment.CENTER -> R.string.typography_align_center
 }
+
+// 渐隐与渐隐留白两行：两个场景各有一套取值，调节手感与展示口径相同，故共用一处组装
+@Composable
+private fun FadeRows(
+    fadeLines: Float,
+    fadeInsetLines: Float,
+    onFadeChange: (Int) -> Unit,
+    onFadeInsetChange: (Int) -> Unit,
+) {
+    StepperRow(
+        title = stringResource(R.string.typography_fade),
+        valueText = stringResource(R.string.typography_line_value, halfLinesText(fadeLines)),
+        decreaseEnabled = fadeLines > LyricLayoutDefaults.FADE_LINES_MIN,
+        increaseEnabled = fadeLines < LyricLayoutDefaults.FADE_LINES_MAX,
+        onDecrease = { onFadeChange(-1) },
+        onIncrease = { onFadeChange(1) },
+    )
+    StepperRow(
+        title = stringResource(R.string.typography_fade_inset),
+        valueText = stringResource(R.string.typography_line_value, halfLinesText(fadeInsetLines)),
+        decreaseEnabled = fadeInsetLines > LyricLayoutDefaults.FADE_INSET_LINES_MIN,
+        increaseEnabled = fadeInsetLines < LyricLayoutDefaults.FADE_INSET_LINES_MAX,
+        onDecrease = { onFadeInsetChange(-1) },
+        onIncrease = { onFadeInsetChange(1) },
+    )
+}
+
+// 半行档位的展示值：整档不带小数位，半档保留一位，避免出现「2.0 行」这类冗余
+private fun halfLinesText(value: Float): String =
+    if (value % 1f == 0f) value.toInt().toString() else value.toString()

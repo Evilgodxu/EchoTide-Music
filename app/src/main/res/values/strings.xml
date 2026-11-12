@@ -296,7 +296,7 @@
     <string name="settings_usb_exclusive_title">USB 音频独占</string>
     <string name="settings_usb_exclusive_desc">独占音频输出，动态适应设备</string>
     <string name="settings_typography_title">播放页排版</string>
-    <string name="settings_typography_desc">调整歌词与歌曲信息的字号、行距与对齐方式</string>
+    <string name="settings_typography_desc">调整歌词与歌曲信息的字号、行距、对齐与渐隐</string>
 
     <!-- 播放列表滑动操作 -->
     <string name="playlist_advanced_menu_title">高级菜单</string>
@@ -461,6 +461,9 @@
     <string name="typography_alignment">对齐方式</string>
     <string name="typography_align_start">靠左对齐</string>
     <string name="typography_align_center">居中对齐</string>
+    <string name="typography_fade">渐隐范围</string>
+    <string name="typography_fade_inset">渐隐留白</string>
+    <string name="typography_line_value">%1$s 行</string>
     <string name="typography_3d_intensity">3D 强度</string>
 
     <!-- 首页歌单 -->

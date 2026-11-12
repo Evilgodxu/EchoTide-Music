@@ -27,10 +27,14 @@ internal fun TypographyAssembly(
     onHomePortraitLinesChange: (Int) -> Unit,
     onHomePortraitLineSpacingChange: (Int) -> Unit,
     onHomePortraitAlignmentChange: (LyricAlignment) -> Unit,
+    onHomePortraitFadeChange: (Int) -> Unit,
+    onHomePortraitFadeInsetChange: (Int) -> Unit,
     onLandscapeFontSizeChange: (Int) -> Unit,
     onLandscapeLinesChange: (Int) -> Unit,
     onLandscapeLineSpacingChange: (Int) -> Unit,
     onLandscape3DChange: (Int) -> Unit,
+    onLandscapeFadeChange: (Int) -> Unit,
+    onLandscapeFadeInsetChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -51,10 +55,14 @@ internal fun TypographyAssembly(
                 onHomePortraitLinesChange = onHomePortraitLinesChange,
                 onHomePortraitLineSpacingChange = onHomePortraitLineSpacingChange,
                 onHomePortraitAlignmentChange = onHomePortraitAlignmentChange,
+                onHomePortraitFadeChange = onHomePortraitFadeChange,
+                onHomePortraitFadeInsetChange = onHomePortraitFadeInsetChange,
                 onLandscapeFontSizeChange = onLandscapeFontSizeChange,
                 onLandscapeLinesChange = onLandscapeLinesChange,
                 onLandscapeLineSpacingChange = onLandscapeLineSpacingChange,
                 onLandscape3DChange = onLandscape3DChange,
+                onLandscapeFadeChange = onLandscapeFadeChange,
+                onLandscapeFadeInsetChange = onLandscapeFadeInsetChange,
             )
         }
     }
@@ -71,10 +79,14 @@ private fun TypographyAssemblyPreviewContent(windowSizeClass: WindowSizeClass) {
             onHomePortraitLinesChange = {},
             onHomePortraitLineSpacingChange = {},
             onHomePortraitAlignmentChange = {},
+            onHomePortraitFadeChange = {},
+            onHomePortraitFadeInsetChange = {},
             onLandscapeFontSizeChange = {},
             onLandscapeLinesChange = {},
             onLandscapeLineSpacingChange = {},
             onLandscape3DChange = {},
+            onLandscapeFadeChange = {},
+            onLandscapeFadeInsetChange = {},
         )
     }
 }
