@@ -12,8 +12,8 @@
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
 ![Version](https://img.shields.io/badge/version-6.2.7-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
-![AGP](https://img.shields.io/badge/AGP-9.5.0-blue)
-![Gradle](https://img.shields.io/badge/Gradle-9.8.2-blue)
+![AGP](https://img.shields.io/badge/AGP-9.5.1-blue)
+![Gradle](https://img.shields.io/badge/Gradle-9.9.0-blue)
 ![Compose BOM](https://img.shields.io/badge/Compose%20BOM-2026.09.00-blue)
 ![minSdk](https://img.shields.io/badge/minSdk-34-orange)
 ![targetSdk](https://img.shields.io/badge/targetSdk-37-orange)
@@ -44,17 +44,20 @@ Portrait or landscape, immersion is the only goal.
 | Persistence | DataStore 1.3.0 (Preferences + typed stores via kotlinx.serialization) |
 | Image loading | OkHttp + BitmapFactory, in-house memory LRU |
 | Network | OkHttp 5.5.1 |
-| Serialization | kotlinx.serialization 1.12.0 |
+| Serialization | kotlinx.serialization 1.13.0 |
 | Async | kotlinx.coroutines 1.11.0 (incl. coroutines-guava bridging MediaController futures) |
-| Adaptive layout | androidx.window 1.5.1, material3-adaptive 1.3.0 |
+| Icons | Local Material Symbols paths inlined as ImageVector, no material-icons-extended |
+| Adaptive layout | In-house window size classes (`windowsize/`), no third-party adaptive library |
 | Lifecycle | androidx.lifecycle 2.11.0, activity-compose 1.13.0 |
 | Native layer | NDK 28.2.13676358, CMake 3.22.1 (usbfs isochronous transfer for USB exclusive output) |
-| Build | AGP 9.4.1, Gradle 9.8.2, refreshVersions |
+| Build | AGP 9.5.1, Gradle 9.9.0, refreshVersions |
 
 ## Project Structure
 
 ```
 .
+├── .github/
+│   └── workflows/                      # Release cleanup workflow
 ├── app/
 │   └── src/main/
 │       ├── kotlin/com/yichao/evilgodxu/
@@ -89,12 +92,12 @@ Portrait or landscape, immersion is the only goal.
 │       │   │   │   ├── compact/         #     Portrait assembly (compact/player: portrait player)
 │       │   │   │   ├── expanded/        #     Landscape assembly (expanded/player: landscape player)
 │       │   │   │   └── component/       #     analysis / audioinfo / bar / dialog / panel / permission / player / playlist (incl. playlist/expanded) / queue / search / shell / swipe
-│       │   │   ├── settings/            #   Appearance / storage / language / playback / proxy sources / about
+│       │   │   ├── settings/            #   Appearance / language / playback / proxy sources / storage / about
 │       │   │   │   └── component/       #     appearance / cache / dialog / entry / info / language / playback / proxy
-│       │   │   ├── cache/               #   Storage / cache management (compact / expanded / component)
-│       │   │   ├── spectrum/            #   Spectrum analysis screen (compact / expanded / component)
-│       │   │   ├── typography/          #   Playback page layout settings (compact / expanded / component)
-│       │   │   └── metadata/            #   Metadata editing screen (compact / expanded / component)
+│       │   │   ├── cache/               #   Storage / cache management (assembly / component)
+│       │   │   ├── spectrum/            #   Spectrum analysis screen (assembly / component)
+│       │   │   ├── typography/          #   Playback page layout settings (assembly / component)
+│       │   │   └── metadata/            #   Metadata editing screen (assembly / component)
 │       │   ├── service/                 # MediaSessionService playback engine
 │       │   ├── theme/                   # Material 3 colour & typography
 │       │   ├── ui/                      # Globally shared UI: cover fade / transitions / prefetch / flow-frame store, dialog & picker skeletons, player & section pieces, icons
@@ -107,11 +110,12 @@ Portrait or landscape, immersion is the only goal.
 │       │   └── MainViewModel.kt         # Activity-scoped ViewModel (incl. AppUiState)
 │       ├── cpp/                         # Native layer: usbfs isochronous transfer for USB exclusive output (JNI bridge + isochronous stream)
 │       └── res/                         # Resources (values / values-en)
+├── archive/                             # Archived feature experiments (audio quality & AI detection, daily recommendations), not built
 ├── baselineprofile/                     # Baseline & startup profile source set
 ├── gradle/
 │   ├── libs.versions.toml               # Version catalog (dependency management)
 │   └── wrapper/
-├── docs/                                # Proxy source spec, UI screenshots, notes & APK report
+├── docs/                                # Proxy source spec, UI screenshots & design mockups
 ├── LICENSE
 ├── build.gradle.kts
 ├── settings.gradle.kts
@@ -178,7 +182,9 @@ The keystore file is expected at `jh.keystore` in the project root (to relocate 
 
 ## Disclaimer
 
-Echo Tide is a player for a local music library. Proxy sources only declare personal network interface configurations; the app provides no runtime cracking service of any kind.
+Echo Tide is a player for a local music library. Its built-in online capabilities cover only public song search,
+cover fetching, lyric fetching and preview playback; proxy sources merely declare personal network interface
+configurations, and the app provides no runtime cracking service of any kind.
 
 ## Acknowledgements
 

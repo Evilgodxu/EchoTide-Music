@@ -12,8 +12,8 @@
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
 ![Version](https://img.shields.io/badge/version-6.2.7-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
-![AGP](https://img.shields.io/badge/AGP-9.5.0-blue)
-![Gradle](https://img.shields.io/badge/Gradle-9.8.2-blue)
+![AGP](https://img.shields.io/badge/AGP-9.5.1-blue)
+![Gradle](https://img.shields.io/badge/Gradle-9.9.0-blue)
 ![Compose BOM](https://img.shields.io/badge/Compose%20BOM-2026.09.00-blue)
 ![minSdk](https://img.shields.io/badge/minSdk-34-orange)
 ![targetSdk](https://img.shields.io/badge/targetSdk-37-orange)
@@ -44,17 +44,20 @@
 | 持久化 | DataStore 1.3.0（Preferences + kotlinx.serialization 类型化存储） |
 | 图片加载 | OkHttp + BitmapFactory，自研内存 LRU |
 | 网络 | OkHttp 5.5.1 |
-| 序列化 | kotlinx.serialization 1.12.0 |
+| 序列化 | kotlinx.serialization 1.13.0 |
 | 异步 | kotlinx.coroutines 1.11.0（含 coroutines-guava 桥接 MediaController Future） |
-| 自适应布局 | androidx.window 1.5.1、material3-adaptive 1.3.0 |
+| 图标 | 本地 Material Symbols 路径内联为 ImageVector，不引 material-icons-extended |
+| 自适应布局 | 自研窗口尺寸类（`windowsize/`），不引第三方自适应库 |
 | 生命周期 | androidx.lifecycle 2.11.0、activity-compose 1.13.0 |
 | 原生层 | NDK 28.2.13676358、CMake 3.22.1（USB 独占的 usbfs 等时传输） |
-| 构建 | AGP 9.4.1、Gradle 9.8.2、refreshVersions |
+| 构建 | AGP 9.5.1、Gradle 9.9.0、refreshVersions |
 
 ## 项目结构
 
 ```
 .
+├── .github/
+│   └── workflows/                      # Release 清理工作流
 ├── app/
 │   └── src/main/
 │       ├── kotlin/com/yichao/evilgodxu/
@@ -89,12 +92,12 @@
 │       │   │   │   ├── compact/         #     竖屏组装器(compact/player:竖屏播放器)
 │       │   │   │   ├── expanded/        #     横屏组装器(expanded/player:横屏播放器)
 │       │   │   │   └── component/       #     analysis / audioinfo / bar / dialog / panel / permission / player / playlist(含 playlist/expanded)/ queue / search / shell / swipe
-│       │   │   ├── settings/            #   外观 / 存储 / 语言 / 播放 / 代理音源 / 关于
+│       │   │   ├── settings/            #   外观 / 语言 / 播放 / 代理音源 / 存储 / 关于
 │       │   │   │   └── component/       #     appearance / cache / dialog / entry / info / language / playback / proxy
-│       │   │   ├── cache/               #   存储 / 缓存管理(compact / expanded / component)
-│       │   │   ├── spectrum/            #   频谱分析页(compact / expanded / component)
-│       │   │   ├── typography/          #   播放页排版设置(compact / expanded / component)
-│       │   │   └── metadata/            #   元数据编辑页(compact / expanded / component)
+│       │   │   ├── cache/               #   存储 / 缓存管理(assembly / component)
+│       │   │   ├── spectrum/            #   频谱分析页(assembly / component)
+│       │   │   ├── typography/          #   播放页排版设置(assembly / component)
+│       │   │   └── metadata/            #   元数据编辑页(assembly / component)
 │       │   ├── service/                 # MediaSessionService 播放引擎
 │       │   ├── theme/                   # Material 3 配色与字体
 │       │   ├── ui/                      # 全局共享 UI:封面渐隐 / 过渡 / 预取 / 流动帧存储,对话框与选择器骨架,播放器与分区部件,图标
@@ -107,11 +110,12 @@
 │       │   └── MainViewModel.kt         # Activity 专属 ViewModel(含 AppUiState)
 │       ├── cpp/                         # 原生层:USB 独占的 usbfs 等时传输(JNI 桥 + 等时流)
 │       └── res/                         # 资源(values / values-en)
+├── archive/                             # 归档的功能试验(音质与 AI 识别、每日推荐)，不参与构建
 ├── baselineprofile/                     # 基准配置与启动配置源集
 ├── gradle/
 │   ├── libs.versions.toml               # 版本目录(依赖管理)
 │   └── wrapper/
-├── docs/                                # 代理音源规范、界面截图、注意事项与 APK 报告
+├── docs/                                # 代理音源规范、界面截图与设计稿
 ├── LICENSE
 ├── build.gradle.kts
 ├── settings.gradle.kts
@@ -178,7 +182,8 @@ KEY_PASSWORD=你的别名密码
 
 ## 免责声明
 
-忆潮音乐是一款面向本地曲库的播放器，代理音源仅用于声明个人网络接口配置，不提供基于运行时的破解服务。
+忆潮音乐是一款面向本地曲库的播放器。内置的在线能力仅覆盖公开的歌曲搜索、封面获取、歌词获取与试听播放；
+代理音源仅用于声明个人网络接口配置，不提供基于运行时的破解服务。
 
 ## 致谢
 
