@@ -38,6 +38,7 @@ fun TypographyScreen(
         onHomePortraitFontSizeChange = viewModel::adjustHomePortraitFontSize,
         onHomePortraitLinesChange = viewModel::adjustHomePortraitLines,
         onHomePortraitLineSpacingChange = viewModel::adjustHomePortraitLineSpacing,
+        onHomePortraitAlignmentChange = viewModel::selectHomePortraitAlignment,
         onLandscapeFontSizeChange = viewModel::adjustLandscapeFontSize,
         onLandscapeLinesChange = viewModel::adjustLandscapeLines,
         onLandscapeLineSpacingChange = viewModel::adjustLandscapeLineSpacing,

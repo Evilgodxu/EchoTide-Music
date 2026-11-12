@@ -19,11 +19,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yichao.evilgodxu.data.settings.LyricAlignment
 import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.screens.typography.TypographyUiState
@@ -31,7 +33,8 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 import kotlin.math.roundToInt
 
-// 排版分组：首页竖屏、首页横屏两场景独立调节字号、行数、行间距，横屏额外调节 3D 强度
+// 排版分组：首页竖屏、首页横屏两场景独立调节字号、行数、行间距，竖屏另可切换对齐方式，
+// 横屏额外调节 3D 强度
 @Composable
 internal fun TypographyGroups(
     uiState: TypographyUiState,
@@ -40,6 +43,7 @@ internal fun TypographyGroups(
     onHomePortraitFontSizeChange: (Int) -> Unit,
     onHomePortraitLinesChange: (Int) -> Unit,
     onHomePortraitLineSpacingChange: (Int) -> Unit,
+    onHomePortraitAlignmentChange: (LyricAlignment) -> Unit,
     onLandscapeFontSizeChange: (Int) -> Unit,
     onLandscapeLinesChange: (Int) -> Unit,
     onLandscapeLineSpacingChange: (Int) -> Unit,
@@ -86,6 +90,11 @@ internal fun TypographyGroups(
                 increaseEnabled = uiState.homePortrait.lineSpacingDp < LyricLayoutDefaults.LINE_SPACING_MAX_DP,
                 onDecrease = { onHomePortraitLineSpacingChange(-1) },
                 onIncrease = { onHomePortraitLineSpacingChange(1) },
+            )
+            AlignmentRow(
+                title = stringResource(R.string.typography_alignment),
+                selected = uiState.homePortrait.alignment,
+                onSelect = onHomePortraitAlignmentChange,
             )
         }
         // 首页横屏：独立调节，含 3D 强度
@@ -148,6 +157,9 @@ private fun StepperRow(
     onIncrease: () -> Unit,
     decreaseEnabled: Boolean = true,
     increaseEnabled: Boolean = true,
+    // 步进图标：数值类调节用加减号，选项类（对齐方式）用左右箭头
+    decreaseIcon: ImageVector = AppIcons.Remove,
+    increaseIcon: ImageVector = AppIcons.Add,
 ) {
     Row(
         modifier = Modifier
@@ -168,7 +180,7 @@ private fun StepperRow(
             modifier = Modifier.size(34.dp),
         ) {
             Icon(
-                imageVector = AppIcons.Remove,
+                imageVector = decreaseIcon,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
             )
@@ -187,10 +199,35 @@ private fun StepperRow(
             modifier = Modifier.size(34.dp),
         ) {
             Icon(
-                imageVector = AppIcons.Add,
+                imageVector = increaseIcon,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
             )
         }
     }
+}
+
+// 对齐方式：左右箭头在「靠左对齐」与「居中对齐」之间切换，当前选项显示在中间。
+// 选项全序为 START → CENTER，行至边界时对应箭头置灰，与其它调节行的步进手感一致
+@Composable
+private fun AlignmentRow(
+    title: String,
+    selected: LyricAlignment,
+    onSelect: (LyricAlignment) -> Unit,
+) {
+    StepperRow(
+        title = title,
+        valueText = stringResource(selected.labelRes()),
+        decreaseEnabled = selected != LyricAlignment.START,
+        increaseEnabled = selected != LyricAlignment.CENTER,
+        decreaseIcon = AppIcons.ArrowBack,
+        increaseIcon = AppIcons.ArrowForward,
+        onDecrease = { onSelect(LyricAlignment.START) },
+        onIncrease = { onSelect(LyricAlignment.CENTER) },
+    )
+}
+
+private fun LyricAlignment.labelRes(): Int = when (this) {
+    LyricAlignment.START -> R.string.typography_align_start
+    LyricAlignment.CENTER -> R.string.typography_align_center
 }

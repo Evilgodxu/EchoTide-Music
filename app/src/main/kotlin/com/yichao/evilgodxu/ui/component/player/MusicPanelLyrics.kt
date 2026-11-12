@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -63,7 +64,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.TextUnit
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.model.LyricLine
+import com.yichao.evilgodxu.data.settings.LyricAlignment
 import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
 import com.yichao.evilgodxu.data.settings.wordByWordRenderingFlow
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
@@ -96,6 +97,8 @@ internal fun LyricsPanel(
     visibleLines: Int = DEFAULT_VISIBLE_LINES,
     // 相邻歌词行之间的纵向留白：由排版设置按场景传入（首页竖屏、首页横屏各自独立）
     lineSpacing: Dp = LyricLayoutDefaults.LINE_SPACING_DEFAULT_DP.dp,
+    // 歌词行的水平对齐：由排版设置传入，逐字、逐词与整行三条渲染路径共用同一取值
+    alignment: LyricAlignment = LyricAlignment.CENTER,
     // 纵向快速滑动的切歌出口（true 为下一曲）：由首页提供，用于把「一甩即走」的滑动归给切歌——
     // 这类滑动全程不让歌词跟随移动；为 null 的场景（无切歌手势）不做快速滑动仲裁，
     // 纵向拖拽一律按歌词跳转处理
@@ -188,6 +191,8 @@ internal fun LyricsPanel(
     val density = LocalDensity.current
     // 行间距像素值：视口高度、兜底行距与纵向布局三处共用同一份换算，口径不会漂移
     val lineSpacingPx = with(density) { lineSpacing.roundToPx() }
+    // 歌词行起始留白：靠左版式与首页标题、艺术家名称的横向内边距取同一值，三者左边缘对齐
+    val rowStartInset = if (alignment == LyricAlignment.START) LYRIC_ALIGNED_START_INSET else LYRIC_ROW_INSET
     // 标准单行高度（含行内上下内边距）：视口上限与窗口内占位行共用，使滚动基准线不随占位行变化。
     // 必须与 LyricChar/Text 的实际渲染同口径——沿用 LocalTextStyle（bodyLarge 自带 24.sp 行高）合并，
     // 否则裸 TextStyle 测出的高度偏小，视口按偏小行距排布会被实际更高的行撑出裁剪，可见行数少于设定值
@@ -489,14 +494,27 @@ internal fun LyricsPanel(
                                     fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
                                     activeColor = activeColor,
                                     pendingColor = pendingColor,
+                                    alignment = alignment,
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        // 留白置于缩放层之外：缩放原点因此落在文本起始侧，
+                                        // 靠左版式下当前行放大只向右展开，不会连同留白一起被放大
+                                        .padding(
+                                            start = rowStartInset,
+                                            top = 2.dp,
+                                            end = LYRIC_ROW_INSET,
+                                            bottom = 2.dp,
+                                        )
                                         .graphicsLayer {
                                             alpha = rowAlpha
                                             scaleX = scale
                                             scaleY = scale
+                                            transformOrigin = if (alignment == LyricAlignment.START) {
+                                                TransformOrigin(0f, 0.5f)
+                                            } else {
+                                                TransformOrigin.Center
+                                            }
                                         }
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                         }
@@ -662,6 +680,7 @@ internal fun LyricText(
     fontWeight: FontWeight,
     activeColor: Color,
     pendingColor: Color,
+    alignment: LyricAlignment,
     modifier: Modifier = Modifier,
 ) {
     var contentWidthPx by remember { mutableIntStateOf(0) }
@@ -670,9 +689,10 @@ internal fun LyricText(
     val wrapWidthPx = if (contentWidthPx <= 0) 0 else (contentWidthPx / LYRIC_ROW_SCALE_MAX).roundToInt()
     // 各行的水平缩放余量同样全行统一，保证分行宽度与主歌词排版一致
     val reserveWidthPx = (contentWidthPx * (LYRIC_ROW_SCALE_MAX - 1f) / (2f * LYRIC_ROW_SCALE_MAX)).roundToInt()
+    val reserveWidth = with(LocalDensity.current) { reserveWidthPx.toDp() }
     Column(
         modifier = modifier.onSizeChanged { contentWidthPx = it.width },
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalAlignment = alignment.columnAlignment,
     ) {
         if (!wordByWordEnabled) {
             WholeLineLyricText(
@@ -683,6 +703,7 @@ internal fun LyricText(
                 activeColor = activeColor,
                 pendingColor = pendingColor,
                 widthPx = wrapWidthPx,
+                alignment = alignment,
             )
         } else if (line.words.isNotEmpty()) {
             WordSplitLyricText(
@@ -695,6 +716,7 @@ internal fun LyricText(
                 activeColor = activeColor,
                 pendingColor = pendingColor,
                 widthPx = wrapWidthPx,
+                alignment = alignment,
             )
         } else {
             LineFillLyricText(
@@ -707,6 +729,7 @@ internal fun LyricText(
                 activeColor = activeColor,
                 pendingColor = pendingColor,
                 widthPx = wrapWidthPx,
+                alignment = alignment,
             )
         }
         line.translation?.takeIf { it.isNotBlank() }?.let { translation ->
@@ -721,11 +744,15 @@ internal fun LyricText(
                 } else {
                     TextStyle()
                 },
-                textAlign = TextAlign.Center,
+                textAlign = alignment.lineTextAlign,
                 softWrap = true,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = with(LocalDensity.current) { reserveWidthPx.toDp() })
+                    // 居中版式两侧对称留出缩放余量；靠左版式的余量只留在行尾，译文与主歌词左边缘对齐
+                    .padding(
+                        start = if (alignment == LyricAlignment.START) 0.dp else reserveWidth,
+                        end = reserveWidth,
+                    )
                     .padding(top = 1.dp),
             )
         }
@@ -744,6 +771,7 @@ private fun WholeLineLyricText(
     activeColor: Color,
     pendingColor: Color,
     widthPx: Int,
+    alignment: LyricAlignment,
     modifier: Modifier = Modifier,
 ) {
     val textMeasurer = rememberTextMeasurer()
@@ -755,7 +783,7 @@ private fun WholeLineLyricText(
     }
     Column(
         modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalAlignment = alignment.columnAlignment,
     ) {
         rows.forEach { row ->
             Text(
@@ -763,7 +791,7 @@ private fun WholeLineLyricText(
                 fontSize = fontSize,
                 fontWeight = fontWeight,
                 color = if (isCurrent) activeColor else pendingColor,
-                textAlign = TextAlign.Center,
+                textAlign = alignment.lineTextAlign,
                 // 折行已由上面手动完成，这里按单行呈现，避免按渲染字重再排一次
                 softWrap = false,
                 maxLines = 1,
@@ -778,6 +806,12 @@ private const val LYRIC_SEEK_TOLERANCE_MS = 1500L
 
 // 歌词面板默认可见行数：保持奇数使当前行垂直居中（上下各 (n-1)/2 行）
 private const val DEFAULT_VISIBLE_LINES = 5
+
+// 歌词行两侧留白：居中版式两侧等距，长句折行时也不贴边
+private val LYRIC_ROW_INSET = 6.dp
+
+// 靠左版式的起始留白：与首页竖屏标题、艺术家名称的横向内边距同值，歌词与标题左边缘对齐
+private val LYRIC_ALIGNED_START_INSET = 32.dp
 
 // 切歌时歌词窗口的淡入时长：短于封面与背景的过渡，歌词作为主体先立住
 private const val LYRIC_SWITCH_FADE_MS = 260

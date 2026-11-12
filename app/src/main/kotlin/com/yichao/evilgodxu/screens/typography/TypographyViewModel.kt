@@ -5,7 +5,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yichao.evilgodxu.data.settings.homePortraitLyricLayoutFlow
 import com.yichao.evilgodxu.data.settings.landscapeLyricLayoutFlow
+import com.yichao.evilgodxu.data.settings.LyricAlignment
 import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
+import com.yichao.evilgodxu.data.settings.LyricLayoutParams
 import com.yichao.evilgodxu.data.settings.saveHomePortraitLyricLayout
 import com.yichao.evilgodxu.data.settings.saveLandscapeLyricLayout
 import kotlin.math.roundToInt
@@ -15,7 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-// 歌词排版 ViewModel：汇总各场景排版参数，调节时本地即时更新并落盘
+// 播放页排版 ViewModel：汇总各场景排版参数，调节时本地即时更新并落盘
 class TypographyViewModel(application: Application) : AndroidViewModel(application) {
 
     private val context get() = getApplication<Application>()
@@ -37,42 +39,28 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun adjustHomePortraitFontSize(delta: Int) {
-        val state = _uiState.value
-        val next = adjustFontSize(state.homePortrait.fontSizeSp, delta)
-        _uiState.update { it.copy(homePortrait = it.homePortrait.copy(fontSizeSp = next)) }
-        viewModelScope.launch {
-            context.saveHomePortraitLyricLayout(
-                next,
-                _uiState.value.homePortrait.visibleLines,
-                _uiState.value.homePortrait.lineSpacingDp,
-            )
-        }
+        val current = _uiState.value.homePortrait
+        applyHomePortrait(current.copy(fontSizeSp = adjustFontSize(current.fontSizeSp, delta)))
     }
 
     fun adjustHomePortraitLines(delta: Int) {
-        val state = _uiState.value
-        val next = adjustLines(LyricLayoutDefaults.HOME_PORTRAIT_LINE_PRESETS, state.homePortrait.visibleLines, delta)
-        _uiState.update { it.copy(homePortrait = it.homePortrait.copy(visibleLines = next)) }
-        viewModelScope.launch {
-            context.saveHomePortraitLyricLayout(
-                _uiState.value.homePortrait.fontSizeSp,
-                next,
-                _uiState.value.homePortrait.lineSpacingDp,
-            )
-        }
+        val current = _uiState.value.homePortrait
+        applyHomePortrait(
+            current.copy(
+                visibleLines = adjustLines(
+                    LyricLayoutDefaults.HOME_PORTRAIT_LINE_PRESETS, current.visibleLines, delta,
+                ),
+            ),
+        )
     }
 
     fun adjustHomePortraitLineSpacing(delta: Int) {
-        val state = _uiState.value
-        val next = adjustLineSpacing(state.homePortrait.lineSpacingDp, delta)
-        _uiState.update { it.copy(homePortrait = it.homePortrait.copy(lineSpacingDp = next)) }
-        viewModelScope.launch {
-            context.saveHomePortraitLyricLayout(
-                _uiState.value.homePortrait.fontSizeSp,
-                _uiState.value.homePortrait.visibleLines,
-                next,
-            )
-        }
+        val current = _uiState.value.homePortrait
+        applyHomePortrait(current.copy(lineSpacingDp = adjustLineSpacing(current.lineSpacingDp, delta)))
+    }
+
+    fun selectHomePortraitAlignment(alignment: LyricAlignment) {
+        applyHomePortrait(_uiState.value.homePortrait.copy(alignment = alignment))
     }
 
     fun adjustLandscapeFontSize(delta: Int) {
@@ -132,6 +120,19 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
                 _uiState.value.homeLandscape.visibleLines,
                 _uiState.value.homeLandscape.lineSpacingDp,
                 next,
+            )
+        }
+    }
+
+    // 竖屏各调节入口共用同一条落盘路径：整份排版参数一次性提交，避免某个字段取错当前值
+    private fun applyHomePortrait(layout: LyricLayoutParams) {
+        _uiState.update { it.copy(homePortrait = layout) }
+        viewModelScope.launch {
+            context.saveHomePortraitLyricLayout(
+                layout.fontSizeSp,
+                layout.visibleLines,
+                layout.lineSpacingDp,
+                layout.alignment,
             )
         }
     }

@@ -32,11 +32,24 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.TextUnit
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.LyricWord
+import com.yichao.evilgodxu.data.settings.LyricAlignment
 import kotlin.math.roundToLong
+
+// 对齐方式到 Compose 布局参数的换算：整行、逐字、词分行三种渲染共用同一份口径，
+// 避免各处各自判断对齐值而出现某条路径仍居中
+internal val LyricAlignment.columnAlignment: Alignment.Horizontal
+    get() = if (this == LyricAlignment.START) Alignment.Start else Alignment.CenterHorizontally
+
+internal val LyricAlignment.rowArrangement: Arrangement.Horizontal
+    get() = if (this == LyricAlignment.START) Arrangement.Start else Arrangement.Center
+
+internal val LyricAlignment.lineTextAlign: TextAlign
+    get() = if (this == LyricAlignment.START) TextAlign.Start else TextAlign.Center
 
 // 歌词行动画缩放：普通行微缩，当前行高亮放大至 max；分行按预留上限 max 计算宽度
 internal const val LYRIC_ROW_SCALE_BASE = 0.98f
@@ -62,6 +75,7 @@ internal fun LineFillLyricText(
     activeColor: Color,
     pendingColor: Color,
     widthPx: Int,
+    alignment: LyricAlignment,
     modifier: Modifier = Modifier,
 ) {
     val lineDuration = (nextTimeMs - line.timeMs).coerceAtLeast(1L)
@@ -85,7 +99,7 @@ internal fun LineFillLyricText(
     // 逐字独立渲染无法借助 Text 软换行，按传入的可用宽度手动分行
     Column(
         modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalAlignment = alignment.columnAlignment,
     ) {
         val textMeasurer = rememberTextMeasurer()
         val wrapStyle = LocalTextStyle.current.merge(
@@ -98,7 +112,7 @@ internal fun LineFillLyricText(
         rows.forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
+                horizontalArrangement = alignment.rowArrangement,
             ) {
                 row.forEach { ch ->
                     val idx = globalIdx++
@@ -359,6 +373,7 @@ internal fun WordSplitLyricText(
     activeColor: Color,
     pendingColor: Color,
     widthPx: Int,
+    alignment: LyricAlignment,
     modifier: Modifier = Modifier,
 ) {
     // 词终点与迷你条歌词共用同一套换算，两处点亮时序一致
@@ -369,7 +384,7 @@ internal fun WordSplitLyricText(
     // 词独立渲染无法借助 Text 软换行，按传入的可用宽度将整行词分成多行：英文词保持完整不截断
     Column(
         modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalAlignment = alignment.columnAlignment,
     ) {
         val textMeasurer = rememberTextMeasurer()
         // 与按字分行同口径：折行量宽用固定字重，不随当前行加粗而改变折行点
@@ -383,7 +398,7 @@ internal fun WordSplitLyricText(
         rows.forEach { rowWords ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
+                horizontalArrangement = alignment.rowArrangement,
             ) {
                 rowWords.forEach { word ->
                     val index = globalIdx++

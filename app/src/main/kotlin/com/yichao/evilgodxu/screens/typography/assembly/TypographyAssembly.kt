@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.data.settings.LyricAlignment
 import com.yichao.evilgodxu.screens.typography.TypographyUiState
 import com.yichao.evilgodxu.screens.typography.component.TypographyGroups
 import com.yichao.evilgodxu.theme.MyApplicationTheme
@@ -16,7 +17,7 @@ import com.yichao.evilgodxu.ui.component.PageTopBar
 import com.yichao.evilgodxu.windowsize.WindowSizeClass
 import com.yichao.evilgodxu.windowsize.contentMaxWidth
 
-// 字体页组装器：骨架为 Scaffold + 单栏内容区，形态差异经 ContentPane 的行宽上限表达
+// 播放页排版组装器：骨架为 Scaffold + 单栏内容区，形态差异经 ContentPane 的行宽上限表达
 @Composable
 internal fun TypographyAssembly(
     windowSizeClass: WindowSizeClass,
@@ -25,6 +26,7 @@ internal fun TypographyAssembly(
     onHomePortraitFontSizeChange: (Int) -> Unit,
     onHomePortraitLinesChange: (Int) -> Unit,
     onHomePortraitLineSpacingChange: (Int) -> Unit,
+    onHomePortraitAlignmentChange: (LyricAlignment) -> Unit,
     onLandscapeFontSizeChange: (Int) -> Unit,
     onLandscapeLinesChange: (Int) -> Unit,
     onLandscapeLineSpacingChange: (Int) -> Unit,
@@ -48,6 +50,7 @@ internal fun TypographyAssembly(
                 onHomePortraitFontSizeChange = onHomePortraitFontSizeChange,
                 onHomePortraitLinesChange = onHomePortraitLinesChange,
                 onHomePortraitLineSpacingChange = onHomePortraitLineSpacingChange,
+                onHomePortraitAlignmentChange = onHomePortraitAlignmentChange,
                 onLandscapeFontSizeChange = onLandscapeFontSizeChange,
                 onLandscapeLinesChange = onLandscapeLinesChange,
                 onLandscapeLineSpacingChange = onLandscapeLineSpacingChange,
@@ -67,6 +70,7 @@ private fun TypographyAssemblyPreviewContent(windowSizeClass: WindowSizeClass) {
             onHomePortraitFontSizeChange = {},
             onHomePortraitLinesChange = {},
             onHomePortraitLineSpacingChange = {},
+            onHomePortraitAlignmentChange = {},
             onLandscapeFontSizeChange = {},
             onLandscapeLinesChange = {},
             onLandscapeLineSpacingChange = {},

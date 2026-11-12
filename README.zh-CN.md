@@ -77,14 +77,14 @@
 │       │   │   ├── persistence/         #   持久化落点声明与共享路径(磁盘文件名的唯一事实来源)
 │       │   │   ├── playlist/            #   歌单存储(智能 / 自定义)、分组与歌手页曲序
 │       │   │   ├── repository/          #   设置仓库
-│       │   │   └── settings/            #   设置 DataStore、播放与歌词排版偏好、系统应用语言镜像
+│       │   │   └── settings/            #   设置 DataStore、播放与播放页排版偏好、系统应用语言镜像
 │       │   ├── floatingwindow/          # 迷你播放器悬浮窗管理与控制器
 │       │   │   └── miniplayer/          #   迷你播放器浮层 / 紧凑条 / 展开式播放列表
 │       │   ├── localization/            # 应用内多语言管理
 │       │   ├── log/                     # CrashLogManager
 │       │   ├── navigation/              # Navigation3 类型安全路由与导航宿主
 │       │   ├── permission/              # 权限检查、系统授权页往返与授权后回到前台
-│       │   ├── screens/                 # 页面(首页 / 设置 / 存储 / 排版 / 频谱 / 元数据)
+│       │   ├── screens/                 # 页面(首页 / 设置 / 存储 / 播放页排版 / 频谱 / 元数据)
 │       │   │   ├── home/                #   首页播放器 + 启动期授权串行 + 歌单(含歌手页) + 在线搜索
 │       │   │   │   ├── compact/         #     竖屏组装器(compact/player:竖屏播放器)
 │       │   │   │   ├── expanded/        #     横屏组装器(expanded/player:横屏播放器)
@@ -93,7 +93,7 @@
 │       │   │   │   └── component/       #     appearance / cache / dialog / entry / info / language / playback / proxy
 │       │   │   ├── cache/               #   存储 / 缓存管理(compact / expanded / component)
 │       │   │   ├── spectrum/            #   频谱分析页(compact / expanded / component)
-│       │   │   ├── typography/          #   歌词排版设置(compact / expanded / component)
+│       │   │   ├── typography/          #   播放页排版设置(compact / expanded / component)
 │       │   │   └── metadata/            #   元数据编辑页(compact / expanded / component)
 │       │   ├── service/                 # MediaSessionService 播放引擎
 │       │   ├── theme/                   # Material 3 配色与字体

@@ -19,14 +19,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
+import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
+import com.yichao.evilgodxu.data.settings.homePortraitLyricLayoutFlow
 import com.yichao.evilgodxu.permission.ensureTrackFileWritable
 import com.yichao.evilgodxu.permission.rememberAllFilesAccessRequest
 import com.yichao.evilgodxu.screens.home.component.dialog.ArtistPickerDialog
 import com.yichao.evilgodxu.screens.home.component.player.MarqueeInfoLine
 import com.yichao.evilgodxu.ui.component.player.MiniContextMenu
+import com.yichao.evilgodxu.ui.component.player.columnAlignment
+import com.yichao.evilgodxu.ui.component.player.lineTextAlign
 import com.yichao.evilgodxu.ui.component.TrackSwitchTransition
 import com.yichao.evilgodxu.ui.component.dialog.RenameDialog
 import com.yichao.evilgodxu.ui.component.rememberTrackSwitchAnchor
@@ -45,6 +50,11 @@ internal fun PortraitTrackInfoSection(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val requestAllFilesAccess = rememberAllFilesAccessRequest()
+    // 对齐方式与歌词共用同一份排版设置：二者同为首页竖屏的文本块，切换后版面整体一致
+    val homePortraitLayout by context.homePortraitLyricLayoutFlow()
+        .collectAsStateWithLifecycle(initialValue = LyricLayoutDefaults.HOME_PORTRAIT_LAYOUT)
+    val infoAlignment = homePortraitLayout.alignment
+    val infoTextAlign = infoAlignment.lineTextAlign
     // 切歌过渡锚点：标题与艺术家随锚点整体横移，方向来自本次变更的类型
     val trackAnchor = rememberTrackSwitchAnchor(playbackState.currentTrack, playbackState.lastSwitchKind)
 
@@ -64,20 +74,21 @@ internal fun PortraitTrackInfoSection(
     ) {
         // 标题与艺术家：切歌时随封面与背景同一节拍整幅横移，方向一致。
         // 文本取自锚点而非当前曲目：退场的那一层要显示上一首的文本，读实时状态会显示成新曲目
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+        Column(horizontalAlignment = infoAlignment.columnAlignment, modifier = Modifier.fillMaxWidth()) {
             TrackSwitchTransition(
                 anchor = trackAnchor,
                 modifier = Modifier.fillMaxWidth(),
             ) { info ->
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                    horizontalAlignment = infoAlignment.columnAlignment,
                 ) {
                     MarqueeInfoLine(
                         text = info.title,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White,
+                        textAlign = infoTextAlign,
                         modifier = Modifier
                             .padding(horizontal = 32.dp)
                             .fillMaxWidth()
@@ -101,6 +112,7 @@ internal fun PortraitTrackInfoSection(
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Normal,
                             color = Color.White,
+                            textAlign = infoTextAlign,
                             modifier = Modifier
                                 .padding(horizontal = 32.dp)
                                 .fillMaxWidth()

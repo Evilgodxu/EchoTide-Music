@@ -39,7 +39,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
-import com.yichao.evilgodxu.data.settings.LyricLayoutParams
 import com.yichao.evilgodxu.data.settings.homePortraitLyricLayoutFlow
 import com.yichao.evilgodxu.ui.component.player.LyricsPanel
 import com.yichao.evilgodxu.ui.icons.AppIcons
@@ -64,13 +63,7 @@ internal fun PortraitLyricsSection(
 ) {
     val context = LocalContext.current
     val homePortraitLayout by context.homePortraitLyricLayoutFlow()
-        .collectAsStateWithLifecycle(
-            initialValue = LyricLayoutParams(
-                LyricLayoutDefaults.HOME_PORTRAIT_FONT_SIZE_SP,
-                LyricLayoutDefaults.HOME_PORTRAIT_VISIBLE_LINES,
-                LyricLayoutDefaults.LINE_SPACING_DEFAULT_DP,
-            ),
-        )
+        .collectAsStateWithLifecycle(initialValue = LyricLayoutDefaults.HOME_PORTRAIT_LAYOUT)
 
     // 歌词区高度随可见行数、字号与行间距自适应：每行占行高与上下 2dp 内边距，行间留出设置的行间距，
     // 末尾补足歌词面板顶部 4dp 内边距，使外层高度与内部歌词窗口一致。
@@ -133,6 +126,7 @@ internal fun PortraitLyricsSection(
                         fontSize = homePortraitLayout.fontSizeSp.sp,
                         visibleLines = homePortraitLayout.visibleLines,
                         lineSpacing = homePortraitLayout.lineSpacingDp.dp,
+                        alignment = homePortraitLayout.alignment,
                         contentColor = Color.White,
                         onVerticalFling = onVerticalFling,
                         onVerticalDragClaim = onVerticalDragClaim,

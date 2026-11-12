@@ -295,8 +295,8 @@
     <string name="settings_usb_direct_output_desc">系统原生直出，动态适应设备</string>
     <string name="settings_usb_exclusive_title">USB 音频独占</string>
     <string name="settings_usb_exclusive_desc">独占音频输出，动态适应设备</string>
-    <string name="settings_typography_title">排版设置</string>
-    <string name="settings_typography_desc">调整歌词区域排版设置</string>
+    <string name="settings_typography_title">播放页排版</string>
+    <string name="settings_typography_desc">调整歌词与歌曲信息的字号、行距与对齐方式</string>
 
     <!-- 播放列表滑动操作 -->
     <string name="playlist_advanced_menu_title">高级菜单</string>
@@ -451,13 +451,16 @@
     <string name="cache_category_other_cache">其它缓存</string>
     <string name="cache_category_other_app_data">其它应用数据</string>
 
-    <!-- 卡片与排版设置 -->
-    <string name="typography_screen_title">歌词排版设置</string>
+    <!-- 播放页排版设置 -->
+    <string name="typography_screen_title">播放页排版</string>
     <string name="typography_section_home_portrait">首页竖屏</string>
     <string name="typography_section_home_landscape">首页横屏</string>
     <string name="typography_font_size">字号</string>
     <string name="typography_visible_lines">显示行数</string>
     <string name="typography_line_spacing">行间距</string>
+    <string name="typography_alignment">对齐方式</string>
+    <string name="typography_align_start">靠左对齐</string>
+    <string name="typography_align_center">居中对齐</string>
     <string name="typography_3d_intensity">3D 强度</string>
 
     <!-- 首页歌单 -->

@@ -77,14 +77,14 @@ Portrait or landscape, immersion is the only goal.
 │       │   │   ├── persistence/         #   Persisted-data declarations & shared paths (single source of truth for on-disk file names)
 │       │   │   ├── playlist/            #   Playlist store (smart / custom), grouping & per-artist track order
 │       │   │   ├── repository/          #   Settings repository
-│       │   │   └── settings/            #   Settings DataStore, playback & lyric-layout preferences, system app-locale mirror
+│       │   │   └── settings/            #   Settings DataStore, playback & playback-layout preferences, system app-locale mirror
 │       │   ├── floatingwindow/          # Mini player overlay manager & controller
 │       │   │   └── miniplayer/          #   Mini player overlay / compact bar / expandable playlist
 │       │   ├── localization/            # In-app language management
 │       │   ├── log/                     # CrashLogManager
 │       │   ├── navigation/              # Navigation3 type-safe routes & navigation host
 │       │   ├── permission/              # Permission checks, settings-page round trips & return-to-foreground
-│       │   ├── screens/                 # Screens (home / settings / storage / typography / spectrum / metadata)
+│       │   ├── screens/                 # Screens (home / settings / storage / playback layout / spectrum / metadata)
 │       │   │   ├── home/                #   Home player + startup permission chain + playlists (incl. artist pages) + online search
 │       │   │   │   ├── compact/         #     Portrait assembly (compact/player: portrait player)
 │       │   │   │   ├── expanded/        #     Landscape assembly (expanded/player: landscape player)
@@ -93,7 +93,7 @@ Portrait or landscape, immersion is the only goal.
 │       │   │   │   └── component/       #     appearance / cache / dialog / entry / info / language / playback / proxy
 │       │   │   ├── cache/               #   Storage / cache management (compact / expanded / component)
 │       │   │   ├── spectrum/            #   Spectrum analysis screen (compact / expanded / component)
-│       │   │   ├── typography/          #   Lyric typography settings (compact / expanded / component)
+│       │   │   ├── typography/          #   Playback page layout settings (compact / expanded / component)
 │       │   │   └── metadata/            #   Metadata editing screen (compact / expanded / component)
 │       │   ├── service/                 # MediaSessionService playback engine
 │       │   ├── theme/                   # Material 3 colour & typography

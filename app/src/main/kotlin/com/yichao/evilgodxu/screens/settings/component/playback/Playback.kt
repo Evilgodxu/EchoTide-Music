@@ -21,7 +21,7 @@ import com.yichao.evilgodxu.ui.component.AppSwitch
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 
-// 播放设置：悬浮播放与逐字渲染开关、滑动切歌与背景流动开关、USB 直出与 USB 独占开关、排版入口
+// 播放设置：悬浮播放与逐字渲染开关、滑动切歌与背景流动开关、USB 直出与 USB 独占开关、播放页排版入口
 @Composable
 fun Playback(
     miniPlayerEnabled: Boolean,

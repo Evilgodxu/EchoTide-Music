@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.TextUnit
@@ -29,9 +30,15 @@ internal fun MarqueeInfoLine(
     fontWeight: FontWeight,
     color: Color,
     modifier: Modifier = Modifier,
+    // 未溢出时的水平对齐：随首页竖屏的排版设置切换；溢出时跑马灯自容器起始侧起滚，
+    // 该模式下内容本就铺满容器，对齐无可见差异
+    textAlign: TextAlign = TextAlign.Center,
 ) {
     val textMeasurer = rememberTextMeasurer()
-    BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.Center) {
+    BoxWithConstraints(
+        modifier = modifier,
+        contentAlignment = if (textAlign == TextAlign.Start) Alignment.CenterStart else Alignment.Center,
+    ) {
         // 与渲染同源：合并 LocalTextStyle 后再测量，静态分支与跑马灯分支的宽度判定才一致
         val textStyle = LocalTextStyle.current.merge(
             TextStyle(fontSize = fontSize, fontWeight = fontWeight),
@@ -54,6 +61,7 @@ internal fun MarqueeInfoLine(
                 style = textStyle,
                 maxLines = 1,
                 softWrap = false,
+                textAlign = textAlign,
             )
         }
     }
