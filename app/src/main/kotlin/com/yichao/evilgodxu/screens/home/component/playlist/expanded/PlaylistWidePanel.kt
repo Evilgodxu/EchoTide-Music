@@ -30,7 +30,7 @@ import com.yichao.evilgodxu.data.playlist.PlaylistGroup
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.playlist.SmartPlaylistType
 import com.yichao.evilgodxu.data.playlist.artistGroup
-import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistAlbumTracksPage
+import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistAlbumSongsPage
 import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistArtistTracksPage
 import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistGroupsPage
 import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistSmartTracksPage
@@ -148,7 +148,7 @@ private fun PlaylistDetailPane(
         Column(modifier = Modifier.fillMaxSize()) {
             WideDetailHeader(title = drilledGroup.name)
             if (drilledGroup.key.startsWith("album:")) {
-                PlaylistAlbumTracksPage(group = drilledGroup, playbackState = playbackState)
+                PlaylistAlbumSongsPage(group = drilledGroup, playbackState = playbackState)
             } else {
                 PlaylistArtistTracksPage(group = drilledGroup, playbackState = playbackState)
             }

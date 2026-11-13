@@ -476,6 +476,14 @@
     <string name="playlist_smart_artist">Artists</string>
     <string name="playlist_tab_songs">Songs</string>
     <string name="playlist_tab_albums">Albums</string>
+    <string name="playlist_tab_info">Info</string>
+    <plurals name="playlist_album_header_summary">
+        <item quantity="one">%1$s · %2$d track</item>
+        <item quantity="other">%1$s · %2$d tracks</item>
+    </plurals>
+    <string name="playlist_album_info_artist">Artist</string>
+    <string name="playlist_album_info_tracks">Tracks</string>
+    <string name="playlist_album_info_duration">Total length</string>
     <string name="playlist_artist_no_albums">No albums</string>
     <string name="playlist_create">New playlist</string>
     <string name="playlist_create_title">New playlist</string>

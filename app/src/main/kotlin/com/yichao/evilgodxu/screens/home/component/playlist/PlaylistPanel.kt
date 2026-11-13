@@ -154,7 +154,7 @@ internal fun PlaylistPanel(
 }
 
 // 窄屏歌单面板：标题栏 + 页面栈逐级下钻（总览 → 分组/曲目列表）。
-// 歌手分组页自带整屏骨架，整页铺满，标题栏在该页让位
+// 歌手与专辑分组页自带整屏骨架，整页铺满，标题栏在这两页让位
 @Composable
 private fun PlaylistStackedPanel(
     visible: Boolean,
@@ -174,11 +174,11 @@ private fun PlaylistStackedPanel(
 ) {
     var backStack by remember { mutableStateOf(listOf<PlaylistPage>(PlaylistPage.Overview)) }
     // 页面栈的唯一写入口：栈变化、标题栏让位与横向滑动接管必须同一次写入。
-    // 歌手页的标题栏始终隐藏，而标题栏归首页组装器管——挪到组合之后的副作用上报，
+    // 沉浸页的标题栏始终隐藏，而标题栏归首页组装器管——挪到组合之后的副作用上报，
     // 进入该页的首帧会先亮出标题栏再淡出
     fun go(stack: List<PlaylistPage>) {
         backStack = stack
-        onImmersivePageChange(stack.last().artistGroupPage != null)
+        onImmersivePageChange(stack.last().immersiveGroupPage != null)
         onSwipeBackChange(stack.size > 1)
     }
     LaunchedEffect(visible) { if (!visible) go(listOf(PlaylistPage.Overview)) }
@@ -199,7 +199,7 @@ private fun PlaylistStackedPanel(
         go(backStack + PlaylistPage.Tracks(created))
         onPendingCreatedHandled()
     }
-    // 逐级回退的统一出口：系统返回键、内容列右滑、歌手页「歌曲」标签上的右滑都走这里
+    // 逐级回退的统一出口：系统返回键、内容列右滑、沉浸页「歌曲」标签上的右滑都走这里
     fun goBack() {
         if (backStack.size > 1) go(backStack.dropLast(1))
     }
@@ -229,20 +229,29 @@ private fun PlaylistStackedPanel(
         label = "playlist_page",
     ) { stack ->
         val page = stack.last()
-        // 当前页即歌手页时的页面自身：非空即该页在场，标题栏须让位、内容也不再套标题栏内边距
-        val immersiveArtist = page.artistGroupPage
-        if (immersiveArtist != null) {
-            // 歌手页自带整页骨架（沉浸头图 + 歌曲/专辑标签页，见 ArtistPlaylistPage）：
+        // 当前页即歌手/专辑页时的页面自身：非空即该页在场，标题栏须让位、内容也不再套标题栏内边距
+        val immersiveGroup = page.immersiveGroupPage
+        if (immersiveGroup != null) {
+            // 歌手页与专辑页都自带整页骨架（沉浸头图 + 标签页，见 ArtistPlaylistPage 与 AlbumPlaylistPage）：
             // 头图与沉浸背景要铺到标题栏后方，故不套下方内容列的顶部内边距
-            ArtistPlaylistPage(
-                group = immersiveArtist.group,
-                playbackState = playbackState,
-                onOpenAlbum = { album ->
-                    go(backStack + PlaylistPage.GroupTracks(SmartPlaylistType.ALBUM, album))
-                },
-                // 该页「歌曲」标签上的右滑：与内容列右滑、返回键同一出口
-                onSwipeBack = { goBack() },
-            )
+            if (immersiveGroup.type == SmartPlaylistType.ARTIST) {
+                ArtistPlaylistPage(
+                    group = immersiveGroup.group,
+                    playbackState = playbackState,
+                    onOpenAlbum = { album ->
+                        go(backStack + PlaylistPage.GroupTracks(SmartPlaylistType.ALBUM, album))
+                    },
+                    // 该页「歌曲」标签上的右滑：与内容列右滑、返回键同一出口
+                    onSwipeBack = { goBack() },
+                )
+            } else {
+                AlbumPlaylistPage(
+                    group = immersiveGroup.group,
+                    playbackState = playbackState,
+                    // 同上：专辑页的「歌曲」标签已无分页去向，右滑转为回退一级
+                    onSwipeBack = { goBack() },
+                )
+            }
         } else {
             // 透明全屏布局，与在线搜索面板一致，透出首页沉浸渐变背景
             Column(
@@ -284,10 +293,8 @@ private fun PlaylistStackedPanel(
                         playlist = page.playlist,
                         playbackState = playbackState,
                     )
-                    is PlaylistPage.GroupTracks -> PlaylistAlbumTracksPage(
-                        group = page.group,
-                        playbackState = playbackState,
-                    )
+                    // 分组页在上方分支已由沉浸页接管，此处只为穷举页面类型
+                    is PlaylistPage.GroupTracks -> Unit
                 }
             }
         }
@@ -295,7 +302,7 @@ private fun PlaylistStackedPanel(
 }
 
 // 面板页面：总览 / 智能分组列表 / 智能曲目 / 自定义歌单曲目 / 分组曲目。
-// 分组曲目里的艺术家分组另走整屏骨架（见 ArtistPlaylistPage），专辑分组走普通曲目列表
+// 分组曲目里的歌手与专辑分组都走整屏骨架（见 ArtistPlaylistPage、AlbumPlaylistPage）
 private sealed interface PlaylistPage {
     data object Overview : PlaylistPage
     data class Groups(val type: SmartPlaylistType) : PlaylistPage
@@ -304,10 +311,12 @@ private sealed interface PlaylistPage {
     data class GroupTracks(val type: SmartPlaylistType, val group: PlaylistGroup) : PlaylistPage
 }
 
-// 页面为歌手分组页时的页面自身：自带整屏骨架（沉浸头图 + 歌曲/专辑标签页），
-// 整页铺满到状态栏后方，标题栏在该页始终隐藏。为空即当前页不是它
-private val PlaylistPage.artistGroupPage: PlaylistPage.GroupTracks?
-    get() = (this as? PlaylistPage.GroupTracks)?.takeIf { it.type == SmartPlaylistType.ARTIST }
+// 页面为歌手/专辑分组页时的页面自身：两者都自带整屏骨架（沉浸头图 + 标签页），
+// 整页铺满到状态栏后方，标题栏在这些页始终隐藏。为空即当前页不是它们
+private val PlaylistPage.immersiveGroupPage: PlaylistPage.GroupTracks?
+    get() = (this as? PlaylistPage.GroupTracks)?.takeIf {
+        it.type == SmartPlaylistType.ARTIST || it.type == SmartPlaylistType.ALBUM
+    }
 
 @Composable
 private fun PlaylistPage.title(): String = when (this) {

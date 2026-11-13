@@ -475,6 +475,13 @@
     <string name="playlist_smart_artist">歌手</string>
     <string name="playlist_tab_songs">歌曲</string>
     <string name="playlist_tab_albums">专辑</string>
+    <string name="playlist_tab_info">信息</string>
+    <plurals name="playlist_album_header_summary">
+        <item quantity="other">%1$s · %2$d 首</item>
+    </plurals>
+    <string name="playlist_album_info_artist">歌手</string>
+    <string name="playlist_album_info_tracks">曲目数</string>
+    <string name="playlist_album_info_duration">总时长</string>
     <string name="playlist_artist_no_albums">暂无专辑</string>
     <string name="playlist_create">新建歌单</string>
     <string name="playlist_create_title">新建歌单</string>

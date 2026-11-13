@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -18,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -27,8 +25,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,12 +43,10 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
-import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.playlist.Playlist
 import com.yichao.evilgodxu.data.playlist.PlaylistGroup
@@ -66,13 +60,10 @@ import com.yichao.evilgodxu.data.music.playback.PlaylistSource
 import com.yichao.evilgodxu.data.music.playback.switchToPlaylistQueue
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.permission.ensureTrackFileWritable
-import com.yichao.evilgodxu.permission.rememberAllFilesAccessRequest
 import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
-import com.yichao.evilgodxu.ui.component.DialogCard
 import com.yichao.evilgodxu.ui.component.fadeUnderBottomSearchBar
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.PlaylistArt
@@ -347,44 +338,6 @@ internal fun PlaylistSmartTracksPage(
     )
 }
 
-// 专辑分组曲目页（专辑分组下的曲目列表）。歌手分组另有沉浸头图 + 歌曲/专辑标签页的版式，
-// 见 ArtistPlaylistPage——两者的内容形态已不同，故不再共用一个按类型分叉的入口
-@Composable
-internal fun PlaylistAlbumTracksPage(
-    group: PlaylistGroup,
-    playbackState: MusicPlaybackState,
-) {
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    val requestAllFilesAccess = rememberAllFilesAccessRequest()
-    val tracks = remember(playbackState.libraryTracks, group.key) {
-        val albumId = group.key.removePrefix("album:").toLongOrNull()
-        playbackState.libraryTracks.filter { it.albumId == albumId }
-    }
-    // 长按歌曲：编辑该歌曲的专辑元数据
-    var editAlbumTrack by remember { mutableStateOf<MusicTrack?>(null) }
-    TracksContent(
-        tracks = tracks,
-        source = PlaylistSource(group.key, group.name),
-        playbackState = playbackState,
-        trailingAction = {},
-        // 确认后要把专辑名写回音频文件标签：无权限时就地申请，本次不弹编辑框
-        onTrackLongClick = { track ->
-            if (ensureTrackFileWritable(requestAllFilesAccess)) editAlbumTrack = track
-        },
-    )
-    EditAlbumDialog(
-        track = editAlbumTrack,
-        onConfirm = { track, albumName ->
-            playbackState.updateTrack(track.copy(albumName = albumName))
-            editAlbumTrack = null
-            // 将专辑名写回音频文件标签
-            scope.launch { MusicMetadataWriter.writeAlbum(context, track, albumName) }
-        },
-        onDismiss = { editAlbumTrack = null },
-    )
-}
-
 // 曲目页共享主体：播放全部 + 操作栏 + 曲目列表（支持长按手柄拖拽排序）
 @Composable
 internal fun TracksContent(
@@ -515,76 +468,4 @@ private fun playQueue(
         startTrackId = startTrackId,
         autoPlay = true,
     )
-}
-
-// 专辑视图长按歌曲：编辑该歌曲的专辑元数据
-@Composable
-internal fun EditAlbumDialog(
-    track: MusicTrack?,
-    onConfirm: (MusicTrack, String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    if (track == null) return
-    DialogCard(onDismiss = onDismiss) {
-        var value by remember(track.id) { mutableStateOf(track.albumName) }
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = stringResource(R.string.playlist_edit_album_title),
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            OutlinedTextField(
-                value = value,
-                onValueChange = { value = it },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Row(
-                modifier = Modifier.widthIn(max = 200.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                    onClick = onDismiss,
-                ) {
-                    Text(
-                        text = stringResource(R.string.music_panel_rename_cancel),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(vertical = 10.dp),
-                    )
-                }
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    onClick = {
-                        val trimmed = value.trim()
-                        if (trimmed.isNotEmpty()) onConfirm(track, trimmed)
-                    },
-                ) {
-                    Text(
-                        text = stringResource(R.string.music_panel_rename_confirm),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(vertical = 10.dp),
-                    )
-                }
-            }
-        }
-    }
 }
