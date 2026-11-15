@@ -350,7 +350,7 @@ private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
                     SampleRateSource.PLATFORM -> stringResource(R.string.audio_info_rate_source_platform)
                     null -> null
                 }
-                val list = rates.joinToString("/", transform = ::formatSampleRateKHz)
+                val list = rates.joinToString(" / ", transform = ::formatSampleRateKHz)
                 AudioInfoRow(
                     stringResource(R.string.audio_info_device_sample_rates),
                     if (rateSource == null) {
@@ -365,7 +365,7 @@ private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
             ?.let {
                 AudioInfoRow(
                     stringResource(R.string.audio_info_device_encodings),
-                    it.map { encoding -> outputEncodingLabel(encoding) }.joinToString("/"),
+                    it.map { encoding -> outputEncodingLabel(encoding) }.joinToString(" / "),
                 )
             },
         device.channelCount?.let {
