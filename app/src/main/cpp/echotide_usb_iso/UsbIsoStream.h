@@ -84,6 +84,15 @@ public:
     void drain();
 
     /**
+     * 作废环内尚未送出的数据，并把两个帧计数归零。
+     *
+     * 换曲与跳转要的是「丢弃待播量」而不是「拆掉这条流」：端点一关一开，设备会重新锁一次时钟并在此
+     * 期间失声（见 [setPaused] 的说明），而环内作废不会让端点与备用设置发生任何变化。已进入在飞 URB
+     * 的那一段撤不回，仍会送出——它最多是一个在飞段的时长。
+     */
+    void flushRing();
+
+    /**
      * 暂停送流：停止从环形缓冲取数据，改用静音填充。
      *
      * 这一段必须由本层做，不能在调用方"不再写入"了事：**环里已写入而尚未送出的数据就是"待播量"**，
@@ -119,6 +128,14 @@ private:
     uint32_t nextPacketFrames();
     void onFeedback(const uint8_t* data, int length);
     size_t readRing(uint8_t* destination, size_t bytes);
+    /**
+     * 把读位置推进到 [target]，只增不减。
+     *
+     * 读位置有两个推进方：回收线程取走数据，播放线程作废环内数据（[flushRing]）。两者并发，且后者的
+     * 目标值可能已经越过前者的计算依据——直接 store 会让读位置倒退，环里已消费的数据重新变成可读，
+     * 表现为同一段音频被再送一遍（听感上就是倒回一小段）。故一律走比较交换，取较大者。
+     */
+    void advanceRingRead(size_t target);
     /** 环内当前存量（字节）：写位置与读位置之差，两个位置各自单调，故不必取模 */
     size_t ringUsed() const;
     struct Urb {

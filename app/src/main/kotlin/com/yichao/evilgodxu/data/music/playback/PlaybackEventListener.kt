@@ -130,6 +130,10 @@ internal fun handleMediaItemTransition(
         state.artworkCache.cacheCurrentCoverAndColor(state.playlist[index])
         // 切歌后主动预读新曲源格式，避免信息条等待解码回填而长时间空白
         state.refreshIdleTrackFormatInfo(state.appContext)
+        // 预读下一曲的容器头：自动接续时输出要在配置期就按新曲位深定档（见 UsbExclusiveAudioSink.configure），
+        // 而那一刻界面侧的当前曲目尚未推进，只能靠这份按 id 的记录。放在这里读，是因为此刻离下一曲
+        // 开始还有一整首的时间，读文件头的开销不落在任何播放路径上
+        state.playlist.getOrNull(index + 1)?.let(state::preloadSourceFormat)
     }
     // 切换曲目后清理未在播放的在线歌曲，避免在线播放曲目在播放列表中常驻；
     // 元数据补全只在缓存完成时执行一次，切歌不再触发，避免重复写封面并触发系统级文件扫描

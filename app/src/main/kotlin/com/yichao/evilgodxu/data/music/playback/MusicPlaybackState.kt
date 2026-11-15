@@ -464,6 +464,17 @@ class MusicPlaybackState(
     fun recordSourceBitDepthBeforePlayback(track: MusicTrack) =
         audioSignal.recordSourceBitDepthBeforePlayback(track)
 
+    /**
+     * 按曲目 id 取已知源位深。
+     *
+     * 与 [currentSourceBitDepth] 分工不同：那一个只对"当前曲目"有效，而换曲重配发生在播放线程上、
+     * 当前曲目尚未推进，输出配置必须按本次真正要播的那一首的 id 取。
+     */
+    fun bitDepthOfTrack(trackId: Long): Int? = audioSignal.bitDepthOfTrack(trackId)
+
+    // 预读源格式入档：自动接续的下一曲要提前备好，配置期才不必按上一曲的位深建流
+    fun preloadSourceFormat(track: MusicTrack) = audioSignal.preloadSourceFormat(track)
+
     // 冷启动未播放时预读当前曲目格式信息，供音频信息条展示；开始播放后由解码头覆盖
     fun refreshIdleTrackFormatInfo(context: Context) =
         audioSignal.refreshIdleTrackFormatInfo(context)

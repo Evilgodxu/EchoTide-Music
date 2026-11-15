@@ -223,6 +223,20 @@ void UsbIsoStream::drain() {
     std::this_thread::sleep_for(std::chrono::microseconds(inFlightUs_));
 }
 
+void UsbIsoStream::flushRing() {
+    // 读位置追平写位置：环内存量作废，播放线程的可用空间随之回到整条环。在飞 URB 里的那一段不在环上，
+    // 无法撤回，仍会送出——这是一个在飞段的时长，本层没有更强的手段（等时 URB 一旦进了内核就由内核
+    // 按服务间隔逐个送出）
+    advanceRingRead(ringWrite_.load(std::memory_order_acquire));
+    // 两个帧计数跟着归零：调用方的记账同一步归零，两边基准必须一致，否则"待播量 = 已写出 − 已送出"会
+    // 长期为负，媒体3 据此判输出已空
+    framesSent_.store(0);
+    framesPlayed_.store(0);
+    // 新的一段声音尚未写入：起播前的空环不该记成欠载
+    primed_ = false;
+    ringCv_.notify_all();
+}
+
 void UsbIsoStream::setPaused(bool paused) {
     // 不加通知：等在环上的只有播放线程，而暂停与恢复也走它那一条线——同一时刻不可能既在等又被调用。
     // 故写满阻塞与暂停恢复不会互相卡住；write 那边另按 paused_ 就地交回已接纳的部分，不依赖任何唤醒
@@ -561,9 +575,18 @@ size_t UsbIsoStream::readRing(uint8_t* destination, size_t bytes) {
     const size_t second = take - first;
     if (second > 0) std::memcpy(destination + first, ring_.data(), second);
     // 释放语义：先把数据取完再推进读位置，生产者据此判断哪一段已经可以覆盖
-    ringRead_.store(read + take, std::memory_order_release);
+    advanceRingRead(read + take);
     // 腾出了空间，唤醒可能在等环的播放线程。通知**不加锁**：回收线程一次也不该碰播放线程的等待设施，
     // 那正是本层去锁的目的；调用方的等待带超时，偶发漏通知至多让它多等一个超时
     ringCv_.notify_one();
     return take;
+}
+
+void UsbIsoStream::advanceRingRead(size_t target) {
+    size_t read = ringRead_.load(std::memory_order_relaxed);
+    while (read < target &&
+           !ringRead_.compare_exchange_weak(
+               read, target, std::memory_order_release, std::memory_order_relaxed)) {
+        // 比较失败时 read 已被更新为当前值，循环条件据此重新判定：被另一方推得更远即无需再推进
+    }
 }

@@ -63,6 +63,14 @@ Java_com_yichao_evilgodxu_data_music_playback_usb_UsbIsoNative_drain(
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_yichao_evilgodxu_data_music_playback_usb_UsbIsoNative_flushRing(
+        JNIEnv* env, jclass clazz, jlong handle) {
+    (void) env;
+    (void) clazz;
+    if (UsbIsoStream* stream = fromHandle(handle)) stream->flushRing();
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_yichao_evilgodxu_data_music_playback_usb_UsbIsoNative_setPaused(
         JNIEnv* env, jclass clazz, jlong handle, jboolean paused) {
     (void) env;

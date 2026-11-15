@@ -5,8 +5,10 @@ import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.AuxEffectInfo
+import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Timeline
 import androidx.media3.common.util.Clock
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.AudioCapabilities
@@ -67,6 +69,10 @@ internal class UsbOutputSink(
     /** 渲染器最近一次下发的配置：独占链路失效时就地退回平台路径要用它重配 */
     private var lastConfig: AudioSink.AudioSinkConfig? = null
 
+    /** [trackIdOf] 的查询容器：Timeline 的查询接口要求传入实例供其填充，每次新建纯属浪费 */
+    private val period = Timeline.Period()
+    private val window = Timeline.Window()
+
     /**
      * 播放线程的 Handler：成色在曲中变化时，改道只能投回播放线程执行。
      *
@@ -119,7 +125,26 @@ internal class UsbOutputSink(
         lastConfig = audioSinkConfig
         released = false
         if (playbackHandler == null) playbackHandler = Looper.myLooper()?.let(::Handler)
-        switchTo(routeFor(audioSinkConfig.format), audioSinkConfig)
+        val trackId = trackIdOf(audioSinkConfig)
+        switchTo(routeFor(audioSinkConfig.format, trackId), audioSinkConfig, trackId)
+    }
+
+    /**
+     * 本次配置对应哪一首曲目。
+     *
+     * 配置自带 timeline 与 period，故不必问播放器"当前是第几首"——换曲那一瞬，播放器与界面侧的当前
+     * 曲目都还是上一曲，只有 period 指向的是本次真正要播的那一首。媒体项 id 即曲目 id。
+     *
+     * 取不到时返回 null：位深退回"当前曲目"的口径，由播放中的补配兜底。
+     */
+    private fun trackIdOf(config: AudioSink.AudioSinkConfig): Long? {
+        val mediaPeriodId = config.mediaPeriodId ?: return null
+        val timeline = config.timeline
+        if (timeline.isEmpty) return null
+        val periodIndex = timeline.getIndexOfPeriod(mediaPeriodId.periodUid)
+        if (periodIndex == C.INDEX_UNSET) return null
+        timeline.getPeriod(periodIndex, period)
+        return timeline.getWindow(period.windowIndex, window).mediaItem.mediaId.toLongOrNull()
     }
 
     /**
@@ -127,10 +152,13 @@ internal class UsbOutputSink(
      *
      * 判据不看设置开关：开关开着不等于接管成立（设备未接入、未授权、接管失败都不成立），而接管成立时
      * 也可能送不了本曲的格式（设备未声明该采样率、子槽放不下源位深）。两处都退回平台路径。
+     *
+     * [trackId] 一并交给独占路径：判定与建流必须按同一首曲目的位深挑档，否则判定说能送、建流却挑到
+     * 另一档。
      */
-    private fun routeFor(format: Format): Route = when {
+    private fun routeFor(format: Format, trackId: Long?): Route = when {
         !exclusiveReady() -> Route.PLATFORM
-        exclusive.canHandle(format) -> Route.EXCLUSIVE
+        exclusive.canHandle(format, trackId) -> Route.EXCLUSIVE
         else -> Route.PLATFORM
     }
 
@@ -143,7 +171,7 @@ internal class UsbOutputSink(
      * [next] 与当前路由相同时也照常配置一次：本类的自发改道会在接管前先把平台输出复位，收回成命时
      * （接管没成、或本曲格式送不了）就得靠这一次把平台那条路重新建起来。
      */
-    private fun switchTo(next: Route, audioSinkConfig: AudioSink.AudioSinkConfig) {
+    private fun switchTo(next: Route, audioSinkConfig: AudioSink.AudioSinkConfig, trackId: Long?) {
         if (next != route) {
             val outgoing = activeRoute
             route = next
@@ -154,12 +182,12 @@ internal class UsbOutputSink(
             platform.configure(audioSinkConfig)
         } else {
             try {
-                exclusive.configure(audioSinkConfig)
+                exclusive.configure(audioSinkConfig, trackId)
             } catch (e: AudioSink.ConfigurationException) {
                 // 独占建不起来就退回平台路径，本次播放照常；会话随之交还，免得下次配置又走一遍同样的失败
                 CrashLogManager.logException(LOG_TAG, "独占配置失败，退回平台路径", e)
                 onExclusiveFailed()
-                switchTo(Route.PLATFORM, audioSinkConfig)
+                switchTo(Route.PLATFORM, audioSinkConfig, trackId)
                 return
             }
             // 独占没有 PerDeviceAudioSink 那一环，解码输出与写出取向只能由本层代报（见 [onDecodedFormatChanged]）。
@@ -182,27 +210,29 @@ internal class UsbOutputSink(
      * （`PerDeviceAudioSink.syncRouting`）同一个做法。反向同理：归还之后设备重新出现在系统音频里，
      * 留在独占路由上只会写一个已作废的会话。
      *
-     * 同一条出口也承接「路由未变、档位该变」的情形：源位深在曲间才落定，换曲重配那一刻它还是上一曲的
-     * 取值，子槽因此按上一曲的位深选下（见 [UsbExclusiveAudioSink.planDiffers]）。
+     * 同一条出口也承接「路由未变、档位该变」的情形：位深在配置期就按曲目 id 定档（见
+     * [UsbExclusiveAudioSink.configure]），故这里只剩预读未命中时的兜底——那一档由本方法补一次重建，
+     * 代价是一次可闻的换档。
      */
     fun syncRouting() {
         val handler = playbackHandler ?: return
         handler.post {
             val config = lastConfig ?: return@post
             if (released) return@post
-            val next = routeFor(config.format)
+            val trackId = trackIdOf(config)
+            val next = routeFor(config.format, trackId)
             if (next == route) {
-                // 路由不变而档位随源位深变了：换曲重配时源位深尚未落定，子槽按上一曲的位深选下，
-                // 不重配就会一直按那个宽度写出（面板的「输出编码」也随之落后一曲）
-                if (next == Route.EXCLUSIVE && exclusive.planDiffers(config.format)) {
-                    runCatching { switchTo(next, config) }.onFailure {
+                // 路由不变而档位随源位深变了：预读没赶上（下一曲的容器头没读出来、或跳到没预读过的
+                // 曲目），此时只能补一次重建，写出编码才不会一直落后一曲
+                if (next == Route.EXCLUSIVE && exclusive.planDiffers(config.format, trackId)) {
+                    runCatching { switchTo(next, config, trackId) }.onFailure {
                         CrashLogManager.logException(LOG_TAG, "源位深落定后的重配失败", it)
                     }
                 }
                 return@post
             }
             // 改道由本类自发起，不经渲染器的错误处置，故失败自己吞掉：下一次重配会照常重来
-            runCatching { switchTo(next, config) }.onFailure {
+            runCatching { switchTo(next, config, trackId) }.onFailure {
                 CrashLogManager.logException(LOG_TAG, "独占成色变化后的改道失败", it)
             }
         }
@@ -236,7 +266,8 @@ internal class UsbOutputSink(
             if (route == Route.PLATFORM) platform.reset()
             claim()
             val config = lastConfig ?: return@post
-            runCatching { switchTo(routeFor(config.format), config) }.onFailure {
+            val trackId = trackIdOf(config)
+            runCatching { switchTo(routeFor(config.format, trackId), config, trackId) }.onFailure {
                 CrashLogManager.logException(LOG_TAG, "接管后的改道失败", it)
             }
         }
@@ -274,7 +305,7 @@ internal class UsbOutputSink(
     private fun recoverToPlatform(cause: Exception) {
         CrashLogManager.logException(LOG_TAG, "独占链路写出失败，退回平台路径", cause)
         onExclusiveFailed()
-        lastConfig?.let { config -> switchTo(Route.PLATFORM, config) }
+        lastConfig?.let { config -> switchTo(Route.PLATFORM, config, trackIdOf(config)) }
     }
 
     /**

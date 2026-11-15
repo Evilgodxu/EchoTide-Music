@@ -10,6 +10,7 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 当前播放链路的可观测状态：源格式、解码器、输出编码与 USB 输出成色。
@@ -146,6 +147,49 @@ internal class AudioSignalPathState(
         get() = currentTrack()?.let(::isSourceCurrent) == true
 
     /**
+     * 曲目 id → 容器头读出的源格式（位深与声道）。
+     *
+     * 两件事共用这一份记录：
+     * - **按 id 取位深**。换曲重配发生在播放线程上，那一刻界面侧的当前曲目还没推进到新曲，
+     *   [audioSignalPathFormat] 里那一份位深仍是上一曲的——输出配置若照它建流，位深一变就只能等播放中
+     *   再拆一次流重建。按 id 留档后，配置方在换曲那一刻就能拿到本次真正要播的那一首的位深，
+     *   位深不同就在配置期换档，而不是先按旧档建好流、播到一半再拆。
+     * - **省掉重复读盘**。起播前预置（[recordSourceBitDepthBeforePlayback]）与切歌时的预读读的是同一个
+     *   容器头，留一份就只读一次——读取器本身没有缓存（见 `TrackAudioInfoReader.readContainerFormat`），
+     *   这里不做这件事，同一曲就要读两遍文件。
+     *
+     * 并发：写入在主线程（切歌）与 IO 线程（预读），读取在播放线程（输出配置），故用并发映射。
+     */
+    private val knownSourceFormats = ConcurrentHashMap<Long, SourceFormat>()
+
+    /** 容器头里与本链路有关的两项：位深决定子槽宽度，声道数决定档位 */
+    private data class SourceFormat(val bitDepth: Int?, val channels: Int?)
+
+    /** 按曲目 id 取已知源位深；未预读到时为 null，调用方退回解码输出位深 */
+    fun bitDepthOfTrack(trackId: Long): Int? = knownSourceFormats[trackId]?.bitDepth
+
+    /**
+     * 预读某曲目的容器头入档。
+     *
+     * 只读容器头（定长窗口），不读采样率与比特率——那两项要解码头或完整解析才知道，而配置期只需要位深。
+     * 已入档即跳过：同一曲目的容器头不会变，重读只是白读一次文件。
+     */
+    fun preloadSourceFormat(track: MusicTrack) {
+        if (knownSourceFormats.containsKey(track.id)) return
+        val context = context() ?: return
+        scope().launch(Dispatchers.IO) {
+            val container = TrackAudioInfoReader.readContainerFormat(context, track) ?: return@launch
+            rememberSourceFormat(track.id, container.bitDepth, container.channels)
+        }
+    }
+
+    // 只在读到位深时入档：读不出位深的记录留着会挡住后来的补齐，也与"未读到"分不开
+    private fun rememberSourceFormat(trackId: Long?, bitDepth: Int?, channels: Int?) {
+        if (trackId == null || bitDepth == null || bitDepth <= 0) return
+        knownSourceFormats[trackId] = SourceFormat(bitDepth, channels)
+    }
+
+    /**
      * 起播前落定目标曲目的源位深与声道，供音频信息条在解码前即展示源格式。
      *
      * 源格式是异步读来的，而信息条在切歌后随即读取；先在把新曲目交给播放器之前按容器头读一次，展示即
@@ -160,7 +204,12 @@ internal class AudioSignalPathState(
     fun recordSourceBitDepthBeforePlayback(track: MusicTrack) {
         val context = context() ?: return
         if (isSourceCurrent(track)) return
-        val container = TrackAudioInfoReader.readContainerFormat(context, track) ?: return
+        // 已预读过就沿用那份记录：起播前这一趟不该再读一次同一个容器头
+        val container = knownSourceFormats[track.id] ?: run {
+            val read = TrackAudioInfoReader.readContainerFormat(context, track) ?: return
+            rememberSourceFormat(track.id, read.bitDepth, read.channels)
+            SourceFormat(read.bitDepth, read.channels)
+        }
         audioSignalPathFormat = AudioSignalPathFormat(
             format = null,
             sampleRate = null,
@@ -182,6 +231,7 @@ internal class AudioSignalPathState(
             // 落盘前的两道闸：读盘期间已切歌的不覆盖，已被解码回调补全的记录也不覆盖；
             // 归属为空但曲目未变（reconcile 清空后重读）时照常写入
             if (currentTrack()?.id != track.id || isCompleteFor(track)) return@launch
+            rememberSourceFormat(track.id, info.bitDepth, info.channels)
             audioSignalPathFormat = info
             audioSignalPathTrackId = track.id
             audioSignalPathSourceUri = track.audioUri
@@ -195,6 +245,7 @@ internal class AudioSignalPathState(
         scope().launch(Dispatchers.IO) {
             val info = TrackAudioInfoReader.readIdleFormat(context, track) ?: return@launch
             if (currentTrack()?.id == track.id) {
+                rememberSourceFormat(track.id, info.bitDepth, info.channels)
                 audioSignalPathFormat = info
                 audioSignalPathTrackId = track.id
                 audioSignalPathSourceUri = track.audioUri

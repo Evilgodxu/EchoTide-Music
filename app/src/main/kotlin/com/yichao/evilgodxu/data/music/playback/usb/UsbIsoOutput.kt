@@ -40,6 +40,9 @@ internal object UsbIsoNative {
 
     external fun drain(handle: Long)
 
+    /** 作废环内数据并清零帧计数，流与端点保持不变；见 [UsbIsoStream::flushRing] */
+    external fun flushRing(handle: Long)
+
     /** 暂停/恢复送流；暂停期间环内数据保留，见 [UsbIsoStream::setPaused] 的说明 */
     external fun setPaused(handle: Long, paused: Boolean)
 
@@ -101,6 +104,19 @@ internal class UsbIsoOutput private constructor(
     /** 等到已写入的数据全部送出设备 */
     fun drain() {
         if (!closed) UsbIsoNative.drain(handle)
+    }
+
+    /**
+     * 作废环内尚未送出的数据，并把两个帧计数清零；流本身与设备侧的端点保持不动。
+     *
+     * 换曲与跳转都走这里而不重建流：端点一关一开，设备要重新锁一次时钟，期间既失声又可能把内部缓冲
+     * 重放一段（听感是回退）。环内作废只丢本层还没交出去的那一段，端点毫无感知。
+     *
+     * 已进入在飞 URB 的数据撤不回，仍会送出——它最多是一个在飞段的时长，故调用方的记账清零必须与
+     * 本调用同时发生，否则"已写出 − 已送出"会出现负值。
+     */
+    fun flushRing() {
+        if (!closed) UsbIsoNative.flushRing(handle)
     }
 
     /**

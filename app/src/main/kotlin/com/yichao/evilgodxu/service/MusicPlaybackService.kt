@@ -190,6 +190,9 @@ class MusicPlaybackService : MediaSessionService() {
             appVolume = { exclusiveVolume.gain() },
             // 写出位深按源格式选；源位深未知时退回解码输出位深
             sourceBitDepth = { playbackState.currentSourceBitDepth },
+            // 换曲重配发生在播放线程上，那一刻界面侧的当前曲目还是上一曲：本次要播的是哪一首由配置自身
+            // 的 period 给出，位深按曲目 id 取，位深不同的两曲才会在配置期换档而不是播放中再拆流
+            trackBitDepth = { trackId -> trackId?.let(playbackState::bitDepthOfTrack) },
             // 独占这条路上没有音频轨可供平台回填写出编码，故由写出侧直接上报；
             // 不走 reportOutputEncoding：那条出口还兼着"让直出重算路由"的职责，而独占期间直出并不参与
             onOutputEncodingChanged = { encoding ->
@@ -377,8 +380,9 @@ class MusicPlaybackService : MediaSessionService() {
         serviceScope.launch {
             applicationContext.exclusiveVolumeStepFlow().first()?.let(exclusiveVolumePlayer::restoreStep)
         }
-        // 源位深是曲间的量：换曲重配发生在播放线程上，那一刻界面侧的当前曲目尚未推进，输出会按上一曲的
-        // 位深建轨。当前曲目归属落定后再重算一次，直出与独占的写出编码才不会落后一曲
+        // 源位深落定后重算一次路由：直出的混音器属性只能按"当前曲目"的位深挑，独占则已在配置期按曲目 id
+        // 定档（见 UsbExclusiveAudioSink.configure），此处的重算对独占只是预读未命中时的兜底。
+        // 判定含归属：格式信息还没对应当前曲目时重算只会按上一曲的位深再判一次，白白多跑一趟
         serviceScope.launch {
             snapshotFlow {
                 playbackState.isAudioSignalPathCurrent to playbackState.currentSourceBitDepth
