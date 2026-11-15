@@ -2,6 +2,7 @@ package com.yichao.evilgodxu.data.music.playback
 
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
+import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
 import com.yichao.evilgodxu.data.settings.settingsDataStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -18,6 +19,7 @@ internal class StartupStateLoader(
     private val searchHistoryStore: SearchHistoryStore,
     private val recentPlayedStore: RecentPlayedStore,
     private val playlistPersistence: PlaylistPersistence,
+    private val proxySourceStore: ProxySourceStore,
 ) {
 
     data class Result(
@@ -35,6 +37,8 @@ internal class StartupStateLoader(
         // 搜索历史与常听由各自的收集侧持续回流，此处只等首次读盘完成
         searchHistoryStore.awaitLoaded()
         recentPlayedStore.awaitLoaded()
+        // 保存的搜索平台要按当前可用音源校验，音源快照须先就绪
+        proxySourceStore.awaitLoaded()
         Result(
             preferences = preferencesRead.await(),
             queue = queueRead.await(),

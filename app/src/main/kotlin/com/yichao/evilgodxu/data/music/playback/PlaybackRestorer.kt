@@ -2,7 +2,9 @@ package com.yichao.evilgodxu.data.music.playback
 
 import android.content.Context
 import com.yichao.evilgodxu.data.music.metadata.CurrentCoverCache
+import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.PlayMode
+import com.yichao.evilgodxu.data.music.proxy.customSearchPlatforms
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -32,7 +34,12 @@ internal class PlaybackRestorer(private val state: MusicPlaybackState) {
         val savedUri = savedState.audioUri
         val savedPosition = savedState.position
         val savedMode = savedState.modeOrdinal
+        // 保存的平台可能是已移除音源的自定义平台，须按当前可用候选校验后再落地
+        val savedSearchSource = state.searchSourceStore.read(preferences)
+        val availablePlatformKeys = MusicSearchSource.builtInKeys +
+            customSearchPlatforms(state.proxySourceStore.sources.value).keys
         withContext(Dispatchers.Main) {
+            state.searchSource = resolveSearchSource(savedSearchSource, availablePlatformKeys)
             // 无保存过滤来源时播放默认队列全集
             state.queueFilter = savedSource
             state.applyRestoredViewedState(queue.followsQueue, queue.viewedSource)

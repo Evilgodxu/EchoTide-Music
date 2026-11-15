@@ -28,6 +28,8 @@ object SettingsKeys {
     val THEME_MODE = stringPreferencesKey("theme_mode")
     // 语言统一落 DataStore，由 Compose 层驱动热切换
     val LANGUAGE = stringPreferencesKey("language")
+    // 在线搜索平台：记录上次选中的平台键，重启后据此恢复
+    val SEARCH_SOURCE = stringPreferencesKey("search_source")
 }
 
 enum class ThemeMode(val value: String) {

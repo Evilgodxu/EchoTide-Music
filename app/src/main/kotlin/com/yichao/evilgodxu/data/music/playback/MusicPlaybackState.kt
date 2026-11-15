@@ -240,6 +240,11 @@ class MusicPlaybackState(
         context = appContext,
         scope = persistenceScope,
     )
+    // 写协程挂在主线程作用域，待写平台值只由界面事件改动，不必额外加锁
+    internal val searchSourceStore = SearchSourceStore(
+        scope = { playbackScope },
+        context = { appContext },
+    )
     private val playlistPersistence = PlaylistPersistence(
         context = appContext,
         scope = persistenceScope,
@@ -248,6 +253,7 @@ class MusicPlaybackState(
         searchHistoryStore = searchHistoryStore,
         recentPlayedStore = recentPlayedStore,
         playlistPersistence = playlistPersistence,
+        proxySourceStore = proxySourceStore,
     )
     // 冷启动恢复的应用编排由 PlaybackRestorer 承担
     private val restorer by lazy { PlaybackRestorer(this) }
@@ -857,7 +863,12 @@ class MusicPlaybackState(
     @JvmName("updateSearchQuery")
     fun setSearchQuery(query: String) { searchQuery = query }
     @JvmName("updateSearchSource")
-    fun setSearchSource(source: MusicSearchSource) { searchSource = source }
+    fun setSearchSource(source: MusicSearchSource) {
+        if (searchSource == source) return
+        searchSource = source
+        // 用户的选择要跨进程留存：下次进入搜索或重启后仍停在这个平台
+        searchSourceStore.persist(source)
+    }
     @JvmName("updateLyricsVisible")
     fun setLyricsVisible(visible: Boolean) { isLyricsVisible = visible }
     @JvmName("updateLocalCoverCandidates")
