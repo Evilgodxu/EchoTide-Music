@@ -50,6 +50,8 @@ import com.yichao.evilgodxu.data.playlist.resolveSourceTracks
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.permission.ensureTrackFileWritable
 import com.yichao.evilgodxu.permission.rememberAllFilesAccessRequest
+import com.yichao.evilgodxu.screens.home.component.player.libraryEmptyHint
+import com.yichao.evilgodxu.screens.home.component.player.textRes
 import com.yichao.evilgodxu.ui.component.RemoveTrackDialog
 import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 import kotlinx.coroutines.delay
@@ -60,6 +62,8 @@ import kotlinx.coroutines.launch
 internal fun PlaylistSheet(
     visible: Boolean,
     playbackState: MusicPlaybackState,
+    // 音频访问授权：空列表的成因据此区分「未授权」与「暂无本地音乐」
+    mediaAudioGranted: Boolean,
     onDismiss: () -> Unit,
     // 高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
     onViewSpectrum: (Long) -> Unit = {},
@@ -214,7 +218,9 @@ internal fun PlaylistSheet(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = stringResource(R.string.home_player_empty),
+                            text = stringResource(
+                                libraryEmptyHint(mediaAudioGranted, playbackState.isScanning).textRes
+                            ),
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

@@ -196,6 +196,7 @@ internal fun CompactAssembly(
             ) {
                 PortraitPlayer(
                     modifier = Modifier.fillMaxSize(),
+                    mediaAudioGranted = uiState.mediaAudioGranted,
                     topBarInset = topInset,
                     swipePreviewText = trackSwipe.previewText,
                     // 歌词区快速滑动同样按切歌处理，复用整页纵向切歌的判定与偏好

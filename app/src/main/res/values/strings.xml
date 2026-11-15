@@ -269,7 +269,9 @@
     <string name="home_player_pause">暂停</string>
     <string name="home_player_previous">上一首</string>
     <string name="home_player_next">下一首</string>
-    <string name="home_player_empty">暂无本地音乐，请先授权音乐访问权限</string>
+    <string name="home_player_empty">暂无本地音乐</string>
+    <string name="home_player_permission_missing">未授予音乐访问权限，无法读取本地音乐</string>
+    <string name="home_player_scanning">正在扫描本地音乐…</string>
     <string name="home_player_lyric_delay">歌词延后</string>
     <string name="home_player_lyric_advance">歌词提前</string>
     <string name="home_player_close_playlist">关闭播放列表</string>

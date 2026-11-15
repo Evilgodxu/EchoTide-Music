@@ -78,6 +78,8 @@ import com.yichao.evilgodxu.LocalPlaybackState
 @Composable
 internal fun PortraitPlayer(
     modifier: Modifier = Modifier,
+    // 音频访问授权：空态文案据此区分「未授权」与「暂无本地音乐」
+    mediaAudioGranted: Boolean,
     // 标题栏区域高度：封面顶部渐隐区与错误横幅避让基准
     topBarInset: Dp = 0.dp,
     // 纵向切歌预览提示：滑动未松手时显示于专辑封面底部
@@ -194,6 +196,7 @@ internal fun PortraitPlayer(
             )
             PortraitLyricsSection(
                 playbackState = playbackState,
+                mediaAudioGranted = mediaAudioGranted,
                 onVerticalFling = onVerticalFling,
                 onVerticalDragClaim = onLyricVerticalDragClaim,
                 onLongPress = { positionMs ->
@@ -334,6 +337,7 @@ internal fun PortraitPlayer(
         PlaylistSheet(
             visible = playlistVisible,
             playbackState = playbackState,
+            mediaAudioGranted = mediaAudioGranted,
             onDismiss = { onPlaylistVisibilityChange(false) },
             onViewSpectrum = onOpenSpectrum,
             onEditMetadata = onOpenMetadata,

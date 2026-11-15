@@ -59,6 +59,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun LandscapePlayer(
     playbackState: MusicPlaybackState,
+    // 音频访问授权：播放列表面板空列表的成因据此区分「未授权」与「暂无本地音乐」
+    mediaAudioGranted: Boolean,
     chromeVisible: Boolean,
     onToggleChrome: () -> Unit,
     // 播放模式选择展开态：由首页层持有，展开期间的点击遮罩铺满全屏，故随控制栏显隐一并管理
@@ -189,6 +191,7 @@ fun LandscapePlayer(
         PlaylistSheet(
             visible = playlistVisible,
             playbackState = playbackState,
+            mediaAudioGranted = mediaAudioGranted,
             onDismiss = { onPlaylistVisibilityChange(false) },
             onViewSpectrum = onOpenSpectrum,
             onEditMetadata = onOpenMetadata,

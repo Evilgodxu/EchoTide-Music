@@ -40,6 +40,8 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
 import com.yichao.evilgodxu.data.settings.homePortraitLyricLayoutFlow
+import com.yichao.evilgodxu.screens.home.component.player.libraryEmptyHint
+import com.yichao.evilgodxu.screens.home.component.player.textRes
 import com.yichao.evilgodxu.ui.component.player.LyricsPanel
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.delay
@@ -52,6 +54,8 @@ private const val LyricFineTuneStepMs = 100L
 @Composable
 internal fun PortraitLyricsSection(
     playbackState: MusicPlaybackState,
+    // 音频访问授权：与「曲库为空」互斥，空态文案据此分开
+    mediaAudioGranted: Boolean,
     onVerticalFling: ((next: Boolean) -> Unit)?,
     // 歌词纵向拖拽接管手势的出口：宿主据此收回触摸瞬间顺带唤出的标题栏
     onVerticalDragClaim: (() -> Unit)?,
@@ -135,7 +139,9 @@ internal fun PortraitLyricsSection(
                     )
                 } else {
                     Text(
-                        text = stringResource(R.string.home_player_empty),
+                        text = stringResource(
+                            libraryEmptyHint(mediaAudioGranted, playbackState.isScanning).textRes
+                        ),
                         fontSize = 14.sp,
                         color = Color.White,
                         textAlign = TextAlign.Center,

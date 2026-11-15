@@ -267,7 +267,9 @@
     <string name="home_player_pause">Pause</string>
     <string name="home_player_previous">Previous</string>
     <string name="home_player_next">Next</string>
-    <string name="home_player_empty">No local music. Grant music access to continue.</string>
+    <string name="home_player_empty">No local music</string>
+    <string name="home_player_permission_missing">Music access not granted; local music cannot be read</string>
+    <string name="home_player_scanning">Scanning local music…</string>
     <string name="home_player_lyric_delay">Delay lyrics</string>
     <string name="home_player_lyric_advance">Advance lyrics</string>
     <string name="home_player_close_playlist">Close playlist</string>

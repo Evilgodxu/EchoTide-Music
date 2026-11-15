@@ -112,6 +112,7 @@ internal fun ExpandedAssembly(
             ) {
                 LandscapePlayer(
                     playbackState = playbackState,
+                    mediaAudioGranted = uiState.mediaAudioGranted,
                     chromeVisible = chromeVisible,
                     onToggleChrome = { chromeVisible = !chromeVisible },
                     modeSelectorExpanded = modeSelectorExpanded,
