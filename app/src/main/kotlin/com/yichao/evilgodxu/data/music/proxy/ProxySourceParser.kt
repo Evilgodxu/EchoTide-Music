@@ -13,6 +13,9 @@ sealed interface ProxyParseResult {
 // 代理音源解析与校验：严格校验必填字段，宽松处理可选动作
 internal object ProxySourceParser {
 
+    // 缺省与推荐均为 POST：参数走表单体，URL 只携带 query，歌名等动态值不进查询串
+    private const val DEFAULT_METHOD = "POST"
+
     private val QUALITY_KEYS = mapOf(
         "standard" to MusicQuality.STANDARD,
         "high" to MusicQuality.HIGH,
@@ -84,7 +87,7 @@ internal object ProxySourceParser {
         val url = actionObj.optString("url").trim()
         if (url.isEmpty()) return null
         return ProxyActionSpec(
-            method = actionObj.optString("method", "GET").trim().ifEmpty { "GET" },
+            method = actionObj.optString("method", DEFAULT_METHOD).trim().ifEmpty { DEFAULT_METHOD },
             url = url,
             params = parseStringMap(actionObj.optJSONObject("params")),
             query = parseStringMap(actionObj.optJSONObject("query")),

@@ -4,7 +4,7 @@ import com.yichao.evilgodxu.data.music.api.MusicQuality
 import org.json.JSONArray
 import org.json.JSONObject
 
-// 代理音源数据模型：对应「忆潮代理音源规范」文档 v1.3.0
+// 代理音源数据模型：对应「忆潮代理音源规范」文档 v1.5.0
 data class ProxySourceSpec(
     val name: String,
     val version: String,
