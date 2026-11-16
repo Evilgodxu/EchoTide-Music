@@ -20,7 +20,8 @@ extern "C" JNIEXPORT jlong JNICALL
 Java_com_yichao_evilgodxu_data_music_playback_usb_UsbIsoNative_open(
         JNIEnv* env, jclass clazz, jint fd, jint outEndpoint, jint frameBytes, jint maxPacketBytes,
         jint feedbackEndpoint, jint feedbackMaxPacketBytes, jint sampleRate, jint interval,
-        jint packetsPerUrb, jint urbCount, jint inFlightTargetMs, jint ringBytes) {
+        jint packetsPerUrb, jint urbCount, jint inFlightTargetMs, jint ringBytes,
+        jint leadSilenceFrames) {
     (void) env;
     (void) clazz;
     UsbIsoStream::Config config;
@@ -36,6 +37,7 @@ Java_com_yichao_evilgodxu_data_music_playback_usb_UsbIsoNative_open(
     config.urbCount = urbCount;
     config.inFlightTargetMs = inFlightTargetMs;
     config.ringBytes = ringBytes;
+    config.leadSilenceFrames = leadSilenceFrames;
 
     std::unique_ptr<UsbIsoStream> stream = UsbIsoStream::create(config);
     if (stream == nullptr) return 0;

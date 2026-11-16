@@ -132,8 +132,13 @@ internal fun handleMediaItemTransition(
         state.refreshIdleTrackFormatInfo(state.appContext)
         // 预读下一曲的容器头：自动接续时输出要在配置期就按新曲位深定档（见 UsbExclusiveAudioSink.configure），
         // 而那一刻界面侧的当前曲目尚未推进，只能靠这份按 id 的记录。放在这里读，是因为此刻离下一曲
-        // 开始还有一整首的时间，读文件头的开销不落在任何播放路径上
-        state.playlist.getOrNull(index + 1)?.let(state::preloadSourceFormat)
+        // 开始还有一整首的时间，读文件头的开销不落在任何播放路径上。
+        // **下一曲取播放器实际指向的那一项，不是列表里的下一项**：随机播放的顺序由播放器的 shuffle order
+        // 维护，按列表下标加一读到的常常是一首根本不会播的曲目，预读因此落空——而落空的代价是配置期只能
+        // 按上一曲的位深建流，位深落定后再经 UsbOutputSink.syncRouting 在曲中拆一次流重建（那次重建正是
+        // 起播瞬态颤音的来路）。取播放器的下一项，随机与顺序两种走法才都能预读命中
+        val nextIndex = state.player?.nextMediaItemIndex ?: (index + 1)
+        state.playlist.getOrNull(nextIndex)?.let(state::preloadSourceFormat)
     }
     // 切换曲目后清理未在播放的在线歌曲，避免在线播放曲目在播放列表中常驻；
     // 元数据补全只在缓存完成时执行一次，切歌不再触发，避免重复写封面并触发系统级文件扫描

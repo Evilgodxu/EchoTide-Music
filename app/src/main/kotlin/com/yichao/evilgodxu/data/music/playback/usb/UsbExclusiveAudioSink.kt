@@ -91,6 +91,19 @@ internal class UsbExclusiveAudioSink(
     /** 下一块缓冲是否直接从目标增益起步：跳转与重配之后，旧增益属于上一段声音，不该斜过去 */
     private var rampJumpNext = false
 
+    /**
+     * 本次配置下重建等时流之后要渐入的样本数（= 帧数 × 声道数）。
+     *
+     * 在 [configure] 里按本曲的采样率与声道算定：流是建在配置之后的，建流那一刻手里只有这一份值。
+     */
+    private var rebuildFadeSamples = 0
+
+    /** 渐入剩余样本数；大于零即本条流刚重建，写出的样本要按包络渐入 */
+    private var fadeInSamplesLeft = 0
+
+    /** 渐入的总样本数：包络的斜率由它与剩余量共同给出 */
+    private var fadeInSamplesTotal = 0
+
     /** 是否处于暂停：暂停期间待播量必须保留，见 [hasPendingData] */
     private var paused = false
 
@@ -247,6 +260,9 @@ internal class UsbExclusiveAudioSink(
 
         inputFormat = format
         rampJumpNext = true
+        // 新的一段声音：上一次配置遗留的渐入到此为止，真要渐入会在建流之后重新挂上（见 [ensureOutput]）
+        clearFadeIn()
+        rebuildFadeSamples = fadeInSampleCount(format.sampleRate, format.channelCount)
         handledEndOfStream = false
         drained = false
         // 新的一段声音即将写入：曲末那段静音到此为止，环随之回到正常取数
@@ -410,6 +426,8 @@ internal class UsbExclusiveAudioSink(
     override fun handleDiscontinuity() {
         checkpointPending = true
         rampJumpNext = true
+        // 跳转点之后的样本属于另一段内容，硬起才是对的：把渐入带过去等于给用户的一次操作加了个淡入
+        clearFadeIn()
     }
 
     /**
@@ -435,6 +453,7 @@ internal class UsbExclusiveAudioSink(
         checkpointPending = true
         checkpoints.clear()
         rampJumpNext = true
+        clearFadeIn()
     }
 
     /**
@@ -651,6 +670,10 @@ internal class UsbExclusiveAudioSink(
         // 建流时同步当前的启停状态：首次写入可能发生在渲染器还未下发 play 的时刻。
         // 曲末的静音保活也按"不取环"起步——新建的流若从环里取数，等于把上一段的声音又送一遍
         created.setPaused(paused || silentHold)
+        // 新流意味着端点刚按新的采样率与备用设置重开：设备此刻停在零电平上，紧接着的第一批真实样本
+        // 就是一次电平阶跃。起播的前几毫秒按包络渐入，阶跃被摊成一段斜坡——这是本层唯一能施加平滑的
+        // 地方，硬件不会替我们做
+        armFadeIn()
         listener.onAudioTrackInitialized(trackConfigOf(created))
         // 面板的"输出编码"取自这里：设备实际收到的是子槽排布，故报的是子槽宽度对应的编码
         onOutputEncodingChanged(encodingForSubslot(created.subslotBytes))
@@ -711,19 +734,57 @@ internal class UsbExclusiveAudioSink(
      * 把整块输入按设备子槽打包。
      *
      * 输入被消费到末位，末尾凑不满一个样本的余字节由打包器一并跳过（见 [packToSubslot]）。
+     *
+     * 增益有三条路，优先级从高到低：
+     * 1. **重建后的渐入**：本条流刚建起，本块按包络从零走到目标增益；渐入跨块时下一块接着走，直到用完。
+     * 2. **硬起**：跳转与重配之后从目标增益直接起步，旧增益属于上一段声音，斜过去只是把一个不该有的
+     *    过渡补进新段落。
+     * 3. **音量斜坡**：音量值变了，在本块内斜到新值，改动才不落在缓冲边界上。
      */
     private fun convert(source: ByteBuffer, format: Format): ByteBuffer {
         val bytesPerSample = Util.getPcmFrameSize(format.pcmEncoding, 1)
         val output = scratchBuffer(source.remaining() / bytesPerSample * subslotBytes)
         val target = targetGainQ15()
-        // 跳转与重配之后从目标值直接起步：此刻的旧增益属于上一段声音，斜过去只是把一个不该存在的过渡
-        // 补进新段落里
-        val from = if (rampJumpNext) target else appliedGainQ15
-        rampJumpNext = false
-        appliedGainQ15 = target
-        packToSubslot(source, output, format.pcmEncoding, subslotBytes, from, target)
+        val samples = source.remaining() / bytesPerSample
+        val from: Int
+        val to: Int
+        var rampSamples = RAMP_WHOLE_BLOCK
+        if (fadeInSamplesLeft > 0 && samples > 0) {
+            // 本块能消耗多少样本就斜多少：起播渐入只有几毫秒，通常一块内就走完
+            val span = minOf(samples, fadeInSamplesLeft)
+            val consumed = fadeInSamplesTotal - fadeInSamplesLeft
+            from = fadeGainQ15(consumed, fadeInSamplesTotal, target)
+            to = fadeGainQ15(consumed + span, fadeInSamplesTotal, target)
+            fadeInSamplesLeft -= span
+            rampSamples = span
+            appliedGainQ15 = to
+            rampJumpNext = false
+        } else if (rampJumpNext) {
+            // 跳转与重配之后从目标值直接起步：此刻的旧增益属于上一段声音，斜过去只是把一个不该存在的过渡
+            // 补进新段落里
+            from = target
+            to = target
+            rampJumpNext = false
+            appliedGainQ15 = target
+        } else {
+            from = appliedGainQ15
+            to = target
+            appliedGainQ15 = target
+        }
+        packToSubslot(source, output, format.pcmEncoding, subslotBytes, from, to, rampSamples)
         output.flip()
         return output
+    }
+
+    /** 挂上渐入：样本数按本次配置算定（见 [rebuildFadeSamples]） */
+    private fun armFadeIn() {
+        fadeInSamplesTotal = rebuildFadeSamples
+        fadeInSamplesLeft = rebuildFadeSamples
+    }
+
+    private fun clearFadeIn() {
+        fadeInSamplesLeft = 0
+        fadeInSamplesTotal = 0
     }
 
     /**
@@ -811,6 +872,38 @@ internal class UsbExclusiveAudioSink(
  */
 internal fun ringResidentFrames(writtenFrames: Long, sentFrames: Long, bufferFrames: Int): Long =
     (writtenFrames - sentFrames).coerceIn(0L, bufferFrames.toLong())
+
+/**
+ * 重建等时流之后起播渐入的时长（毫秒）。
+ *
+ * 这一段要治的是**换档时的电平阶跃**：设备按新的采样率与备用设置重开后停在零电平上，第一条真实样本
+ * 一到，输出端的直流偏置就从零跳到有效值——硬件不提供过渡，听感就是那一声"啪"。渐入把它摊成一段斜坡，
+ * 借人耳的听觉掩蔽消掉。
+ *
+ * 取 5ms 而不是更长的理由：再长就从"起音"变成"淡入"，曲首的瞬态（鼓点、拨弦）会被削掉，而这类曲目
+ * 恰恰是直出最想保真的；再短则斜坡的斜率仍接近阶跃，掩蔽不成立。斜率是线性的，不做等幂曲线：这里要
+ * 的只是一次没有台阶的起振，不是做包络整形。
+ *
+ * 只在**建流之后**生效，同档连播（流不重建）与跳转都不渐入——前者流没断，后者是用户操作，硬起才对。
+ */
+private const val REBUILD_FADE_IN_MS = 5
+
+/** 起播渐入覆盖的样本数（= 帧数 × 声道数）；参数不成立时为 0，即不渐入 */
+internal fun fadeInSampleCount(sampleRate: Int, channels: Int): Int {
+    if (sampleRate <= 0 || channels <= 0) return 0
+    return (sampleRate.toLong() * REBUILD_FADE_IN_MS / 1000L * channels).toInt().coerceAtLeast(0)
+}
+
+/**
+ * 渐入包络走 [consumedSamples] 个样本时的定点增益：起点为 0，走满即 [targetQ15]。
+ *
+ * 按已消耗量取增益而不是按"上一块的末值"递推：跨块时才不会把取整误差累积成斜率偏差。
+ */
+internal fun fadeGainQ15(consumedSamples: Int, totalSamples: Int, targetQ15: Int): Int {
+    if (totalSamples <= 0) return targetQ15
+    val consumed = consumedSamples.coerceIn(0, totalSamples)
+    return (targetQ15.toLong() * consumed / totalSamples).toInt()
+}
 
 /**
  * 解码输出的位深，仅在源位深未知时作为写出位深的兜底。

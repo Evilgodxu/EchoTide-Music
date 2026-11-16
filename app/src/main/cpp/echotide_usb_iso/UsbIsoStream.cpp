@@ -147,6 +147,9 @@ bool UsbIsoStream::start(const Config& config) {
     ring_.assign(size_t(config_.ringBytes), 0);
     ringWrite_.store(0);
     ringRead_.store(0);
+    // 前导静音按字节记账：回收线程按包扣减，不必再乘帧字节数
+    leadSilenceBytes_.store(
+        size_t(std::max(0, config_.leadSilenceFrames)) * size_t(config_.frameBytes));
     // 环长由调用方按延迟预算给定，且不得短于整段在飞——环比它短时播放线程写不进、回收线程也腾不出，
     // 表现为周期性停顿，该下限由 UsbIsoOutput 在调用前保证
 
@@ -386,16 +389,23 @@ void UsbIsoStream::fillAndSubmit(usbdevfs_urb* urb) {
     for (int i = 0; i < config_.packetsPerUrb; ++i) {
         const size_t want = size_t(nextPacketFrames()) * size_t(config_.frameBytes);
         size_t got = 0;
-        // 暂停期间不从环里取数据：环里攒着的正是"已写出而未播出"的部分，取走它等于把待播量抹平。
-        // 取数据不进锁——数据面靠原子位置的获取/释放语义同步，见 readRing 与头文件的字段说明
+        // 建流后的前导静音：这一段的包整包补零，既不取环也不记账，理由与暂停相同——此刻本就不该
+        // 有内容送出。扣减按包进行，故静音时长最多比请求值多一个服务间隔
+        const size_t lead = leadSilenceBytes_.load(std::memory_order_relaxed);
         if (!paused) {
-            got = readRing(buffer + offset, want);
+            if (lead > 0) {
+                leadSilenceBytes_.store(lead > want ? lead - want : 0, std::memory_order_relaxed);
+            } else {
+                // 暂停期间不从环里取数据：环里攒着的正是"已写出而未播出"的部分，取走它等于把待播量抹平。
+                // 取数据不进锁——数据面靠原子位置的获取/释放语义同步，见 readRing 与头文件的字段说明
+                got = readRing(buffer + offset, want);
+            }
         }
         if (got < want) {
             // 补零而非缩短包长：等时端点上短包会让设备的时间轴出现缺口并产生可闻的断续
             std::fill(buffer + offset + got, buffer + offset + want, uint8_t(0));
-            // 暂停不是欠载：此刻本就不该有数据送出
-            if (!paused && primed_.load()) {
+            // 暂停与前导静音都不是欠载：此刻本来就不该有数据送出
+            if (!paused && lead == 0 && primed_.load()) {
                 ++underruns_;
             }
         }

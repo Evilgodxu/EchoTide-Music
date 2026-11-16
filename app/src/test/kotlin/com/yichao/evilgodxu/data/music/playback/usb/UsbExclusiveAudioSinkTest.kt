@@ -2,6 +2,7 @@ package com.yichao.evilgodxu.data.music.playback.usb
 
 import androidx.media3.common.C
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -51,5 +52,52 @@ class UsbExclusiveAudioSinkTest {
     @Test
     fun `驻留量不会为负`() {
         assertEquals(0, ringResidentFrames(writtenFrames = 100, sentFrames = 400, bufferFrames = 3528))
+    }
+
+    // 渐入长度按帧数与声道数折算：5ms 在 44.1k 立体声下是 220 帧、440 个样本，单声道 220 个
+    @Test
+    fun `渐入样本数按采样率与声道折算`() {
+        assertEquals(440, fadeInSampleCount(44100, 2))
+        assertEquals(220, fadeInSampleCount(44100, 1))
+        assertEquals(480, fadeInSampleCount(48000, 2))
+    }
+
+    // 参数不成立就不渐入：宁可硬起，也不拿一个除零或负数去算包络
+    @Test
+    fun `采样率或声道无效时不渐入`() {
+        assertEquals(0, fadeInSampleCount(0, 2))
+        assertEquals(0, fadeInSampleCount(44100, 0))
+    }
+
+    // 包络的两端：起点是静音，走满即目标增益。越过终点仍取目标值，跨块时才不会回头
+    @Test
+    fun `渐入包络起于静音而终于目标增益`() {
+        val total = fadeInSampleCount(44100, 2)
+
+        assertEquals(0, fadeGainQ15(consumedSamples = 0, totalSamples = total, targetQ15 = UNITY_GAIN_Q15))
+        assertEquals(
+            UNITY_GAIN_Q15,
+            fadeGainQ15(consumedSamples = total, totalSamples = total, targetQ15 = UNITY_GAIN_Q15),
+        )
+        assertEquals(
+            UNITY_GAIN_Q15,
+            fadeGainQ15(consumedSamples = total * 2, totalSamples = total, targetQ15 = UNITY_GAIN_Q15),
+        )
+    }
+
+    // 单调不减：中途回头会听成一次抖动，而这正是要消掉的东西
+    @Test
+    fun `渐入包络单调不减`() {
+        val total = 200
+        val gains = (0..total).map { fadeGainQ15(it, total, UNITY_GAIN_Q15) }
+
+        assertEquals(gains.sorted(), gains)
+        assertTrue(gains.first() == 0 && gains.last() == UNITY_GAIN_Q15)
+    }
+
+    // 无渐入时取目标增益：调用方据此可以直接以当前音量硬起
+    @Test
+    fun `渐入长度为零时直接用目标增益`() {
+        assertEquals(UNITY_GAIN_Q15, fadeGainQ15(consumedSamples = 0, totalSamples = 0, targetQ15 = UNITY_GAIN_Q15))
     }
 }

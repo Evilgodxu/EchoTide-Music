@@ -33,6 +33,7 @@ internal object UsbIsoNative {
         urbCount: Int,
         inFlightTargetMs: Int,
         ringBytes: Int,
+        leadSilenceFrames: Int,
     ): Long
 
     /** 阻塞写入；返回接纳的字节数，流已停止或设备已拔出时为负 */
@@ -194,7 +195,23 @@ internal class UsbIsoOutput private constructor(
         private const val IN_FLIGHT_TARGET_MS = 64
 
         /**
+         * 建流后先送出的静音时长（毫秒）。
+         *
+         * 端点按新的采样率与备用设置重开之后，设备要先稳定自己的时钟与内部缓冲，这段时间里它可能丢掉
+         * 头几个包。建流时投出的在飞段本来就装着一整段零（[MIN_URB_COUNT] 与 [IN_FLIGHT_TARGET_MS]
+         * 折算出的那 64ms 及以上），故本值不是那段余量的替代品，只是在它之上再补一小段：把「设备重开后
+         * 的偏离期有多久」写成显式的一档，而不是让它取决于在飞段折算出来的时长。
+         *
+         * 静音期间原生层不取环、不计欠载、不计已送出，故播放位置与待播量都不受它影响；代价只是起播
+         * 晚这么多，远小于一次可闻的爆音。
+         */
+        private const val LEAD_SILENCE_MS = 10
+
+        /**
          * 按 [format] 与 [sampleRate] 建立等时输出。
+         *
+         * 建流即开始送出静音：前半段由在飞 URB 的初始投递给出（环空时整批补零），再叠上
+         * [LEAD_SILENCE_MS] 那一小段显式的静音，设备按新档重开端点后的偏离期才落在零数据上。
          *
          * 失败返回 null：独占是可选的一路，建不起输出应当退回，而不是把播放带走。除参数不成立外，
          * **一个 URB 都投不进内核**也算建不起来——那说明端点不在当前的备用设置上（或设备已不可用），
@@ -226,6 +243,7 @@ internal class UsbIsoOutput private constructor(
                 urbCount = MIN_URB_COUNT,
                 inFlightTargetMs = IN_FLIGHT_TARGET_MS,
                 ringBytes = ringBytes,
+                leadSilenceFrames = sampleRate * LEAD_SILENCE_MS / 1000,
             )
             if (handle == 0L) return null
             return UsbIsoOutput(

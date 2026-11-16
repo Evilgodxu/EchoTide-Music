@@ -248,6 +248,52 @@ class UsbSubslotPackerTest {
         assertTrue((0 until samples).all { shortAt(output, it) < 0 })
     }
 
+    // 定长斜坡只在前 N 个样本内走完：第 N 个样本已在目标增益上，其后一律目标增益。
+    // 起播渐入靠的正是这一条——按整块均分会把 5ms 的渐入摊到几十毫秒，听感从"起音"变成"淡入"
+    @Test
+    fun `定长斜坡在指定样本数内走完`() {
+        val samples = 8
+        val source = ByteBuffer.allocate(samples * 2).order(ByteOrder.nativeOrder())
+        repeat(samples) { source.putShort(0x7FFF) }
+        source.flip()
+
+        val output = packRamped(
+            source,
+            C.ENCODING_PCM_16BIT,
+            subslotBytes = 2,
+            gainFromQ15 = 0,
+            gainToQ15 = UNITY_GAIN_Q15,
+            rampSamples = 3,
+        )
+
+        val values = (0 until samples).map { shortAt(output, it) }
+        assertEquals(0, values[0])
+        // 半幅：0x7FFF 的左对齐 32 位值乘 0.5 后取高 16 位，截断为 16383
+        assertEquals(16383, values[1])
+        // 第 3 个样本（下标 2）即落在目标上，此后不再变化
+        assertTrue(values.drop(2).all { it == 32767 })
+    }
+
+    // 定长斜坡给 0 即不渐变：直接以目标增益写出，对应"跳转之后硬起"那一路
+    @Test
+    fun `定长斜坡为零时直接取目标增益`() {
+        val samples = 4
+        val source = ByteBuffer.allocate(samples * 2).order(ByteOrder.nativeOrder())
+        repeat(samples) { source.putShort(0x7FFF) }
+        source.flip()
+
+        val output = packRamped(
+            source,
+            C.ENCODING_PCM_16BIT,
+            subslotBytes = 2,
+            gainFromQ15 = 0,
+            gainToQ15 = UNITY_GAIN_Q15,
+            rampSamples = 0,
+        )
+
+        assertArrayEquals(bytes(0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0x7F), output)
+    }
+
     private fun shortAt(bytes: ByteArray, index: Int): Int =
         (bytes[index * 2].toInt() and 0xFF) or (bytes[index * 2 + 1].toInt() shl 8)
 
@@ -270,10 +316,11 @@ class UsbSubslotPackerTest {
         subslotBytes: Int,
         gainFromQ15: Int,
         gainToQ15: Int = gainFromQ15,
+        rampSamples: Int = RAMP_WHOLE_BLOCK,
     ): ByteArray {
         // 容量按最坏情况给足：每个源字节最多产出一个输出字节
         val output = ByteBuffer.allocate(source.remaining() * subslotBytes).order(ByteOrder.nativeOrder())
-        packToSubslot(source, output, encoding, subslotBytes, gainFromQ15, gainToQ15)
+        packToSubslot(source, output, encoding, subslotBytes, gainFromQ15, gainToQ15, rampSamples)
         val written = ByteArray(output.position())
         output.flip()
         output.get(written)

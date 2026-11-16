@@ -24,9 +24,14 @@ import java.nio.ByteBuffer
  * 起止增益不同即在**本块缓冲内**逐样本斜到目标值：音量键按下即生效，而一次改动不会在缓冲边界上留一个
  * 台阶。台阶本身未必听成咔哒，但每块缓冲都来一次就是持续的背景噪声。
  *
+ * 斜坡的长度由 [rampSamples] 给出。默认按整块均分（音量改动的场景：本块走到目标值，下一块从目标值接上）；
+ * 由调用方指定样本数时，斜坡只在该数内走完、其余样本恒为目标增益——起播渐入必须如此：把 5ms 的渐入摊到
+ * 一整块（几十毫秒）上，听感就从"起音"变成了"淡入"。
+ *
  * 打包留在 Kotlin 而非原生层，是因为它是可判定的纯变换：能在 JVM 上逐字节核对，就不必把正确性押在
  * 真机试听上。
  *
+ * @param rampSamples 斜坡覆盖的样本数；[RAMP_WHOLE_BLOCK] 表示按整块均分
  * @return 末尾凑不满一个样本的字节数，正常为 0
  */
 @OptIn(UnstableApi::class)
@@ -37,6 +42,7 @@ internal fun packToSubslot(
     subslotBytes: Int,
     gainFromQ15: Int = UNITY_GAIN_Q15,
     gainToQ15: Int = gainFromQ15,
+    rampSamples: Int = RAMP_WHOLE_BLOCK,
 ): Int {
     require(subslotBytes in 1..4) { "子槽宽度只能是 1..4 字节，收到 $subslotBytes" }
     val bytesPerSourceSample = Util.getPcmFrameSize(pcmEncoding, 1)
@@ -46,7 +52,7 @@ internal fun packToSubslot(
             val value = PcmAudioUtil.readAs32BitIntPcm(source, pcmEncoding)
             writeSubslot(output, if (applyGain) scaleByGain(value, gainFromQ15) else value, subslotBytes)
         }
-    } else {
+    } else if (rampSamples == RAMP_WHOLE_BLOCK) {
         // 斜坡按本块样本数均分：末样本正好落在目标增益上，下一块即从目标值接着走
         val samples = source.remaining() / bytesPerSourceSample
         val span = (samples - 1).coerceAtLeast(1)
@@ -54,6 +60,22 @@ internal fun packToSubslot(
         while (source.remaining() >= bytesPerSourceSample) {
             val value = PcmAudioUtil.readAs32BitIntPcm(source, pcmEncoding)
             val gain = gainFromQ15 + ((gainToQ15 - gainFromQ15).toLong() * index / span).toInt()
+            writeSubslot(output, scaleByGain(value, gain), subslotBytes)
+            index++
+        }
+    } else {
+        // 定长斜坡：第 span 个样本起就是目标增益，块内其余样本不再变化
+        val span = minOf(rampSamples, source.remaining() / bytesPerSourceSample).coerceAtLeast(0)
+        val last = (span - 1).coerceAtLeast(0)
+        var index = 0
+        while (source.remaining() >= bytesPerSourceSample) {
+            val value = PcmAudioUtil.readAs32BitIntPcm(source, pcmEncoding)
+            val gain = when {
+                index >= span -> gainToQ15
+                // 斜坡只有一个样本时无从插值，取起点值：下一个样本即落在目标上
+                span <= 1 -> gainFromQ15
+                else -> gainFromQ15 + ((gainToQ15 - gainFromQ15).toLong() * index / last).toInt()
+            }
             writeSubslot(output, scaleByGain(value, gain), subslotBytes)
             index++
         }
@@ -81,6 +103,9 @@ internal fun writeSubslot(output: ByteBuffer, value: Int, subslotBytes: Int) {
 
 /** 15 位定点的满幅增益：等于不缩放 */
 internal const val UNITY_GAIN_Q15 = 32768
+
+/** 斜坡按整块样本数均分；由调用方给定样本数时斜坡只在该数内走完 */
+internal const val RAMP_WHOLE_BLOCK = -1
 
 /**
  * 音量换算成 15 位定点增益。
