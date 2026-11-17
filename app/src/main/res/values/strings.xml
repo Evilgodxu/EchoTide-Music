@@ -544,9 +544,11 @@
     <!-- 应用信息 -->
     <string name="app_info_brand">Evilgodxu</string>
     <string name="app_info_log_label">[日志]</string>
-    <string name="app_info_qq_group">QQ群:923555630</string>
+    <string name="app_info_audio_report">[获取音频报告]</string>
     <string name="app_info_share_log_subject">今日日志</string>
     <string name="app_info_share_log_title">分享今日日志</string>
+    <string name="app_info_share_report_subject">设备音频报告</string>
+    <string name="app_info_share_report_title">分享音频报告</string>
 
     <!-- 通用 -->
     <string name="copy_success_toast">已复制: %1$s</string>

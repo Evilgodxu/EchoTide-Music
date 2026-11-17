@@ -550,9 +550,11 @@
     <!-- App info -->
     <string name="app_info_brand">Evilgodxu</string>
     <string name="app_info_log_label">[Log]</string>
-    <string name="app_info_qq_group">QQ Group: 923555630</string>
+    <string name="app_info_audio_report">[Get audio report]</string>
     <string name="app_info_share_log_subject">Today\'s Log</string>
     <string name="app_info_share_log_title">Share today\'s log</string>
+    <string name="app_info_share_report_subject">Device audio report</string>
+    <string name="app_info_share_report_title">Share audio report</string>
 
     <!-- Common -->
     <string name="copy_success_toast">Copied: %1$s</string>

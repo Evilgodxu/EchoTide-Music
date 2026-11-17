@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.log
+package com.yichao.evilgodxu.report
 
 import android.content.Context
 import android.content.pm.PackageManager
@@ -9,6 +9,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.os.Build
+import android.util.Log
 import com.yichao.evilgodxu.data.music.playback.USB_OUTPUT_TYPES
 import com.yichao.evilgodxu.data.music.playback.audioEncodingName
 import com.yichao.evilgodxu.data.music.playback.describeMixerAttributes
@@ -18,11 +19,14 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-// 报告随今日日志同批存放，文件名由 CrashLogManager 的日期口径补齐
+// 落点在缓存目录：报告是每次分享重新生成的一次性产物，既不按日归档也不必留存，
+// 随系统「清理缓存」整批回收即可，不与日志或其他持久数据共用目录
+private const val REPORT_DIR_NAME = "reports"
+
 private const val REPORT_FILE_NAME = "设备音频报告.txt"
 
-// 异常日志的类名前缀：报告只在写出失败时记一次
-private const val LOG_TAG = "DeviceReport"
+// 写出失败只留系统日志：这条路径不承担用户侧的排障，不该往待分享的日志里写
+private const val TAG = "AudioReport"
 
 private val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
@@ -33,7 +37,7 @@ private val PLAYBACK_ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
     .build()
 
 /**
- * 设备音频报告：把定位「换台设备就不一样」所需的现场一次取全，供用户随日志一并分享。
+ * 设备音频报告：把定位「换台设备就不一样」所需的现场一次取全，供用户主动分享出去。
  *
  * 要解决的问题：同一份曲目在 USB 解码器、蓝牙与内置扬声器上是三条完全不同的通路，而平台对它们的描述
  * 分散在 AudioManager 属性、AudioDeviceInfo、动态混音端口与 USB 描述符四处，用户口述不出来。缺了这份
@@ -42,18 +46,21 @@ private val PLAYBACK_ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
  * 只读、不申请授权、不改动任何播放状态：USB 描述符那条路刻意不 claim 接口（见 [UsbAudioCapabilities]），
  * 故正在走的平台链路不受影响。读不到的项写「未上报」/「读不到」，不写推测值。
  *
- * 只在用户主动分享时生成并覆盖当日报告，不参与播放链路，也不常驻任何监听。
+ * 只在用户主动触发时生成并覆盖当前报告，不参与播放链路，也不常驻任何监听；落点、命名与失效判定都归
+ * 本模块自己，不与运行日志共用任何一份状态。
  */
-internal object DeviceReport {
+internal object AudioReport {
 
-    /** 生成并覆盖写入今日报告，返回分享用的文件；日志目录不可用时为 null */
+    /** 生成并覆盖写入当前报告，返回分享用的文件；写出失败时为 null */
     fun writeShareable(context: Context): File? {
-        val file = CrashLogManager.todayAttachment(REPORT_FILE_NAME) ?: return null
+        val dir = File(context.cacheDir, REPORT_DIR_NAME)
+        val file = File(dir, REPORT_FILE_NAME)
         return runCatching {
+            dir.mkdirs()
             file.writeText(build(context))
             file
         }.onFailure {
-            CrashLogManager.logException(LOG_TAG, "写入设备音频报告失败", it)
+            Log.e(TAG, "写入设备音频报告失败", it)
         }.getOrNull()
     }
 
@@ -62,13 +69,20 @@ internal object DeviceReport {
         return buildString {
             appendLine("======== EchoTideMusic 设备音频报告 ========")
             appendLine("生成时间: ${LocalDateTime.now().format(TIME_FORMAT)}")
-            appendLine("版本: ${CrashLogManager.appVersion}")
+            appendLine("版本: ${appVersion(context)}")
             appendEnvironment(context)
             appendAudioProperties(audioManager)
             appendOutputDevices(context, audioManager)
             appendUsbDevices(context)
         }
     }
+
+    // 报告的时效以生成时刻为准，故当场读一次：版本可能随覆盖安装变化，缓存冷启动时的取值没有意义
+    private fun appVersion(context: Context): String = runCatching {
+        val info = context.packageManager
+            .getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0L))
+        "${info.versionName} (${info.longVersionCode})"
+    }.getOrDefault("unknown")
 
     private fun StringBuilder.appendEnvironment(context: Context) {
         appendLine("设备: ${Build.MANUFACTURER} ${Build.MODEL}（product=${Build.PRODUCT} device=${Build.DEVICE}）")

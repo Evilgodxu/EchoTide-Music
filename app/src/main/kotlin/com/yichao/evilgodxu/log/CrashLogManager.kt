@@ -34,12 +34,11 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
     private var logDir: File? = null
 
     /**
-     * 初始化时取定的应用版本。
+     * 初始化时取定的应用版本，用于日志头部。
      *
-     * 日志头部与设备音频报告都要写出它：两处各读一次 PackageManager 迟早会因取值时机不同而给出两个版本。
+     * 只在初始化时读一次 PackageManager：写入时再读会与头部的取值时机不同，同一份日志迟早出现两个版本。
      */
-    var appVersion = "unknown"
-        private set
+    private var appVersion = "unknown"
     private var previousHandler: Thread.UncaughtExceptionHandler? = null
     private var lastCleanDate: LocalDate? = null
 
@@ -165,17 +164,6 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
         val dir = logDir ?: return null
         val today = LocalDate.now().format(dateFormat)
         return File(dir, "$LOG_FILE_PREFIX$today.log").takeIf { it.exists() }
-    }
-
-    /**
-     * 与今日日志同目录、同日期标记的附件文件，供分享日志时一并带上（如设备音频报告）。
-     *
-     * 前缀与日期口径都取自本类：附件与日志因此同一天为一批，[cleanOldLogs] 按同一规则跨日清理，
-     * 目录里不会越积越多。返回的只是落点，是否已存在由调用方决定。
-     */
-    fun todayAttachment(name: String): File? {
-        val dir = logDir ?: return null
-        return File(dir, "$LOG_FILE_PREFIX${LocalDate.now().format(dateFormat)}_$name")
     }
 
     /** 日志目录：缓存台账统计日志占用时按此定位，目录名只在此处定义一次 */
