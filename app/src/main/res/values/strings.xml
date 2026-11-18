@@ -441,6 +441,7 @@
     <string name="cache_category_update">更新安装包</string>
     <string name="cache_category_playlist">自定义歌单</string>
     <string name="cache_category_artist_order">歌手曲序</string>
+    <string name="cache_category_album_order">专辑曲序</string>
     <string name="cache_category_proxy_source">代理音源</string>
     <string name="cache_category_recent_played">最近播放</string>
     <string name="cache_category_search_history">搜索历史</string>
@@ -481,7 +482,6 @@
     <plurals name="playlist_album_header_summary">
         <item quantity="other">%1$s · %2$d 首</item>
     </plurals>
-    <string name="playlist_album_info_artist">歌手</string>
     <string name="playlist_album_info_tracks">曲目数</string>
     <string name="playlist_album_info_duration">总时长</string>
     <string name="playlist_artist_no_albums">暂无专辑</string>

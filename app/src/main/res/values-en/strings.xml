@@ -442,6 +442,7 @@
     <string name="cache_category_update">Update packages</string>
     <string name="cache_category_playlist">Custom playlists</string>
     <string name="cache_category_artist_order">Artist track order</string>
+    <string name="cache_category_album_order">Album track order</string>
     <string name="cache_category_proxy_source">Proxy sources</string>
     <string name="cache_category_recent_played">Recently played</string>
     <string name="cache_category_search_history">Search history</string>
@@ -483,7 +484,6 @@
         <item quantity="one">%1$s · %2$d track</item>
         <item quantity="other">%1$s · %2$d tracks</item>
     </plurals>
-    <string name="playlist_album_info_artist">Artist</string>
     <string name="playlist_album_info_tracks">Tracks</string>
     <string name="playlist_album_info_duration">Total length</string>
     <string name="playlist_artist_no_albums">No albums</string>

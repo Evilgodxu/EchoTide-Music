@@ -12,6 +12,7 @@ import com.yichao.evilgodxu.data.music.playback.SEARCH_HISTORY_STORE
 import com.yichao.evilgodxu.data.music.proxy.PROXY_SOURCE_STORE
 import com.yichao.evilgodxu.data.persistence.PersistedData
 import com.yichao.evilgodxu.data.persistence.StoragePaths
+import com.yichao.evilgodxu.data.playlist.ALBUM_ORDER_STORE
 import com.yichao.evilgodxu.data.playlist.ARTIST_ORDER_STORE
 import com.yichao.evilgodxu.data.playlist.PLAYLISTS_STORE
 import com.yichao.evilgodxu.data.settings.SETTINGS_STORE
@@ -50,6 +51,9 @@ enum class CacheCategory {
 
     /** 歌手页曲序 */
     ARTIST_ORDER,
+
+    /** 专辑页曲序 */
+    ALBUM_ORDER,
 
     /** 代理音源 */
     PROXY_SOURCE,
@@ -162,6 +166,7 @@ internal object StorageRegistry {
         // 以下各项为具名持久化数据：逐份存储各占一类，逐项与合计都能对上
         persisted(CacheCategory.PLAYLIST, CacheScope.USER_DATA, PLAYLISTS_STORE),
         persisted(CacheCategory.ARTIST_ORDER, CacheScope.USER_DATA, ARTIST_ORDER_STORE),
+        persisted(CacheCategory.ALBUM_ORDER, CacheScope.USER_DATA, ALBUM_ORDER_STORE),
         persisted(CacheCategory.PROXY_SOURCE, CacheScope.USER_DATA, PROXY_SOURCE_STORE),
         persisted(CacheCategory.RECENT_PLAYED, CacheScope.USER_DATA, RECENT_PLAYED_STORE),
         persisted(CacheCategory.SEARCH_HISTORY, CacheScope.USER_DATA, SEARCH_HISTORY_STORE),

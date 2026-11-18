@@ -9,6 +9,7 @@ import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
+import com.yichao.evilgodxu.data.playlist.AlbumOrderStore
 import com.yichao.evilgodxu.data.playlist.ArtistOrderStore
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.repository.DataStoreSettingsRepository
@@ -46,6 +47,8 @@ class AppContainer(val application: Application) {
     val playlistStore: PlaylistStore by lazy { PlaylistStore(application, appScope) }
 
     val artistOrderStore: ArtistOrderStore by lazy { ArtistOrderStore(application, appScope) }
+
+    val albumOrderStore: AlbumOrderStore by lazy { AlbumOrderStore(application, appScope) }
 
     val proxySourceStore: ProxySourceStore by lazy { ProxySourceStore(application, appScope) }
 
@@ -97,6 +100,10 @@ val LocalArtistOrderStore = staticCompositionLocalOf<ArtistOrderStore> {
     error("ArtistOrderStore is not provided")
 }
 
+val LocalAlbumOrderStore = staticCompositionLocalOf<AlbumOrderStore> {
+    error("AlbumOrderStore is not provided")
+}
+
 val LocalProxySourceStore = staticCompositionLocalOf<ProxySourceStore> {
     error("ProxySourceStore is not provided")
 }
@@ -130,6 +137,7 @@ fun ProvideAppDependencies(container: AppContainer, content: @Composable () -> U
         LocalPlaybackState provides container.playbackState,
         LocalPlaylistStore provides container.playlistStore,
         LocalArtistOrderStore provides container.artistOrderStore,
+        LocalAlbumOrderStore provides container.albumOrderStore,
         LocalProxySourceStore provides container.proxySourceStore,
         LocalMetadataEnricher provides container.metadataEnricher,
         LocalPlaylistRefresher provides container.playlistRefresher,
