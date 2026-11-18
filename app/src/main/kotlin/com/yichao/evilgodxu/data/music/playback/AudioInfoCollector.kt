@@ -63,6 +63,8 @@ internal object AudioInfoCollector {
             val outputs = runCatching {
                 audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
             }.getOrNull().orEmpty().toList()
+            // 先定出输出设备：设备侧速率按路由取值（蓝牙走编码速率），故它要先于快照求得
+            val device = currentOutputDevice(context, audioManager, state, outputs)
             AudioInfoSnapshot(
                 sourcePath = sourcePath(state),
                 fileSizeBytes = fileSizeBytes(context, state),
@@ -74,7 +76,7 @@ internal object AudioInfoCollector {
                 decoder = state.audioDecoderName?.takeIf { it.isNotBlank() },
                 decoderUnavailableFormat = state.decoderUnavailableFormat(),
                 sourceSampleRate = state.sourceSampleRate(),
-                outputSampleRate = outputSampleRate(state),
+                outputSampleRate = outputSampleRate(state, audioManager, device),
                 bitrateKbps = state.audioSignalPathFormat
                     ?.takeIf { state.isAudioSignalPathCurrent }
                     ?.bitrate
@@ -95,7 +97,7 @@ internal object AudioInfoCollector {
                 floatOutput = floatOutputState(state),
                 outputEncoding = outputEncoding(state),
                 transportState = playback.transportState,
-                outputDevice = currentOutputDevice(context, audioManager, state, outputs),
+                outputDevice = device,
             )
         }
     }
@@ -211,22 +213,33 @@ internal object AudioInfoCollector {
     }
 
     /**
-     * 输出侧的流速率。
+     * 输出侧的流速率：**设备链路实际跑着的速率**，不是本应用写进音频轨的请求速率。
      *
-     * 两条经音频轨写出的路取值相同，来源却各有不可替代之处：
-     * - 混音与直出都以**轨道自报的速率**为准。直出按源格式或同族倍率档建轨（44.1 的源挂 88.2 的档时
-     *   就是 88.2）；系统混音不改建轨所用的速率，写进音频轨的仍是解码输出那一个。
-     *   `PROPERTY_OUTPUT_SAMPLE_RATE` 报的是主输出（内置扬声器那条路）的速率，与当前路由无关——挂蓝牙时
-     *   它照样报扬声器的 48k，拿它当输出速率会把 44.1 的播放误标成已重采样；
-     * - 独占：按源速率直接写等时端点，两端必然相等，取源速率即可。
+     * 三条路各有一个真值来源：
+     * - 直出：按已受理的动态混音端口条目建轨（同率档即源速率，倍率档即 88.2 这类倍率），
+     *   专用输出流使设备跟着这个速率跑，故轨道自报值就是设备侧的值；
+     * - 独占：按源速率直接写等时端点，取源速率；
+     * - 混音：见 [mixerOutputSampleRateHz]，音频轨速率在这条路上不是答案。
      *
-     * 音频轨未建立（未起播、已停止）或取不到速率时留空：那正是「未知」与「平台默认值」的区别。
+     * 取不到时留空：那正是「未知」与「平台默认值」的区别。
      */
-    private fun outputSampleRate(state: MusicPlaybackState): Int? =
-        when (state.effectiveOutputMode()) {
-            AudioOutputMode.MIXER, AudioOutputMode.FORMAT_LOCKED -> state.audioSinkOutputSampleRate
-            AudioOutputMode.EXCLUSIVE -> state.sourceSampleRate()
-        }
+    private fun outputSampleRate(
+        state: MusicPlaybackState,
+        audioManager: AudioManager?,
+        device: OutputDeviceInfo?,
+    ): Int? = when (state.effectiveOutputMode()) {
+        AudioOutputMode.MIXER -> mixerOutputSampleRateHz(device, platformOutputSampleRate(audioManager))
+        AudioOutputMode.FORMAT_LOCKED -> state.audioSinkOutputSampleRate
+        AudioOutputMode.EXCLUSIVE -> state.sourceSampleRate()
+    }
+
+    // 主输出那条流的速率（`AudioFlinger::getPrimaryOutputSamplingRate` → 主播放线程的 HAL 速率）。
+    // 厂商未实现该属性时读不到，按未知处理
+    private fun platformOutputSampleRate(audioManager: AudioManager?): Int? =
+        runCatching { audioManager?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE) }
+            .getOrNull()
+            ?.toIntOrNull()
+            ?.takeIf { it > 0 }
 
     // 传输状态：缓冲与结束属播放器的推进态，优先于起播意愿；空闲态说明输出尚未建立
     private fun transportState(player: Player?): AudioTransportState? = when {

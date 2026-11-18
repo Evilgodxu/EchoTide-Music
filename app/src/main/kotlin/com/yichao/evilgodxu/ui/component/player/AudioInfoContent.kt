@@ -602,6 +602,8 @@ private fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<
         playbackState.audioDecoderName,
         playbackState.audioSinkFloatOutput,
         playbackState.audioSinkOutputEncoding,
+        // 同族倍率档换档时写出编码可能不变（24 位仍是 24 位），速率却是另一个值，故速率单独作键
+        playbackState.audioSinkOutputSampleRate,
         playbackState.audioSinkDecodedFormat,
         playbackState.directOutputMode,
         // 独占那条路上设备与写出编码都不由平台给出，这两项各自变化时面板都得重算
