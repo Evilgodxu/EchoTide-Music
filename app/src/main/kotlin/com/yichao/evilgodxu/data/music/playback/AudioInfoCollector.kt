@@ -74,7 +74,7 @@ internal object AudioInfoCollector {
                 decoder = state.audioDecoderName?.takeIf { it.isNotBlank() },
                 decoderUnavailableFormat = state.decoderUnavailableFormat(),
                 sourceSampleRate = state.sourceSampleRate(),
-                outputSampleRate = outputSampleRate(audioManager, state),
+                outputSampleRate = outputSampleRate(state),
                 bitrateKbps = state.audioSignalPathFormat
                     ?.takeIf { state.isAudioSignalPathCurrent }
                     ?.bitrate
@@ -213,22 +213,18 @@ internal object AudioInfoCollector {
     /**
      * 输出侧的流速率。
      *
-     * 三个模式各有一个真值来源，不能互相顶替：
-     * - 混音：跑在设备上的是平台那条流，只有平台属性报得出它的速率；
-     * - 直出：按源格式或同族倍率档建轨，**轨道自报的速率**才是写出去的那一个（44.1 的源挂 88.2 的档时
-     *   就是 88.2）；按源速率报会让人以为设备在跑 44.1；
+     * 两条经音频轨写出的路取值相同，来源却各有不可替代之处：
+     * - 混音与直出都以**轨道自报的速率**为准。直出按源格式或同族倍率档建轨（44.1 的源挂 88.2 的档时
+     *   就是 88.2）；系统混音不改建轨所用的速率，写进音频轨的仍是解码输出那一个。
+     *   `PROPERTY_OUTPUT_SAMPLE_RATE` 报的是主输出（内置扬声器那条路）的速率，与当前路由无关——挂蓝牙时
+     *   它照样报扬声器的 48k，拿它当输出速率会把 44.1 的播放误标成已重采样；
      * - 独占：按源速率直接写等时端点，两端必然相等，取源速率即可。
      *
-     * 取不到时留空，不再用源速率顶替——那正是把 88.2 的写出说成 44.1 的来路。
+     * 音频轨未建立（未起播、已停止）或取不到速率时留空：那正是「未知」与「平台默认值」的区别。
      */
-    private fun outputSampleRate(audioManager: AudioManager?, state: MusicPlaybackState): Int? =
+    private fun outputSampleRate(state: MusicPlaybackState): Int? =
         when (state.effectiveOutputMode()) {
-            AudioOutputMode.MIXER -> audioManager
-                ?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
-                ?.toIntOrNull()
-                ?.takeIf { it > 0 }
-
-            AudioOutputMode.FORMAT_LOCKED -> state.audioSinkOutputSampleRate
+            AudioOutputMode.MIXER, AudioOutputMode.FORMAT_LOCKED -> state.audioSinkOutputSampleRate
             AudioOutputMode.EXCLUSIVE -> state.sourceSampleRate()
         }
 

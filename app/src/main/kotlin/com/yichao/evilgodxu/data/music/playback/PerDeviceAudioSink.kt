@@ -293,9 +293,10 @@ class PerDeviceAudioSink(
                         // 独占的等时环都不经它，靠它就会让三条路径的缓冲深度各自漂移
                         // （见 PlaybackBufferPolicy）
                         .setAudioTrackBufferSizeProvider(PlaybackBufferPolicy.provider)
-                        // 低延迟只在系统混音路径上开启：该路径要求采样率对齐设备原生采样率、会引入
-                        // 重采样，且音效处理在这条路径上不可用（与本应用的「禁用音效」诉求一致）；
-                        // 直出（源格式档）追求按源格式输出，不应被重采样破坏，
+                        // 性能模式只在系统混音路径上申请：PERFORMANCE_MODE_LOW_LATENCY 仅置 FLAG_LOW_LATENCY，
+                        // 真要落到 fast 通路还要求轨速率与输出设备一致、缓冲落在 fast 突发之内。蓝牙没有
+                        // fast 输出、本应用的缓冲又在 80ms 量级，两条都不满足，故这里只是把取向交给平台，
+                        // 并不等于已走上低延迟通路；直出（源格式档）追求按源格式输出，不该被这条取向干扰，
                         // 故直出成立时不设性能模式，退回平台默认路径。
                         .setAudioTrackBuilderModifier { builder, _ ->
                             if (directTarget() == null) {

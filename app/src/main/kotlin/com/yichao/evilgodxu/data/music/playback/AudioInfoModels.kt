@@ -17,7 +17,12 @@ data class BluetoothCodecInfo(
     val name: String?,
     /** 编码采样率 */
     val sampleRateHz: Int?,
-    /** 每样本位数 */
+    /**
+     * 编码器每样本位数，与源文件的位深无关。
+     *
+     * SBC/AAC 的编码器输入端固定按 16 位取样，源文件即使是 24 位也只会被编码器重新取样；
+     * 24 位须协商到 aptX HD / LDAC 才成立。
+     */
     val bitsPerSample: Int?,
     val channelMode: BluetoothChannelMode?,
 )
@@ -203,7 +208,8 @@ data class AudioInfoSnapshot(
      *
      * **报的是写出去的速率，不是源的速率**：直出挂上同族倍率档时（如 44.1 的源只有 88.2 的档位可挂），
      * 写出确实是 88.2，此时报源速率会让人以为设备按 44.1 在跑——同一个数在两行里各指一件事，
-     * 对照时就分不清哪一行才是真的。混音模式下真正跑在设备上的是平台那条流，故取平台值。
+     * 对照时就分不清哪一行才是真的。混音模式取的是本应用那条音频轨自报的速率，而非主输出的平台属性：
+     * 后者与当前路由无关，挂蓝牙时仍报内置扬声器那一路的速率。
      */
     val outputSampleRate: Int?,
     val bitrateKbps: Int?,
