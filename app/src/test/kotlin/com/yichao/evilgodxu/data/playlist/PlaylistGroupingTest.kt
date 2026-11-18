@@ -54,8 +54,8 @@ class PlaylistGroupingTest {
 
     @Test
     fun `智能来源解析最近与收藏`() {
-        assertEquals(listOf(3L, 1L), resolveSourceTracks(tracks, emptyList(), emptySet(), listOf(3, 1), source("smart:RECENT")).map { it.id })
-        assertEquals(listOf(2L), resolveSourceTracks(tracks, emptyList(), setOf(2), emptyList(), source("smart:FAVORITE")).map { it.id })
+        assertEquals(listOf(3L, 1L), resolveSource(tracks, emptyList(), emptySet(), listOf(3, 1), source("smart:RECENT")).map { it.id })
+        assertEquals(listOf(2L), resolveSource(tracks, emptyList(), setOf(2), emptyList(), source("smart:FAVORITE")).map { it.id })
     }
 
     @Test
@@ -63,25 +63,55 @@ class PlaylistGroupingTest {
         val playlists = listOf(Playlist(7, "我的", listOf(3, 1), 0L))
         assertEquals(
             listOf(3L, 1L),
-            resolveSourceTracks(tracks, playlists, emptySet(), emptyList(), source("custom:7")).map { it.id },
+            resolveSource(tracks, playlists, emptySet(), emptyList(), source("custom:7")).map { it.id },
         )
     }
 
     @Test
     fun `专辑来源按专辑 ID 解析`() {
-        assertEquals(listOf(2L, 3L), resolveSourceTracks(tracks, emptyList(), emptySet(), emptyList(), source("album:20")).map { it.id })
+        assertEquals(listOf(2L, 3L), resolveSource(tracks, emptyList(), emptySet(), emptyList(), source("album:20")).map { it.id })
     }
 
     @Test
     fun `歌手来源解析列出的每位歌手`() {
         // 多歌手曲目「甲 / 乙」在两位歌手名下都应出现
-        assertEquals(listOf(1L, 2L), resolveSourceTracks(tracks, emptyList(), emptySet(), emptyList(), source("artist:甲")).map { it.id })
-        assertEquals(listOf(2L, 3L), resolveSourceTracks(tracks, emptyList(), emptySet(), emptyList(), source("artist:乙")).map { it.id })
+        assertEquals(listOf(1L, 2L), resolveSource(tracks, emptyList(), emptySet(), emptyList(), source("artist:甲")).map { it.id })
+        assertEquals(listOf(2L, 3L), resolveSource(tracks, emptyList(), emptySet(), emptyList(), source("artist:乙")).map { it.id })
+    }
+
+    @Test
+    fun `专辑来源套用存档曲序`() {
+        assertEquals(
+            listOf(3L, 2L),
+            resolveSource(
+                tracks,
+                emptyList(),
+                emptySet(),
+                emptyList(),
+                source("album:20"),
+                albumOrders = mapOf("album:20" to listOf(3, 2)),
+            ).map { it.id },
+        )
+    }
+
+    @Test
+    fun `歌手来源套用存档曲序`() {
+        assertEquals(
+            listOf(3L, 2L),
+            resolveSource(
+                tracks,
+                emptyList(),
+                emptySet(),
+                emptyList(),
+                source("artist:乙"),
+                artistOrders = mapOf("乙" to listOf(3, 2)),
+            ).map { it.id },
+        )
     }
 
     @Test
     fun `未知来源解析不出内容`() {
-        assertTrue(resolveSourceTracks(tracks, emptyList(), emptySet(), emptyList(), source("whatever")).isEmpty())
+        assertTrue(resolveSource(tracks, emptyList(), emptySet(), emptyList(), source("whatever")).isEmpty())
     }
 
     // -----------------------------------------------------------------------
@@ -211,6 +241,48 @@ class PlaylistGroupingTest {
     }
 
     // -----------------------------------------------------------------------
+    // 列表封面
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `列表封面取存档曲序中的第一首有效曲目`() {
+        val libraryById = tracks.associateBy { it.id }
+        // 先跳过已失效 ID，再按存档次序取首曲：与详情页展示的同一份顺序一致
+        assertEquals(
+            3L,
+            playlistCoverTrack(
+                tracksById = libraryById,
+                trackIds = listOf(99, 2, 3),
+                savedTrackIds = listOf(3, 2),
+            )?.id,
+        )
+    }
+
+    @Test
+    fun `列表封面在无存档时保持歌单自身顺序`() {
+        val libraryById = tracks.associateBy { it.id }
+        assertEquals(2L, playlistCoverTrack(libraryById, listOf(99, 2, 3), emptyList())?.id)
+    }
+
+    // -----------------------------------------------------------------------
+
+    private fun resolveSource(
+        all: List<MusicTrack>,
+        playlists: List<Playlist>,
+        likedIds: Set<Long>,
+        recentPlayedIds: List<Long>,
+        source: PlaylistSource,
+        albumOrders: Map<String, List<Long>> = emptyMap(),
+        artistOrders: Map<String, List<Long>> = emptyMap(),
+    ): List<MusicTrack> = resolveSourceTracks(
+        all = all,
+        playlists = playlists,
+        likedIds = likedIds,
+        recentPlayedIds = recentPlayedIds,
+        source = source,
+        albumOrders = albumOrders,
+        artistOrders = artistOrders,
+    )
 
     private fun source(key: String): PlaylistSource = PlaylistSource(key, key)
 

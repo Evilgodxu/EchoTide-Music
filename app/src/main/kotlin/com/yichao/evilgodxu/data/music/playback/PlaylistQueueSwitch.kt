@@ -39,6 +39,8 @@ internal fun switchPlaylistSource(
     state: MusicPlaybackState,
     source: PlaylistSource?,
     playlists: List<Playlist>,
+    albumOrders: Map<String, List<Long>>,
+    artistOrders: Map<String, List<Long>>,
     metadataEnricher: MetadataEnricher,
 ): Boolean {
     // 已是当前过滤来源：重复应用只会重建一份等价结果
@@ -48,7 +50,15 @@ internal fun switchPlaylistSource(
     val tracks = if (source == null) {
         library
     } else {
-        resolveSourceTracks(library, playlists, state.likedIds, state.recentPlayedIds, source)
+        resolveSourceTracks(
+            all = library,
+            playlists = playlists,
+            likedIds = state.likedIds,
+            recentPlayedIds = state.recentPlayedIds,
+            source = source,
+            albumOrders = albumOrders,
+            artistOrders = artistOrders,
+        )
     }
     // 空来源无曲可播：保持原播放队列，仅由面板切到该来源展示
     if (tracks.isEmpty()) return false

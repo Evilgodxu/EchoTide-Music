@@ -53,6 +53,7 @@ import com.yichao.evilgodxu.data.playlist.PlaylistGroup
 import com.yichao.evilgodxu.data.playlist.SmartPlaylistType
 import com.yichao.evilgodxu.data.playlist.albumGroups
 import com.yichao.evilgodxu.data.playlist.artistGroups
+import com.yichao.evilgodxu.data.playlist.playlistCoverTrack
 import com.yichao.evilgodxu.data.playlist.recentTracks
 import com.yichao.evilgodxu.data.playlist.resolveTracks
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
@@ -61,6 +62,8 @@ import com.yichao.evilgodxu.data.music.playback.switchToPlaylistQueue
 import com.yichao.evilgodxu.data.music.playback.togglePlayPause
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalMetadataEnricher
+import com.yichao.evilgodxu.LocalAlbumOrderStore
+import com.yichao.evilgodxu.LocalArtistOrderStore
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
@@ -94,6 +97,14 @@ internal fun PlaylistGroupsPage(
     }
     // 行内取封面按 id 查表，避免每行线性扫描全库
     val libraryById = remember(library) { library.associateBy { it.id } }
+    val albumOrders = LocalAlbumOrderStore.current.orders
+    val artistOrders = LocalArtistOrderStore.current.orders
+    // 分组封面与详情页共用同一份存档曲序：调整过歌曲次序后，列表封面随新的首曲一同切换
+    val savedOrders = when (type) {
+        SmartPlaylistType.ALBUM -> albumOrders
+        SmartPlaylistType.ARTIST -> artistOrders
+        else -> emptyMap()
+    }
     val icon: ImageVector = if (type == SmartPlaylistType.ALBUM) AppIcons.Album else AppIcons.Person
     // 列表内搜索关键词：仅过滤展示，不改变曲库
     var searchQuery by remember { mutableStateOf("") }
@@ -105,14 +116,25 @@ internal fun PlaylistGroupsPage(
             groups.filter { it.name.contains(searchQuery, ignoreCase = true) }
         }
     }
+    // 列表展示与邻域预取读同一份封面结果，二者不会因各算一次而在排序后短暂取到不同的曲目
+    val coverTracks = remember(groups, libraryById, savedOrders, type) {
+        groups.associate { group ->
+            val orderKey = if (type == SmartPlaylistType.ALBUM) group.key else group.name
+            group.key to playlistCoverTrack(
+                tracksById = libraryById,
+                trackIds = group.trackIds,
+                savedTrackIds = savedOrders[orderKey].orEmpty(),
+            )
+        }
+    }
     if (groups.isEmpty()) {
         EmptyHint(text = stringResource(R.string.playlist_empty))
     } else {
         val keyboardController = LocalSoftwareKeyboardController.current
         val listState = rememberLazyListState()
-        // 分组封面取该组首曲：可视区邻域提前取图，滚动进入视口时不再先闪占位符
+        // 分组封面取该组存档曲序中的首曲：可视区邻域提前取图，滚动进入视口时不再先闪占位符
         CoverPrefetch(listState) { index ->
-            visibleGroups.getOrNull(index)?.trackIds?.firstOrNull()?.let { libraryById[it] }
+            visibleGroups.getOrNull(index)?.let { coverTracks[it.key] }
         }
         // 底部收紧：键盘展开时压缩列表，搜索框保持在键盘上方；键盘收起时让出系统导航栏高度
         // （首页全沉浸隐藏了两条系统栏，正常路径下该值为 0，保留是为了导航栏被外部显示出来时搜索框与末项不被压住）。
@@ -147,8 +169,8 @@ internal fun PlaylistGroupsPage(
                     items(visibleGroups, key = { it.key }) { group ->
                         PlaylistGroupRow(
                             group = group,
-                            // 专辑/艺术家歌单封面统一采用该歌单内第一首歌曲的封面
-                            coverTrack = group.trackIds.firstOrNull()?.let { libraryById[it] },
+                            // 专辑/艺术家列表与自定义歌单同口径：取该歌单当前首曲的封面
+                            coverTrack = coverTracks[group.key],
                             fallbackIcon = icon,
                             onClick = {
                                 keyboardController?.hide()

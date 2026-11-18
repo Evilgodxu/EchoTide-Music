@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.clip.RingtoneUsage
 import com.yichao.evilgodxu.data.music.clip.shareTrack
 import com.yichao.evilgodxu.data.music.model.MusicTrack
+import com.yichao.evilgodxu.LocalAlbumOrderStore
+import com.yichao.evilgodxu.LocalArtistOrderStore
 import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
@@ -87,6 +89,8 @@ internal fun PlaylistSheet(
     // 面板展示的曲目：跟随播放队列时取播放队列，浏览态按来源歌单从全量库解析。
     // 浏览态只决定展示内容，与播放队列解耦，切换时不动播放器
     val playlistStore = LocalPlaylistStore.current
+    val albumOrders = LocalAlbumOrderStore.current.orders
+    val artistOrders = LocalArtistOrderStore.current.orders
     // 自定义歌单读盘完成前先按空列表处理，避免「暂无歌单」与「尚未读完」混淆
     val playlistStoreLoaded = playlistStore.isLoaded
     val followsQueue = playbackState.viewedFollowsQueue
@@ -100,16 +104,20 @@ internal fun PlaylistSheet(
         playbackState.playlist,
         playbackState.likedIds,
         playbackState.recentPlayedIds,
+        albumOrders,
+        artistOrders,
     ) {
         when {
             followsQueue -> playbackState.playlist
             viewedSource == null -> library
             else -> resolveSourceTracks(
-                library,
-                playlistStore.playlists,
-                playbackState.likedIds,
-                playbackState.recentPlayedIds,
-                viewedSource,
+                all = library,
+                playlists = playlistStore.playlists,
+                likedIds = playbackState.likedIds,
+                recentPlayedIds = playbackState.recentPlayedIds,
+                source = viewedSource,
+                albumOrders = albumOrders,
+                artistOrders = artistOrders,
             )
         }
     }
@@ -258,6 +266,8 @@ internal fun PlaylistSheet(
                     state = playbackState,
                     source = source,
                     playlists = playlistStore.playlists,
+                    albumOrders = albumOrders,
+                    artistOrders = artistOrders,
                     metadataEnricher = metadataEnricher,
                 )
                 if (applied) playbackState.followPlaybackQueue() else playbackState.viewPlaylist(source)

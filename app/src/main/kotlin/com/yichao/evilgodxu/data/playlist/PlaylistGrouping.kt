@@ -28,14 +28,16 @@ internal fun smartTrackCount(all: List<MusicTrack>, ids: Collection<Long>): Int 
 }
 
 // 按歌单来源 key 从全量库解析曲目，供播放列表面板按来源展示。
-// 分支与生成来源 key 的分组逻辑保持一致：专辑/艺术家按各自分组 key 反查，
-// 自定义歌单按 trackIds 查表，故全量库变化后重新解析即为最新内容
+// 分支与生成来源 key 的分组逻辑保持一致：专辑/艺术家按各自分组 key 反查并套用存档曲序，
+// 自定义歌单按 trackIds 查表，故全量库变化后重新解析即为最新内容与用户顺序
 internal fun resolveSourceTracks(
     all: List<MusicTrack>,
     playlists: List<Playlist>,
     likedIds: Set<Long>,
     recentPlayedIds: List<Long>,
     source: PlaylistSource,
+    albumOrders: Map<String, List<Long>>,
+    artistOrders: Map<String, List<Long>>,
 ): List<MusicTrack> = when {
     source.key == "smart:RECENT" -> recentTracks(all, recentPlayedIds)
     source.key == "smart:FAVORITE" -> resolveTracks(all, likedIds)
@@ -45,11 +47,17 @@ internal fun resolveSourceTracks(
     }
     source.key.startsWith("album:") -> {
         val albumId = source.key.removePrefix("album:").toLongOrNull()
-        all.filter { albumId != null && it.albumId == albumId }
+        applySavedTrackOrder(
+            tracks = all.filter { albumId != null && it.albumId == albumId },
+            savedIds = albumOrders[source.key].orEmpty(),
+        )
     }
     source.key.startsWith("artist:") -> {
         val artist = source.key.removePrefix("artist:")
-        all.filter { artist in parseTrackArtists(it.artist) }
+        applySavedTrackOrder(
+            tracks = all.filter { artist in parseTrackArtists(it.artist) },
+            savedIds = artistOrders[artist].orEmpty(),
+        )
     }
     else -> emptyList()
 }
@@ -143,3 +151,14 @@ internal fun applySavedTrackOrder(tracks: List<MusicTrack>, savedIds: List<Long>
     // sortedBy 稳定：未在存档内的曲目按原相对次序排在存档曲目之后
     return tracks.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
 }
+
+// 歌单行封面：解析成员并套上存档曲序后取第一首仍存在的曲目。
+// 自定义歌单的 trackIds 本身即次序，传空存档即可；专辑/歌手列表则由各自曲序表补齐同一口径
+internal fun playlistCoverTrack(
+    tracksById: Map<Long, MusicTrack>,
+    trackIds: List<Long>,
+    savedTrackIds: List<Long>,
+): MusicTrack? = applySavedTrackOrder(
+    tracks = trackIds.mapNotNull { tracksById[it] },
+    savedIds = savedTrackIds,
+).firstOrNull()

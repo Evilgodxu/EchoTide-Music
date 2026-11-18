@@ -54,7 +54,9 @@ class AppContainer(val application: Application) {
 
     val metadataEnricher: MetadataEnricher by lazy { MetadataEnricher() }
 
-    val playlistRefresher: PlaylistRefresher by lazy { PlaylistRefresher(playlistStore) }
+    val playlistRefresher: PlaylistRefresher by lazy {
+        PlaylistRefresher(playlistStore, albumOrderStore, artistOrderStore)
+    }
 
     val playbackState: MusicPlaybackState by lazy {
         MusicPlaybackState(

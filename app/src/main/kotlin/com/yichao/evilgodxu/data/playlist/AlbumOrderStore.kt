@@ -12,6 +12,7 @@ import com.yichao.evilgodxu.data.persistence.PersistedData
 import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import com.yichao.evilgodxu.data.persistence.catchPersistenceIo
 import com.yichao.evilgodxu.log.CrashLogManager
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -52,20 +53,28 @@ class AlbumOrderStore(context: Context, scope: CoroutineScope) {
     var orders by mutableStateOf<Map<String, List<Long>>>(emptyMap())
         private set
 
+    // 首轮读盘完成：启动期重建播放来源前先等它，避免以空曲序覆盖用户已保存的顺序
+    private val initialLoad = CompletableDeferred<Unit>()
+
     init {
         scope.launch {
             appContext.albumOrderDataStore.data
                 .catchPersistenceIo("AlbumOrderStore") { AlbumOrderArchive() }
                 .collect { archive ->
                     orders = archive.orders
+                    initialLoad.complete(Unit)
                 }
         }
+    }
+
+    suspend fun awaitLoaded() {
+        initialLoad.await()
     }
 
     suspend fun setOrder(albumKey: String, orderedIds: List<Long>) {
         if (albumKey.isBlank() || orderedIds.isEmpty()) return
         appContext.albumOrderDataStore.updateData { archive ->
-            archive.copy(orders = archive.orders + (albumKey to orderedIds))
+            archive.copy(orders = archive.orders + (albumKey to orderedIds.distinct()))
         }
     }
 }

@@ -34,6 +34,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yichao.evilgodxu.LocalAlbumOrderStore
+import com.yichao.evilgodxu.LocalArtistOrderStore
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.playlist.PlaylistGroup
@@ -41,6 +43,7 @@ import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.playlist.SmartPlaylistType
 import com.yichao.evilgodxu.data.playlist.albumGroups
 import com.yichao.evilgodxu.data.playlist.artistGroups
+import com.yichao.evilgodxu.data.playlist.playlistCoverTrack
 import com.yichao.evilgodxu.data.playlist.smartTrackCount
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PlaylistSource
@@ -194,7 +197,7 @@ private fun PlaylistSwitchList(
                 title = playlist.name,
                 subtitle = pluralStringResource(R.plurals.music_panel_track_count, playlist.trackIds.size, playlist.trackIds.size),
                 isCurrent = currentKey == "custom:${playlist.id}",
-                coverTrack = playlist.trackIds.firstOrNull()?.let { libraryById[it] },
+                coverTrack = playlist.trackIds.firstNotNullOfOrNull { libraryById[it] },
                 onClick = {
                     onSwitch(PlaylistSource("custom:${playlist.id}", playlist.name))
                 },
@@ -223,23 +226,33 @@ private fun PlaylistSwitchGroups(
         }
     }
     val libraryById = remember(library) { library.associateBy { it.id } }
+    val savedOrders = if (type == SmartPlaylistType.ALBUM) {
+        LocalAlbumOrderStore.current.orders
+    } else {
+        LocalArtistOrderStore.current.orders
+    }
     val icon: ImageVector = if (type == SmartPlaylistType.ALBUM) AppIcons.Album else AppIcons.Person
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         items(groups, key = { it.key }) { group ->
-            // 按分组自带的 id 列表查表还原曲目：逐行 filter 全库会形成 O(分组数 × 库大小)，
-            // 且原按 group.name 反查会漏掉「未知艺术家」组（其 name 是兜底文案，不等于实际 artist）
-            val tracks = remember(group.key, libraryById) {
-                group.trackIds.mapNotNull { libraryById[it] }
+            // 封面与分组名同源，按该组存档曲序取第一首有效曲目；原按 group.name 反查
+            // 会漏掉「未知艺术家」组（其 name 是兜底文案，不等于实际 artist）
+            val orderKey = if (type == SmartPlaylistType.ALBUM) group.key else group.name
+            val coverTrack = remember(group.key, group.trackIds, libraryById, savedOrders) {
+                playlistCoverTrack(
+                    tracksById = libraryById,
+                    trackIds = group.trackIds,
+                    savedTrackIds = savedOrders[orderKey].orEmpty(),
+                )
             }
             SwitchRow(
                 icon = icon,
                 title = group.name,
                 subtitle = pluralStringResource(R.plurals.music_panel_track_count, group.trackIds.size, group.trackIds.size),
                 isCurrent = currentKey == group.key,
-                coverTrack = tracks.firstOrNull(),
+                coverTrack = coverTrack,
                 onClick = { onSwitch(PlaylistSource(group.key, group.name)) },
             )
         }

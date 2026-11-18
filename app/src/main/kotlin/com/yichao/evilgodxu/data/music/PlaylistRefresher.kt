@@ -3,6 +3,8 @@ package com.yichao.evilgodxu.data.music
 import android.content.Context
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.model.MusicTrack
+import com.yichao.evilgodxu.data.playlist.AlbumOrderStore
+import com.yichao.evilgodxu.data.playlist.ArtistOrderStore
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.playlist.resolveSourceTracks
 import com.yichao.evilgodxu.data.music.analysis.trackFormatCategory
@@ -17,7 +19,11 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 // 播放列表刷新器：首页与外部音频后台播放共用扫描入口，串行执行避免并发重复扫描
-class PlaylistRefresher(private val playlistStore: PlaylistStore) {
+class PlaylistRefresher(
+    private val playlistStore: PlaylistStore,
+    private val albumOrderStore: AlbumOrderStore,
+    private val artistOrderStore: ArtistOrderStore,
+) {
     private val scanMutex = Mutex()
 
     suspend fun refresh(
@@ -151,12 +157,19 @@ class PlaylistRefresher(private val playlistStore: PlaylistStore) {
                 library.filter { trackFormatCategory(context, it) == format }
             }
         }
-        else -> resolveSourceTracks(
-            all = library,
-            playlists = playlistStore.playlists,
-            likedIds = state.likedIds,
-            recentPlayedIds = state.recentPlayedIds,
-            source = source,
-        )
+        else -> {
+            // 冷启动扫描可能先于曲序读盘完成：空曲序会把用户顺序覆盖成曲库顺序并随即落盘
+            albumOrderStore.awaitLoaded()
+            artistOrderStore.awaitLoaded()
+            resolveSourceTracks(
+                all = library,
+                playlists = playlistStore.playlists,
+                likedIds = state.likedIds,
+                recentPlayedIds = state.recentPlayedIds,
+                source = source,
+                albumOrders = albumOrderStore.orders,
+                artistOrders = artistOrderStore.orders,
+            )
+        }
     }
 }
