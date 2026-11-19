@@ -191,17 +191,28 @@ internal class UsbExclusiveAudioSink(
         this.listener = listener
     }
 
-    // 只接线性 PCM：独占变体只被选来按源格式写出，压缩格式与直通不经此处
+    // 只接本层能按子槽排布写出的线性 PCM：独占变体只被选来按源格式写出，压缩格式与直通不经此处
     override fun supportsFormat(format: Format): Boolean =
-        MimeTypes.AUDIO_RAW == format.sampleMimeType && Util.isEncodingLinearPcm(format.pcmEncoding)
+        MimeTypes.AUDIO_RAW == format.sampleMimeType && isDeliverableEncoding(format.pcmEncoding)
 
-    // 本接收器自行转换，故线性 PCM 一律按「直接支持」申报；与 [intPcmFormatSupport] 同口径
+    /**
+     * 能力申报与 [supportsFormat] 用同一个判据。
+     *
+     * 报「直接支持」就是让媒体3 跳过重采样与转码，因此它必须与配置期真正建得起的流一致：位深规划
+     * （[planUsbOutput]）只认得出 [sourceBitDepthOf] 覆盖的编码，大端变体与双精度在那里没有位深可言，
+     * 配置期会以 `ConfigurationException` 拒绝。若这里照样报支持，就成了"申报能播、配置报错"——
+     * 直接配置本接收器的一方拿到的是整曲失败，而不是退回去走平台路径。
+     */
     override fun getFormatSupport(format: Format): Int =
-        if (Util.isEncodingLinearPcm(format.pcmEncoding)) {
+        if (isDeliverableEncoding(format.pcmEncoding)) {
             AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY
         } else {
             AudioSink.SINK_FORMAT_UNSUPPORTED
         }
+
+    /** 线性 PCM 且位深可判定：两者缺一，配置期都挑不出子槽 */
+    private fun isDeliverableEncoding(pcmEncoding: Int): Boolean =
+        Util.isEncodingLinearPcm(pcmEncoding) && sourceBitDepthOf(pcmEncoding) != 0
 
     override fun setClock(clock: Clock) {
         this.clock = clock

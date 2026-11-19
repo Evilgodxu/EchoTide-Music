@@ -33,7 +33,33 @@ class UsbSubslotPackerTest {
     @Test
     fun `负样本保持补码`() {
         assertArrayEquals(bytes(0x00, 0x00, 0x00, 0x80), subslot(Int.MIN_VALUE, 4))
-        assertArrayEquals(bytes(0xFF, 0xFF, 0xFF), subslot(-1, 3))
+        // -0x1000 正好落在 24 位 LSB 的整数倍上，取整不动它
+        assertArrayEquals(bytes(0xF0, 0xFF, 0xFF), subslot(-0x1000, 3))
+    }
+
+    // 丢低位是四舍五入而不是向下取整：半个 LSB 进位，不足半个不进位。
+    // 24 位子槽的半个 LSB 在左对齐 32 位下是 0x80——右移会把它抹掉，误差整体偏向负侧
+    @Test
+    fun `丢低位按目标子槽四舍五入`() {
+        assertArrayEquals(bytes(0x00, 0x00, 0x00), subslot(0x7F, 3))
+        assertArrayEquals(bytes(0x01, 0x00, 0x00), subslot(0x80, 3))
+        assertArrayEquals(bytes(0x02, 0x00, 0x00), subslot(0x180, 3))
+        assertArrayEquals(bytes(0xFF, 0xFF, 0xFF), subslot(-0x81, 3))
+    }
+
+    // 窄源在宽槽里才留得住深衰减的细节：16 位源的最低位经 1/4 幅度衰减后只剩 0.25 个 LSB16，
+    // 24 位槽里它仍是 64（256 个量化级取得到），16 位槽里只能整段量化成 0。
+    // 这正是 planUsbOutput 给窄源留 8 位余量的理由
+    @Test
+    fun `深衰减的细节在更宽的子槽中保留`() {
+        assertArrayEquals(
+            bytes(0x40, 0x00, 0x00),
+            pack(byteBuffer(0x01, 0x00), C.ENCODING_PCM_16BIT, subslotBytes = 3, volume = 0.25f),
+        )
+        assertArrayEquals(
+            bytes(0x00, 0x00),
+            pack(byteBuffer(0x01, 0x00), C.ENCODING_PCM_16BIT, subslotBytes = 2, volume = 0.25f),
+        )
     }
 
     // 16 位源放进 16 位槽：一位不动。左移补零成 32 位后再取高两字节，恰好还原原值
@@ -182,8 +208,8 @@ class UsbSubslotPackerTest {
             gainToQ15 = UNITY_GAIN_Q15,
         )
 
-        // 首样本：0x7FFF 半幅即 16383.5，取高 16 位截断为 16383
-        assertEquals(16383, shortAt(output, 0))
+        // 首样本：0x7FFF 半幅即 16383.5，落到 16 位 LSB 上是半个 LSB，四舍五入进位为 16384
+        assertEquals(16384, shortAt(output, 0))
         // 末样本：目标增益是满幅，样本一位不动
         assertEquals(32767, shortAt(output, samples - 1))
     }
@@ -225,7 +251,8 @@ class UsbSubslotPackerTest {
         )
 
         assertEquals(0, shortAt(output, 0))
-        assertEquals(16383, shortAt(output, 1))
+        // 半幅：16383.5 落在半个 LSB 上，四舍五入进位
+        assertEquals(16384, shortAt(output, 1))
         assertEquals(32767, shortAt(output, samples - 1))
     }
 
@@ -268,8 +295,8 @@ class UsbSubslotPackerTest {
 
         val values = (0 until samples).map { shortAt(output, it) }
         assertEquals(0, values[0])
-        // 半幅：0x7FFF 的左对齐 32 位值乘 0.5 后取高 16 位，截断为 16383
-        assertEquals(16383, values[1])
+        // 半幅：0x7FFF 的 32 位左对齐值乘 0.5 是 16383.5，四舍五入进位为 16384
+        assertEquals(16384, values[1])
         // 第 3 个样本（下标 2）即落在目标上，此后不再变化
         assertTrue(values.drop(2).all { it == 32767 })
     }

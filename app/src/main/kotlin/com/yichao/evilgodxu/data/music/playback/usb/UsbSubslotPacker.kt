@@ -19,7 +19,10 @@ import java.nio.ByteBuffer
  * 音量按 15 位定点增益施加：raw 路径绕过了混音器，`AudioManager` 的音量与音效都不再作用于这条流，
  * 系统音量滑杆若想要有用就只能自己做。起止增益相同且为满幅时整段缩放不参与，写出仍是逐位原样——独占
  * 直出的价值正在于此，不该因为一个恒为满幅的乘数而被牺牲掉。小于 1 时按线性幅度缩放（与媒体3 的音量
- * 口径一致），并带半步进位以免每次向下取整都引入同样的直流偏置。
+ * 口径一致）；缩放要丢的精度由 [writeSubslot] 按目标子槽的 LSB 四舍五入兜住。
+ *
+ * 位深不是无限的：衰减是拿位深换响度，16 位子槽上一个 LSB 就是 -90 dBFS。故 [planUsbOutput] 给窄源
+ * 留了一档余量（见该函数的说明），本函数只负责在这一档内把误差压到最小。
  *
  * 起止增益不同即在**本块缓冲内**逐样本斜到目标值：音量键按下即生效，而一次改动不会在缓冲边界上留一个
  * 台阶。台阶本身未必听成咔哒，但每块缓冲都来一次就是持续的背景噪声。
@@ -93,11 +96,29 @@ internal fun packToSubslot(
  *
  * 左对齐 32 位下，源的有效位落在最高字节一侧；跳过最低的 `4 - subslotBytes` 个字节即得到目标排布。
  * 子槽 4 时跳过 0 字节，即整字照搬。
+ *
+ * 丢低位前先按目标子槽的 LSB **四舍五入**：直接算术右移是向下取整，负样本一律多减一档，长期是半个
+ * LSB 的直流偏置，且把量化误差做成与信号相关。位深越浅、衰减越深，这笔误差越盖过低电平内容——16 位
+ * 子槽上一个 LSB 就是 -90 dBFS，默认 -30 dB 的衰减把 -60 dBFS 的细节正好压到 1 个 LSB 上，听感即
+ * "背景细节变成发毛的噪声"。四舍五入把误差收到 ±½ LSB 且均值为零，是这一位精度下的最小误差。
+ *
+ * 已经落在整 LSB 上的值不受影响：满幅时低字节本就是零，加半个 LSB 之后再移位不会改动任何一个目标
+ * 字节，故"满幅逐位原样"的契约不变。**不做抖动**——抖动拿 -90 dBFS 的噪声换掉相关失真，改变的是数据
+ * 本身，满幅分支上更等于把"逐位无损"变成"逐位加噪"。要深衰减又不掉细节，出路是给子槽留余量
+ * （见 [planUsbOutput] 的软件音量余量），不是在末端加噪。
  */
 internal fun writeSubslot(output: ByteBuffer, value: Int, subslotBytes: Int) {
     val skip = 4 - subslotBytes
+    // 满幅正值加半个 LSB 会越过 Int 上界，故在 Long 里加完再钳回
+    val rounded = if (skip == 0) {
+        value
+    } else {
+        (value.toLong() + (1L shl (8 * skip - 1)))
+            .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong())
+            .toInt()
+    }
     for (index in 0 until subslotBytes) {
-        output.put((value shr (8 * (skip + index))).toByte())
+        output.put((rounded shr (8 * (skip + index))).toByte())
     }
 }
 

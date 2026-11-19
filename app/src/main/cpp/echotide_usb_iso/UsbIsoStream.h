@@ -150,7 +150,7 @@ private:
     struct Urb {
         /** usbdevfs_urb 及其尾部柔性数组成员 iso_frame_desc[] 的存放地 */
         std::vector<uint64_t> descriptor;
-        /** 数据缓冲：packetsPerUrb × maxPacketBytes，按最坏情况分配以免单包越界 */
+        /** 数据缓冲：packetsPerUrb × 单包上限（已按 bInterval 折算，见 packetBytesPerPacket_） */
         std::vector<uint8_t> buffer;
         usbdevfs_urb* urb = nullptr;
         /** 是否已被提交给内核：回收线程与停机路径都会读写，故按原子量发布 */
@@ -184,6 +184,13 @@ private:
     int fd_ = -1;
     bool highSpeed_ = false;
     int packetsPerSecond_ = 0;
+    /**
+     * 单个等时包可承载的最大字节数：端点的 wMaxPacketSize 按 2^(bInterval-1) 个服务间隔折算后的结果。
+     *
+     * wMaxPacketSize 是"每服务间隔"的上界，而 bInterval 大于 1 时一个包跨多个服务间隔送出，故这个值
+     * 才是单包的真实上限——包缓冲按它分配，单包帧数也按它夹。见 start()。
+     */
+    uint32_t packetBytesPerPacket_ = 0;
     uint32_t maxFramesPerPacket_ = 0;
     /** 实际使用的在飞 URB 个数：由配置下限与目标时长共同求出，见 start() */
     int urbCount_ = 0;

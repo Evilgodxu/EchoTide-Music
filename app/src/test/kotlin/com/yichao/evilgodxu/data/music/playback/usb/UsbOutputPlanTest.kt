@@ -61,18 +61,33 @@ class UsbOutputPlanTest {
         assertNull(plan)
     }
 
-    // 16 位源优先落在 16 位通道上，而不是设备最宽的那一档
+    // 16 位源优先落在留出软件音量余量的 24 位通道上：独占的音量由本应用施加，而衰减消耗的是位深——
+    // 16 位槽上一个 LSB 就是 -90 dBFS，容不下 -30 dB 衰减之后的低电平细节。满幅时写出仍逐位原样：
+    // 16 位样本落在 24 位槽的高两位、低八位为零，设备读到的还是那个值
     @Test
-    fun `16 位源优先 16 位模式`() {
+    fun `16 位源优先留出余量的 24 位模式`() {
         val plan = planUsbOutput(
             sampleRate = 48000,
             channelCount = 2,
             sourceBitDepth = 16,
             candidates = listOf(
                 format(altSetting = 1, subslotBytes = 2, bitResolution = 16),
-                format(altSetting = 2, subslotBytes = 4, bitResolution = 24),
+                format(altSetting = 2, subslotBytes = 3, bitResolution = 24),
                 format(altSetting = 3, subslotBytes = 4, bitResolution = 32),
             ),
+        )
+
+        assertEquals(2, plan?.altSetting)
+    }
+
+    // 设备只声明 16 位时退回"够装即可"：留不出余量也得能播，四舍五入保证误差仍在半个 LSB 内
+    @Test
+    fun `没有更宽档位时退回 16 位模式`() {
+        val plan = planUsbOutput(
+            sampleRate = 48000,
+            channelCount = 2,
+            sourceBitDepth = 16,
+            candidates = listOf(format(altSetting = 1, subslotBytes = 2, bitResolution = 16)),
         )
 
         assertEquals(1, plan?.altSetting)

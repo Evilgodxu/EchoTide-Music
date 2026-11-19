@@ -125,10 +125,15 @@ bool UsbIsoStream::start(const Config& config) {
         highSpeed_ = config_.maxPacketBytes > 1023;
     }
     // bInterval 大于 1 表示每 2^(n-1) 个服务间隔才发一包，包随之变大；封顶到 8 个间隔
-    const int shift = std::clamp(config_.interval, 1, 16) - 1;
-    packetsPerSecond_ = (highSpeed_ ? 8000 : 1000) >> std::min(shift, 3);
+    const int shift = std::min(std::clamp(config_.interval, 1, 16) - 1, 3);
+    packetsPerSecond_ = (highSpeed_ ? 8000 : 1000) >> shift;
 
-    maxFramesPerPacket_ = uint32_t(config_.maxPacketBytes / config_.frameBytes);
+    // wMaxPacketSize 是**每服务间隔**的上界，而一个包跨 2^shift 个服务间隔送出，故单包可承载的字节数是
+    // 它的 2^shift 倍。不乘这个倍数会把包长错误地夹到 1/2^shift：轻则每包少送帧、环一路积压并让设备持续
+    // 欠载（听感是连续断续），重则标称包长直接超过上限、start() 判整条流建不起来（表现为这台设备"独占
+    // 一开就没声、退回平台"）。包缓冲按本值分配，否则夹后的包长会写出分配范围之外
+    packetBytesPerPacket_ = uint32_t(config_.maxPacketBytes) << shift;
+    maxFramesPerPacket_ = packetBytesPerPacket_ / uint32_t(config_.frameBytes);
     if (maxFramesPerPacket_ == 0) return false;
     const uint32_t nominalFrames = uint32_t(config_.sampleRate) / uint32_t(packetsPerSecond_);
     if (nominalFrames == 0 || nominalFrames > maxFramesPerPacket_) return false;
@@ -157,7 +162,7 @@ bool UsbIsoStream::start(const Config& config) {
     for (int i = 0; i < urbCount_; ++i) {
         auto urb = std::make_unique<Urb>();
         urb->urb = placeUrb(urb->descriptor, config_.packetsPerUrb);
-        urb->buffer.assign(size_t(config_.packetsPerUrb) * size_t(config_.maxPacketBytes), 0);
+        urb->buffer.assign(size_t(config_.packetsPerUrb) * size_t(packetBytesPerPacket_), 0);
         urbs_.push_back(std::move(urb));
     }
     if (config_.feedbackEndpoint != 0) {
