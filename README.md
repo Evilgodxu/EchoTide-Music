@@ -10,10 +10,10 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-6.2.9-informational)
+![Version](https://img.shields.io/badge/version-6.3.5-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.5.1-blue)
-![Gradle](https://img.shields.io/badge/Gradle-9.9.0-blue)
+![Gradle](https://img.shields.io/badge/Gradle-9.9.1-blue)
 ![Compose BOM](https://img.shields.io/badge/Compose%20BOM-2026.09.00-blue)
 ![minSdk](https://img.shields.io/badge/minSdk-34-orange)
 ![targetSdk](https://img.shields.io/badge/targetSdk-37-orange)
@@ -50,7 +50,7 @@ Portrait or landscape, immersion is the only goal.
 | Adaptive layout | In-house window size classes (`windowsize/`), no third-party adaptive library |
 | Lifecycle | androidx.lifecycle 2.11.0, activity-compose 1.13.0 |
 | Native layer | NDK 28.2.13676358, CMake 3.22.1 (usbfs isochronous transfer for USB exclusive output) |
-| Build | AGP 9.5.1, Gradle 9.9.0, refreshVersions |
+| Build | AGP 9.5.1, Gradle 9.9.1, refreshVersions |
 
 ## Project Structure
 
@@ -75,6 +75,7 @@ Portrait or landscape, immersion is the only goal.
 │       │   │   │   ├── playback/        #     Playback state, queue switching, sorting, recent plays, USB direct / exclusive output & Do Not Disturb, per-device audio output (incl. buffer policy), output-latency measurement, audio-info snapshot (incl. Bluetooth link & codec resolution)
 │       │   │   │   ├── proxy/           #     Proxy sources (import / parse / engine / storage) & custom-platform registry
 │       │   │   │   ├── recommend/       #     Lyric text features (shared with chorus location)
+│       │   │   │   ├── remote/          #     Remote cover loading & size-bounded LRU cache
 │       │   │   │   ├── MusicScanner.kt  #     MediaStore scanning & track enrichment
 │       │   │   │   └── PlaylistRefresher.kt  # Playlist refresh pipeline
 │       │   │   ├── persistence/         #   Persisted-data declarations & shared paths (single source of truth for on-disk file names)
@@ -87,6 +88,7 @@ Portrait or landscape, immersion is the only goal.
 │       │   ├── log/                     # CrashLogManager
 │       │   ├── navigation/              # Navigation3 type-safe routes & navigation host
 │       │   ├── permission/              # Permission checks, settings-page round trips & return-to-foreground
+│       │   ├── report/                  # Device audio report (one-off file generated for sharing)
 │       │   ├── screens/                 # Screens (home / settings / storage / playback layout / spectrum / metadata)
 │       │   │   ├── home/                #   Home player + startup permission chain + playlists (incl. artist pages) + online search
 │       │   │   │   ├── compact/         #     Portrait assembly (compact/player: portrait player)
@@ -105,17 +107,17 @@ Portrait or landscape, immersion is the only goal.
 │       │   ├── utils/                   # General utilities
 │       │   ├── windowsize/              # Window size classes & landscape form detection
 │       │   ├── App.kt                   # Application entry (holds singletons & CompositionLocals)
+│       │   ├── AppContainer.kt          # Manually wired container of shared singletons
 │       │   ├── AppContent.kt            # Root composable (navigation host & global dialogs)
 │       │   ├── MainActivity.kt          # Sole Activity (system bars, external intents, app locale)
 │       │   └── MainViewModel.kt         # Activity-scoped ViewModel (incl. AppUiState)
 │       ├── cpp/                         # Native layer: usbfs isochronous transfer for USB exclusive output (JNI bridge + isochronous stream)
 │       └── res/                         # Resources (values / values-en)
-├── archive/                             # Archived feature experiments (audio quality & AI detection, daily recommendations), not built
 ├── baselineprofile/                     # Baseline & startup profile source set
 ├── gradle/
 │   ├── libs.versions.toml               # Version catalog (dependency management)
 │   └── wrapper/
-├── docs/                                # Proxy source spec, UI screenshots & design mockups
+├── docs/                                # Proxy source spec, UI screenshots, design mockups, APK report & project notes
 ├── LICENSE
 ├── build.gradle.kts
 ├── settings.gradle.kts
@@ -149,7 +151,7 @@ The startup chain walks music access → notifications → all-files access, eac
 
 ### Requirements
 
-- JDK 21 - 25
+- JDK 21
 - Android Studio (the latest stable release is recommended)
 - An Android SDK that contains API 37 (`compileSdk`)
 

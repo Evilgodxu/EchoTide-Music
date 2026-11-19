@@ -10,10 +10,10 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-6.2.9-informational)
+![Version](https://img.shields.io/badge/version-6.3.5-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
 ![AGP](https://img.shields.io/badge/AGP-9.5.1-blue)
-![Gradle](https://img.shields.io/badge/Gradle-9.9.0-blue)
+![Gradle](https://img.shields.io/badge/Gradle-9.9.1-blue)
 ![Compose BOM](https://img.shields.io/badge/Compose%20BOM-2026.09.00-blue)
 ![minSdk](https://img.shields.io/badge/minSdk-34-orange)
 ![targetSdk](https://img.shields.io/badge/targetSdk-37-orange)
@@ -50,7 +50,7 @@
 | 自适应布局 | 自研窗口尺寸类（`windowsize/`），不引第三方自适应库 |
 | 生命周期 | androidx.lifecycle 2.11.0、activity-compose 1.13.0 |
 | 原生层 | NDK 28.2.13676358、CMake 3.22.1（USB 独占的 usbfs 等时传输） |
-| 构建 | AGP 9.5.1、Gradle 9.9.0、refreshVersions |
+| 构建 | AGP 9.5.1、Gradle 9.9.1、refreshVersions |
 
 ## 项目结构
 
@@ -75,6 +75,7 @@
 │       │   │   │   ├── playback/        #     播放状态、队列切换、排序、常听、USB 直出 / 独占与免打扰、按设备音频输出(含缓冲策略)、输出延迟实测、音频信息快照(含蓝牙链路与编解码器解析)
 │       │   │   │   ├── proxy/           #     代理音源(导入 / 解析 / 引擎 / 存储)与自定义平台注册表
 │       │   │   │   ├── recommend/       #     歌词文本特征(与副歌定位共用)
+│       │   │   │   ├── remote/          #     远端封面加载与容量受限 LRU 缓存
 │       │   │   │   ├── MusicScanner.kt  #     MediaStore 扫描与曲目补全
 │       │   │   │   └── PlaylistRefresher.kt  # 播放列表刷新流程
 │       │   │   ├── persistence/         #   持久化落点声明与共享路径(磁盘文件名的唯一事实来源)
@@ -87,6 +88,7 @@
 │       │   ├── log/                     # CrashLogManager
 │       │   ├── navigation/              # Navigation3 类型安全路由与导航宿主
 │       │   ├── permission/              # 权限检查、系统授权页往返与授权后回到前台
+│       │   ├── report/                  # 设备音频报告(为分享生成的一次性文件)
 │       │   ├── screens/                 # 页面(首页 / 设置 / 存储 / 播放页排版 / 频谱 / 元数据)
 │       │   │   ├── home/                #   首页播放器 + 启动期授权串行 + 歌单(含歌手页) + 在线搜索
 │       │   │   │   ├── compact/         #     竖屏组装器(compact/player:竖屏播放器)
@@ -105,17 +107,17 @@
 │       │   ├── utils/                   # 通用工具
 │       │   ├── windowsize/              # 窗口尺寸类与横屏形态判定
 │       │   ├── App.kt                   # Application 入口(持有单例与组合局部)
+│       │   ├── AppContainer.kt          # 手动装配的共享单例容器
 │       │   ├── AppContent.kt            # 根可组合项(导航宿主与全局弹窗)
 │       │   ├── MainActivity.kt          # 唯一 Activity(系统栏、外部意图、应用语言)
 │       │   └── MainViewModel.kt         # Activity 专属 ViewModel(含 AppUiState)
 │       ├── cpp/                         # 原生层:USB 独占的 usbfs 等时传输(JNI 桥 + 等时流)
 │       └── res/                         # 资源(values / values-en)
-├── archive/                             # 归档的功能试验(音质与 AI 识别、每日推荐)，不参与构建
 ├── baselineprofile/                     # 基准配置与启动配置源集
 ├── gradle/
 │   ├── libs.versions.toml               # 版本目录(依赖管理)
 │   └── wrapper/
-├── docs/                                # 代理音源规范、界面截图与设计稿
+├── docs/                                # 代理音源规范、界面截图、设计稿、APK 报告与项目注意事项
 ├── LICENSE
 ├── build.gradle.kts
 ├── settings.gradle.kts
@@ -149,7 +151,7 @@ APK 体积、对齐与签名的体检工具改用[模板仓库](https://github.c
 
 ### 环境要求
 
-- JDK 21 - 25
+- JDK 21
 - Android Studio（建议最新稳定版）
 - 包含 API 37(`compileSdk`)的 Android SDK
 
