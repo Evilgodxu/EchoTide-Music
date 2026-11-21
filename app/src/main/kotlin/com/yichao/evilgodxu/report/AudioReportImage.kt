@@ -6,6 +6,8 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.text.StaticLayout
 import android.text.TextPaint
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.withTranslation
 import java.io.File
 import kotlin.math.max
 
@@ -41,7 +43,7 @@ internal object AudioReportImage {
         val paints = ReportPaints()
         val lines = parseAudioReportLines(report).map { measure(it, paints) }
         val height = (PAGE_PADDING * 2 + lines.sumOf { it.height }).toInt()
-        val bitmap = Bitmap.createBitmap(IMAGE_WIDTH, height, Bitmap.Config.ARGB_8888)
+        val bitmap = createBitmap(IMAGE_WIDTH, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(COLOR_BACKGROUND)
 
@@ -157,10 +159,7 @@ internal object AudioReportImage {
             .build()
 
     private fun StaticLayout.drawAt(canvas: Canvas, x: Float, y: Float) {
-        canvas.save()
-        canvas.translate(x, y)
-        draw(canvas)
-        canvas.restore()
+        canvas.withTranslation(x, y) { draw(canvas) }
     }
 }
 
