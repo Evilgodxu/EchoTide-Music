@@ -57,10 +57,10 @@ fun AppInfo(
     }
 
     // 单件附件走 ACTION_SEND：部分接收方不认 SEND_MULTIPLE 的单元素列表
-    fun shareFile(file: File, subject: String, title: String) {
+    fun shareFile(file: File, subject: String, title: String, mimeType: String = "text/plain") {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         val sendIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
+            type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, subject)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -82,7 +82,7 @@ fun AppInfo(
     fun shareAudioReport() {
         scope.launch {
             val report = withContext(Dispatchers.IO) { AudioReport.writeShareable(context) } ?: return@launch
-            shareFile(report, shareReportSubject, shareReportTitle)
+            shareFile(report, shareReportSubject, shareReportTitle, mimeType = "image/png")
         }
     }
 

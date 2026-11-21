@@ -23,7 +23,7 @@ import java.util.Locale
 // 随系统「清理缓存」整批回收即可，不与日志或其他持久数据共用目录
 private const val REPORT_DIR_NAME = "reports"
 
-private const val REPORT_FILE_NAME = "设备音频报告.txt"
+private const val REPORT_FILE_NAME = "设备音频报告.png"
 
 // 写出失败只留系统日志：这条路径不承担用户侧的排障，不该往待分享的日志里写
 private const val TAG = "AudioReport"
@@ -57,7 +57,7 @@ internal object AudioReport {
         val file = File(dir, REPORT_FILE_NAME)
         return runCatching {
             dir.mkdirs()
-            file.writeText(build(context))
+            AudioReportImage.write(build(context), file)
             file
         }.onFailure {
             Log.e(TAG, "写入设备音频报告失败", it)
