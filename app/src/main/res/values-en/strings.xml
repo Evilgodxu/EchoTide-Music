@@ -560,7 +560,7 @@
     <string name="app_info_share_report_subject">Device audio report</string>
     <string name="app_info_share_report_title">Share audio report</string>
     <string name="app_info_audio_report_saved">Audio report saved to gallery</string>
-    <string name="app_info_audio_report_save_failed">Audio report generated, but saving to gallery failed</string>
+    <string name="app_info_audio_report_save_failed">Audio report generated, but saving to gallery failed; sharing cancelled</string>
     <string name="app_info_audio_report_failed">Failed to generate audio report</string>
 
     <!-- Common -->

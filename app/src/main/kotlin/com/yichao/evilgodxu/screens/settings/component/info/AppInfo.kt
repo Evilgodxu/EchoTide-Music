@@ -2,6 +2,7 @@ package com.yichao.evilgodxu.screens.settings.component.info
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -69,8 +70,7 @@ fun AppInfo(
     }
 
     // 单件附件走 ACTION_SEND：部分接收方不认 SEND_MULTIPLE 的单元素列表
-    fun shareFile(file: File, subject: String, title: String, mimeType: String = "text/plain") {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    fun shareUri(uri: Uri, subject: String, title: String, mimeType: String = "text/plain") {
         val sendIntent = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
@@ -81,6 +81,15 @@ fun AppInfo(
         // LocalContext 为本地化包装 context，非 Activity 时需加 NEW_TASK
         if (context !is Activity) chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(chooser)
+    }
+
+    fun shareFile(file: File, subject: String, title: String, mimeType: String = "text/plain") {
+        shareUri(
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file),
+            subject,
+            title,
+            mimeType,
+        )
     }
 
     // 分享今日日志；没有今日日志时不拉起空分享
@@ -101,19 +110,19 @@ fun AppInfo(
                 Toast.makeText(context, reportFailed, Toast.LENGTH_SHORT).show()
                 return@launch
             }
-            // 先存档进相册再分享：报告文件本身留给分享目标读取，不从缓存搬走
-            val saved = withContext(Dispatchers.IO) {
+            // 先存档进相册；只有确认写入成功，才分享相册里的这张图，失败则中止分享
+            val albumUri = withContext(Dispatchers.IO) {
                 runCatching {
-                    AlbumImageStore.write(context, report.name, "image/png", report.readBytes())
-                }.getOrDefault(false)
+                    AlbumImageStore.writeToAlbum(context, report.name, "image/png", report.readBytes())
+                }.getOrNull()
             }
             reportBusy = false
-            Toast.makeText(
-                context,
-                if (saved) reportSaved else reportSaveFailed,
-                Toast.LENGTH_SHORT,
-            ).show()
-            shareFile(report, shareReportSubject, shareReportTitle, mimeType = "image/png")
+            if (albumUri == null) {
+                Toast.makeText(context, reportSaveFailed, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            Toast.makeText(context, reportSaved, Toast.LENGTH_SHORT).show()
+            shareUri(albumUri, shareReportSubject, shareReportTitle, mimeType = "image/png")
         }
     }
 

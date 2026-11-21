@@ -554,7 +554,7 @@
     <string name="app_info_share_report_subject">设备音频报告</string>
     <string name="app_info_share_report_title">分享音频报告</string>
     <string name="app_info_audio_report_saved">音频报告已保存到相册</string>
-    <string name="app_info_audio_report_save_failed">音频报告已生成，但保存到相册失败</string>
+    <string name="app_info_audio_report_save_failed">音频报告已生成，但保存到相册失败，已取消分享</string>
     <string name="app_info_audio_report_failed">音频报告生成失败</string>
 
     <!-- 通用 -->
