@@ -1,7 +1,6 @@
 package com.yichao.evilgodxu.screens.home.component.audioinfo
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -30,6 +29,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,9 +40,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.layer.GraphicsLayer
-import androidx.compose.ui.graphics.rememberGraphicsLayer
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -53,12 +50,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.metadata.AlbumImageStore
+import com.yichao.evilgodxu.data.music.playback.AudioInfoSnapshot
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.data.music.playback.OutputLatencyReading
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.report.AudioReportImage
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.player.AudioInfoContent
+import com.yichao.evilgodxu.ui.component.player.AudioInfoGroup
+import com.yichao.evilgodxu.ui.component.player.audioInfoGroups
+import com.yichao.evilgodxu.ui.component.player.rememberAudioInfoSnapshot
+import com.yichao.evilgodxu.ui.component.player.rememberOutputLatencyReading
 import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
-import java.io.ByteArrayOutputStream
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
@@ -68,10 +71,9 @@ import kotlinx.coroutines.withContext
 // 音频信息下拉收起的累计距离阈值：内容已到顶部后继续下拉超过该距离即收起
 private val DISMISS_OVERSCROLL_DP = 64.dp
 
-// 保存图片四周留白：内容行自带圆角底色，留白让成品边缘不贴死
-private val IMAGE_PADDING_DP = 16.dp
-
+// 文件名时间戳与图片内的生成时间分两种写法：前者避开冒号，后者便于阅读
 private val IMAGE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+private val REPORT_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
 /**
  * 首页竖屏的音频信息弹窗：交互与视觉沿用播放列表弹窗
@@ -85,23 +87,36 @@ internal fun AudioInfoSheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // 内容截图图层：由内容区在绘制时录入全部信息行，保存时直接取用
-    val captureLayer = rememberGraphicsLayer()
     var saving by remember { mutableStateOf(false) }
-    val surfaceArgb = MaterialTheme.colorScheme.surface.toArgb()
-    val paddingPx = with(LocalDensity.current) { IMAGE_PADDING_DP.roundToPx() }
     val savedText = stringResource(R.string.audio_info_image_saved)
     val saveFailedText = stringResource(R.string.audio_info_image_save_failed)
+    val imageTitle = stringResource(R.string.audio_info_title)
+    val emptyText = stringResource(R.string.audio_info_empty)
+    // 快照与延迟只在面板可见时采集（内容区同样只在可见时组合），渲染与保存成图共用同一份数据
+    var snapshot by remember { mutableStateOf<AudioInfoSnapshot?>(null) }
+    var latency by remember { mutableStateOf<OutputLatencyReading?>(null) }
+    if (visible) {
+        val collected by rememberAudioInfoSnapshot(playbackState)
+        val sampledLatency by rememberOutputLatencyReading(playbackState)
+        SideEffect {
+            snapshot = collected
+            latency = sampledLatency
+        }
+    }
+    val groups = snapshot?.let { audioInfoGroups(it, latency) }.orEmpty()
     // 竖屏面板半高，横屏铺满：与播放列表弹窗一致
     val sheetHeightFraction = if (rememberWindowLandscape()) 1f else 0.5f
 
-    // 保存整块信息内容：图层已由内容区录入，此处只负责合成底色与写相册；录屏与取图都在主线程
+    // 保存成图：复用音频报告的排版，把当前全部分组写成图片后存档到相册
     fun saveImage() {
         if (saving) return
         saving = true
         scope.launch {
+            val track = playbackState.currentTrack
+                ?.takeIf { it.title.isNotBlank() || it.artist.isNotBlank() }
+                ?.let { "${it.title} - ${it.artist}" }
             val success = runCatching {
-                saveAudioInfoImage(context, captureLayer, surfaceArgb, paddingPx)
+                saveAudioInfoImage(context, imageTitle, track, groups, emptyText)
             }.getOrDefault(false)
             saving = false
             Toast.makeText(context, if (success) savedText else saveFailedText, Toast.LENGTH_SHORT).show()
@@ -209,9 +224,9 @@ internal fun AudioInfoSheet(
                 }
                 Spacer(Modifier.height(4.dp))
                 AudioInfoContent(
-                    playbackState = playbackState,
+                    snapshot = snapshot,
+                    latency = latency,
                     scrollState = scrollState,
-                    captureLayer = captureLayer,
                     modifier = Modifier
                         .fillMaxSize()
                         .nestedScroll(dismissNestedScroll),
@@ -222,61 +237,36 @@ internal fun AudioInfoSheet(
 }
 
 /**
- * 把内容图层的整幅像素合成到不透明底色上并写入相册。
+ * 把当前音频信息写成与设备音频报告同款的排版图片并存档到相册。
  *
- * 图层自带透明底，直接编码会在部分查看器里显示为透明或黑底，故先按面板底色铺底再按留白偏移贴入；
- * 像素读取须在图层仍处于活动状态的主线程完成，合成与编码放到后台。
+ * 文本按报告的层级语法组织（标题、分区、字段），复用 [AudioReportImage] 的渲染管线，
+ * 因此字体、表格边框、留白与报告完全一致；排版与编码放后台，落盘走相册原语。
  */
 private suspend fun saveAudioInfoImage(
     context: Context,
-    layer: GraphicsLayer,
-    backgroundArgb: Int,
-    paddingPx: Int,
+    title: String,
+    track: String?,
+    groups: List<AudioInfoGroup>,
+    emptyText: String,
 ): Boolean {
-    val width = layer.size.width
-    val height = layer.size.height
-    if (width <= 0 || height <= 0) return false
-
-    val pixels = IntArray(width * height)
-    layer.toImageBitmap().readPixels(pixels, 0, 0, width, height, 0, width)
-    val png = withContext(Dispatchers.Default) {
-        val outputWidth = width + paddingPx * 2
-        val outputHeight = height + paddingPx * 2
-        // 先整体铺底色，再逐行把内容像素混合到留白偏移处：图层里的圆角与文字边缘带半透明像素，
-        // 直接覆盖会把底色打回透明，必须按 alpha 合成
-        val output = IntArray(outputWidth * outputHeight) { backgroundArgb }
-        for (row in 0 until height) {
-            val sourceStart = row * width
-            val destinationStart = (row + paddingPx) * outputWidth + paddingPx
-            for (column in 0 until width) {
-                output[destinationStart + column] =
-                    blendOver(pixels[sourceStart + column], backgroundArgb)
-            }
+    val report = buildString {
+        appendLine("======== EchoTideMusic $title ========")
+        appendLine("生成时间: ${LocalDateTime.now().format(REPORT_TIME_FORMAT)}")
+        track?.let { appendLine("曲目: $it") }
+        if (groups.isEmpty()) {
+            appendLine()
+            appendLine(emptyText)
+            return@buildString
         }
-        val bitmap = Bitmap.createBitmap(output, outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
-        try {
-            ByteArrayOutputStream().use { stream ->
-                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream))
-                stream.toByteArray()
-            }
-        } finally {
-            bitmap.recycle()
+        groups.forEach { group ->
+            appendLine()
+            appendLine("---- ${group.title} ----")
+            group.rows.forEach { row -> appendLine("${row.label}: ${row.value}") }
         }
     }
+    val png = withContext(Dispatchers.Default) { AudioReportImage.renderPng(report) }
     val name = "音频信息-${LocalDateTime.now().format(IMAGE_TIME_FORMAT)}.png"
     return withContext(Dispatchers.IO) {
         AlbumImageStore.write(context, name, "image/png", png)
     }
-}
-
-// 源像素按 alpha 叠到不透明底色上，结果统一为不透明像素；readPixels 取到的是非预乘 ARGB
-private fun blendOver(source: Int, background: Int): Int {
-    val alpha = source ushr 24
-    if (alpha == 0xFF) return source
-    if (alpha == 0) return background
-    val inverse = 0xFF - alpha
-    val red = (((source shr 16) and 0xFF) * alpha + ((background shr 16) and 0xFF) * inverse) / 0xFF
-    val green = (((source shr 8) and 0xFF) * alpha + ((background shr 8) and 0xFF) * inverse) / 0xFF
-    val blue = ((source and 0xFF) * alpha + (background and 0xFF) * inverse) / 0xFF
-    return (0xFF shl 24) or (red shl 16) or (green shl 8) or blue
 }

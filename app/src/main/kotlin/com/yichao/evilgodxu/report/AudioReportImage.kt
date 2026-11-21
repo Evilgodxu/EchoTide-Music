@@ -8,6 +8,7 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.withTranslation
+import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.math.max
 
@@ -29,10 +30,16 @@ private const val COLOR_DETAIL = 0xFFFAFAF9.toInt()
 internal object AudioReportImage {
 
     fun write(report: String, file: File) {
+        file.writeBytes(renderPng(report))
+    }
+
+    /** 生成报告排版后的 PNG 字节：相册存档与分享文件共用同一份渲染结果 */
+    fun renderPng(report: String): ByteArray {
         val bitmap = render(report)
-        try {
-            file.outputStream().use { output ->
+        return try {
+            ByteArrayOutputStream().use { output ->
                 check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
+                output.toByteArray()
             }
         } finally {
             bitmap.recycle()

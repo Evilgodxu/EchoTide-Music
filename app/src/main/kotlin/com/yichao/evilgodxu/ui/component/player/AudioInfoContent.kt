@@ -35,9 +35,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.layer.GraphicsLayer
-import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -84,35 +81,19 @@ private const val VALUE_MAX_LINES = 3
  * 音频信息内容：按分组渲染当前播放链路实际可获取的字段行。
  *
  * 采集不到的字段不产出对应行；滚动容器由宿主提供（[scrollState] 供宿主绑定下拉收起等手势），
- * 内容区自身只负责分组排版。
- *
- * [captureLayer] 非空时把整列内容录进该图层（供宿主截图保存）：图层挂在滚动内容的绘制节点上，
- * 尺寸是全部内容而非可视区，因此截图不受滚动位置限制；仅用于绘制，不改变布局。
+ * 内容区自身只负责分组排版。快照与延迟由宿主采集后传入：保存成图要复用同一份数据。
  */
 @Composable
 internal fun AudioInfoContent(
-    playbackState: MusicPlaybackState,
+    snapshot: AudioInfoSnapshot?,
+    latency: OutputLatencyReading?,
     modifier: Modifier = Modifier,
     scrollState: ScrollState = rememberScrollState(),
-    captureLayer: GraphicsLayer? = null,
 ) {
-    val snapshot by rememberAudioInfoSnapshot(playbackState)
-    val latency by rememberOutputLatencyReading(playbackState)
     // 蓝牙设备名、真实地址与编解码器都受授权限制：面板打开即就地申请，不等到接上蓝牙设备
     BluetoothConnectPermissionRequest()
-    // 录图层必须挂在 verticalScroll 之后：挂在滚动节点上只会截到可视区
-    val captureModifier = if (captureLayer == null) {
-        Modifier
-    } else {
-        Modifier.drawWithContent {
-            captureLayer.record { this@drawWithContent.drawContent() }
-            drawLayer(captureLayer)
-        }
-    }
     Column(
-        modifier = modifier
-            .verticalScroll(scrollState)
-            .then(captureModifier),
+        modifier = modifier.verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // 快照未就绪（首次采集尚未返回）时不渲染任何内容，避免空态提示一闪而过
@@ -183,13 +164,13 @@ private fun AudioInfoRowView(row: AudioInfoRow) {
     }
 }
 
-private data class AudioInfoRow(val label: String, val value: String)
+internal data class AudioInfoRow(val label: String, val value: String)
 
-private data class AudioInfoGroup(val title: String, val rows: List<AudioInfoRow>)
+internal data class AudioInfoGroup(val title: String, val rows: List<AudioInfoRow>)
 
 // 组装四个分组的字段行；不可获取的字段不产出对应行
 @Composable
-private fun audioInfoGroups(
+internal fun audioInfoGroups(
     snapshot: AudioInfoSnapshot,
     latency: OutputLatencyReading?,
 ): List<AudioInfoGroup> = listOf(
@@ -561,7 +542,7 @@ private fun outputEncodingLabel(encoding: OutputEncoding): String = stringResour
  */
 @OptIn(UnstableApi::class)
 @Composable
-private fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<AudioInfoSnapshot?> {
+internal fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<AudioInfoSnapshot?> {
     val context = LocalContext.current
 
     // 传输状态与音频会话 ID 由播放器回调驱动
@@ -645,7 +626,7 @@ private fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<
  * 两条路的样本不会混在一起。
  */
 @Composable
-private fun rememberOutputLatencyReading(
+internal fun rememberOutputLatencyReading(
     playbackState: MusicPlaybackState,
 ): State<OutputLatencyReading?> =
     produceState<OutputLatencyReading?>(initialValue = null, playbackState) {
