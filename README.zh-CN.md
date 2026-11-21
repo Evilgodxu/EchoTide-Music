@@ -10,10 +10,10 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-6.3.5-informational)
+![Version](https://img.shields.io/badge/version-6.3.7-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
-![AGP](https://img.shields.io/badge/AGP-9.5.1-blue)
-![Gradle](https://img.shields.io/badge/Gradle-9.9.1-blue)
+![AGP](https://img.shields.io/badge/AGP-9.5.2-blue)
+![Gradle](https://img.shields.io/badge/Gradle-9.9.2-blue)
 ![Compose BOM](https://img.shields.io/badge/Compose%20BOM-2026.09.00-blue)
 ![minSdk](https://img.shields.io/badge/minSdk-34-orange)
 ![targetSdk](https://img.shields.io/badge/targetSdk-37-orange)
@@ -39,7 +39,7 @@
 | 语言 | Kotlin 2.4.21 |
 | UI | Jetpack Compose(BOM 2026.09.00)+ Material 3 |
 | 播放 | Media3 ExoPlayer 1.11.1 + MediaSessionService（USB 独占另走原生等时层） |
-| 导航 | AndroidX Navigation3 1.2.1（类型安全路由） |
+| 导航 | AndroidX Navigation3 1.2.2（类型安全路由） |
 | 依赖注入 | 手动 DI（单例挂在 Application） |
 | 持久化 | DataStore 1.3.0（Preferences + kotlinx.serialization 类型化存储） |
 | 图片加载 | OkHttp + BitmapFactory，自研内存 LRU |
@@ -48,9 +48,9 @@
 | 异步 | kotlinx.coroutines 1.11.0（含 coroutines-guava 桥接 MediaController Future） |
 | 图标 | 本地 Material Symbols 路径内联为 ImageVector，不引 material-icons-extended |
 | 自适应布局 | 自研窗口尺寸类（`windowsize/`），不引第三方自适应库 |
-| 生命周期 | androidx.lifecycle 2.11.0、activity-compose 1.13.0 |
+| 生命周期 | androidx.lifecycle 2.11.1、activity-compose 1.13.0 |
 | 原生层 | NDK 28.2.13676358、CMake 3.22.1（USB 独占的 usbfs 等时传输） |
-| 构建 | AGP 9.5.1、Gradle 9.9.1、refreshVersions |
+| 构建 | AGP 9.5.2、Gradle 9.9.2、refreshVersions |
 
 ## 项目结构
 

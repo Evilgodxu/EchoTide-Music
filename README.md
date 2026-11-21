@@ -10,10 +10,10 @@
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-brightgreen)
-![Version](https://img.shields.io/badge/version-6.3.5-informational)
+![Version](https://img.shields.io/badge/version-6.3.7-informational)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple)
-![AGP](https://img.shields.io/badge/AGP-9.5.1-blue)
-![Gradle](https://img.shields.io/badge/Gradle-9.9.1-blue)
+![AGP](https://img.shields.io/badge/AGP-9.5.2-blue)
+![Gradle](https://img.shields.io/badge/Gradle-9.9.2-blue)
 ![Compose BOM](https://img.shields.io/badge/Compose%20BOM-2026.09.00-blue)
 ![minSdk](https://img.shields.io/badge/minSdk-34-orange)
 ![targetSdk](https://img.shields.io/badge/targetSdk-37-orange)
@@ -39,7 +39,7 @@ Portrait or landscape, immersion is the only goal.
 | Language | Kotlin 2.4.21 |
 | UI | Jetpack Compose (BOM 2026.09.00) + Material 3 |
 | Playback | Media3 ExoPlayer 1.11.1 + MediaSessionService (USB exclusive output goes through the native isochronous layer) |
-| Navigation | AndroidX Navigation3 1.2.1 (type-safe routes) |
+| Navigation | AndroidX Navigation3 1.2.2 (type-safe routes) |
 | Dependency injection | Manual DI (singletons held on Application) |
 | Persistence | DataStore 1.3.0 (Preferences + typed stores via kotlinx.serialization) |
 | Image loading | OkHttp + BitmapFactory, in-house memory LRU |
@@ -48,9 +48,9 @@ Portrait or landscape, immersion is the only goal.
 | Async | kotlinx.coroutines 1.11.0 (incl. coroutines-guava bridging MediaController futures) |
 | Icons | Local Material Symbols paths inlined as ImageVector, no material-icons-extended |
 | Adaptive layout | In-house window size classes (`windowsize/`), no third-party adaptive library |
-| Lifecycle | androidx.lifecycle 2.11.0, activity-compose 1.13.0 |
+| Lifecycle | androidx.lifecycle 2.11.1, activity-compose 1.13.0 |
 | Native layer | NDK 28.2.13676358, CMake 3.22.1 (usbfs isochronous transfer for USB exclusive output) |
-| Build | AGP 9.5.1, Gradle 9.9.1, refreshVersions |
+| Build | AGP 9.5.2, Gradle 9.9.2, refreshVersions |
 
 ## Project Structure
 
