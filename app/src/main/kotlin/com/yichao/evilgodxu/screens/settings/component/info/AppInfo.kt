@@ -2,6 +2,7 @@ package com.yichao.evilgodxu.screens.settings.component.info
 
 import android.app.Activity
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,11 +10,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -25,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.data.music.metadata.AlbumImageStore
 import com.yichao.evilgodxu.log.CrashLogManager
 import com.yichao.evilgodxu.report.AudioReport
 import com.yichao.evilgodxu.ui.icons.AppIcons
@@ -48,6 +55,11 @@ fun AppInfo(
     val shareLogTitle = stringResource(R.string.app_info_share_log_title)
     val shareReportSubject = stringResource(R.string.app_info_share_report_subject)
     val shareReportTitle = stringResource(R.string.app_info_share_report_title)
+    val reportSaved = stringResource(R.string.app_info_audio_report_saved)
+    val reportSaveFailed = stringResource(R.string.app_info_audio_report_save_failed)
+    val reportFailed = stringResource(R.string.app_info_audio_report_failed)
+    // 报告采集、出图与写相册期间置忙：同一条目只跑一次，并在标签旁给出加载指示
+    var reportBusy by remember { mutableStateOf(false) }
 
     // 以系统浏览器打开链接；LocalContext 非 Activity 时需加 NEW_TASK
     fun openUrl(url: String) {
@@ -77,11 +89,30 @@ fun AppInfo(
         shareFile(log, shareLogSubject, shareLogTitle)
     }
 
-    // 分享设备音频报告：报告每次重新生成，与日志互不依赖；
-    // 采集要读设备描述符，放到 IO 上做，避免卡住设置页
+    // 生成并分享设备音频报告：报告每次重新生成，与日志互不依赖；
+    // 采集要读设备描述符、出图与写相册都是阻塞 IO，一并放到 IO 上做，避免卡住设置页
     fun shareAudioReport() {
+        if (reportBusy) return
+        reportBusy = true
         scope.launch {
-            val report = withContext(Dispatchers.IO) { AudioReport.writeShareable(context) } ?: return@launch
+            val report = withContext(Dispatchers.IO) { AudioReport.writeShareable(context) }
+            if (report == null) {
+                reportBusy = false
+                Toast.makeText(context, reportFailed, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            // 先存档进相册再分享：报告文件本身留给分享目标读取，不从缓存搬走
+            val saved = withContext(Dispatchers.IO) {
+                runCatching {
+                    AlbumImageStore.write(context, report.name, "image/png", report.readBytes())
+                }.getOrDefault(false)
+            }
+            reportBusy = false
+            Toast.makeText(
+                context,
+                if (saved) reportSaved else reportSaveFailed,
+                Toast.LENGTH_SHORT,
+            ).show()
             shareFile(report, shareReportSubject, shareReportTitle, mimeType = "image/png")
         }
     }
@@ -119,16 +150,29 @@ fun AppInfo(
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
         )
-        Text(
-            text = audioReportLabel,
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 4.dp)
-                .clickable { shareAudioReport() },
-            textAlign = TextAlign.Center,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-        )
+                .clickable(enabled = !reportBusy) { shareAudioReport() },
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (reportBusy) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(end = 6.dp)
+                        .size(12.dp),
+                    strokeWidth = 1.5.dp,
+                )
+            }
+            Text(
+                text = audioReportLabel,
+                textAlign = TextAlign.Center,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            )
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()

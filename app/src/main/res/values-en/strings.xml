@@ -142,6 +142,9 @@
     <!-- Audio info dialog -->
     <string name="audio_info_title">Audio info</string>
     <string name="audio_info_close">Close audio info</string>
+    <string name="audio_info_save">Save audio info image</string>
+    <string name="audio_info_image_saved">Saved to gallery</string>
+    <string name="audio_info_image_save_failed">Failed to save, please try again</string>
     <string name="audio_info_empty">No audio info available for the current playback chain</string>
     <string name="audio_info_group_source">Audio source</string>
     <string name="audio_info_group_parameters">Audio parameters</string>
@@ -556,6 +559,9 @@
     <string name="app_info_share_log_title">Share today\'s log</string>
     <string name="app_info_share_report_subject">Device audio report</string>
     <string name="app_info_share_report_title">Share audio report</string>
+    <string name="app_info_audio_report_saved">Audio report saved to gallery</string>
+    <string name="app_info_audio_report_save_failed">Audio report generated, but saving to gallery failed</string>
+    <string name="app_info_audio_report_failed">Failed to generate audio report</string>
 
     <!-- Common -->
     <string name="copy_success_toast">Copied: %1$s</string>

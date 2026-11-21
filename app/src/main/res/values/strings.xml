@@ -146,6 +146,9 @@
     <!-- 音频信息弹窗 -->
     <string name="audio_info_title">音频信息</string>
     <string name="audio_info_close">关闭音频信息</string>
+    <string name="audio_info_save">保存音频信息图片</string>
+    <string name="audio_info_image_saved">已保存到相册</string>
+    <string name="audio_info_image_save_failed">保存失败，请重试</string>
     <string name="audio_info_empty">当前播放链路暂无可展示的音频信息</string>
     <string name="audio_info_group_source">音频源</string>
     <string name="audio_info_group_parameters">音频参数</string>
@@ -550,6 +553,9 @@
     <string name="app_info_share_log_title">分享今日日志</string>
     <string name="app_info_share_report_subject">设备音频报告</string>
     <string name="app_info_share_report_title">分享音频报告</string>
+    <string name="app_info_audio_report_saved">音频报告已保存到相册</string>
+    <string name="app_info_audio_report_save_failed">音频报告已生成，但保存到相册失败</string>
+    <string name="app_info_audio_report_failed">音频报告生成失败</string>
 
     <!-- 通用 -->
     <string name="copy_success_toast">已复制: %1$s</string>
