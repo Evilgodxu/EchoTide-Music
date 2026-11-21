@@ -54,6 +54,8 @@ UI → ViewModel → Repository → DataStore                事件自下而上
 ## 构建验证
 
 - 覆盖 UI 与资源变更时同时验证 `:app:assembleRelease`：R8 优化与资源缩减路径与 debug 不同。
+- Lint 门禁不挂在 `assembleRelease` 上（`checkReleaseBuilds = false`）：发布前须执行
+  `./gradlew :app:lintRelease` 或 `./gradlew check`，门禁在 `check` 的 `lint` 依赖里。
 - `app/lint.xml` 已把 `Deprecated` 与 `UnsafeOptIn*` 提级为 error，弃用 API 须迁移到等价接口。
 
 ## Lint 未使用资源（UnusedResources）的判断

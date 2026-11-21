@@ -153,9 +153,11 @@ android {
         disable += "ChromeOsAbiSupport"
         // 定向抑制（如 media3 通知图标的覆盖资源）写在 lint.xml，避免整体关掉某项检查
         lintConfig = file("lint.xml")
-        // 质量门禁：Lint Error 阻断构建，release 变体同规则
+        // 质量门禁：Lint Error 阻断构建。
+        // lint 不挂在 assembleRelease 上：冷构建时它独占约 1.5 分钟且不改变产物，
+        // 由 ./gradlew check / build / lintRelease 强制执行（check 已依赖 lint）
         abortOnError = true
-        checkReleaseBuilds = true
+        checkReleaseBuilds = false
     }
 }
 
