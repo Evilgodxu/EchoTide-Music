@@ -473,7 +473,7 @@ internal fun TracksContent(
                             dragHandleModifier = if (reorderEnabled) {
                                 Modifier.longPressDraggableHandle(reorderableState, track.audioUri)
                             } else {
-                                Modifier
+                                null
                             },
                         )
                     }

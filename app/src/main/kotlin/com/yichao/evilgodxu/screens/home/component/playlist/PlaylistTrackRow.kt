@@ -40,7 +40,9 @@ internal fun PlaylistTrackRow(
     onFavoriteClick: () -> Unit,
     modifier: Modifier = Modifier,
     isDragging: Boolean = false,
-    dragHandleModifier: Modifier = Modifier,
+    // 排序手柄：非空即渲染手柄并承载拖拽手势。曲序由数据源自身决定（如常听的时间线）时传 null，
+    // 整格手柄一并消失——只摘手势会留下一个按不动的图标
+    dragHandleModifier: Modifier? = null,
 ) {
     // 拖拽时背景变白，前景文字同步切换为深色保证可读性
     val fg = if (isDragging) Color(0xFF1A1A1A) else Color.White
@@ -103,18 +105,20 @@ internal fun PlaylistTrackRow(
             )
         }
         // 排序调整手柄：长按后垂直拖拽实时变更歌单内播放次序，位于收藏按钮左侧
-        Box(
-            modifier = Modifier
-                .size(30.dp)
-                .then(dragHandleModifier),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = AppIcons.DragHandle,
-                contentDescription = stringResource(R.string.playlist_sort_handle),
-                tint = fgDim,
-                modifier = Modifier.size(20.dp),
-            )
+        if (dragHandleModifier != null) {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .then(dragHandleModifier),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = AppIcons.DragHandle,
+                    contentDescription = stringResource(R.string.playlist_sort_handle),
+                    tint = fgDim,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
         IconButton(onClick = onFavoriteClick, modifier = Modifier.size(30.dp)) {
             Icon(
