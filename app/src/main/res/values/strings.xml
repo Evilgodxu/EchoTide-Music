@@ -442,6 +442,7 @@
     <string name="cache_category_playlist">自定义歌单</string>
     <string name="cache_category_artist_order">歌手曲序</string>
     <string name="cache_category_album_order">专辑曲序</string>
+    <string name="cache_category_favorite_order">收藏曲序</string>
     <string name="cache_category_proxy_source">代理音源</string>
     <string name="cache_category_recent_played">最近播放</string>
     <string name="cache_category_search_history">搜索历史</string>

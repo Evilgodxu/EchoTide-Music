@@ -11,6 +11,7 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
 import com.yichao.evilgodxu.data.playlist.AlbumOrderStore
 import com.yichao.evilgodxu.data.playlist.ArtistOrderStore
+import com.yichao.evilgodxu.data.playlist.FavoriteOrderStore
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.repository.DataStoreSettingsRepository
 import com.yichao.evilgodxu.data.repository.SettingsRepository
@@ -50,12 +51,14 @@ class AppContainer(val application: Application) {
 
     val albumOrderStore: AlbumOrderStore by lazy { AlbumOrderStore(application, appScope) }
 
+    val favoriteOrderStore: FavoriteOrderStore by lazy { FavoriteOrderStore(application, appScope) }
+
     val proxySourceStore: ProxySourceStore by lazy { ProxySourceStore(application, appScope) }
 
     val metadataEnricher: MetadataEnricher by lazy { MetadataEnricher() }
 
     val playlistRefresher: PlaylistRefresher by lazy {
-        PlaylistRefresher(playlistStore, albumOrderStore, artistOrderStore)
+        PlaylistRefresher(playlistStore, albumOrderStore, artistOrderStore, favoriteOrderStore)
     }
 
     val playbackState: MusicPlaybackState by lazy {
@@ -106,6 +109,10 @@ val LocalAlbumOrderStore = staticCompositionLocalOf<AlbumOrderStore> {
     error("AlbumOrderStore is not provided")
 }
 
+val LocalFavoriteOrderStore = staticCompositionLocalOf<FavoriteOrderStore> {
+    error("FavoriteOrderStore is not provided")
+}
+
 val LocalProxySourceStore = staticCompositionLocalOf<ProxySourceStore> {
     error("ProxySourceStore is not provided")
 }
@@ -140,6 +147,7 @@ fun ProvideAppDependencies(container: AppContainer, content: @Composable () -> U
         LocalPlaylistStore provides container.playlistStore,
         LocalArtistOrderStore provides container.artistOrderStore,
         LocalAlbumOrderStore provides container.albumOrderStore,
+        LocalFavoriteOrderStore provides container.favoriteOrderStore,
         LocalProxySourceStore provides container.proxySourceStore,
         LocalMetadataEnricher provides container.metadataEnricher,
         LocalPlaylistRefresher provides container.playlistRefresher,

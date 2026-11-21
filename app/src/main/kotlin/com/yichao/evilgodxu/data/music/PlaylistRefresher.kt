@@ -5,6 +5,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.playlist.AlbumOrderStore
 import com.yichao.evilgodxu.data.playlist.ArtistOrderStore
+import com.yichao.evilgodxu.data.playlist.FavoriteOrderStore
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.playlist.resolveSourceTracks
 import com.yichao.evilgodxu.data.music.analysis.trackFormatCategory
@@ -23,6 +24,7 @@ class PlaylistRefresher(
     private val playlistStore: PlaylistStore,
     private val albumOrderStore: AlbumOrderStore,
     private val artistOrderStore: ArtistOrderStore,
+    private val favoriteOrderStore: FavoriteOrderStore,
 ) {
     private val scanMutex = Mutex()
 
@@ -161,6 +163,7 @@ class PlaylistRefresher(
             // 冷启动扫描可能先于曲序读盘完成：空曲序会把用户顺序覆盖成曲库顺序并随即落盘
             albumOrderStore.awaitLoaded()
             artistOrderStore.awaitLoaded()
+            favoriteOrderStore.awaitLoaded()
             resolveSourceTracks(
                 all = library,
                 playlists = playlistStore.playlists,
@@ -169,6 +172,7 @@ class PlaylistRefresher(
                 source = source,
                 albumOrders = albumOrderStore.orders,
                 artistOrders = artistOrderStore.orders,
+                favoriteOrder = favoriteOrderStore.order,
             )
         }
     }

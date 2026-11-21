@@ -54,8 +54,8 @@ import com.yichao.evilgodxu.data.playlist.SmartPlaylistType
 import com.yichao.evilgodxu.data.playlist.albumGroups
 import com.yichao.evilgodxu.data.playlist.artistGroups
 import com.yichao.evilgodxu.data.playlist.playlistCoverTrack
-import com.yichao.evilgodxu.data.playlist.recentTracks
 import com.yichao.evilgodxu.data.playlist.resolveTracks
+import com.yichao.evilgodxu.data.playlist.resolveSourceTracks
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PlaylistSource
 import com.yichao.evilgodxu.data.music.playback.switchToPlaylistQueue
@@ -64,6 +64,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalAlbumOrderStore
 import com.yichao.evilgodxu.LocalArtistOrderStore
+import com.yichao.evilgodxu.LocalFavoriteOrderStore
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.ui.component.BottomSearchBarOverlay
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
@@ -330,25 +331,43 @@ internal fun PlaylistSmartTracksPage(
     playbackState: MusicPlaybackState,
 ) {
     val library = playbackState.libraryTracks
+    val favoriteOrderStore = LocalFavoriteOrderStore.current
+    val favoriteOrder = favoriteOrderStore.order
+    val scope = rememberCoroutineScope()
+    val source = PlaylistSource("smart:${type.name}", smartTypeLabel(type))
     // type 必须参与缓存键：结果为按 type 分叉的曲目集，而宽屏面板的右栏在同一个调用点切换类目，
-    // 曲库与两张 id 表都没变时只按它们缓存，会把空类目（如收藏为 0）的结果留给下一个类目
-    val tracks = remember(library, playbackState.recentPlayedIds, playbackState.likedIds, type) {
-        when (type) {
-            SmartPlaylistType.RECENT -> recentTracks(library, playbackState.recentPlayedIds)
-            SmartPlaylistType.FAVORITE -> library.filter { it.id in playbackState.likedIds }
-            else -> emptyList()
-        }
+    // 曲库与两张 id 表都没变时只按它们缓存，会把空类目（如收藏为 0）的结果留给下一个类目。
+    // 常听按播放时间线给出顺序，收藏按收藏曲序重排；两者都走来源解析，与面板展示同一口径
+    val tracks = remember(library, playbackState.recentPlayedIds, playbackState.likedIds, favoriteOrder, type) {
+        resolveSourceTracks(
+            all = library,
+            playlists = emptyList(),
+            likedIds = playbackState.likedIds,
+            recentPlayedIds = playbackState.recentPlayedIds,
+            source = source,
+            albumOrders = emptyMap(),
+            artistOrders = emptyMap(),
+            favoriteOrder = favoriteOrder,
+        )
+    }
+    // 收藏的曲序由用户拖拽决定并落盘；常听跟随播放时间线自动更新，不提供拖拽
+    val reorder: ((List<MusicTrack>) -> Unit)? = if (type == SmartPlaylistType.FAVORITE) {
+        { ordered -> scope.launch { favoriteOrderStore.setOrder(ordered.map { it.id }) } }
+    } else {
+        null
     }
     // 常听歌单长按歌曲：从常听中移除该曲目
     var removeTrack by remember { mutableStateOf<MusicTrack?>(null) }
     TracksContent(
         tracks = tracks,
-        source = PlaylistSource("smart:${type.name}", smartTypeLabel(type)),
+        source = source,
         playbackState = playbackState,
         trailingAction = {},
         onTrackLongClick = { track ->
             if (type == SmartPlaylistType.RECENT) removeTrack = track
         },
+        reorderEnabled = type == SmartPlaylistType.FAVORITE,
+        onReorder = reorder,
     )
     RemoveTrackDialog(
         track = removeTrack,
@@ -360,7 +379,8 @@ internal fun PlaylistSmartTracksPage(
     )
 }
 
-// 曲目页共享主体：播放全部 + 操作栏 + 曲目列表（支持长按手柄拖拽排序）
+// 曲目页共享主体：播放全部 + 操作栏 + 曲目列表（支持长按手柄拖拽排序）。
+// reorderEnabled=false 时不挂手柄：顺序由数据源自身决定（如常听的时间线），拖了也会在下次解析时回滚
 @Composable
 internal fun TracksContent(
     tracks: List<MusicTrack>,
@@ -368,6 +388,7 @@ internal fun TracksContent(
     playbackState: MusicPlaybackState,
     trailingAction: @Composable () -> Unit,
     onTrackLongClick: (MusicTrack) -> Unit,
+    reorderEnabled: Boolean = true,
     onReorder: ((List<MusicTrack>) -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -449,7 +470,11 @@ internal fun TracksContent(
                             },
                             onLongClick = { onTrackLongClick(track) },
                             onFavoriteClick = { playbackState.toggleFavorite(track.id) },
-                            dragHandleModifier = Modifier.longPressDraggableHandle(reorderableState, track.audioUri),
+                            dragHandleModifier = if (reorderEnabled) {
+                                Modifier.longPressDraggableHandle(reorderableState, track.audioUri)
+                            } else {
+                                Modifier
+                            },
                         )
                     }
                 }

@@ -114,6 +114,52 @@ class PlaylistGroupingTest {
         assertTrue(resolveSource(tracks, emptyList(), emptySet(), emptyList(), source("whatever")).isEmpty())
     }
 
+    @Test
+    fun `收藏来源套用收藏曲序`() {
+        assertEquals(
+            listOf(3L, 2L),
+            resolveSource(
+                tracks,
+                emptyList(),
+                setOf(2, 3),
+                emptyList(),
+                source("smart:FAVORITE"),
+                favoriteOrder = listOf(3, 2),
+            ).map { it.id },
+        )
+    }
+
+    @Test
+    fun `收藏来源未在存档内的新收藏排在存档曲目之后`() {
+        assertEquals(
+            listOf(3L, 1L, 2L),
+            resolveSource(
+                tracks,
+                emptyList(),
+                setOf(1, 2, 3),
+                emptyList(),
+                source("smart:FAVORITE"),
+                favoriteOrder = listOf(3, 1),
+            ).map { it.id },
+        )
+    }
+
+    @Test
+    fun `常听来源始终跟随播放时间线`() {
+        // 常听不套任何存档：曲序就是最近播放顺序，随播放事件自动更新
+        assertEquals(
+            listOf(2L, 3L),
+            resolveSource(
+                tracks,
+                emptyList(),
+                emptySet(),
+                listOf(2, 3),
+                source("smart:RECENT"),
+                favoriteOrder = listOf(3, 2),
+            ).map { it.id },
+        )
+    }
+
     // -----------------------------------------------------------------------
     // 来源有效性
     // -----------------------------------------------------------------------
@@ -274,6 +320,7 @@ class PlaylistGroupingTest {
         source: PlaylistSource,
         albumOrders: Map<String, List<Long>> = emptyMap(),
         artistOrders: Map<String, List<Long>> = emptyMap(),
+        favoriteOrder: List<Long> = emptyList(),
     ): List<MusicTrack> = resolveSourceTracks(
         all = all,
         playlists = playlists,
@@ -282,6 +329,7 @@ class PlaylistGroupingTest {
         source = source,
         albumOrders = albumOrders,
         artistOrders = artistOrders,
+        favoriteOrder = favoriteOrder,
     )
 
     private fun source(key: String): PlaylistSource = PlaylistSource(key, key)

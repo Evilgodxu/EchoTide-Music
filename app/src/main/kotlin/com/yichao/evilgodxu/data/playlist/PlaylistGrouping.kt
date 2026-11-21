@@ -29,7 +29,8 @@ internal fun smartTrackCount(all: List<MusicTrack>, ids: Collection<Long>): Int 
 
 // 按歌单来源 key 从全量库解析曲目，供播放列表面板按来源展示。
 // 分支与生成来源 key 的分组逻辑保持一致：专辑/艺术家按各自分组 key 反查并套用存档曲序，
-// 自定义歌单按 trackIds 查表，故全量库变化后重新解析即为最新内容与用户顺序
+// 收藏套用收藏曲序，自定义歌单按 trackIds 查表，故全量库变化后重新解析即为最新内容与用户顺序。
+// 常听不套任何存档：它的顺序就是播放时间线，随播放事件自动更新
 internal fun resolveSourceTracks(
     all: List<MusicTrack>,
     playlists: List<Playlist>,
@@ -38,9 +39,11 @@ internal fun resolveSourceTracks(
     source: PlaylistSource,
     albumOrders: Map<String, List<Long>>,
     artistOrders: Map<String, List<Long>>,
+    favoriteOrder: List<Long>,
 ): List<MusicTrack> = when {
     source.key == "smart:RECENT" -> recentTracks(all, recentPlayedIds)
-    source.key == "smart:FAVORITE" -> resolveTracks(all, likedIds)
+    source.key == "smart:FAVORITE" ->
+        applySavedTrackOrder(resolveTracks(all, likedIds), favoriteOrder)
     source.key.startsWith("custom:") -> {
         val playlistId = source.key.removePrefix("custom:").toLongOrNull()
         resolveTracks(all, playlists.firstOrNull { it.id == playlistId }?.trackIds.orEmpty())

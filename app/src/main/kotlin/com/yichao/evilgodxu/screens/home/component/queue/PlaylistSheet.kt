@@ -43,6 +43,7 @@ import com.yichao.evilgodxu.data.music.clip.shareTrack
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.LocalAlbumOrderStore
 import com.yichao.evilgodxu.LocalArtistOrderStore
+import com.yichao.evilgodxu.LocalFavoriteOrderStore
 import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
@@ -91,6 +92,7 @@ internal fun PlaylistSheet(
     val playlistStore = LocalPlaylistStore.current
     val albumOrders = LocalAlbumOrderStore.current.orders
     val artistOrders = LocalArtistOrderStore.current.orders
+    val favoriteOrder = LocalFavoriteOrderStore.current.order
     // 自定义歌单读盘完成前先按空列表处理，避免「暂无歌单」与「尚未读完」混淆
     val playlistStoreLoaded = playlistStore.isLoaded
     val followsQueue = playbackState.viewedFollowsQueue
@@ -106,6 +108,7 @@ internal fun PlaylistSheet(
         playbackState.recentPlayedIds,
         albumOrders,
         artistOrders,
+        favoriteOrder,
     ) {
         when {
             followsQueue -> playbackState.playlist
@@ -118,6 +121,7 @@ internal fun PlaylistSheet(
                 source = viewedSource,
                 albumOrders = albumOrders,
                 artistOrders = artistOrders,
+                favoriteOrder = favoriteOrder,
             )
         }
     }
@@ -268,6 +272,7 @@ internal fun PlaylistSheet(
                     playlists = playlistStore.playlists,
                     albumOrders = albumOrders,
                     artistOrders = artistOrders,
+                    favoriteOrder = favoriteOrder,
                     metadataEnricher = metadataEnricher,
                 )
                 if (applied) playbackState.followPlaybackQueue() else playbackState.viewPlaylist(source)

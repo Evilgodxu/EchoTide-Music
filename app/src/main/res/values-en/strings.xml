@@ -443,6 +443,7 @@
     <string name="cache_category_playlist">Custom playlists</string>
     <string name="cache_category_artist_order">Artist track order</string>
     <string name="cache_category_album_order">Album track order</string>
+    <string name="cache_category_favorite_order">Favorite track order</string>
     <string name="cache_category_proxy_source">Proxy sources</string>
     <string name="cache_category_recent_played">Recently played</string>
     <string name="cache_category_search_history">Search history</string>

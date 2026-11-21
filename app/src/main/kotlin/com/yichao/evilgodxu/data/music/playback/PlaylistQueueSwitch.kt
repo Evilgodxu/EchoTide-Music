@@ -41,6 +41,7 @@ internal fun switchPlaylistSource(
     playlists: List<Playlist>,
     albumOrders: Map<String, List<Long>>,
     artistOrders: Map<String, List<Long>>,
+    favoriteOrder: List<Long>,
     metadataEnricher: MetadataEnricher,
 ): Boolean {
     // 已是当前过滤来源：重复应用只会重建一份等价结果
@@ -58,6 +59,7 @@ internal fun switchPlaylistSource(
             source = source,
             albumOrders = albumOrders,
             artistOrders = artistOrders,
+            favoriteOrder = favoriteOrder,
         )
     }
     // 空来源无曲可播：保持原播放队列，仅由面板切到该来源展示

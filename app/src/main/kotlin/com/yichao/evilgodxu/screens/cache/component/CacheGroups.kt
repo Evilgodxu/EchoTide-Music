@@ -223,6 +223,7 @@ private val CacheCategory.labelRes: Int
         CacheCategory.PLAYLIST -> R.string.cache_category_playlist
         CacheCategory.ARTIST_ORDER -> R.string.cache_category_artist_order
         CacheCategory.ALBUM_ORDER -> R.string.cache_category_album_order
+        CacheCategory.FAVORITE_ORDER -> R.string.cache_category_favorite_order
         CacheCategory.PROXY_SOURCE -> R.string.cache_category_proxy_source
         CacheCategory.RECENT_PLAYED -> R.string.cache_category_recent_played
         CacheCategory.SEARCH_HISTORY -> R.string.cache_category_search_history
