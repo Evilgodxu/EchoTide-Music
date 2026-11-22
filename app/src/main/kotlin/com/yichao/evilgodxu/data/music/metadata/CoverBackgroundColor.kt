@@ -490,7 +490,8 @@ private fun boostSaturation(saturation: Float): Float {
     return maxOf(saturation, minOf(SATURATION_TARGET, saturation * SATURATION_GAIN + SATURATION_BOOST))
 }
 
-// 色相是环形量：取两色之间的最短转角，避免 350° 与 10° 被判成 340° 的差
-private fun shortestHueDelta(from: Float, to: Float): Float = ((from - to + 540f) % 360f) - 180f
+// 色相是环形量：取两色之间的最短转角，避免 350° 与 10° 被判成 340° 的差。
+// 背景帧的色相锚定共用本口径（见 ui/component/CoverFrameHue），两处的「最近色相」判断因此不会各写一套
+internal fun shortestHueDelta(from: Float, to: Float): Float = ((from - to + 540f) % 360f) - 180f
 
 private fun FloatArray.toColor(): Color = Color(ColorUtils.HSLToColor(this))

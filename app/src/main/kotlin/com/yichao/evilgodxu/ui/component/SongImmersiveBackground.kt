@@ -36,6 +36,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
+import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.createBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yichao.evilgodxu.LocalPlaybackState
@@ -64,8 +65,10 @@ private const val COVER_BACKGROUND_OVERSCAN = 1.3f
 // 叠画饱和度：封面本身偏灰时也能得到有色彩的背景
 private const val COVER_BACKGROUND_SATURATION = 2.5f
 
-// 模糊半径：按 1/16 小图尺度取固定值，叠画后的封面柔化为连贯色域，边界不显形
-private const val COVER_BACKGROUND_BLUR_RADIUS = 15
+// 模糊半径：按 1/16 小图尺度取固定值，叠画后的封面柔化为连贯色域，边界不显形。
+// 半径过大会把整幅压成一块平均色——色相锚定之后平均本身不再发浊，但过度平均会抹掉画面的明暗结构，
+// 观感转而成"糊"。取到短边的两成上下：边界仍被化开，色域的高低起伏还留得住
+private const val COVER_BACKGROUND_BLUR_RADIUS = 11
 
 // 流动帧间隔：与显示帧率对齐约 30fps，低于此间隔的重绘并入下一帧
 private const val COVER_BACKGROUND_FLOW_FRAME_INTERVAL_MS = 32L
@@ -88,44 +91,57 @@ private const val DIM_LUMINANCE_LIGHT = 0.60f
 // 浅色底保留的压暗比例：明度最高的底色按此比例压缩帧上的压暗强度，压不到下限的由下限兜住
 private const val DIM_LIGHT_SCALE = 0.4f
 
-// 流动帧压暗层的顶端与底端强度：帧由封面叠画而来、整体偏亮，压暗上下边缘保证状态栏与前景文字可读
-private const val COVER_SCRIM_TOP_ALPHA = 0.18f
-private const val COVER_SCRIM_BOTTOM_ALPHA = 0.30f
+// 流动帧压暗层的顶端、中段与底端强度：两端要压住状态栏与底栏，中段只留一层薄压暗。
+// 中段不再归零：蒙层减薄之后压暗的基底由这里补，画面比原来透亮一档，前景文字与状态栏仍有底
+private const val COVER_SCRIM_TOP_ALPHA = 0.24f
+private const val COVER_SCRIM_BASE_ALPHA = 0.06f
+private const val COVER_SCRIM_BOTTOM_ALPHA = 0.40f
 
-// 流动帧两层蒙层的强度：第一层以封面主色（向黑收敛 [WASH_PRIMARY_DARKEN]）把画面中占比小的杂色
-// 拉向主色，第二层中性黑只负责压暗、不改变色相。两层的暗化量同乘底色的明度系数，强度由 [dimAlpha] 兜底
-private const val WASH_PRIMARY_DARKEN = 0.28f
-private const val WASH_PRIMARY_ALPHA = 0.34f
-private const val WASH_SECONDARY_ALPHA = 0.18f
+// 流动帧两层蒙层的强度：第一层以封面主色在暗部垫一层色调，第二层中性黑只负责压暗、不改变色相。
+// 第一层不再承担「把杂色拉向主色」——色相统一的职责已交给色相锚定（见 anchorFrameHues），
+// 而它原先那套向主色线性混合的做法正是灰浊色的第二个来源：两个相隔很远的色相按 alpha 直线插值，
+// 落点同样在色环中段。两个强度都收薄到原来的三成上下，压暗主要交给压暗层的两端，
+// 中段因此不再被压掉四成亮度
+private const val WASH_PRIMARY_DARKEN = 0.55f
+private const val WASH_PRIMARY_ALPHA = 0.14f
+private const val WASH_SECONDARY_ALPHA = 0.12f
 
-// 压暗层中段的归零位置（占视口高度比例）：此处压暗为 0，上半段向顶端增强、下半段向底端增强
+// 模糊后的彩度回补：帧由 64px 缩略图放大、三份叠画再模糊而来，彩度一路衰减；
+// 通道平均本身也会把相邻色相相互抵消。这里统一回补一档，画面才通透而不发灰
+private const val FRAME_SATURATION_RESTORE = 1.12f
+
+// 压暗层中段的基底位置（占视口高度比例）：此处压暗为最低的基底，上半段向顶端增强、下半段向底端增强
 private const val COVER_SCRIM_ZERO_FRACTION = 0.5f
 
 // 压暗层每半段的采样段数：色标之间为线性插值，按平滑曲线采样后不再出现折点
 private const val COVER_SCRIM_SAMPLE_SEGMENTS = 12
 
-// 流动帧压暗层色标：顶端 [COVER_SCRIM_TOP_ALPHA] 平滑收敛到 [COVER_SCRIM_ZERO_FRACTION] 处为 0，
-// 再平滑增强到底端 [COVER_SCRIM_BOTTOM_ALPHA]。两半都取自 [smoothFadeAlpha]，
-// 两端与归零点的斜率均为 0：压暗层自身不会在背景中段留下层次分界。
+// 流动帧压暗层色标：顶端 [COVER_SCRIM_TOP_ALPHA] 平滑收敛到 [COVER_SCRIM_ZERO_FRACTION] 处的
+// [COVER_SCRIM_BASE_ALPHA]，再平滑增强到底端 [COVER_SCRIM_BOTTOM_ALPHA]。两半都取自 [smoothFadeAlpha]，
+// 中段与两端的斜率均为 0：压暗层自身不会在背景中段留下层次分界。
 // [scale] 为底色的明度系数（见 dimScaleOf），两端强度按它缩放并由 [dimAlpha] 兜住下限；
-// 中段的归零点不受下限约束——上半段的收尾与下半段的起始都要落在那里才接得上。
+// 中段的基底不参与明度收敛——它只抵住前景文字，薄到浅色底上也看不出层次，
+// 若一并交给 [dimAlpha] 兜底，浅色封面会被拉回与深色底同样重的压暗
 // 色标形状只与常量有关，同一系数下构造一次即可复用
 private fun coverScrimStops(scale: Float): Array<Pair<Float, Color>> {
     val topAlpha = dimAlpha(COVER_SCRIM_TOP_ALPHA, scale)
     val bottomAlpha = dimAlpha(COVER_SCRIM_BOTTOM_ALPHA, scale)
+    val baseAlpha = COVER_SCRIM_BASE_ALPHA
     return buildList {
         for (segment in 0 until COVER_SCRIM_SAMPLE_SEGMENTS) {
             val t = segment.toFloat() / COVER_SCRIM_SAMPLE_SEGMENTS
             add(
                 COVER_SCRIM_ZERO_FRACTION * t to
-                    Color.Black.copy(alpha = topAlpha * smoothFadeAlpha(t)),
+                    Color.Black.copy(alpha = baseAlpha + (topAlpha - baseAlpha) * smoothFadeAlpha(t)),
             )
         }
         for (segment in 0..COVER_SCRIM_SAMPLE_SEGMENTS) {
             val t = segment.toFloat() / COVER_SCRIM_SAMPLE_SEGMENTS
             add(
                 (COVER_SCRIM_ZERO_FRACTION + (1f - COVER_SCRIM_ZERO_FRACTION) * t) to
-                    Color.Black.copy(alpha = bottomAlpha * (1f - smoothFadeAlpha(t))),
+                    Color.Black.copy(
+                        alpha = baseAlpha + (bottomAlpha - baseAlpha) * (1f - smoothFadeAlpha(t)),
+                    ),
             )
         }
     }.toTypedArray()
@@ -211,10 +227,15 @@ private data class BackgroundBase(
 
 // 歌曲沉浸式背景：整屏统一渲染，不随顶置封面位置做局部处理，左右切页时背景始终连续。
 // 背景只有一条渲染路径：封面叠画出的一帧（见 renderCoverFlowFrame）。
+// 帧的色相在模糊之前先向底色主色收拢（见 [anchorFrameHue]）：模糊是通道平均，跨色相的像素
+// 平均后落在色环中段、饱和度最低处，那层灰浊色正是这么来的——收拢之后平均路径走在色环同侧，
+// 浑浊消失；画面收进一个色系，明暗结构仍是封面自己的，不再是整幅混成一团。
 // 「背景流动」开关只决定相位推不推进——关着时相位钉在零点，画面就是这一帧的首帧；
 // 开着时逐帧重算。静止与流动因此共用同一份构图与压暗，切换开关不会看到两种背景互相塌换。
 // 帧内的压暗层与蒙层随底色的明度收敛（见 [dimScaleOf]）：浅色封面叠出的浅色背景只轻度压暗，
 // 保持与封面外缘同色调，封面渐隐带上不出现暗色差带；收敛后各层强度由 [DIM_MIN_ALPHA] 兜底。
+// 压暗主要落在视口上下两端，中段只留一层薄基底：色相统一之后不再需要大面积蒙层去压杂色，
+// 中段也就不必再被压掉四成亮度。
 // 底色（封面边缘三段色里的代表色）只在帧未就绪时露出，那层压暗恒定按该强度铺开——
 // 浅色底同样要留出前景文字与状态栏的对比。
 // 取色同源且已持久化：命中缓存（切歌预取、或冷启动时由持久化结果回填）即视为已取色，
@@ -551,13 +572,14 @@ internal fun SongImmersiveBackground(
 }
 
 /**
- * 现算一帧背景流动帧：底色蒙层、叠画尺寸与模糊的全套口径都在本入口内定下。
+ * 现算一帧背景流动帧：色相锚定、叠画尺寸、蒙层与模糊的全套口径都在本入口内定下。
  *
  * 显示端的逐帧现算与切歌起播时的代现算（见 [CoverFlowFrameStore]）共用本入口，口径只有一份，
  * 代现算备好的帧与显示端此后现算出的帧因此完全同源——包括相位：两处都从本曲起播算起（见流动时间轴），
  * 代现算的零点帧与显示端接管后的首帧相差不到一帧的旋转量，替换时看不出差异。
  *
- * [tone] 取底色代表色：蒙层强度按它的明度收敛（见 [dimScaleOf]），压暗与着色因此出自同一个色调。
+ * [tone] 取底色代表色：它同时决定蒙层强度（见 [dimScaleOf]）与色相锚定的锚点，压暗与着色出自同一个色调。
+ * 锚点本身不带彩时（灰片、黑白封面取出的中性色）没有色相可锚，锚定跳过，帧仍是封面原色。
  */
 internal fun renderCoverFlowFrame(cover: Bitmap, viewport: IntSize, tone: Color?, timeMs: Long): ImageBitmap {
     val dimScale = dimScaleOf(tone)
@@ -571,23 +593,36 @@ internal fun renderCoverFlowFrame(cover: Bitmap, viewport: IntSize, tone: Color?
         viewportWidth = viewport.width,
         viewportHeight = viewport.height,
         timeMs = timeMs,
+        anchorHue = tone?.anchorHueOrNull(),
         washPrimaryArgb = washPrimary.toArgb(),
         washSecondaryArgb = washSecondary.toArgb(),
     ).asImageBitmap()
 }
 
+// 主色的色相：只在该色带得住色彩时有效。近灰的色相来自噪声，拿它当锚点会把整幅帧拉向一个凭空的色相
+private fun Color.anchorHueOrNull(): Float? {
+    val hsl = FloatArray(3)
+    ColorUtils.colorToHSL(toArgb(), hsl)
+    return hsl[0].takeIf { hsl[1] >= HUE_ANCHOR_MIN_SATURATION }
+}
+
 /**
- * 渲染一帧流动背景：在 1/16 视口尺寸的小画布上错位叠画三份高饱和封面，叠加主色与中性黑两层蒙层后
- * 整体模糊，由显示端放大铺满。像素量约为整屏的 1/256，叠画与模糊的代价随之降到可忽略。
- * [timeMs] 推进三层的旋转角度。
+ * 渲染一帧流动背景：在 1/16 视口尺寸的小画布上错位叠画三份高饱和封面，先把色相锚定到 [anchorHue]
+ * 附近，再叠主色与中性黑两层蒙层，最后整体模糊并回补彩度，由显示端放大铺满。
+ * 像素量约为整屏的 1/256，叠画、锚定与模糊的代价随之降到可忽略。[timeMs] 推进三层的旋转角度。
  *
- * 只由 [renderCoverFlowFrame] 调用：蒙层与色调的取法属于那一层的口径，这里只管叠画本身。
+ * 锚定夹在叠画与模糊之间：模糊是通道平均，跨色相的像素在那里被平均到色环中段，灰浊色正是这一步的产物；
+ * 锚定在前，平均路径才走在色环同侧（见 [anchorFrameHue]）。蒙层也排在锚定之后，
+ * 它与图像的混合因此同样落在本色系内部，不再把远景色相沿直线拖过灰心。
+ *
+ * 只由 [renderCoverFlowFrame] 调用：锚点、蒙层与色调的取法属于那一层的口径，这里只管画面本身。
  */
 private fun renderCoverBackgroundFrame(
     cover: Bitmap,
     viewportWidth: Int,
     viewportHeight: Int,
     timeMs: Long,
+    anchorHue: Float?,
     washPrimaryArgb: Int,
     washSecondaryArgb: Int,
 ): Bitmap {
@@ -615,9 +650,28 @@ private fun renderCoverBackgroundFrame(
         if (layer.rotateAboutCenter) matrix.postRotate(rotation, width / 2f, height / 2f)
         canvas.drawBitmap(cover, matrix, paint)
     }
+    // 叠画完成、模糊之前锚定色相：这一步决定整幅画面落在哪个色系里（见 anchorFrameHue）
+    anchorHue?.let { anchorFrameHues(frame, it) }
     canvas.drawColor(washPrimaryArgb)
     canvas.drawColor(washSecondaryArgb)
-    return blurBackgroundFrame(frame, COVER_BACKGROUND_BLUR_RADIUS)
+    return restoreFrameSaturation(blurBackgroundFrame(frame, COVER_BACKGROUND_BLUR_RADIUS))
+}
+
+// 模糊后的彩度回补：模糊按通道平均，相邻色相在此相互抵消，彩度随之一路衰减（见 FRAME_SATURATION_RESTORE）。
+// 用色彩矩阵一次绘过，比逐像素回一趟 HSL 便宜一个量级；小画布上多一张位图的分配可以忽略
+private fun restoreFrameSaturation(source: Bitmap): Bitmap {
+    val restored = createBitmap(source.width, source.height)
+    Canvas(restored).drawBitmap(
+        source,
+        0f,
+        0f,
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            isFilterBitmap = true
+            colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(FRAME_SATURATION_RESTORE) })
+        },
+    )
+    source.recycle()
+    return restored
 }
 
 // 两趟盒式模糊：输入是 1/16 视口的小图，纯 CPU 逐像素处理即可，无需引入渲染管线
