@@ -92,17 +92,10 @@ internal fun AudioInfoSheet(
     val saveFailedText = stringResource(R.string.audio_info_image_save_failed)
     val imageTitle = stringResource(R.string.audio_info_title)
     val emptyText = stringResource(R.string.audio_info_empty)
-    // 快照与延迟只在面板可见时采集（内容区同样只在可见时组合），渲染与保存成图共用同一份数据
-    var snapshot by remember { mutableStateOf<AudioInfoSnapshot?>(null) }
-    var latency by remember { mutableStateOf<OutputLatencyReading?>(null) }
-    if (visible) {
-        val collected by rememberAudioInfoSnapshot(playbackState)
-        val sampledLatency by rememberOutputLatencyReading(playbackState)
-        SideEffect {
-            snapshot = collected
-            latency = sampledLatency
-        }
-    }
+    // 渲染与保存成图共用同一份数据
+    val info = rememberAudioInfoData(playbackState, enabled = visible)
+    val snapshot = info.snapshot
+    val latency = info.latency
     val groups = snapshot?.let { audioInfoGroups(it, latency) }.orEmpty()
     // 竖屏面板半高，横屏铺满：与播放列表弹窗一致
     val sheetHeightFraction = if (rememberWindowLandscape()) 1f else 0.5f
@@ -234,6 +227,38 @@ internal fun AudioInfoSheet(
             }
         }
     }
+}
+
+/**
+ * 面板要展示、也要用于成图的两份采集结果。
+ */
+private data class AudioInfoData(
+    val snapshot: AudioInfoSnapshot?,
+    val latency: OutputLatencyReading?,
+)
+
+/**
+ * 只在 [enabled] 时采集，收起动画期间沿用最近一次结果，内容不会先消失再滑出。
+ *
+ * 采集值必须在组合期读出：只写在副作用里读，组合就不会订阅这两份状态，
+ * 数据采集到了也不会引发重绘（面板停在空态、后续读数全不刷新）。
+ */
+@Composable
+private fun rememberAudioInfoData(
+    playbackState: MusicPlaybackState,
+    enabled: Boolean,
+): AudioInfoData {
+    var lastShown by remember { mutableStateOf(AudioInfoData(null, null)) }
+    val current = if (enabled) {
+        AudioInfoData(
+            snapshot = rememberAudioInfoSnapshot(playbackState).value,
+            latency = rememberOutputLatencyReading(playbackState).value,
+        )
+    } else {
+        lastShown
+    }
+    SideEffect { lastShown = current }
+    return current
 }
 
 /**
