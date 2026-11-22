@@ -58,6 +58,40 @@ UI → ViewModel → Repository → DataStore                事件自下而上
   `./gradlew :app:lintRelease` 或 `./gradlew check`，门禁在 `check` 的 `lint` 依赖里。
 - `app/lint.xml` 已把 `Deprecated` 与 `UnsafeOptIn*` 提级为 error，弃用 API 须迁移到等价接口。
 
+## 提交信息
+
+- 沿用 `type(scope): 中文描述` 的写法，`type` 取 `feat` / `fix` / `refactor` / `build` / `docs` / `perf`，
+  与既有历史一致；正文用中文说明为什么这么改，不复述 diff。
+- 版本号提升单独成一笔 `build: 升级版本号至 x.y.z`，不与其他改动混在同一笔里。
+- 多行提交信息用 Bash heredoc 传入：
+
+  ```bash
+  git commit -F - <<'MSG'
+  标题
+
+  正文
+  MSG
+  ```
+
+  **不要用 PowerShell 的 here-string 写法**（`git commit -m @'...'@`）：本机 shell 是 Git Bash，
+  `@'...'@` 不构成 here-string，会被当作字面量拼进消息，标题行变成 `@`，正文首尾各多一行。
+- 提交信息写错且**尚未推送**时，用 `git commit --amend -F -` 改正，内容不变；
+  已推送的不改写历史，另起一笔修正。
+
+## 构建产物的交付
+
+- 每次代码改动落地、构建验证通过后，构建 `./gradlew :app:assembleRelease`，把
+  `app/build/outputs/apk/release/EchoTideMusic-<versionName>-arm64-v8a.apk` 作为**对话内附件卡片**
+  直接交付，不必等用户开口要，也不必询问用哪种方式发。
+- 交付前核对产物的修改时间晚于最后一次代码改动：产物与提交内容不一致时，交付出去的是旧行为。
+- 这是默认路径，不绕 IM 桌面端。理由（2026-11-22 实测）：本机 `WORKBUDDY_COMPUTER_USE_BACKGROUND_DISABLED=1`，
+  后台单窗口 GUI 操作不可用，只剩独立桌面（`child_session`，需一次性系统授权且其内 QQ 未登录）
+  与前台整屏（抢占用户焦点）两条路，两者都比一张附件卡片贵得多，还多出登录态、文件选择对话框、
+  误点会话等失败点。
+- 只有两种情形换通道：附件卡片对用户不可达（例如用户只从手机看消息而客户端不提供下载）；
+  或用户明确指定了收件人（好友 / 群 / 邮箱）且接受 GUI 操作或邮件。走 GUI 前须确认目标会话，
+  不得打开其他联系人、不得发送文字消息。
+
 ## Lint 未使用资源（UnusedResources）的判断
 
 > 这条约定的由来：`media3_icon_circular_play.png` 曾被判为未使用资源删除，
