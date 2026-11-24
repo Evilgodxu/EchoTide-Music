@@ -3,7 +3,7 @@ package com.yichao.evilgodxu.data.music.playback.usb
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.audio.PcmAudioUtil
+import com.yichao.evilgodxu.data.music.playback.PcmConversion
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -116,7 +116,7 @@ class UsbSubslotPackerTest {
     @Test
     fun `打包与 media3 的左对齐约定一致`() {
         val source = byteBuffer(0xFF, 0x7F)
-        val asInt = PcmAudioUtil.readAs32BitIntPcm(source, C.ENCODING_PCM_16BIT)
+        val asInt = PcmConversion.readAs32BitIntPcm(source, C.ENCODING_PCM_16BIT)
 
         assertArrayEquals(bytes(0xFF, 0x7F), subslot(asInt, 2))
     }

@@ -14,7 +14,6 @@ import androidx.media3.common.Format
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.util.Clock
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.analytics.PlayerId
 import androidx.media3.exoplayer.audio.AudioCapabilities
 import androidx.media3.exoplayer.audio.AudioOffloadSupport
@@ -652,7 +651,7 @@ class PerDeviceAudioSink(
     private fun upsampleInto(source: ByteBuffer, upsampler: SameFamilyUpsampler): ByteBuffer {
         val format = checkNotNull(lastConfig).format
         val frames = source.remaining() /
-            Util.getPcmFrameSize(format.pcmEncoding, format.channelCount)
+            PcmConversion.frameSize(format.pcmEncoding, format.channelCount)
         val output = scratchFor(
             upsampler.outputBytes(frames, format.channelCount, format.pcmEncoding)
         )
@@ -671,7 +670,7 @@ class PerDeviceAudioSink(
      */
     private fun drainInto(upsampler: SameFamilyUpsampler): ByteBuffer {
         val format = checkNotNull(lastConfig).format
-        val frameSize = Util.getPcmFrameSize(format.pcmEncoding, format.channelCount)
+        val frameSize = PcmConversion.frameSize(format.pcmEncoding, format.channelCount)
         val output = scratchFor(upsampler.drainFrames * frameSize)
         upsampler.drain(format.channelCount, format.pcmEncoding, output)
         output.flip()

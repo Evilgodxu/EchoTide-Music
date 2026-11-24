@@ -3,8 +3,6 @@ package com.yichao.evilgodxu.data.music.playback
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.common.util.Util
-import androidx.media3.exoplayer.audio.PcmAudioUtil
 import java.nio.ByteBuffer
 import kotlin.math.PI
 import kotlin.math.roundToLong
@@ -122,7 +120,7 @@ internal class SameFamilyUpsampler(
 
     /** [inputFrames] 帧输入按倍率展开所需的输出缓冲字节数 */
     fun outputBytes(inputFrames: Int, channelCount: Int, encoding: Int): Int =
-        inputFrames * multiple * Util.getPcmFrameSize(encoding, channelCount)
+        inputFrames * multiple * PcmConversion.frameSize(encoding, channelCount)
 
     /**
      * 读完整块输入，把插值结果写进 [output]；输入被消费到末位，返回写出的输出帧数。
@@ -130,7 +128,7 @@ internal class SameFamilyUpsampler(
      * [output] 的剩余空间须不小于 [outputBytes]。
      */
     fun process(input: ByteBuffer, channelCount: Int, encoding: Int, output: ByteBuffer): Int {
-        val frames = input.remaining() / Util.getPcmFrameSize(encoding, channelCount)
+        val frames = input.remaining() / PcmConversion.frameSize(encoding, channelCount)
         prepare(channelCount, frames)
         readInterleaved(input, levels[0], frames, channelCount, encoding)
         return interpolateAll(frames, channelCount, encoding, output)
@@ -263,14 +261,14 @@ internal class SameFamilyUpsampler(
         if (encoding == C.ENCODING_PCM_FLOAT) {
             source.float.toDouble()
         } else {
-            PcmAudioUtil.readAs32BitIntPcm(source, encoding).toDouble()
+            PcmConversion.readAs32BitIntPcm(source, encoding).toDouble()
         }
 
     private fun writeSample(dest: ByteBuffer, encoding: Int, value: Double) {
         if (encoding == C.ENCODING_PCM_FLOAT) {
             dest.putFloat(value.toFloat())
         } else {
-            PcmAudioUtil.write32BitIntPcm(dest, quantize(value, encoding), encoding)
+            PcmConversion.write32BitIntPcm(dest, quantize(value, encoding), encoding)
         }
     }
 

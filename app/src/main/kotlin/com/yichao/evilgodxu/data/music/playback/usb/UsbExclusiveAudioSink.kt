@@ -11,9 +11,9 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.util.Clock
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.audio.AudioSink
 import com.yichao.evilgodxu.data.music.playback.OutputLatencyReading
+import com.yichao.evilgodxu.data.music.playback.PcmConversion
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -212,7 +212,7 @@ internal class UsbExclusiveAudioSink(
 
     /** 线性 PCM 且位深可判定：两者缺一，配置期都挑不出子槽 */
     private fun isDeliverableEncoding(pcmEncoding: Int): Boolean =
-        Util.isEncodingLinearPcm(pcmEncoding) && sourceBitDepthOf(pcmEncoding) != 0
+        PcmConversion.isLinearPcm(pcmEncoding) && sourceBitDepthOf(pcmEncoding) != 0
 
     override fun setClock(clock: Clock) {
         this.clock = clock
@@ -335,7 +335,7 @@ internal class UsbExclusiveAudioSink(
     /** 声道掩码的取值口径：源格式给了就用它，否则按声道数折算 */
     private fun channelMaskOf(format: Format): Int =
         format.channelMask.takeIf { it != Format.NO_VALUE }
-            ?: Util.getAudioTrackChannelConfig(format.channelCount)
+            ?: PcmConversion.audioTrackChannelConfig(format.channelCount)
 
     /**
      * 从设备声明的格式里挑出按源位深写出的那一个；源位深未知时按解码输出位深，挑不出即本次不成立。
@@ -567,14 +567,14 @@ internal class UsbExclusiveAudioSink(
         }
         val playoutDeltaUs = outputPositionUs - checkpoint.outputPositionUs
         return checkpoint.mediaTimeUs +
-            Util.getMediaDurationForPlayoutDuration(playoutDeltaUs, checkpoint.speed)
+            PcmConversion.mediaDurationForPlayoutDuration(playoutDeltaUs, checkpoint.speed)
     }
 
     // 上报渲染器用于决定休眠上界：口径与平台路径一致，取设备侧缓冲的时长
     override fun getAudioTrackBufferSizeUs(): Long {
         val output = output ?: return C.TIME_UNSET
         if (output.sampleRate <= 0) return C.TIME_UNSET
-        return Util.sampleCountToDurationUs(output.bufferFrames.toLong(), output.sampleRate)
+        return PcmConversion.sampleCountToDurationUs(output.bufferFrames.toLong(), output.sampleRate)
     }
 
     /**
@@ -753,7 +753,7 @@ internal class UsbExclusiveAudioSink(
      * 3. **音量斜坡**：音量值变了，在本块内斜到新值，改动才不落在缓冲边界上。
      */
     private fun convert(source: ByteBuffer, format: Format): ByteBuffer {
-        val bytesPerSample = Util.getPcmFrameSize(format.pcmEncoding, 1)
+        val bytesPerSample = PcmConversion.frameSize(format.pcmEncoding, 1)
         val output = scratchBuffer(source.remaining() / bytesPerSample * subslotBytes)
         val target = targetGainQ15()
         val samples = source.remaining() / bytesPerSample
@@ -819,11 +819,11 @@ internal class UsbExclusiveAudioSink(
 
     private fun framesToDurationUs(frames: Long, sampleRate: Int): Long {
         if (sampleRate <= 0) return 0
-        return Util.sampleCountToDurationUs(frames, sampleRate)
+        return PcmConversion.sampleCountToDurationUs(frames, sampleRate)
     }
 
     private fun bufferMillis(output: UsbIsoOutput): Long =
-        Util.sampleCountToDurationUs(output.bufferFrames.toLong(), output.sampleRate) / 1000
+        PcmConversion.sampleCountToDurationUs(output.bufferFrames.toLong(), output.sampleRate) / 1000
 
     /**
      * 按秒读一次原生层的欠载计数并如实上报，同时刷新供界面取用的进度快照。

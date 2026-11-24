@@ -1,9 +1,6 @@
 package com.yichao.evilgodxu.data.music.playback.usb
 
-import androidx.annotation.OptIn
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.common.util.Util
-import androidx.media3.exoplayer.audio.PcmAudioUtil
+import com.yichao.evilgodxu.data.music.playback.PcmConversion
 import java.nio.ByteBuffer
 
 /**
@@ -37,7 +34,6 @@ import java.nio.ByteBuffer
  * @param rampSamples 斜坡覆盖的样本数；[RAMP_WHOLE_BLOCK] 表示按整块均分
  * @return 末尾凑不满一个样本的字节数，正常为 0
  */
-@OptIn(UnstableApi::class)
 internal fun packToSubslot(
     source: ByteBuffer,
     output: ByteBuffer,
@@ -48,11 +44,11 @@ internal fun packToSubslot(
     rampSamples: Int = RAMP_WHOLE_BLOCK,
 ): Int {
     require(subslotBytes in 1..4) { "子槽宽度只能是 1..4 字节，收到 $subslotBytes" }
-    val bytesPerSourceSample = Util.getPcmFrameSize(pcmEncoding, 1)
+    val bytesPerSourceSample = PcmConversion.frameSize(pcmEncoding, 1)
     if (gainFromQ15 == gainToQ15) {
         val applyGain = gainFromQ15 != UNITY_GAIN_Q15
         while (source.remaining() >= bytesPerSourceSample) {
-            val value = PcmAudioUtil.readAs32BitIntPcm(source, pcmEncoding)
+            val value = PcmConversion.readAs32BitIntPcm(source, pcmEncoding)
             writeSubslot(output, if (applyGain) scaleByGain(value, gainFromQ15) else value, subslotBytes)
         }
     } else if (rampSamples == RAMP_WHOLE_BLOCK) {
@@ -61,7 +57,7 @@ internal fun packToSubslot(
         val span = (samples - 1).coerceAtLeast(1)
         var index = 0
         while (source.remaining() >= bytesPerSourceSample) {
-            val value = PcmAudioUtil.readAs32BitIntPcm(source, pcmEncoding)
+            val value = PcmConversion.readAs32BitIntPcm(source, pcmEncoding)
             val gain = gainFromQ15 + ((gainToQ15 - gainFromQ15).toLong() * index / span).toInt()
             writeSubslot(output, scaleByGain(value, gain), subslotBytes)
             index++
@@ -72,7 +68,7 @@ internal fun packToSubslot(
         val last = (span - 1).coerceAtLeast(0)
         var index = 0
         while (source.remaining() >= bytesPerSourceSample) {
-            val value = PcmAudioUtil.readAs32BitIntPcm(source, pcmEncoding)
+            val value = PcmConversion.readAs32BitIntPcm(source, pcmEncoding)
             val gain = when {
                 index >= span -> gainToQ15
                 // 斜坡只有一个样本时无从插值，取起点值：下一个样本即落在目标上

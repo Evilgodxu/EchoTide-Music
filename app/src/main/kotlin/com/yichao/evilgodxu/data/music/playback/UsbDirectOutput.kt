@@ -9,7 +9,6 @@ import android.os.Handler
 import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.ExoPlayer
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.util.concurrent.ConcurrentHashMap
@@ -608,7 +607,7 @@ internal fun selectDirectMixer(
     sourceBitDepth: Int?,
 ): AudioMixerAttributes? {
     if (sampleRate <= 0) return null
-    if (!Util.isEncodingLinearPcm(decodedPcmEncoding)) return null
+    if (!PcmConversion.isLinearPcm(decodedPcmEncoding)) return null
     val writable = writablePcmEncodings(decodedPcmEncoding)
     val target = sourceBitDepth
     val candidates = supported.filter {
@@ -624,7 +623,7 @@ internal fun selectDirectMixer(
         candidates.minByOrNull { integerBitDepthOf(it.format.encoding) ?: Int.MAX_VALUE }
     } else {
         candidates.maxByOrNull {
-            encodingPreference(it.format.encoding, Util.isEncodingHighResolutionPcm(decodedPcmEncoding))
+            encodingPreference(it.format.encoding, PcmConversion.isHighResolutionPcm(decodedPcmEncoding))
         }
     }
 }
@@ -655,7 +654,7 @@ internal fun selectSameFamilyUpsample(
     sourceBitDepth: Int?,
 ): AudioMixerAttributes? {
     if (sampleRate <= 0) return null
-    if (!Util.isEncodingLinearPcm(decodedPcmEncoding)) return null
+    if (!PcmConversion.isLinearPcm(decodedPcmEncoding)) return null
     if (!canInterpolatePcm(decodedPcmEncoding)) return null
     val writable = writablePcmEncodings(decodedPcmEncoding)
     val target = sourceBitDepth
@@ -683,7 +682,7 @@ internal fun selectSameFamilyUpsample(
                 {
                     -encodingPreference(
                         it.second.format.encoding,
-                        Util.isEncodingHighResolutionPcm(decodedPcmEncoding),
+                        PcmConversion.isHighResolutionPcm(decodedPcmEncoding),
                     )
                 },
             )
@@ -721,7 +720,7 @@ internal fun writablePcmEncodings(decodedPcmEncoding: Int): Set<Int> {
         AudioFormat.ENCODING_PCM_24BIT_PACKED,
         AudioFormat.ENCODING_PCM_32BIT,
     )
-    if (Util.isEncodingHighResolutionPcm(decodedPcmEncoding)) {
+    if (PcmConversion.isHighResolutionPcm(decodedPcmEncoding)) {
         writable += AudioFormat.ENCODING_PCM_FLOAT
     }
     if (decodedPcmEncoding == AudioFormat.ENCODING_PCM_32BIT) {
