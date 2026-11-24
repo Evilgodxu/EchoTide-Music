@@ -9,6 +9,7 @@ import com.yichao.evilgodxu.data.music.api.enrichTrackDetail
 import com.yichao.evilgodxu.data.music.metadata.CoverExporter
 import com.yichao.evilgodxu.data.music.metadata.CoverUpdate
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
+import com.yichao.evilgodxu.data.music.metadata.METADATA_FILL_DETAIL_WAIT_MS
 import com.yichao.evilgodxu.data.music.metadata.TagField
 import com.yichao.evilgodxu.data.music.metadata.TrackMetadataEditor
 import com.yichao.evilgodxu.data.music.metadata.TrackTagFields
@@ -49,9 +50,6 @@ private const val SAME_ALBUM_COVER_LIMIT = 5
 
 // 同专辑封面候选的扫描上限：同专辑曲目通常只有十几首，上限用于挡住专辑名判等过宽时的大范围遍历
 private const val SAME_ALBUM_SCAN_LIMIT = 60
-
-// 补全时详情请求的等待上界：超时就用搜索结果已给的字段，不让一次接口慢把补全卡住
-private const val FILL_DETAIL_WAIT_MS = 5_000L
 
 /**
  * 元数据编辑页状态持有者：进入页面读取内嵌标签回填表单，
@@ -606,7 +604,7 @@ class MetadataViewModel(
         _uiState.update { it.copy(fillApplying = true) }
         viewModelScope.launch {
             // 音轨号、碟号、版权只在详情接口里，落地前补一次；失败就用手上这份
-            val detailed = withTimeoutOrNull(FILL_DETAIL_WAIT_MS) { enrichTrackDetail(candidate) } ?: candidate
+            val detailed = withTimeoutOrNull(METADATA_FILL_DETAIL_WAIT_MS) { enrichTrackDetail(candidate) } ?: candidate
             val plan = fillPlan(state.fields, detailed, state.fillOverwrite)
             if (plan.isEmpty()) {
                 _uiState.update {

@@ -45,6 +45,8 @@ import com.yichao.evilgodxu.data.music.model.RecentCover
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.screens.metadata.MetadataEditTarget
 import com.yichao.evilgodxu.screens.metadata.MetadataUiState
+import com.yichao.evilgodxu.ui.component.FillModeDialog
+import com.yichao.evilgodxu.ui.component.MetadataFillDialog
 import com.yichao.evilgodxu.ui.component.player.LocalCoverDialog
 import com.yichao.evilgodxu.ui.component.player.loadRecentCovers
 import com.yichao.evilgodxu.ui.copyToClipboard

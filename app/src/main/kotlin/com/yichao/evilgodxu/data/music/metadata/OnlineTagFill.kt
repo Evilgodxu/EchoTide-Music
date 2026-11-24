@@ -2,6 +2,9 @@ package com.yichao.evilgodxu.data.music.metadata
 
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 
+// 补全时详情请求的等待上界：超时就用搜索结果已给的字段，不让一次接口慢把补全卡住
+internal const val METADATA_FILL_DETAIL_WAIT_MS = 5_000L
+
 /**
  * 在线候选能提供的标签字段。
  *

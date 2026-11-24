@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.screens.metadata.component
+package com.yichao.evilgodxu.ui.component
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,7 +29,6 @@ import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.proxy.OnlinePlatformRegistry
-import com.yichao.evilgodxu.ui.component.DialogCard
 import com.yichao.evilgodxu.ui.component.player.CoverCandidateItem
 import com.yichao.evilgodxu.ui.component.player.RefreshCandidateDialog
 
@@ -38,8 +37,9 @@ import com.yichao.evilgodxu.ui.component.player.RefreshCandidateDialog
  * 差异只在确认后多问一步 —— 补全方式（仅补全 / 全覆盖）放在二级对话框里，
  * 不往候选列表底下塞选择器，免得一屏里叠两套决策。
  *
- * 候选与来源状态由 [MusicPlaybackState] 持有：搜索在页面状态持有者里发起，
- * 对话框只负责展示与回传选择，与首页那两处刷新入口保持同一套分工。
+ * 候选与来源状态由 [MusicPlaybackState] 持有：搜索在调用方的状态持有者里发起，
+ * 对话框只负责展示与回传选择 —— 元数据编辑页与专辑信息栏因此共用同一个入口，
+ * 两处的候选、来源与刷新行为天然一致。
  */
 @Composable
 internal fun MetadataFillDialog(

@@ -13,9 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -28,14 +26,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
@@ -44,13 +40,13 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PlaylistSource
 import com.yichao.evilgodxu.data.playlist.PlaylistGroup
 import com.yichao.evilgodxu.data.playlist.applySavedTrackOrder
+import com.yichao.evilgodxu.screens.home.component.playlist.info.AlbumInfoContent
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalAlbumOrderStore
 import com.yichao.evilgodxu.permission.ensureTrackFileWritable
 import com.yichao.evilgodxu.permission.rememberAllFilesAccessRequest
 import com.yichao.evilgodxu.ui.component.DialogCard
 import com.yichao.evilgodxu.ui.component.SongImmersiveBackground
-import com.yichao.evilgodxu.utils.formatTime
 import kotlinx.coroutines.launch
 
 // 专辑页的两个视角：与歌手页同构，只切换下方内容，头图与标签栏恒在
@@ -64,8 +60,8 @@ private enum class AlbumTab(@StringRes val labelRes: Int) {
  * + 标签栏（歌曲 / 信息）+ 左右滑动分页。
  *
  * 专辑以 albumId 认身份（分组 key 即 albumId），曲目按它实时筛出而不是照分组快照的 trackIds：
- * 长按改过专辑名的曲目会立刻离开本页，与分组列表的口径一致。头图封面、沉浸背景取色、
- * 信息页的总时长读的都是这一份曲目，不会各读各的成员。
+ * 长按改过专辑名的曲目会立刻离开本页，与分组列表的口径一致。头图封面、沉浸背景取色与信息栏
+ * 展示的是同一首曲目 —— 本专辑正在播放时取正在播放那首，否则取首曲。
  *
  * 歌曲顺序 = 曲库顺序套上该专辑的存档曲序（见 AlbumOrderStore）：分组由曲库即时解析，
  * 次序本身没有落脚点，故拖拽落定即写档，离开再进仍保持。头图封面与歌曲列表读的是同一份顺序。
@@ -112,11 +108,17 @@ internal fun AlbumPlaylistPage(
             ),
     ) {
         val headerHeight = (maxHeight * IMMERSIVE_HEADER_HEIGHT_RATIO).coerceAtMost(ImmersiveHeaderMaxHeight)
+        // 头图封面与信息栏同源：本专辑正在播放时取正在播放那首，否则取首曲。
+        // 「正在播放」按 id 在本专辑曲目里认，不比对 albumId —— 这份曲目清单本身就是专辑身份的判定结果
+        val playingId = playbackState.currentTrack
+            ?.takeIf { current -> orderedTracks.any { it.id == current.id } }
+            ?.id
+        val displayTrack = orderedTracks.firstOrNull { it.id == playingId } ?: orderedTracks.firstOrNull()
         // 整屏沉浸背景：与头图同源，下缘渐隐的封面正是融入它
-        SongImmersiveBackground(track = orderedTracks.firstOrNull(), modifier = Modifier.fillMaxSize())
+        SongImmersiveBackground(track = displayTrack, modifier = Modifier.fillMaxSize())
         Column(modifier = Modifier.fillMaxSize()) {
             ImmersiveGroupHeader(
-                track = orderedTracks.firstOrNull(),
+                track = displayTrack,
                 title = group.name,
                 subtitle = albumHeaderSubtitle(orderedTracks),
                 height = headerHeight,
@@ -139,7 +141,11 @@ internal fun AlbumPlaylistPage(
                         orderedTracks = orderedTracks,
                         playbackState = playbackState,
                     )
-                    AlbumTab.INFO -> AlbumInfoContent(tracks = orderedTracks)
+                    AlbumTab.INFO -> AlbumInfoContent(
+                        track = displayTrack,
+                        playbackState = playbackState,
+                        visible = tabPagerState.currentPage == AlbumTab.INFO.ordinal,
+                    )
                 }
             }
         }
@@ -223,57 +229,6 @@ internal fun PlaylistAlbumSongsPage(
     val savedOrder = albumOrderStore.orders[group.key].orEmpty()
     val orderedTracks = remember(tracks, savedOrder) { applySavedTrackOrder(tracks, savedOrder) }
     AlbumSongsContent(group = group, orderedTracks = orderedTracks, playbackState = playbackState)
-}
-
-// 专辑信息：只陈列曲目页里读得到的概况，全部由曲目实时算出，不另存一份可能过期的描述
-@Composable
-private fun AlbumInfoContent(tracks: List<MusicTrack>) {
-    if (tracks.isEmpty()) {
-        EmptyHint(text = stringResource(R.string.playlist_empty))
-        return
-    }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        AlbumInfoRow(
-            label = stringResource(R.string.playlist_album_info_tracks),
-            value = pluralStringResource(R.plurals.music_panel_track_count, tracks.size, tracks.size),
-        )
-        AlbumInfoRow(
-            label = stringResource(R.string.playlist_album_info_duration),
-            value = formatTime(tracks.sumOf { it.duration }),
-        )
-    }
-}
-
-// 信息行：标签居左、取值居右并单行截断——取值过长时不该把行高撑成两行
-@Composable
-private fun AlbumInfoRow(label: String, value: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(
-            text = label,
-            color = Color.White.copy(alpha = 0.6f),
-            fontSize = 12.sp,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = value,
-            color = Color.White,
-            fontSize = 13.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
 }
 
 // 专辑视图长按歌曲：编辑该歌曲的专辑元数据
