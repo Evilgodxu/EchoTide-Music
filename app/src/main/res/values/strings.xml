@@ -502,6 +502,7 @@
         <item quantity="other">%1$s · %2$d 首</item>
     </plurals>
     <string name="playlist_album_info_track_duration">时长</string>
+    <string name="playlist_album_info_bit_depth">位深</string>
     <string name="playlist_album_info_sample_rate">采样率</string>
     <string name="playlist_album_info_codec">编码格式</string>
     <string name="playlist_album_info_fill_failed">补全失败，请稍后重试</string>

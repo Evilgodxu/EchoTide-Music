@@ -179,13 +179,18 @@ internal fun AlbumInfoContent(
         Spacer(modifier = Modifier.height(6.dp))
         val loaded = info ?: return@Column
         val format = loaded.format
+        // 版式顺序：先标签字段，再文件规格。规格内部由「这首歌多长」排到「什么规格、怎么编码」，
+        // 文件路径体积最大、与其余各行无关，留在末尾独占一段。曲目号不在展示范围内：专辑页的曲序
+        // 由「歌曲」标签的列表承担，信息栏只交代这一首文件里写的是什么
         AlbumInfoRow(stringResource(R.string.metadata_field_artist), loaded.fields[TagField.ARTIST])
         AlbumInfoRow(stringResource(R.string.metadata_field_album), loaded.fields[TagField.ALBUM])
-        AlbumInfoRow(stringResource(R.string.metadata_field_track_number), loaded.fields[TagField.TRACK_NUMBER])
+        AlbumInfoRow(stringResource(R.string.metadata_field_language), loaded.fields[TagField.LANGUAGE])
         AlbumInfoRow(stringResource(R.string.metadata_field_genre), loaded.fields[TagField.GENRE])
         AlbumInfoRow(stringResource(R.string.metadata_field_date), loaded.fields[TagField.DATE])
-        format?.bitrate?.let {
-            AlbumInfoRow(stringResource(R.string.audio_info_bitrate), stringResource(R.string.audio_info_value_kbps, it))
+        AlbumInfoRow(stringResource(R.string.playlist_album_info_track_duration), formatTime(loaded.durationMs))
+        // 位深只在无损容器头里读得到：有损编码没有这一项，该行随之不产出，不拿位深去推算
+        format?.bitDepth?.let {
+            AlbumInfoRow(stringResource(R.string.playlist_album_info_bit_depth), stringResource(R.string.audio_info_value_bit, it))
         }
         format?.sampleRate?.let {
             AlbumInfoRow(
@@ -193,10 +198,12 @@ internal fun AlbumInfoContent(
                 stringResource(R.string.audio_info_value_khz_list, formatSampleRateKHz(it)),
             )
         }
-        format?.format?.takeIf { it.isNotBlank() }?.let {
+        format?.bitrate?.let {
+            AlbumInfoRow(stringResource(R.string.audio_info_bitrate), stringResource(R.string.audio_info_value_kbps, it))
+        }
+        loaded.codec?.let {
             AlbumInfoRow(stringResource(R.string.playlist_album_info_codec), it)
         }
-        AlbumInfoRow(stringResource(R.string.playlist_album_info_track_duration), formatTime(loaded.durationMs))
         AlbumInfoPathRow(loaded.path)
     }
     MetadataFillDialog(
@@ -234,7 +241,9 @@ private class AlbumTrackInfo(
     val fields: Map<TagField, String>,
     val durationMs: Long,
     val path: String,
-    /** 文件自身的格式、采样率、比特率等；读不到时为 null，对应行不展示 */
+    /** 编码格式：容器头或平台元数据给出的码流名，读不到时按文件扩展名给出 */
+    val codec: String?,
+    /** 文件自身的采样率、位深、比特率等；读不到时为 null，对应行不展示 */
     val format: AudioSignalPathFormat?,
 )
 
@@ -252,10 +261,15 @@ private suspend fun readAlbumTrackInfo(context: Context, track: MusicTrack): Alb
         }
         value?.takeIf { it.isNotBlank() }?.let { field to it }
     }.toMap()
+    // 编码格式单独留一路兜底：容器头与 mime 都读不出的曲目（经 content URI 进入的缓存歌）仍能从扩展名认出码流，
+    // 而这一行缺的正是「这是什么格式」这个最基本的问题
+    val codec = format?.format?.takeIf { it.isNotBlank() }
+        ?: track.path.substringAfterLast('.', "").takeIf { it.isNotBlank() }?.uppercase()
     return AlbumTrackInfo(
         fields = fields,
         durationMs = track.duration,
         path = track.path.ifBlank { track.audioUri },
+        codec = codec,
         format = format,
     )
 }

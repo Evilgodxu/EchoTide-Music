@@ -505,6 +505,7 @@
         <item quantity="other">%1$s · %2$d tracks</item>
     </plurals>
     <string name="playlist_album_info_track_duration">Length</string>
+    <string name="playlist_album_info_bit_depth">Bit depth</string>
     <string name="playlist_album_info_sample_rate">Sample rate</string>
     <string name="playlist_album_info_codec">Codec</string>
     <string name="playlist_album_info_fill_failed">Fill failed, please try again later</string>
