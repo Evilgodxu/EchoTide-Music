@@ -148,7 +148,7 @@ class IntPcmConversionTest {
     fun `浮点格式直接支持`() {
         assertEquals(
             AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY,
-            intPcmFormatSupport(C.ENCODING_PCM_FLOAT),
+            pcmFormatSupport(C.ENCODING_PCM_FLOAT),
         )
     }
 
@@ -156,7 +156,7 @@ class IntPcmConversionTest {
     fun `16 位格式需要转码`() {
         assertEquals(
             AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING,
-            intPcmFormatSupport(C.ENCODING_PCM_16BIT),
+            pcmFormatSupport(C.ENCODING_PCM_16BIT),
         )
     }
 
@@ -164,7 +164,7 @@ class IntPcmConversionTest {
     fun `24 位格式需要转码`() {
         assertEquals(
             AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING,
-            intPcmFormatSupport(C.ENCODING_PCM_24BIT),
+            pcmFormatSupport(C.ENCODING_PCM_24BIT),
         )
     }
 
@@ -172,7 +172,7 @@ class IntPcmConversionTest {
     fun `非线性 PCM 不支持`() {
         assertEquals(
             AudioSink.SINK_FORMAT_UNSUPPORTED,
-            intPcmFormatSupport(C.ENCODING_INVALID),
+            pcmFormatSupport(C.ENCODING_INVALID),
         )
     }
 

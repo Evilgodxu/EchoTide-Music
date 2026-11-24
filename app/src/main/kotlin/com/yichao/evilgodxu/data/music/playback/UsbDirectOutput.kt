@@ -704,7 +704,7 @@ private fun integerBitDepthOf(encoding: Int): Int? = when (encoding) {
  * 浮点与 16 位整型由媒体3 的默认输出产出：浮点变体下写浮点，非浮点变体上经 `ToInt16PcmAudioProcessor`
  * 转成 16 位整型。浮点只在源位深未知或高于 16 位时出现在解码输出（见 PerDeviceAudioSink 的能力申报）；
  * 16 位及以下的源按源位深解码，[decodedPcmEncoding] 就是 16 位，故浮点不在可写集合里。
- * 打包整型由 [IntPcmAudioSink] 写出，其中 32 位容得下任意线性源——32 位及以下源左移补零后逐位无损，
+ * 打包整型由 [PcmAudioSink] 写出，其中 32 位容得下任意线性源——32 位及以下源左移补零后逐位无损，
  * 浮点源按中间态取整；24 位则丢 32 位源的低八位，故源本就是 32 位时不列入。
  *
  * 这里只列「本应用写得出的编码」，不掺「本机是否建得起轨」：后者不再事前实测（见 docs/注意事项.md），

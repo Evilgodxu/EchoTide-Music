@@ -1,22 +1,13 @@
 package com.yichao.evilgodxu.data.music.playback
 
-import androidx.annotation.OptIn
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.audio.DefaultAudioSink
 import kotlin.math.max
 
 /**
  * 输出缓冲的时长口径：直出与独占两条路取同一个值。
  *
- * 两条路各有一处缓冲，尺寸都由 [TARGET_BUFFER_MS] 定：平台侧是音频轨申请多大（媒体3 的默认变体经
- * [provider]，自建音频轨的 [IntPcmAudioSink] 经 [trackBufferBytes]），独占侧是等时环留多长
- * （`UsbIsoOutput` 的环形缓冲）。两处取不同的值会让同一台设备「换个开关就换一种表现」，故统一口径。
- *
- * **显式钉定而不是沿用媒体3 的默认值**：媒体3 对线性 PCM 的默认目标同为 500ms
- * （`DefaultAudioTrackBufferSizeProvider` 的 `DEFAULT_PCM_BUFFER_DURATION_US`），但它只覆盖由媒体3
- * 自己建轨的那几个变体——[IntPcmAudioSink] 自建音频轨，独占路径根本不经过媒体3，靠默认值就只剩一处
- * 受管。钉在本处，三个落点才会同时变。压缩与卸载仍交回媒体3 的默认口径：那是编码格式的固有缓冲，
- * 与输出链路的延迟无关。
+ * 两条路各有一处缓冲，尺寸都由 [TARGET_BUFFER_MS] 定：平台侧是音频轨申请多大（[PcmAudioSink] 经
+ * [trackBufferBytes]），独占侧是等时环留多长（`UsbIsoOutput` 的环形缓冲）。两处取不同的值会让同一台
+ * 设备「换个开关就换一种表现」，故统一口径。
  *
  * 这个量的两侧各自约束：
  * - 下限一侧是抗欠载余量。上游（解码 → 写出）的偶发停顿全靠这一段吸收，**没有别的兜底**：欠载不会被
@@ -49,7 +40,6 @@ import kotlin.math.max
  * 可播」，存量随即回升到容量，稳态余量不受影响。代价落在起播那一小段：起始存量减半，上游若恰好在此刻
  * 停顿，欠载会更早出现。要缩短这段等待只能下调本值或该阈值，两者同源，不能各取一头。
  */
-@OptIn(UnstableApi::class)
 internal object PlaybackBufferPolicy {
 
     /**
@@ -93,36 +83,4 @@ internal object PlaybackBufferPolicy {
      */
     fun trackBufferBytes(minBufferSizeInBytes: Int, pcmFrameSize: Int, sampleRate: Int): Int =
         max(minBufferSizeInBytes, targetBufferFrames(sampleRate) * pcmFrameSize)
-
-    /**
-     * 交给媒体3 输出提供者的策略：PCM 走 [trackBufferBytes]，其余原样转回默认口径。
-     *
-     * 媒体3 在本策略的返回值之上还会再抬一次平台下限；此处仍自行取一次下界，一是接口约定要求返回值
-     * 不低于 minBufferSizeInBytes，二是 [IntPcmAudioSink] 直接复用 [trackBufferBytes]，
-     * 两处口径一致才不会在同一个目标上给出两种结论。
-     */
-    val provider: DefaultAudioSink.AudioTrackBufferSizeProvider =
-        object : DefaultAudioSink.AudioTrackBufferSizeProvider {
-            override fun getBufferSizeInBytes(
-                minBufferSizeInBytes: Int,
-                encoding: Int,
-                outputMode: Int,
-                pcmFrameSize: Int,
-                sampleRate: Int,
-                bitrate: Int,
-                maxAudioTrackPlaybackSpeed: Double,
-            ): Int = if (outputMode == DefaultAudioSink.OUTPUT_MODE_PCM) {
-                trackBufferBytes(minBufferSizeInBytes, pcmFrameSize, sampleRate)
-            } else {
-                DefaultAudioSink.AudioTrackBufferSizeProvider.DEFAULT.getBufferSizeInBytes(
-                    minBufferSizeInBytes,
-                    encoding,
-                    outputMode,
-                    pcmFrameSize,
-                    sampleRate,
-                    bitrate,
-                    maxAudioTrackPlaybackSpeed,
-                )
-            }
-        }
 }

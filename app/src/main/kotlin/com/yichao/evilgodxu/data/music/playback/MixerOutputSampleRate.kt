@@ -3,8 +3,8 @@ package com.yichao.evilgodxu.data.music.playback
 /**
  * 混音模式下设备链路实际跑着的速率。
  *
- * 本应用那条音频轨的速率不是答案：它由媒体3 按解码输出格式建轨（见 `AudioTrackAudioOutputProvider`
- * 取 `format.sampleRate`），而 `AudioTrack.getSampleRate()` 在混音轨上回读的正是建轨时的请求值
+ * 本应用那条音频轨的速率不是答案：它由输出层按解码输出格式建轨（见 [PcmAudioSink] 取
+ * `format.sampleRate`），而 `AudioTrack.getSampleRate()` 在混音轨上回读的正是建轨时的请求值
  * （`AudioTrack::getSampleRate` 只在 offload / direct 轨上才回问 HAL），于是它与「解码输出」那一行
  * 重复，且永远等于源速率——系统重采样因此被一律误报成未发生。真正的重采样发生在音频轨之后：
  * 混音器按「轨速率 → 设备速率」的比例插值（`AudioMixerBase::TrackBase::setResampler`，日志原文即

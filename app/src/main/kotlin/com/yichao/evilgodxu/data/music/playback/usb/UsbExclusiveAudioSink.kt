@@ -26,7 +26,7 @@ private const val STATS_INTERVAL_MS = 1000L
 /**
  * USB 独占输出：把解码数据经自写的 usbfs 等时层直接交给解码器的等时端点。
  *
- * 与 [IntPcmAudioSink] 的关系是并列而非叠加——两者都在"接受解码数据、转成整型帧、写出"这一段，
+ * 与 [PcmAudioSink] 的关系是并列而非叠加——两者都在"接受解码数据、转成整型帧、写出"这一段，
  * 区别只在最后一公里：那个写出的是 `AudioTrack`（因而仍在平台的混音链路里），本类写出的是等时端点
  * （因而绕开了混音链路）。**绕开正是独占的来历**：[UsbExclusiveDac] 用
  * `claimInterface(intf, force = true)` 把接口收归本应用时，内核的音频驱动被解绑，该解码器随之从系统

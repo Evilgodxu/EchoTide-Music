@@ -16,46 +16,54 @@ import androidx.media3.exoplayer.audio.AudioSink
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.min
 
-// 打包整型输出的类名前缀
-private const val LOG_TAG = "IntPcmAudioSink"
+// 音频输出诊断的类名前缀
+private const val LOG_TAG = "PcmAudioSink"
 
 // 平台下限取不到时的兜底缓冲帧数：仅用于该异常分支的建轨，与常规路径的目标帧数无关
 private const val FALLBACK_BUFFER_FRAMES = 4096
 
 /**
- * 打包整型输出：自行接受解码数据并写出设备动态混音端口声明的打包整型（[outputEncoding]，24 位或 32 位）。
+ * 线性 PCM 输出：接受任意线性 PCM 解码数据，统一写成所设编码（浮点或 16/24/32 位整型）并交给
+ * [AudioTrackOutput]。
  *
- * 为什么另起一个 sink（已核实，无更轻的做法）：
- * - media3 的默认音频输出只产出浮点与 16 位整型；高分辨率源走的浮点分支不挂用户处理器链，无从注入转换，
- *   而整型分支又会先把高分辨率源截成 16 位，故打包整型拿不到对应写出。
+ * 为何自建输出（已核实，无更轻的做法）：
+ * - 媒体3 的默认音频输出只产出浮点与 16 位整型；高分辨率源走的浮点分支不挂用户处理器链，无从注入转换，
+ *   而整型分支又会先把高分辨率源截成 16 位，故 24/32 位整型拿不到对应写出。
  * - 把默认输出声明的编码改写成打包整型也不行：媒体3 会用该编码解读管线缓冲（音量渐入
  *   `PcmAudioUtil.rampUpVolume` 取 configuration.outputConfig.encoding），声明与数据不符即越界崩溃；
  *   反过来让声明与数据一致，则音频轨的帧长记账按浮点算，与实际轨道差出一截。
  *
- * 两种位深共用本实现：它们只差每样本字节数，转换、记账、位置换算的口径完全一致，
- * 分写两套只会让同一处缺陷要修两遍。选哪一种由动态混音端口声明决定——[PerDeviceAudioSink] 按目标
+ * 四个写出编码共用本实现：它们只差每样本字节数与编码，转换、裁剪、记账、位置换算的口径完全一致，
+ * 分写多套只会让同一处缺陷要修多遍。选哪一种由动态混音端口声明决定——[PerDeviceAudioSink] 按目标
  * 设备声明的条目各持一个实例。
  *
- * 本实现只做「接受解码数据 — 转成所设位深的整型帧 — 交给输出」这一段；位置、欠载与写入由
- * [AudioTrackOutput] 承担。位置取设备侧播放头，曲末按系统时钟模拟尾音。
+ * 本实现承担「接受解码数据 — 裁掉编码器延迟与填充 — 转成所设编码 — 交给输出」这一段；位置、欠载与
+ * 写入由 [AudioTrackOutput] 承担。位置取设备侧播放头，曲末按系统时钟模拟尾音。
  *
- * 与默认输出的已知差别（均为有意取舍）：
- * - 不裁剪编码器延迟与填充：曲目间隙会比其它变体略长，但不会出现重叠或杂音；
+ * 已知不做的取舍：
  * - 不支持静音跳过、隧道与卸载：直出优先保真，这些能力在直出成立时不起作用；
- * - 不参与声道映射：输出声道数取解码格式本身。
+ * - 不参与声道映射：输出声道数取解码格式本身；
+ * - 位置取设备播放头，粒度略粗，但不会越过已写出的量。
  *
  * 精度：逐样本经 [PcmConversion] 的左对齐 32 位约定中转。32 位整型容得下任意线性源——32 位及以下源
  * 左移补零后逐位无损，浮点源按中间态的 32 位整型取整（偏差不超过一个最低有效位）；24 位则放不下
  * 32 位源的低八位。
  */
 @OptIn(UnstableApi::class)
-internal class IntPcmAudioSink(
-    /** 写出编码：仅 [C.ENCODING_PCM_24BIT] 与 [C.ENCODING_PCM_32BIT] 两种打包整型，取值由动态混音端口声明 */
+internal class PcmAudioSink(
+    /** 写出编码：浮点或 16/24/32 位整型，取值由动态混音端口声明或默认取向决定 */
     private val outputEncoding: Int,
+    /**
+     * 建轨时是否申请低延迟性能模式。
+     *
+     * 该取向只在系统混音路径上有意义：直出按源格式输出，不该被它干扰，故由调用方按当前路由回答。
+     */
+    private val preferLowLatency: () -> Boolean = { false },
 ) : AudioSink {
 
-    /** 写出每样本字节数：转换时按它申请缓冲，与位深同源 */
+    /** 写出每样本字节数：转换时按它申请缓冲，与编码同源 */
     private val bytesPerOutputSample = PcmConversion.byteDepth(outputEncoding)
 
     private var listener: AudioSink.Listener = SILENT_LISTENER
@@ -74,6 +82,9 @@ internal class IntPcmAudioSink(
     // 两者都由播放线程写、由信息采集在别的线程读，故各自 volatile 发布
     @Volatile
     private var outputFrameSize = 0
+
+    /** 解码数据的每帧字节数：裁剪按输入帧计数，须与输出帧长分开记 */
+    private var inputFrameSize = 0
 
     private var output: AudioTrackOutput? = null
     private var audioTrackConfig: AudioSink.AudioTrackConfig? = null
@@ -108,11 +119,40 @@ internal class IntPcmAudioSink(
     /** 实际请求的轨道缓冲字节数：欠载回调按接口约定以字节上报 */
     private var trackBufferBytes = 0
 
-    /** 上一次未写完的整型数据：媒体3 会以同一输入缓冲再次调用，余量须暂存于此 */
+    /** 上一次未写完的输出数据：媒体3 会以同一输入缓冲再次调用，余量须暂存于此 */
     private var pendingOutput: ByteBuffer? = null
 
     /** 转换用缓冲，按需增长后复用，避免每次写入都分配直接缓冲 */
     private var scratch: ByteBuffer? = null
+
+    /** 裁剪装配用缓冲（输入编码），盛放滞留区先出的一段接本次输入，按需增长后复用 */
+    private var assembly: ByteBuffer? = null
+
+    /** 空的写出缓冲：裁剪把整块输入都吞掉时交它，避免复用缓冲被误清 */
+    private val emptyOutput: ByteBuffer = ByteBuffer.allocateDirect(0)
+
+    /**
+     * 起裁余量：编码器延迟按输入帧换算成字节，自流起点逐块扣除。
+     *
+     * 延迟样本不属于媒体时间，写出去会让位置整体后移一截，曲首还会带上一段静音。
+     */
+    private var trimStartBytesLeft = 0
+
+    /**
+     * 尾裁滞留区：最近若干帧压在这里，直到确认曲末才决定去向。
+     *
+     * 编码器填充在文件尾，只有拿到「流结束」才能判定；平时必须把最后 [endTrimBuffer] 容量那么多
+     * 字节留在这里不外发，否则填充会先被播出去。
+     */
+    private var endTrimBuffer: ByteArray = EMPTY_BYTES
+    private var endTrimSize = 0
+
+    /**
+     * 尾裁是否仍然成立：配置后成立，冲刷（跳转）后不成立。
+     *
+     * 跳转后剩下的末段不再确定是文件尾，滞留区的内容可能是正文，照裁会吞掉真实音频，故改为照常播出。
+     */
+    private var endTrimArmed = false
 
     /**
      * 已交给输出的字节数：位置上限与待播判定都按它推算，与写入量同源。
@@ -155,20 +195,22 @@ internal class IntPcmAudioSink(
         this.clock = clock
     }
 
-    // 只接线性 PCM：直出变体只被选来写出打包整型，压缩格式与直通不经此处
+    // 只接线性 PCM：本类以四个编码之一写出，压缩格式与直通不经此处
     override fun supportsFormat(format: Format): Boolean =
         MimeTypes.AUDIO_RAW == format.sampleMimeType &&
             PcmConversion.isLinearPcm(format.pcmEncoding)
 
     override fun getFormatSupport(format: Format): Int =
-        intPcmFormatSupport(format.pcmEncoding)
+        pcmFormatSupport(format.pcmEncoding)
 
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
         val format = audioSinkConfig.format
         inputFormat = format
         outputChannelMask = format.channelMask.takeIf { it != Format.NO_VALUE }
             ?: PcmConversion.audioTrackChannelConfig(format.channelCount)
+        inputFrameSize = PcmConversion.frameSize(format.pcmEncoding, format.channelCount)
         outputFrameSize = PcmConversion.frameSize(outputEncoding, format.channelCount)
+        setupTrimming(format)
         releaseOutput()
         handledEndOfStream = false
         pendingOutput = null
@@ -176,6 +218,21 @@ internal class IntPcmAudioSink(
         lastReportedUnderruns = 0
         checkpointPending = true
         checkpoints.clear()
+    }
+
+    /**
+     * 按编码器延迟与填充准备裁剪段。
+     *
+     * 两者都以帧给出，按解码侧的帧长换算成字节——裁剪发生在转换之前，基准是输入。未声明时按 0 计。
+     */
+    private fun setupTrimming(format: Format) {
+        trimStartBytesLeft = (format.encoderDelay.takeIf { it > 0 } ?: 0) * inputFrameSize
+        val endTrimBytes = (format.encoderPadding.takeIf { it > 0 } ?: 0) * inputFrameSize
+        if (endTrimBuffer.size != endTrimBytes) {
+            endTrimBuffer = if (endTrimBytes > 0) ByteArray(endTrimBytes) else EMPTY_BYTES
+        }
+        endTrimSize = 0
+        endTrimArmed = true
     }
 
     override fun handleBuffer(
@@ -195,7 +252,7 @@ internal class IntPcmAudioSink(
             )
         }
         val output = ensureOutput()
-        val converted = pendingOutput ?: convert(buffer, format)
+        val converted = pendingOutput ?: convertTrimmed(buffer, format)
         val accepted = try {
             output.write(converted)
         } catch (e: AudioTrackOutput.WriteException) {
@@ -236,6 +293,9 @@ internal class IntPcmAudioSink(
         lastReportedUnderruns = 0
         checkpointPending = true
         checkpoints.clear()
+        // 跳转后末段不再确定是文件尾，滞留区可能是正文，放弃尾裁并照常播出
+        endTrimSize = 0
+        endTrimArmed = false
     }
 
     override fun reset() {
@@ -255,16 +315,31 @@ internal class IntPcmAudioSink(
             handledEndOfStream = true
             return
         }
+        val format = checkNotNull(inputFormat)
         // 先把本层余量写完；写不完就留待下次调用，此时不得置为已结束
-        val remaining = pendingOutput
+        val remaining = pendingOutput ?: when {
+            // 已冲刷过（跳转过）：末端不再是文件尾，滞留区照常播出
+            !endTrimArmed -> consumeEndTrim(format)
+            // 曲末：滞留区就是编码器填充，不属于媒体时间，丢弃
+            endTrimSize > 0 -> {
+                endTrimSize = 0
+                null
+            }
+
+            else -> null
+        }
         if (remaining != null) {
-            try {
+            val accepted = try {
                 output.write(remaining)
             } catch (e: AudioTrackOutput.WriteException) {
                 releaseOutput()
                 return
             }
-            if (remaining.hasRemaining()) return
+            if (accepted > 0) writtenPcmBytes += accepted.toLong()
+            if (remaining.hasRemaining()) {
+                pendingOutput = remaining
+                return
+            }
             pendingOutput = null
         }
         // 尾部由音频系统播完；本层按停止位置与系统时钟模拟推进，排空判定才收敛
@@ -375,7 +450,7 @@ internal class IntPcmAudioSink(
     }
 
     // 隧道启用是显式请求，本路径不支持，如实拒绝；关闭则按空操作处理（渲染器可能在不使用隧道时调用它）
-    override fun enableTunnelingV21() = throw UnsupportedOperationException("打包整型输出不支持隧道")
+    override fun enableTunnelingV21() = throw UnsupportedOperationException("线性 PCM 输出不支持隧道")
 
     override fun disableTunneling() = Unit
 
@@ -409,7 +484,13 @@ internal class IntPcmAudioSink(
                 )
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .setBufferSizeInBytes(bufferSize)
-                .apply { if (audioSessionId != C.AUDIO_SESSION_ID_UNSET) setSessionId(audioSessionId) }
+                .apply {
+                    if (audioSessionId != C.AUDIO_SESSION_ID_UNSET) setSessionId(audioSessionId)
+                    // 低延迟只是取向：真正落到 fast 通路还要求轨速率与输出设备一致、缓冲落在 fast 突发之内
+                    if (preferLowLatency()) {
+                        setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                    }
+                }
                 .build()
             trackState = track.state
             track
@@ -434,10 +515,11 @@ internal class IntPcmAudioSink(
             )
         }
         // 起播阈值收到缓冲的一半：平台没有 Builder 入口，只能建轨后写入；此刻尚未 play，写的是起播用的那一版。
+        // 入参取实得帧数——平台下限更高时实得量大于申请量，阈值要跟着实得量走。
         // 失败退回平台初值（等于缓冲容量），只影响起播等待，故记录后放过
         runCatching {
             created.setStartThresholdInFrames(
-                PlaybackBufferPolicy.startThresholdFrames(bufferSize / outputFrameSize)
+                PlaybackBufferPolicy.startThresholdFrames(created.bufferSizeInFrames)
             )
         }.onFailure {
             CrashLogManager.logException(LOG_TAG, "设置起播阈值失败，沿用平台初值", it)
@@ -477,7 +559,67 @@ internal class IntPcmAudioSink(
     }
 
     /**
-     * 把整块输入转成所设位深的整型帧。
+     * 按编码器延迟与填充裁剪一块输入，并把结果转成所设编码。
+     *
+     * 起裁直接跳过输入开头的延迟字节；尾裁把末尾若干帧留在 [endTrimBuffer] 里不外发，只有确认曲末
+     * （见 [playToEndOfStream]）才丢弃。两者都按解码侧帧长对齐——渲染器交来的是整帧。
+     *
+     * 滞留区的容量恒等于填充字节数：任何时刻都留够能构成填充的那一段，多出来的才是正文。
+     */
+    private fun convertTrimmed(source: ByteBuffer, format: Format): ByteBuffer {
+        if (inputFrameSize <= 0) return emptyOutput
+        if (trimStartBytesLeft > 0) {
+            val skip = min(source.remaining(), trimStartBytesLeft)
+            source.position(source.position() + skip)
+            trimStartBytesLeft -= skip
+            if (trimStartBytesLeft > 0) return emptyOutput
+        }
+        val remaining = source.remaining()
+        // 可写出的字节数＝滞留区可腾出的量：滞留区满则只出本次输入的下溢部分
+        val releaseBytes = endTrimSize + remaining - endTrimBuffer.size
+        val fromEnd = releaseBytes.coerceIn(0, endTrimSize)
+        val fromSource = (releaseBytes - fromEnd).coerceIn(0, remaining)
+        val assemblyBytes = fromEnd + fromSource
+        val assembled = if (assemblyBytes > 0) {
+            val target = assemblyBuffer(assemblyBytes)
+            target.put(endTrimBuffer, 0, fromEnd)
+            if (fromSource > 0) {
+                val chunk = source.duplicate()
+                chunk.limit(source.position() + fromSource)
+                target.put(chunk)
+                source.position(source.position() + fromSource)
+            }
+            target.flip()
+            target
+        } else {
+            emptyOutput
+        }
+        // 滞留区左移出已写出的部分，再接上本次输入剩下的全部字节（其量恰为容量与存留之差）
+        val kept = endTrimSize - fromEnd
+        if (kept > 0) System.arraycopy(endTrimBuffer, fromEnd, endTrimBuffer, 0, kept)
+        endTrimSize = kept
+        val tail = source.remaining()
+        if (tail > 0) {
+            source.get(endTrimBuffer, endTrimSize, tail)
+            endTrimSize += tail
+        }
+        if (assembled === emptyOutput) return emptyOutput
+        return convert(assembled, format)
+    }
+
+    /** 曲末把滞留区整块交出：只在尾裁不成立（跳转过）时使用 */
+    private fun consumeEndTrim(format: Format): ByteBuffer? {
+        val size = endTrimSize
+        if (size <= 0) return null
+        val target = assemblyBuffer(size)
+        target.put(endTrimBuffer, 0, size)
+        target.flip()
+        endTrimSize = 0
+        return convert(target, format)
+    }
+
+    /**
+     * 把整块输入转成所设编码。
      *
      * 输入被消费到末位，末尾凑不满一个样本的余字节由转换一并跳过（见 [packIntPcm]）。
      */
@@ -498,6 +640,17 @@ internal class IntPcmAudioSink(
         return ByteBuffer.allocateDirect(size)
             .order(ByteOrder.nativeOrder())
             .also { scratch = it }
+    }
+
+    private fun assemblyBuffer(size: Int): ByteBuffer {
+        val current = assembly
+        if (current != null && current.capacity() >= size) {
+            current.clear()
+            return current
+        }
+        return ByteBuffer.allocateDirect(size)
+            .order(ByteOrder.nativeOrder())
+            .also { assembly = it }
     }
 
     private fun writtenPcmBytesAsFrames(): Long =
@@ -541,6 +694,8 @@ internal class IntPcmAudioSink(
 
     private companion object {
 
+        val EMPTY_BYTES = ByteArray(0)
+
         /** 渲染器尚未接管回调时的出口，事件不外泄 */
         val SILENT_LISTENER = object : AudioSink.Listener {
             override fun onPositionDiscontinuity() = Unit
@@ -556,23 +711,25 @@ internal class IntPcmAudioSink(
     }
 }
 
-// 位深名：供初始化失败的异常消息使用；两种打包整型的取值与平台公开常量同值
+// 编码名：供初始化失败的异常消息使用
 private fun bitDepthLabel(encoding: Int): String = when (encoding) {
+    C.ENCODING_PCM_FLOAT -> "浮点"
+    C.ENCODING_PCM_16BIT -> "16 位整型"
     C.ENCODING_PCM_24BIT -> "24 位整型"
     C.ENCODING_PCM_32BIT -> "32 位整型"
     else -> "编码$encoding"
 }
 
 /**
- * 打包整型 sink 的格式支持判定。
+ * 本 sink 的格式支持判定。
  *
  * 浮点格式返回 [AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY]，使 [MediaCodecAudioRenderer]
- * 把解码器配置为浮点输出；本 sink 接收浮点后自行转成所设位深，精度得以保留。
+ * 把解码器配置为浮点输出；本 sink 接收浮点后自行转成所设编码，精度得以保留。
  * 非浮点编码返回 TRANSCODING：高分辨率源因此被解码器降级为 16 位整型，低 8 位在解码阶段即已丢失，
  * 与补零升位无关。
  */
 @OptIn(UnstableApi::class)
-internal fun intPcmFormatSupport(pcmEncoding: Int): Int {
+internal fun pcmFormatSupport(pcmEncoding: Int): Int {
     if (!PcmConversion.isLinearPcm(pcmEncoding)) return AudioSink.SINK_FORMAT_UNSUPPORTED
     return if (pcmEncoding == C.ENCODING_PCM_FLOAT) {
         AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY

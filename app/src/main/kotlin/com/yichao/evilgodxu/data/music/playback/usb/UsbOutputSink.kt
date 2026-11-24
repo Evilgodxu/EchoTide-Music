@@ -84,7 +84,7 @@ internal class UsbOutputSink(
      * 渲染器最后一次下发的起停意图。
      *
      * 自发改道要先复位退出的一方，而复位会清掉接收器内部的启停状态（`DefaultAudioSink.reset` 与
-     * [IntPcmAudioSink] 都把 playing 置假），渲染器却只在「停止 → 启动」的转换点下发 [play]——
+     * [PcmAudioSink] 都把 playing 置假），渲染器却只在「停止 → 启动」的转换点下发 [play]——
      * 换曲重配与曲中改道都不会再有第二次。故意图在此登记，改道后在进入方补上一次。
      */
     private var playRequested = false

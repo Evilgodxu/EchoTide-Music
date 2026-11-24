@@ -152,7 +152,6 @@ class MusicPlaybackService : MediaSessionService() {
         // 音频输出由 PerDeviceAudioSink 按直出已受理的编码挑选浮点/整型变体并自行重建，
         // 故此处忽略工厂给出的浮点参数，固定返回同一实例供渲染器使用
         val perDeviceSink = PerDeviceAudioSink(
-            context = this,
             directTarget = {
                 // 直出在播放器之后装配，此处延迟求值；尚未装配时视为未直出
                 if (::usbDirectOutput.isInitialized) usbDirectOutput.directTargetDevice() else null

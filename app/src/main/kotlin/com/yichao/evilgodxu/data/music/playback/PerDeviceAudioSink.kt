@@ -1,6 +1,5 @@
 package com.yichao.evilgodxu.data.music.playback
 
-import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioTrack
@@ -17,13 +16,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.analytics.PlayerId
 import androidx.media3.exoplayer.audio.AudioCapabilities
 import androidx.media3.exoplayer.audio.AudioOffloadSupport
-import androidx.media3.exoplayer.audio.AudioOutput
 import androidx.media3.exoplayer.audio.AudioOutputProvider
 import androidx.media3.exoplayer.audio.AudioSink
-import androidx.media3.exoplayer.audio.AudioTrackAudioOutput
-import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
-import androidx.media3.exoplayer.audio.DefaultAudioSink
-import androidx.media3.exoplayer.audio.ForwardingAudioOutputProvider
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -34,12 +28,10 @@ private const val LOG_TAG = "PerDeviceAudioSink"
 /**
  * 按直出已受理的写出格式重建的音频输出。
  *
- * 写出编码是 [DefaultAudioSink] 的构造期取向，实例内不可更改：浮点变体以 32 位浮点写出，
- * 整型变体以 16 位整型写出，24 位与 32 位两个变体则由 [IntPcmAudioSink] 各自写出对应位深的
- * 打包整型——设备只声明该编码时，媒体3 的默认输出无从产出它，只能另起一个输出实现。而 USB 直出建立的
- * 专用输出流只接纳与混音器属性逐字段一致的播放，该属性由直出侧按源格式优先挑选并得平台受理，因此这里
- * 持有四个变体，在每次 [configure] 时按已受理的属性编码决策，决策变化即切换变体——即按该格式重建输出，
- * 使已受理的条目成为当前写出格式。
+ * 四个写出编码（浮点、16/24/32 位整型）由 [PcmAudioSink] 统一承担，实例的写出编码是构造期取向，实例内
+ * 不可更改：USB 直出建立的专用输出流只接纳与混音器属性逐字段一致的播放，该属性由直出侧按源格式优先挑选
+ * 并得平台受理，因此这里持有四个变体，在每次 [configure] 时按已受理的属性编码决策，决策变化即切换变体
+ * ——即按该格式重建输出，使已受理的条目成为当前写出格式。
  *
  * 平台与 media3 都不对线性 PCM 做设备级能力探测，故非直出时一律保持浮点输出；
  * 决策只在 [configure] 处落地——切换需要重开 AudioTrack，只能发生在渲染器重配点。
@@ -54,7 +46,6 @@ private const val LOG_TAG = "PerDeviceAudioSink"
  */
 @OptIn(UnstableApi::class)
 class PerDeviceAudioSink(
-    private val context: Context,
     /** 已建立专用输出流的 USB 输出设备，null 表示当前未直出 */
     private val directTarget: () -> AudioDeviceInfo?,
     /** 已受理的直出写出编码，null 表示当前未直出；写出变体据此与已受理的混音器属性逐字段对齐 */
@@ -91,16 +82,22 @@ class PerDeviceAudioSink(
 ) : AudioSink {
 
     /** 默认变体：以 32 位浮点写出，保留解码精度 */
-    private val floatSink: AudioSink = buildSink(OutputVariant.FLOAT, enableFloatOutput = true)
+    private val floatSink: PcmAudioSink = PcmAudioSink(
+        C.ENCODING_PCM_FLOAT,
+        preferLowLatency = { directTarget() == null },
+    )
 
     /** 降级变体：一律以 16 位整型写出，供直出流只提供整型格式的设备使用 */
-    private val intSink: AudioSink = buildSink(OutputVariant.INT16, enableFloatOutput = false)
+    private val intSink: PcmAudioSink = PcmAudioSink(
+        C.ENCODING_PCM_16BIT,
+        preferLowLatency = { directTarget() == null },
+    )
 
     /** 24 位变体：自行写出直出流唯一声明的 24 位整型，供前两个变体都挂不上时使用 */
-    private val int24Sink: IntPcmAudioSink = IntPcmAudioSink(C.ENCODING_PCM_24BIT)
+    private val int24Sink: PcmAudioSink = PcmAudioSink(C.ENCODING_PCM_24BIT)
 
     /** 32 位变体：同理，供动态混音端口只声明 32 位整型的设备（部分 USB 耳放/解码器）使用 */
-    private val int32Sink: IntPcmAudioSink = IntPcmAudioSink(C.ENCODING_PCM_32BIT)
+    private val int32Sink: PcmAudioSink = PcmAudioSink(C.ENCODING_PCM_32BIT)
 
     /**
      * 音频轨的接收回调：先经 [OutputEncodingListener] 截取写出编码，再透传给渲染器。
@@ -200,8 +197,8 @@ class PerDeviceAudioSink(
     /**
      * 自上次音频轨建立以来，输出是否已被请求释放。
      *
-     * 释放音频轨走 media3 的共享异步释放线程（起步延迟 20ms），真正释放后才把释放事件投回播放线程，
-     * 投递时不校验发出方是否已被替换。因此「上一个音频轨的释放」可能晚于「本次音频轨的建立」到达，
+     * 释放音频轨走共享线程异步释放（起步延迟 20ms，见 [AudioTrackOutput]），真正释放后才把释放事件
+     * 投回播放线程，投递时不校验发出方是否已被替换。因此「上一个音频轨的释放」可能晚于「本次音频轨的建立」到达，
      * 若照搬释放事件清空编码，就会把当前链路的有效编码抹掉，且在下一次建轨前无从恢复——这正是编码
      * 偶发显示为未建立的成因。
      *
@@ -210,15 +207,6 @@ class PerDeviceAudioSink(
      * 无需额外同步。
      */
     private var outputReleaseRequested = false
-
-    /**
-     * 各默认变体最近一次建起的音频轨。
-     *
-     * 延迟只能从音频轨本身取得，而默认输出把轨道建在其内部，外部唯一能截住的入口是输出提供者，
-     * 故由它在创建时登记，取值则推迟到该变体的建轨回调—— 创建失败会重试，登记可能早于真正的建轨，
-     * 且期间生效变体也可能已经换过。登记与取值同在播放线程，无需额外同步。
-     */
-    private val capturedTracks = mutableMapOf<OutputVariant, AudioTrack?>()
 
     init {
         floatSink.setListener(floatListener)
@@ -251,15 +239,11 @@ class PerDeviceAudioSink(
     /**
      * 上报当前生效链路的音频轨。
      *
-     * 两个打包整型变体自建轨道因而直接可读，两个默认变体取输出提供者登记的那一个。速率随轨道一并上报，
-     * 两个量同生同灭：轨道在则两者都在，轨道释放则两者一起清空。
+     * 四个变体都自建轨道，因而直接可读。速率随轨道一并上报，两个量同生同灭：轨道在则两者都在，
+     * 轨道释放则两者一起清空。
      */
     private fun reportAudioTrack() {
-        val track = when (activeVariant) {
-            OutputVariant.INT24 -> int24Sink.currentAudioTrack
-            OutputVariant.INT32 -> int32Sink.currentAudioTrack
-            else -> capturedTracks[activeVariant]?.takeIf { it.state == AudioTrack.STATE_INITIALIZED }
-        }
+        val track = active().currentAudioTrack
         onAudioTrackChanged(track)
         onOutputStreamRateChanged(track?.sampleRate?.takeIf { it > 0 })
     }
@@ -274,73 +258,21 @@ class PerDeviceAudioSink(
         if (variant != activeVariant) return
         if (!outputReleaseRequested) return
         outputReleaseRequested = false
-        capturedTracks.remove(variant)
         onOutputEncodingChanged(null)
         onAudioTrackChanged(null)
         onOutputStreamRateChanged(null)
     }
 
-    private fun buildSink(variant: OutputVariant, enableFloatOutput: Boolean): AudioSink =
-        DefaultAudioSink.Builder(context)
-            .setEnableFloatOutput(enableFloatOutput)
-            // 默认变体的音频轨建在输出提供者内部，只有替换它才能拿到轨道本体（延迟取自该轨）
-            .setAudioOutputProvider(
-                TrackCapturingOutputProvider(
-                    provider = AudioTrackAudioOutputProvider.Builder(context)
-                        // 缓冲按本应用的口径显式申请：媒体3 对 PCM 自带的默认值是 500ms，比本应用的
-                        // 目标长得多，而它只覆盖媒体3 自己建轨的这一路——自建音频轨的打包整型变体与
-                        // 独占的等时环都不经它，靠它就会让三条路径的缓冲深度各自漂移
-                        // （见 PlaybackBufferPolicy）
-                        .setAudioTrackBufferSizeProvider(PlaybackBufferPolicy.provider)
-                        // 性能模式只在系统混音路径上申请：PERFORMANCE_MODE_LOW_LATENCY 仅置 FLAG_LOW_LATENCY，
-                        // 真要落到 fast 通路还要求轨速率与输出设备一致、缓冲落在 fast 突发之内。蓝牙没有
-                        // fast 输出、本应用的缓冲又在 80ms 量级，两条都不满足，故这里只是把取向交给平台，
-                        // 并不等于已走上低延迟通路；直出（源格式档）追求按源格式输出，不该被这条取向干扰，
-                        // 故直出成立时不设性能模式，退回平台默认路径。
-                        .setAudioTrackBuilderModifier { builder, _ ->
-                            if (directTarget() == null) {
-                                builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                            }
-                        }
-                        .build(),
-                    onAudioTrackCreated = { track ->
-                        capturedTracks[variant] = track
-                        applyStartThreshold(track)
-                    },
-                )
-            )
-            .build()
-
     /**
-     * 当前生效链路已写入音频轨的帧数，null 表示该变体给不出这一读数。
+     * 当前生效链路已写入音频轨的帧数，null 表示当前无音频轨。
      *
-     * 只有自研的打包整型输出逐次记账音频轨实际接受的字节；两个默认变体的写入量在媒体3 的输出实现内部，
-     * 外部取不到，且它可能重采样，拿转发字节数推算并不成立。故这一读数只在打包整型变体生效时有值——
-     * 供信息采集算出「写入音频轨 → 发声」的全链路延迟。
+     * 四个变体都逐次记账音频轨实际接受的字节，故这一读数随时可得——供信息采集算出
+     * 「写入音频轨 → 发声」的全链路延迟。
      */
-    fun writtenOutputFrames(): Long? = when (activeVariant) {
-        OutputVariant.INT24 -> int24Sink.writtenOutputFrames
-        OutputVariant.INT32 -> int32Sink.writtenOutputFrames
-        else -> null
-    }
-
-    /**
-     * 把起播阈值收到缓冲的一半。
-     *
-     * 平台没有在 `AudioTrack.Builder` 上给出入口，只能建轨后写入；轨道建起即回调，早于任何 [play]，
-     * 故写入的是「起播用」的那一版阈值。失败不致命：退回平台初值（等于缓冲容量），只是起播多等一段，
-     * 故按日志记录后放过，不影响播放。
-     */
-    private fun applyStartThreshold(track: AudioTrack) {
-        runCatching {
-            track.setStartThresholdInFrames(PlaybackBufferPolicy.startThresholdFrames(track.bufferSizeInFrames))
-        }.onFailure {
-            CrashLogManager.logException(LOG_TAG, "设置起播阈值失败，沿用平台初值", it)
-        }
-    }
+    fun writtenOutputFrames(): Long? = active().writtenOutputFrames
 
     /** 当前生效的变体：流数据与位置查询都经它；能力查询另走能力基准，见 [supportsFormat] */
-    private fun active(): AudioSink = when (activeVariant) {
+    private fun active(): PcmAudioSink = when (activeVariant) {
         OutputVariant.FLOAT -> floatSink
         OutputVariant.INT16 -> intSink
         OutputVariant.INT24 -> int24Sink
@@ -380,10 +312,8 @@ class PerDeviceAudioSink(
         // 取向先翻转再复位退出方：其音频轨的释放回调因此被判为非生效方，既不外泄给渲染器，
         // 也不会把生效方的上报值抹掉
         val outgoing = active()
-        val outgoingVariant = activeVariant
         activeVariant = variant
         outgoing.reset()
-        capturedTracks.remove(outgoingVariant)
         // 进入方此刻暂无音频轨，重建发生在下一次数据写入，届时由创建回调给出真实编码；
         // 退出方的编码已不属于当前链路，先清空，避免用上一变体的取值冒充当前写出编码。
         // 轨道本体同理：退出方的轨道已随复位释放，留在手里只会让延迟读到已作废的实例
@@ -506,8 +436,8 @@ class PerDeviceAudioSink(
     /**
      * 能力查询按浮点变体（能力基准）回答，不随当前生效变体变化。
      *
-     * 三个变体都接受线性 PCM——整型一侧的转换由媒体3 的 `ToInt16PcmAudioProcessor` 承担，非浮点变体上
-     * 必定挂它——故「能否接受这一格式」是接收器的整体能力，与「本曲由哪个变体写出」是两件事。
+     * 四个变体都接受线性 PCM，写出前的转换由各自输出实现承担——故「能否接受这一格式」是接收器的整体
+     * 能力，与「本曲由哪个变体写出」是两件事。
      *
      * 按生效变体回答会让取值随上一曲遗留的变体漂移：渲染器配置解码器时以浮点格式探一次，命中才向
      * 解码器索取浮点输出；上一曲是 16 位源时变体已落到整型，探针失手，下一曲便拿不到浮点解码输出，
@@ -707,7 +637,7 @@ class PerDeviceAudioSink(
     /**
      * 插值落点：按需增长后复用。
      *
-     * 用直接缓冲与平台字节序，与 [IntPcmAudioSink] 的转换缓冲同一口径，内层按同一套约定读它。
+     * 用直接缓冲与平台字节序，与 [PcmAudioSink] 的转换缓冲同一口径，内层按同一套约定读它。
      */
     private fun scratchFor(bytes: Int): ByteBuffer {
         val current = upsampleScratch
@@ -740,7 +670,7 @@ class PerDeviceAudioSink(
         active().pause()
     }
 
-    // 音频轨的实际释放只发生在 media3 的 flush 内（释放异步延后），故释放请求在此登记；
+    // 音频轨的实际释放异步延后，故释放请求在此登记；
     // 登记的时点早于释放事件，后续建轨会撤销它，据此把迟到的释放事件判为不属于当前链路
     override fun flush() {
         outputReleaseRequested = true
@@ -832,26 +762,6 @@ class PerDeviceAudioSink(
 
             override fun onSkipSilenceEnabledChanged(skipSilenceEnabled: Boolean) = Unit
         }
-    }
-}
-
-/**
- * 登记所建音频轨的转发输出提供者。
- *
- * 默认输出的音频轨建在其内部的输出提供者里，外部拿不到实例；延迟却只能取自该轨，故由这里捕获。
- * 转发包装是媒体3 给出的官方扩展方式，除登记外一律透传给 [AudioTrackAudioOutputProvider]，
- * 不改变任何输出行为——建轨、另建与释放仍由默认输出自行决断。
- */
-@OptIn(UnstableApi::class)
-private class TrackCapturingOutputProvider(
-    provider: AudioOutputProvider,
-    private val onAudioTrackCreated: (AudioTrack) -> Unit,
-) : ForwardingAudioOutputProvider(provider) {
-
-    override fun getAudioOutput(config: AudioOutputProvider.OutputConfig): AudioOutput {
-        val output = super.getAudioOutput(config)
-        if (output is AudioTrackAudioOutput) onAudioTrackCreated(output.audioTrack)
-        return output
     }
 }
 
