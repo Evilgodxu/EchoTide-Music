@@ -31,6 +31,8 @@ internal class HomePanelState(
     var playlistVisible by mutableStateOf(false)
     // 首页音频信息弹窗（底部弹出）显隐：与播放列表同属底部弹层，显隐期间一并让出纵向手势
     var audioInfoVisible by mutableStateOf(false)
+    // 调音台（底部弹出）显隐：长按播放/暂停唤出，与音频信息同属底部弹层
+    var tuningVisible by mutableStateOf(false)
     var showTimer by mutableStateOf(false)
     // 首页背景代表色：供搜索页与歌单页的浮层容器复用，保持与首页底色一致
     var backgroundColor by mutableStateOf(md_theme_dark_surface)

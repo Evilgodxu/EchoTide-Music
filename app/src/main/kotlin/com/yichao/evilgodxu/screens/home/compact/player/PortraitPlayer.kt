@@ -59,6 +59,7 @@ import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisController
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisSheet
 import com.yichao.evilgodxu.screens.home.component.audioinfo.AudioInfoSheet
+import com.yichao.evilgodxu.screens.home.component.tuning.TuningSheet
 import com.yichao.evilgodxu.screens.home.component.queue.PlaylistSheet
 import com.yichao.evilgodxu.screens.home.component.player.PlayerControls
 import com.yichao.evilgodxu.ui.component.player.currentTrackNeedsLosslessUpgrade
@@ -96,6 +97,9 @@ internal fun PortraitPlayer(
     // 音频信息弹窗显隐：由首页层持有，显示期间禁用上下滑动切歌
     audioInfoVisible: Boolean,
     onAudioInfoVisibilityChange: (Boolean) -> Unit,
+    // 调音台显隐：长按播放/暂停唤出，同样由首页层持有
+    tuningVisible: Boolean,
+    onTuningVisibilityChange: (Boolean) -> Unit,
     onOpenOnlineSearch: (String) -> Unit = {},
     // 点击歌手信息：跳转到该歌手的歌单页
     onOpenArtistPlaylist: (String) -> Unit = {},
@@ -107,9 +111,10 @@ internal fun PortraitPlayer(
     val playbackState = LocalPlaybackState.current
 
     // 播放列表、音频信息与曲库格式分析弹层展开时，系统返回键收起弹层
-    BackHandler(enabled = playlistVisible || audioInfoVisible || libraryAnalysis.visible) {
+    BackHandler(enabled = playlistVisible || audioInfoVisible || tuningVisible || libraryAnalysis.visible) {
         when {
             libraryAnalysis.visible -> libraryAnalysis.dismiss()
+            tuningVisible -> onTuningVisibilityChange(false)
             audioInfoVisible -> onAudioInfoVisibilityChange(false)
             else -> onPlaylistVisibilityChange(false)
         }
@@ -318,6 +323,7 @@ internal fun PortraitPlayer(
                         onPlaylistClick = { onPlaylistVisibilityChange(!playlistVisible) },
                         onPlaylistLongClick = { libraryAnalysis.open() },
                         onPlayPauseSwipeUp = { onAudioInfoVisibilityChange(true) },
+                        onPlayPauseLongClick = { onTuningVisibilityChange(true) },
                         onPlaylistSwipeUp = { onPlaylistVisibilityChange(true) },
                     )
                 }
@@ -347,6 +353,12 @@ internal fun PortraitPlayer(
             visible = audioInfoVisible,
             playbackState = playbackState,
             onDismiss = { onAudioInfoVisibilityChange(false) },
+        )
+
+        TuningSheet(
+            visible = tuningVisible,
+            playbackState = playbackState,
+            onDismiss = { onTuningVisibilityChange(false) },
         )
 
         LibraryAnalysisSheet(

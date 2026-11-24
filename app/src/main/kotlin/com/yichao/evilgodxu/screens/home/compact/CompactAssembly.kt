@@ -92,12 +92,13 @@ internal fun CompactAssembly(
     // 纵向切歌手势：挂在播放器页上，横向翻页由 Pager 承担
     val trackSwipe = rememberHomeTrackSwipeGesture(
         playbackState = playbackState,
-        sheetVisible = panelState.playlistVisible || panelState.audioInfoVisible,
+        sheetVisible = panelState.playlistVisible || panelState.audioInfoVisible || panelState.tuningVisible,
     )
 
     // 底部弹层（播放列表、音频信息）与曲库分析对话框置顶：展开期间它们占住面板区域，
     // 标题栏整体让位，避免与面板内容相互遮挡
-    val sheetOnTop = panelState.playlistVisible || panelState.audioInfoVisible || panelState.libraryAnalysis.visible
+    val sheetOnTop = panelState.playlistVisible || panelState.audioInfoVisible ||
+        panelState.tuningVisible || panelState.libraryAnalysis.visible
     // 触摸唤出需要读到最新的置顶状态：播放页的触摸手势协程只建立一次，
     // 直接捕获组合期的布尔值会一直读到首次组合的旧值，故经 State 转交
     val sheetOnTopState = rememberUpdatedState(sheetOnTop)
@@ -214,6 +215,8 @@ internal fun CompactAssembly(
                     // 播放按钮上滑唤出的音频信息弹窗
                     audioInfoVisible = panelState.audioInfoVisible,
                     onAudioInfoVisibilityChange = { panelState.audioInfoVisible = it },
+                    tuningVisible = panelState.tuningVisible,
+                    onTuningVisibilityChange = { panelState.tuningVisible = it },
                     // 长按标题/艺术家菜单「在线搜索」：切到在线搜索页并自动按当前菜单文本搜索
                     onOpenOnlineSearch = { query ->
                         playbackState.setSearchQuery(query)

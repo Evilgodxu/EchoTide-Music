@@ -42,6 +42,7 @@ import com.yichao.evilgodxu.data.settings.exclusiveVolumeStepFlow
 import com.yichao.evilgodxu.data.settings.saveExclusiveVolumeStep
 import com.yichao.evilgodxu.data.settings.usbDirectOutputModeFlow
 import com.yichao.evilgodxu.data.settings.usbExclusiveOutputModeFlow
+import com.yichao.evilgodxu.data.settings.volumeGainEnabledFlow
 import com.yichao.evilgodxu.log.CrashLogManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -375,6 +376,10 @@ class MusicPlaybackService : MediaSessionService() {
                 playbackState.usbExclusiveEnabled = enabled
                 playbackState.highlightPolicy.onImmersiveOutputChanged()
             }
+        }
+        // 音量增益开关：持久值回灌到播放状态，界面与该状态读的是同一份
+        serviceScope.launch {
+            volumeGainEnabledFlow().collect { playbackState.setVolumeGainEnabled(it) }
         }
         // 上次的档位在起播前恢复：读盘与独占开关的读取走同一份设置，两者都在同一批协程里完成
         serviceScope.launch {

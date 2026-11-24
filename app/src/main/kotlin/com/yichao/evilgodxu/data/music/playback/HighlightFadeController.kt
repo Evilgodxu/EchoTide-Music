@@ -6,12 +6,17 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.PlayMode
 
 /**
- * 心动模式的音量斜坡：片段首尾的淡入淡出，以及「当前项是否确实被裁剪」的判定。
+ * 播放器音量的唯一写入方：心动模式的片段斜坡 × 音量增益。
+ *
+ * 两项相乘而不是各写一次 `MediaController.volume`：音量只有一层，谁后写谁生效；分成两个写入方时
+ * 切歌或开关切换会把另一项冲掉，表现为「开了增益心动淡入就没了」这类互斥假象。
  */
 internal class HighlightFadeController(
     private val playMode: () -> PlayMode,
     private val currentTrack: () -> MusicTrack?,
     private val mediaController: () -> MediaController?,
+    // 音量增益的线性系数：关闭或无标签时为 1
+    private val replayGain: () -> Float,
 ) {
 
     private companion object {
@@ -35,7 +40,7 @@ internal class HighlightFadeController(
      */
     fun syncFadeVolume() {
         val controller = mediaController() ?: return
-        val target = if (isClipActive()) {
+        val fade = if (isClipActive()) {
             val duration = controller.duration
             val position = controller.currentPosition
             if (duration <= 0L || position < 0L) {
@@ -48,6 +53,9 @@ internal class HighlightFadeController(
         } else {
             1f
         }
+        // 播放器音量的合法区间是 0..1，故这里的增益只承担衰减；需要抬升的曲目（增益为正）
+        // 得靠写出侧的 PCM 增益，那是音量之外的另一层，不在这里伪造 >1 的系数
+        val target = fade * replayGain().coerceIn(0f, 1f)
         if (controller.volume != target) controller.volume = target
     }
 }

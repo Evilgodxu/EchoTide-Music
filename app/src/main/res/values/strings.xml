@@ -591,4 +591,11 @@
     <string name="update_toast_error">检查更新失败，请稍后重试</string>
     <string name="update_notification_title">忆潮音乐更新</string>
     <string name="update_notification_downloading">正在下载 %1$s</string>
+
+    <string name="tuning_title">调音台</string>
+    <string name="tuning_close">关闭</string>
+    <string name="tuning_volume_gain">音量增益</string>
+    <string name="tuning_volume_gain_no_tag">本曲无增益标签，按原样播放</string>
+    <string name="tuning_volume_gain_detail">参考 -18 LUFS · 峰值 %1$s</string>
+    <string name="tuning_volume_gain_limited">已按峰值限幅，避免削波</string>
 </resources>

@@ -16,6 +16,7 @@ class PlaybackSettingsTest {
         assertEquals(false, settings.backgroundFlow)
         assertEquals(false, settings.usbDirectOutput)
         assertEquals(false, settings.usbExclusiveOutput)
+        assertEquals(false, settings.volumeGain)
     }
 
     @Test
@@ -27,6 +28,7 @@ class PlaybackSettingsTest {
             backgroundFlow = null,
             usbDirectOutput = null,
             usbExclusiveOutput = null,
+            volumeGain = null,
         )
 
         assertEquals(PlaybackSettings(), settings)
@@ -41,6 +43,7 @@ class PlaybackSettingsTest {
             backgroundFlow = true,
             usbDirectOutput = true,
             usbExclusiveOutput = false,
+            volumeGain = true,
         )
 
         assertEquals(true, settings.miniPlayerEnabled)
@@ -49,6 +52,7 @@ class PlaybackSettingsTest {
         assertEquals(true, settings.backgroundFlow)
         assertEquals(true, settings.usbDirectOutput)
         assertEquals(false, settings.usbExclusiveOutput)
+        assertEquals(true, settings.volumeGain)
     }
 
     @Test
@@ -60,6 +64,7 @@ class PlaybackSettingsTest {
             backgroundFlow = null,
             usbDirectOutput = null,
             usbExclusiveOutput = true,
+            volumeGain = null,
         )
 
         assertEquals(true, settings.miniPlayerEnabled)
@@ -68,5 +73,6 @@ class PlaybackSettingsTest {
         assertEquals(false, settings.backgroundFlow)
         assertEquals(false, settings.usbDirectOutput)
         assertEquals(true, settings.usbExclusiveOutput)
+        assertEquals(false, settings.volumeGain)
     }
 }

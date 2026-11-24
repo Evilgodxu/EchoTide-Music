@@ -20,6 +20,7 @@ import com.yichao.evilgodxu.data.music.model.RecentCover
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.playlist.albumIdentity
+import com.yichao.evilgodxu.data.settings.saveVolumeGainEnabled
 import kotlin.jvm.JvmName
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
@@ -312,11 +313,38 @@ class MusicPlaybackState(
     )
     // 心动模式自行退出的一次性原因，由界面消费后清空
     var highlightExitNotice by highlightPolicy::exitNotice
+    // 音量增益（ReplayGain）：读数来自本曲内嵌标签，系数乘进播放器音量
+    private var highlightFadeRef: HighlightFadeController? = null
+    internal val replayGainVolume = ReplayGainVolume(
+        scope = { playbackScope },
+        context = { appContext },
+        currentTrack = { currentTrack },
+        onApplied = { highlightFadeRef?.syncFadeVolume() },
+    )
     internal val highlightFade = HighlightFadeController(
         playMode = { playMode },
         currentTrack = { currentTrack },
         mediaController = { mediaController },
-    )
+        replayGain = { replayGainVolume.linear },
+    ).also { highlightFadeRef = it }
+
+    /** 音量增益开关：界面只读此值，写入走 [setVolumeGainEnabled] */
+    val volumeGainEnabled: Boolean get() = replayGainVolume.enabled
+    /** 本曲标签里的增益；null 表示该曲没有标签，界面不显示数值 */
+    val volumeGainDb: Double? get() = replayGainVolume.gainDb
+    val volumeGainPeak: Double? get() = replayGainVolume.peak
+    /** 本次施加是否因峰值触发限幅 */
+    val volumeGainLimited: Boolean get() = replayGainVolume.limited
+
+    /**
+     * 切换音量增益。持久化与生效分开：先改运行时状态让当前曲目立即生效，再落盘；
+     * 落盘后的回流经同一入口进来，值未变时直接返回，不会重复触发。
+     */
+    fun setVolumeGainEnabled(enabled: Boolean) {
+        if (replayGainVolume.enabled == enabled) return
+        replayGainVolume.applyEnabled(enabled)
+        playbackScope.launch { appContext.saveVolumeGainEnabled(enabled) }
+    }
 
     internal val progress = PlaybackProgressTracker(
         scope = { playbackScope },
@@ -700,6 +728,7 @@ class MusicPlaybackState(
         if (track.id == currentTrack?.id) return
         currentIndex = next
         currentTrack = track
+        replayGainVolume.onTrackChanged()
         currentPosition = 0L
         duration = track.duration
         isPlaying = false
@@ -794,6 +823,7 @@ class MusicPlaybackState(
             currentIndex = index
             currentTrack = playlist[index]
         }
+        replayGainVolume.onTrackChanged()
         progress.syncFromController(isActive)
         // 播放意图只由播放器事件与同步入口维护：进度轮询不重复写回
         isPlaying = controller.isPlaying
@@ -850,7 +880,7 @@ class MusicPlaybackState(
         // 重建会被判成「队列已变」而重载整条时间线，表现为切模式时当前曲目卡顿
         if (previous != PlayMode.Highlight && mode != PlayMode.Highlight) return
         // 退出片段播放即刻撤下音量斜坡：淡出末尾的低音量会随整曲播放一直延续到下一次轮询
-        if (mode != PlayMode.Highlight) mediaController?.volume = 1f
+        if (mode != PlayMode.Highlight) highlightFade.syncFadeVolume()
         // 队列项随模式变化，缓存作废；下面重建后会写回
         cachedMediaItems = null
         // 片段取自持久化表，切换只做查表与重建队列、不含任何解析；

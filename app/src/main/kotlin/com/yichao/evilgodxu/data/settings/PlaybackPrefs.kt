@@ -52,6 +52,16 @@ fun Context.usbExclusiveOutputModeFlow(): Flow<Boolean> =
 // 音量没有单独留存的意义。空值表示从未写过（首次安装或从旧版本升级），由播放服务落到默认档
 private val exclusiveVolumeStepKey = intPreferencesKey("usb_exclusive_volume_step")
 
+// 音量增益默认关闭：开启后按曲目内嵌的 ReplayGain 标签施加增益，没有标签的曲目直通
+private val volumeGainEnabledKey = booleanPreferencesKey("volume_gain_enabled")
+
+fun Context.volumeGainEnabledFlow(): Flow<Boolean> =
+    settingsDataStore.data.map { it[volumeGainEnabledKey] ?: false }
+
+suspend fun Context.saveVolumeGainEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
+    settingsDataStore.edit { it[volumeGainEnabledKey] = enabled }
+}
+
 fun Context.exclusiveVolumeStepFlow(): Flow<Int?> =
     settingsDataStore.data.map { it[exclusiveVolumeStepKey] }
 
@@ -106,6 +116,7 @@ data class PlaybackSettings(
     val backgroundFlow: Boolean = false,
     val usbDirectOutput: Boolean = false,
     val usbExclusiveOutput: Boolean = false,
+    val volumeGain: Boolean = false,
 )
 
 // 键缺失时取默认值的规则集中在这一处，界面与仓库读的是同一份判定
@@ -116,6 +127,7 @@ internal fun playbackSettingsOf(
     backgroundFlow: Boolean?,
     usbDirectOutput: Boolean?,
     usbExclusiveOutput: Boolean?,
+    volumeGain: Boolean?,
 ): PlaybackSettings = PlaybackSettings(
     miniPlayerEnabled = miniPlayerEnabled ?: false,
     wordByWordRendering = wordByWordRendering ?: true,
@@ -123,6 +135,7 @@ internal fun playbackSettingsOf(
     backgroundFlow = backgroundFlow ?: false,
     usbDirectOutput = usbDirectOutput ?: false,
     usbExclusiveOutput = usbExclusiveOutput ?: false,
+    volumeGain = volumeGain ?: false,
 )
 
 internal fun Preferences.toPlaybackSettings(): PlaybackSettings = playbackSettingsOf(
@@ -132,6 +145,7 @@ internal fun Preferences.toPlaybackSettings(): PlaybackSettings = playbackSettin
     backgroundFlow = this[backgroundFlowEnabledKey],
     usbDirectOutput = this[usbDirectOutputModeKey],
     usbExclusiveOutput = this[usbExclusiveOutputModeKey],
+    volumeGain = this[volumeGainEnabledKey],
 )
 
 // 整组字段在同一次编辑里落盘：调用方改一项也只写这一项，其余按键取回快照原值
@@ -143,6 +157,7 @@ internal fun MutablePreferences.applyPlaybackSettings(transform: (PlaybackSettin
     this[backgroundFlowEnabledKey] = next.backgroundFlow
     this[usbDirectOutputModeKey] = next.usbDirectOutput
     this[usbExclusiveOutputModeKey] = next.usbExclusiveOutput
+    this[volumeGainEnabledKey] = next.volumeGain
 }
 
 

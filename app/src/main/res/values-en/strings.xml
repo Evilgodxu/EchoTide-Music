@@ -598,4 +598,11 @@
     <string name="update_toast_error">Check for update failed, try again later</string>
     <string name="update_notification_title">Echo Tide Update</string>
     <string name="update_notification_downloading">Downloading %1$s</string>
+
+    <string name="tuning_title">Tuning</string>
+    <string name="tuning_close">Close</string>
+    <string name="tuning_volume_gain">Volume gain</string>
+    <string name="tuning_volume_gain_no_tag">No gain tag for this track, playing as-is</string>
+    <string name="tuning_volume_gain_detail">Reference -18 LUFS · peak %1$s</string>
+    <string name="tuning_volume_gain_limited">Limited by peak to avoid clipping</string>
 </resources>
