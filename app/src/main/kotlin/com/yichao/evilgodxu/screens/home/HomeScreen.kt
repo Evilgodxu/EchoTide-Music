@@ -17,6 +17,7 @@ import com.yichao.evilgodxu.LocalApplication
 import com.yichao.evilgodxu.LocalMetadataEnricher
 import com.yichao.evilgodxu.LocalPlaybackState
 import com.yichao.evilgodxu.LocalPlaylistRefresher
+import com.yichao.evilgodxu.navigation.LocalIsTopLayer
 import com.yichao.evilgodxu.screens.home.compact.CompactAssembly
 import com.yichao.evilgodxu.screens.home.component.panel.HomePage
 import com.yichao.evilgodxu.screens.home.component.panel.HomePanelState
@@ -37,6 +38,8 @@ fun HomeScreen(
     // 播放列表高级菜单的「编辑元数据」：跳转元数据编辑页，只传曲目标识
     onOpenMetadata: (Long) -> Unit,
 ) {
+    // 本页常驻底层，被覆盖层压住时让出返回键与系统栏外观的写入
+    val isTopLayer = LocalIsTopLayer.current
     // ViewModel 工厂在非组合上下文中执行，依赖须先在此取出
     val application = LocalApplication.current
     val playbackState = LocalPlaybackState.current
@@ -72,8 +75,8 @@ fun HomeScreen(
     val panelState = rememberHomePanelState()
     val onToggleLandscape = landscapeToggleAction()
 
-    HomeSystemBarsEffect(panelState)
-    HomeBackHandlers(panelState)
+    HomeSystemBarsEffect(panelState, isTopLayer)
+    HomeBackHandlers(panelState, enabled = isTopLayer)
     SearchPageSyncEffects(panelState)
 
     if (rememberExpandedForm()) {
@@ -115,22 +118,25 @@ private fun landscapeToggleAction(): () -> Unit {
 // 而首页恒为深色封面衍生背景，故固定白色、不沿用上个页面的深色图标；底部弹层展开时导航栏落在
 // 跟随主题的面板上，改回按主题取色，否则浅色主题下白图标压在浅色面板上不可辨
 @Composable
-private fun HomeSystemBarsEffect(panelState: HomePanelState) {
+private fun HomeSystemBarsEffect(panelState: HomePanelState, isTopLayer: Boolean) {
     val sheetOnTop = panelState.playlistVisible ||
         panelState.audioInfoVisible ||
         panelState.libraryAnalysis.visible
     val lightNavigationBars = sheetOnTop && !LocalIsDarkTheme.current
     SideEffect {
+        // 被覆盖层压住时不再写入：本页会持续重组（歌词、进度），否则会不断覆盖上层页的外观声明
+        if (!isTopLayer) return@SideEffect
         SystemBarAppearance.isLightStatusBars = false
         SystemBarAppearance.isLightNavigationBars = lightNavigationBars
     }
 }
 
-// 首页两级返回：搜索页优先清空内容再回播放器，歌单页直接回播放器
+// 首页两级返回：搜索页优先清空内容再回播放器，歌单页直接回播放器。
+// 被覆盖层压住时全部让出，返回键交给覆盖层
 @Composable
-private fun HomeBackHandlers(panelState: HomePanelState) {
+private fun HomeBackHandlers(panelState: HomePanelState, enabled: Boolean) {
     val playbackState = LocalPlaybackState.current
-    BackHandler(enabled = panelState.currentPage == HomePage.SEARCH) {
+    BackHandler(enabled = enabled && panelState.currentPage == HomePage.SEARCH) {
         val hasSearchContent = playbackState.searchQuery.isNotBlank() ||
             playbackState.searchResults.isNotEmpty() ||
             playbackState.showSearchResults
@@ -143,7 +149,7 @@ private fun HomeBackHandlers(panelState: HomePanelState) {
             playbackState.setErrorMsg(null)
         }
     }
-    BackHandler(enabled = panelState.currentPage == HomePage.PLAYLIST) {
+    BackHandler(enabled = enabled && panelState.currentPage == HomePage.PLAYLIST) {
         panelState.closePanels()
     }
 }

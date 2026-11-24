@@ -60,6 +60,7 @@ import com.yichao.evilgodxu.data.playlist.smartTrackCount
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalPlaylistStore
+import com.yichao.evilgodxu.navigation.LocalIsTopLayer
 import com.yichao.evilgodxu.screens.home.component.playlist.expanded.PlaylistWidePanel
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.ExpandDirection
@@ -196,8 +197,9 @@ private fun PlaylistStackedPanel(
     fun goBack() {
         if (backStack.size > 1) go(backStack.dropLast(1))
     }
-    // 二级/三级详情页系统返回键逐级回退；顶层页面由首页 BackHandler 关闭面板
-    BackHandler(enabled = visible && backStack.size > 1) {
+    // 二级/三级详情页系统返回键逐级回退；顶层页面由首页 BackHandler 关闭面板。
+    // 被覆盖层压住时让出，返回键交给覆盖层
+    BackHandler(enabled = LocalIsTopLayer.current && visible && backStack.size > 1) {
         goBack()
     }
     // 下钻层级的右滑回退：与返回键同一出口，两者都只在有上一级可退时生效

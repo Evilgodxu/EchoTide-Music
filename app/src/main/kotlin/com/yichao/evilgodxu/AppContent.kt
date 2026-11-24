@@ -20,7 +20,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.navigation.AppNavHost
+import com.yichao.evilgodxu.navigation.AppRoot
 import com.yichao.evilgodxu.theme.MyApplicationTheme
 import com.yichao.evilgodxu.floatingwindow.LocalMiniPlayerController
 import com.yichao.evilgodxu.update.LocalUpdateViewModel
@@ -88,7 +88,7 @@ fun AppContent() {
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
         ) {
-            AppNavHost(onExit = {
+            AppRoot(onExit = {
                 // 先退到后台：界面不留在前台等清理走完
                 activity?.moveTaskToBack(true)
                 // 仅 finish() 会因前台服务与悬浮窗残留导致进程未退出，故由控制器彻底结束应用

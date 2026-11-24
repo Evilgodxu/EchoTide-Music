@@ -30,6 +30,7 @@ import com.yichao.evilgodxu.data.playlist.PlaylistGroup
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.playlist.SmartPlaylistType
 import com.yichao.evilgodxu.data.playlist.artistGroup
+import com.yichao.evilgodxu.navigation.LocalIsTopLayer
 import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistAlbumSongsPage
 import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistArtistTracksPage
 import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistGroupsPage
@@ -69,8 +70,9 @@ internal fun PlaylistWidePanel(
     }
     // 右栏内的一层下钻：从专辑/歌手分组列表进入该分组的曲目
     var drilledGroup by remember { mutableStateOf<PlaylistGroup?>(null) }
-    // 下钻进入分组曲目后，系统返回键先退回分组列表，再退才由首页收起面板
-    BackHandler(enabled = visible && drilledGroup != null) { drilledGroup = null }
+    // 下钻进入分组曲目后，系统返回键先退回分组列表，再退才由首页收起面板；
+    // 被覆盖层压住时让出，返回键交给覆盖层
+    BackHandler(enabled = LocalIsTopLayer.current && visible && drilledGroup != null) { drilledGroup = null }
     // 离开歌单页即退出下钻：与窄屏面板「离开即复位页面栈」同口径，回来落在类目列表而非上次的分组里
     LaunchedEffect(visible) { if (!visible) drilledGroup = null }
     // 宽屏面板无整屏沉浸页、也不接管横向滑动：标题栏始终在场，首页翻页照常

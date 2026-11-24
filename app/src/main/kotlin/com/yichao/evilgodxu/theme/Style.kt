@@ -80,6 +80,6 @@ object AppMotion {
     /** 中等区块的出现与让位 */
     const val Medium = 200
 
-    /** 页面内标准转场（默认档） */
-    const val Standard = 300
+    /** 页面内标准转场（默认档）：整宽位移需要更长时间才不显仓促 */
+    const val Standard = 400
 }

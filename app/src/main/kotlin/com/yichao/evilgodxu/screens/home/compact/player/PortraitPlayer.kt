@@ -55,6 +55,7 @@ import com.yichao.evilgodxu.data.music.panel.TranslateOutcome
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.permission.ensureTrackFileWritable
 import com.yichao.evilgodxu.permission.rememberAllFilesAccessRequest
+import com.yichao.evilgodxu.navigation.LocalIsTopLayer
 import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisController
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisSheet
@@ -106,8 +107,12 @@ internal fun PortraitPlayer(
 ) {
     val playbackState = LocalPlaybackState.current
 
-    // 播放列表、音频信息与曲库格式分析弹层展开时，系统返回键收起弹层
-    BackHandler(enabled = playlistVisible || audioInfoVisible || libraryAnalysis.visible) {
+    // 播放列表、音频信息与曲库格式分析弹层展开时，系统返回键收起弹层；
+    // 本页被覆盖层压住时让出，返回键交给覆盖层
+    BackHandler(
+        enabled = LocalIsTopLayer.current &&
+            (playlistVisible || audioInfoVisible || libraryAnalysis.visible)
+    ) {
         when {
             libraryAnalysis.visible -> libraryAnalysis.dismiss()
             audioInfoVisible -> onAudioInfoVisibilityChange(false)

@@ -201,12 +201,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
-    // Navigation3 页面级 ViewModel 作用域：ViewModel 随导航条目创建与回收
-    implementation(libs.androidx.lifecycle.viewmodel.navigation3)
-
-    // 导航框架 Navigation3
-    implementation(libs.androidx.navigation3.runtime)
-    implementation(libs.androidx.navigation3.ui)
 
     // 键值存储 DataStore
     implementation(libs.androidx.datastore)

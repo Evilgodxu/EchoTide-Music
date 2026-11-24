@@ -44,6 +44,7 @@ import com.yichao.evilgodxu.data.settings.landscapeLyricLayoutFlow
 import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
+import com.yichao.evilgodxu.navigation.LocalIsTopLayer
 import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
 import com.yichao.evilgodxu.screens.home.component.player.HomeBlendedCover
 import com.yichao.evilgodxu.screens.home.component.player.PlayerControls
@@ -89,10 +90,12 @@ fun LandscapePlayer(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // 覆盖层压住本页时让出返回键，否则会先一步吃掉返回、只收起身后看不见的面板
+    val isTopLayer = LocalIsTopLayer.current
     // 覆盖层开启时，系统返回键收起 3D 封面轮播
-    BackHandler(enabled = coverCarouselVisible) { onCoverCarouselVisibilityChange(false) }
+    BackHandler(enabled = isTopLayer && coverCarouselVisible) { onCoverCarouselVisibilityChange(false) }
     // 播放列表面板开启时，系统返回键优先收起面板，避免直接落到首页退出逻辑
-    BackHandler(enabled = playlistVisible) { onPlaylistVisibilityChange(false) }
+    BackHandler(enabled = isTopLayer && playlistVisible) { onPlaylistVisibilityChange(false) }
 
     // 播放进度由 MusicPlaybackState 全局 ticker 驱动，此处不再独立轮询
 
