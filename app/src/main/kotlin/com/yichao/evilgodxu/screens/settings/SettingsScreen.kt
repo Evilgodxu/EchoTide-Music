@@ -38,8 +38,6 @@ import com.yichao.evilgodxu.update.LocalUpdateViewModel
 fun SettingsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    onOpenTypography: () -> Unit = {},
-    onOpenCache: () -> Unit = {},
 ) {
     val application = LocalApplication.current
     val settingsRepository = LocalSettingsRepository.current
@@ -134,12 +132,10 @@ fun SettingsScreen(
         onUsbExclusiveOutputChange = viewModel::setUsbExclusiveOutput,
         onVolumeGainChange = viewModel::setVolumeGain,
         onVersionClick = { updateViewModel.checkForUpdate(force = true) },
-        onOpenTypography = onOpenTypography,
         onProxySourceImport = viewModel::importProxySource,
         onProxySourceToggle = viewModel::setProxySourceEnabled,
         onProxySourceRemove = viewModel::removeProxySource,
         onProxyImportMessageDismiss = viewModel::clearProxyImportMessage,
-        onOpenCache = onOpenCache,
         modifier = modifier,
     )
 

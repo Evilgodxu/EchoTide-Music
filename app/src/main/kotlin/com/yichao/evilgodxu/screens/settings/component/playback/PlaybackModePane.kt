@@ -47,6 +47,12 @@ internal fun PlaybackModePane(
         }
         GroupCard(title = stringResource(R.string.settings_section_output)) {
             SettingsSwitchRow(
+                title = stringResource(R.string.settings_volume_gain_title),
+                description = stringResource(R.string.settings_volume_gain_desc),
+                checked = volumeGain,
+                onCheckedChange = onVolumeGainChange,
+            )
+            SettingsSwitchRow(
                 title = stringResource(R.string.settings_usb_direct_output_title),
                 description = stringResource(R.string.settings_usb_direct_output_desc),
                 checked = usbDirectOutput,
@@ -57,12 +63,6 @@ internal fun PlaybackModePane(
                 description = stringResource(R.string.settings_usb_exclusive_desc),
                 checked = usbExclusiveOutput,
                 onCheckedChange = onUsbExclusiveOutputChange,
-            )
-            SettingsSwitchRow(
-                title = stringResource(R.string.settings_volume_gain_title),
-                description = stringResource(R.string.settings_volume_gain_desc),
-                checked = volumeGain,
-                onCheckedChange = onVolumeGainChange,
             )
         }
     }

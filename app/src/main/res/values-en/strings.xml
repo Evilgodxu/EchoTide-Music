@@ -424,7 +424,13 @@
     <string name="default_sound_need_write_settings">Allow &quot;modify system settings&quot; to continue</string>
 
     <!-- Proxy source -->
-    <string name="settings_section_proxy_source">Proxy Source</string>
+    <string name="settings_section_sources">Sources</string>
+    <string name="settings_entry_proxy_source">Proxy sources</string>
+    <string name="settings_entry_proxy_source_empty">No source yet</string>
+    <plurals name="settings_proxy_source_count">
+        <item quantity="one">%1$d source imported</item>
+        <item quantity="other">%1$d sources imported</item>
+    </plurals>
     <string name="settings_proxy_source_import_title">Import source</string>
     <string name="settings_proxy_source_import_desc">Import from a link or text</string>
     <string name="settings_proxy_source_dialog_title">Import Method</string>
@@ -448,7 +454,6 @@
     <!-- Cache management -->
     <string name="settings_section_cache">Storage</string>
     <string name="settings_cache_entry_title">Storage management</string>
-    <string name="cache_screen_title">Storage management</string>
     <string name="cache_group_system">System cache (clearable)</string>
     <string name="cache_group_private">App data</string>
     <string name="cache_group_user">User data</string>
@@ -485,7 +490,6 @@
     <string name="cache_category_other_app_data">Other app data</string>
 
     <!-- Playback page layout settings -->
-    <string name="typography_screen_title">Lyric layout</string>
     <string name="typography_section_home_portrait">Home portrait</string>
     <string name="typography_section_home_landscape">Home landscape</string>
     <string name="typography_font_size">Font size</string>

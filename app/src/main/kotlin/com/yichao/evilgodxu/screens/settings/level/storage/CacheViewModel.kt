@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.screens.cache
+package com.yichao.evilgodxu.screens.settings.level.storage
 
 import android.app.Application
 import android.os.SystemClock

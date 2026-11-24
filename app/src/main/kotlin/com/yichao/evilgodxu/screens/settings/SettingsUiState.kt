@@ -8,13 +8,16 @@ import com.yichao.evilgodxu.data.settings.ThemeMode
 /**
  * 设置页的页内层级。
  *
- * 只有自持状态的页面才配独立路由与骨架（歌词排版、存储），读写设置项的视图留在设置页内：
- * 它们与根页共用同一份 [SettingsUiState] 与同一组事件，另立路由等于把状态复制一份。
+ * 设置项下一层不再拆成独立路由：换层级只换标题与内容、接管返回键，转场与路由推入同一观感。
+ * 层级可以自带状态持有者（歌词排版、存储），也可以只读写本页状态（语言外观、播放模式、代理音源）。
  */
 enum class SettingsPage {
     ROOT,
     APPEARANCE_LANGUAGE,
     PLAYBACK_MODE,
+    TYPOGRAPHY,
+    PROXY_SOURCE,
+    STORAGE,
 }
 
 data class SettingsUiState(

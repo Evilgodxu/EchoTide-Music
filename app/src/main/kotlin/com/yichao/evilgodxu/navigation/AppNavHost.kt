@@ -20,12 +20,10 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalPlaybackState
-import com.yichao.evilgodxu.screens.cache.CacheScreen
 import com.yichao.evilgodxu.screens.home.HomeScreen
 import com.yichao.evilgodxu.screens.metadata.MetadataScreen
 import com.yichao.evilgodxu.screens.settings.SettingsScreen
 import com.yichao.evilgodxu.screens.spectrum.SpectrumScreen
-import com.yichao.evilgodxu.screens.typography.TypographyScreen
 import com.yichao.evilgodxu.theme.SystemBarAppearance
 import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 
@@ -96,17 +94,7 @@ fun AppNavHost(
                     )
                 }
                 is Settings -> NavEntry(key) {
-                    SettingsScreen(
-                        onBack = { onBack() },
-                        onOpenTypography = { backStack.add(Typography) },
-                        onOpenCache = { backStack.add(Cache) },
-                    )
-                }
-                is Typography -> NavEntry(key) {
-                    TypographyScreen(onBack = { onBack() })
-                }
-                is Cache -> NavEntry(key) {
-                    CacheScreen(onBack = { onBack() })
+                    SettingsScreen(onBack = { onBack() })
                 }
                 is Spectrum -> NavEntry(key) {
                     SpectrumScreen(trackId = key.trackId, onBack = { onBack() })

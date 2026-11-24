@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.screens.cache.component
+package com.yichao.evilgodxu.screens.settings.level.storage
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding

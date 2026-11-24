@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.screens.typography
+package com.yichao.evilgodxu.screens.settings.level.typography
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel

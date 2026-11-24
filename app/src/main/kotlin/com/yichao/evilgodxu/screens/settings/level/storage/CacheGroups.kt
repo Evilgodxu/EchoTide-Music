@@ -1,4 +1,4 @@
-package com.yichao.evilgodxu.screens.cache.component
+package com.yichao.evilgodxu.screens.settings.level.storage
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
@@ -35,12 +35,14 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.cache.CacheCategory
 import com.yichao.evilgodxu.data.cache.CacheScope
 import com.yichao.evilgodxu.data.cache.CacheUsage
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.theme.MyApplicationTheme
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 import com.yichao.evilgodxu.utils.formatBytes
 
@@ -236,3 +238,25 @@ private val CacheCategory.labelRes: Int
         CacheCategory.OTHER_APP_DATA -> R.string.cache_category_other_app_data
         CacheCategory.OTHER_PERSISTED -> R.string.cache_category_other
     }
+
+// 预览用样本：三类占用覆盖可清理与用户数据两种归属
+private fun previewUsages() = listOf(
+    CacheUsage(CacheCategory.IMAGE, CacheScope.CLEARABLE, fileCount = 128, sizeBytes = 24L * 1024 * 1024),
+    CacheUsage(CacheCategory.AUDIO, CacheScope.USER_DATA, fileCount = 12, sizeBytes = 156L * 1024 * 1024),
+    CacheUsage(CacheCategory.LOG, CacheScope.CLEARABLE, fileCount = 6, sizeBytes = 512L * 1024),
+)
+
+@Preview(name = "存储管理 · 窄窗", widthDp = 412, heightDp = 860, showBackground = true)
+@Composable
+private fun CacheUsageGroupsPreview() {
+    MyApplicationTheme {
+        CacheUsageGroups(
+            usages = previewUsages(),
+            clearing = false,
+            refreshing = false,
+            onRefresh = {},
+            onClear = {},
+            innerPadding = PaddingValues(0.dp),
+        )
+    }
+}

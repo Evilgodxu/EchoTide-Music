@@ -4,6 +4,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -26,22 +27,29 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yichao.evilgodxu.data.music.proxy.ProxySourceSpec
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.data.music.proxy.ProxySourceSpec
+import com.yichao.evilgodxu.screens.settings.component.SettingsScrollColumn
 import com.yichao.evilgodxu.screens.settings.component.dialog.ProxySourceImportDialog
 import com.yichao.evilgodxu.screens.settings.component.dialog.ProxySourceInputDialog
 import com.yichao.evilgodxu.screens.settings.component.entry.SettingsEntry
 import com.yichao.evilgodxu.ui.component.AppSwitch
-import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.section.GroupCard
+import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.delay
 
-// 代理音源设置：导入、管理第三方音源并展示导入结果
+/**
+ * 代理音源层级：导入、管理第三方音源并展示导入结果。
+ *
+ * 音源列表与导入提示都在设置页的状态里，故不另设 ViewModel；本地导入的授权回调与两个弹层
+ * 随本层级一起组合，离开层级即丢弃，不留悬挂的 launcher。
+ */
 @Composable
-fun ProxySource(
+internal fun ProxySourcePane(
     sources: List<ProxySourceSpec>,
     importMessage: String?,
     importFailed: Boolean,
+    innerPadding: PaddingValues,
     onImport: (String) -> Unit,
     onToggle: (String, Boolean) -> Unit,
     onRemove: (String) -> Unit,
@@ -63,19 +71,21 @@ fun ProxySource(
         if (!text.isNullOrBlank()) onImport(text)
     }
 
-    GroupCard(title = stringResource(R.string.settings_section_proxy_source)) {
-        SettingsEntry(
-            icon = AppIcons.Folder,
-            title = stringResource(R.string.settings_proxy_source_import_title),
-            subtitle = stringResource(R.string.settings_proxy_source_import_desc),
-            onClick = { showImportDialog = true },
-        )
-        ImportedSourceList(sources, onToggle, onRemove)
-        ImportMessage(
-            message = importMessage,
-            failed = importFailed,
-            onClick = onMessageDismiss,
-        )
+    SettingsScrollColumn(innerPadding = innerPadding) {
+        GroupCard(title = stringResource(R.string.settings_section_sources)) {
+            SettingsEntry(
+                icon = AppIcons.Folder,
+                title = stringResource(R.string.settings_proxy_source_import_title),
+                subtitle = stringResource(R.string.settings_proxy_source_import_desc),
+                onClick = { showImportDialog = true },
+            )
+            ImportedSourceList(sources, onToggle, onRemove)
+            ImportMessage(
+                message = importMessage,
+                failed = importFailed,
+                onClick = onMessageDismiss,
+            )
+        }
     }
 
     if (showImportDialog) {

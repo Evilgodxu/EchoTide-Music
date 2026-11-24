@@ -1,37 +1,72 @@
-package com.yichao.evilgodxu.screens.typography.component
+package com.yichao.evilgodxu.screens.settings.level.typography
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.yichao.evilgodxu.LocalApplication
 import com.yichao.evilgodxu.data.settings.LyricAlignment
 import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
 import com.yichao.evilgodxu.R
-import com.yichao.evilgodxu.screens.typography.TypographyUiState
+import com.yichao.evilgodxu.screens.settings.component.SettingsScrollColumn
+import com.yichao.evilgodxu.theme.MyApplicationTheme
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 import kotlin.math.roundToInt
+
+/**
+ * 歌词排版层级：接上该层的状态持有者，内容本身由 [TypographyGroups] 按收到的状态渲染。
+ *
+ * 排版参数自有一套读写路径，故由本层级自持 ViewModel：它随设置页的导航条目存活，
+ * 离开层级再回来仍说同一份取值，不重读一遍 DataStore。
+ */
+@Composable
+internal fun TypographyPane(innerPadding: PaddingValues) {
+    val application = LocalApplication.current
+    val viewModel: TypographyViewModel = viewModel(
+        factory = viewModelFactory {
+            initializer { TypographyViewModel(application = application) }
+        },
+    )
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    TypographyGroups(
+        uiState = uiState,
+        innerPadding = innerPadding,
+        onHomePortraitFontSizeChange = viewModel::adjustHomePortraitFontSize,
+        onHomePortraitLinesChange = viewModel::adjustHomePortraitLines,
+        onHomePortraitLineSpacingChange = viewModel::adjustHomePortraitLineSpacing,
+        onHomePortraitAlignmentChange = viewModel::selectHomePortraitAlignment,
+        onHomePortraitFadeChange = viewModel::adjustHomePortraitFade,
+        onHomePortraitFadeInsetChange = viewModel::adjustHomePortraitFadeInset,
+        onLandscapeFontSizeChange = viewModel::adjustLandscapeFontSize,
+        onLandscapeLinesChange = viewModel::adjustLandscapeLines,
+        onLandscapeLineSpacingChange = viewModel::adjustLandscapeLineSpacing,
+        onLandscape3DChange = viewModel::adjustLandscape3D,
+        onLandscapeFadeChange = viewModel::adjustLandscapeFade,
+        onLandscapeFadeInsetChange = viewModel::adjustLandscapeFadeInset,
+    )
+}
 
 // 排版分组：首页竖屏、首页横屏两场景独立调节字号、行数、行间距，竖屏另可切换对齐方式，
 // 横屏额外调节 3D 强度
@@ -54,17 +89,7 @@ internal fun TypographyGroups(
     onLandscapeFadeInsetChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .consumeWindowInsets(innerPadding)
-            .padding(innerPadding)
-            .padding(horizontal = 16.dp)
-            // 宿主为 edge-to-edge 且页面无底部栏代管：末项须自行避让系统导航栏，
-            // 否则滚到底部时被三键导航的虚拟按键压住
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState()),
-    ) {
+    SettingsScrollColumn(innerPadding = innerPadding, modifier = modifier) {
         // 首页竖屏：独立调节
         GroupCard(title = stringResource(R.string.typography_section_home_portrait)) {
             StepperRow(
@@ -278,3 +303,26 @@ private fun FadeRows(
 // 半行档位的展示值：整档不带小数位，半档保留一位，避免出现「2.0 行」这类冗余
 private fun halfLinesText(value: Float): String =
     if (value % 1f == 0f) value.toInt().toString() else value.toString()
+
+@Preview(name = "歌词排版 · 窄窗", widthDp = 412, heightDp = 860, showBackground = true)
+@Composable
+private fun TypographyGroupsPreview() {
+    MyApplicationTheme {
+        TypographyGroups(
+            uiState = TypographyUiState(),
+            innerPadding = PaddingValues(0.dp),
+            onHomePortraitFontSizeChange = {},
+            onHomePortraitLinesChange = {},
+            onHomePortraitLineSpacingChange = {},
+            onHomePortraitAlignmentChange = {},
+            onHomePortraitFadeChange = {},
+            onHomePortraitFadeInsetChange = {},
+            onLandscapeFontSizeChange = {},
+            onLandscapeLinesChange = {},
+            onLandscapeLineSpacingChange = {},
+            onLandscape3DChange = {},
+            onLandscapeFadeChange = {},
+            onLandscapeFadeInsetChange = {},
+        )
+    }
+}
