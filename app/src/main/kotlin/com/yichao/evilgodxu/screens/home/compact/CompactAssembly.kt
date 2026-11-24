@@ -175,6 +175,7 @@ internal fun CompactAssembly(
         HomePanels(
             panelState = panelState,
             topInset = topInset,
+            onOpenSettings = onOpenSettings,
         ) {
             // 播放器页铺满全屏（含标题栏区域），竖屏沉浸封面嵌入标题栏后方
             Box(

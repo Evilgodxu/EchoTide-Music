@@ -15,6 +15,8 @@ internal fun HomePanels(
     panelState: HomePanelState,
     // 标题栏高度：搜索页与歌单页（歌手页除外）的内容从标题栏下方开始
     topInset: Dp,
+    // 歌单总览页继续左滑时的去向：打开设置页
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     // 播放器页：竖屏与横屏的播放器主体不同，由调用方按形态提供
     playerPage: @Composable () -> Unit,
@@ -54,6 +56,10 @@ internal fun HomePanels(
                 onImmersivePageChange = { panelState.playlistImmersive = it },
                 // 下钻层级接管横向滑动：面板随页面栈同步上报，首页翻页据此让位
                 onSwipeBackChange = { panelState.playlistSwipeBack = it },
+                // 播放器直达的歌手页回退时直接关闭面板回到播放器
+                onClose = { panelState.closePanels() },
+                // 歌单总览页继续左滑进入设置页
+                onOpenSettings = onOpenSettings,
                 // 点击播放器歌手信息后请求打开的歌手歌单
                 pendingArtist = panelState.pendingArtistPlaylist,
                 onPendingArtistHandled = { panelState.pendingArtistPlaylist = null },

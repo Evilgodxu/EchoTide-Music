@@ -81,5 +81,5 @@ object AppMotion {
     const val Medium = 200
 
     /** 页面内标准转场（默认档）：整宽位移需要更长时间才不显仓促 */
-    const val Standard = 400
+    const val Standard = 350
 }

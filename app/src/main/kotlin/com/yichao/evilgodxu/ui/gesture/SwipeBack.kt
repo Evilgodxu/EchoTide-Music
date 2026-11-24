@@ -14,8 +14,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 
-// 右滑回退的判定距离：横向拖过该距离松手即回退一级
-private val BackSwipeDistance = 72.dp
+// 横滑切层的判定距离：横向拖过该距离松手即切一层
+private val SwipeDistance = 72.dp
 
 /**
  * 右滑返回：向右拖过阈值即回退一级，向左拖不动。
@@ -34,13 +34,35 @@ fun Modifier.swipeBack(
     enabled: () -> Boolean = { true },
     pass: PointerEventPass = PointerEventPass.Main,
     onBack: () -> Unit,
+): Modifier = swipeHorizontal(direction = 1, enabled = enabled, pass = pass, onSwipe = onBack)
+
+/**
+ * 左滑前进：向左拖过阈值即进入下一层（如歌单页总览继续左滑进入设置页），向右拖不动。
+ *
+ * 与 [swipeBack] 互为镜像：起手落点、纵向让位与消费规则完全一致。两者通常挂在同一容器上，
+ * 用互斥的 [enabled] 条件区分当前层级能往哪边走。
+ */
+@Composable
+fun Modifier.swipeForward(
+    enabled: () -> Boolean = { true },
+    pass: PointerEventPass = PointerEventPass.Main,
+    onForward: () -> Unit,
+): Modifier = swipeHorizontal(direction = -1, enabled = enabled, pass = pass, onSwipe = onForward)
+
+/** @param direction 1 为向右切层，-1 为向左切层 */
+@Composable
+private fun Modifier.swipeHorizontal(
+    direction: Int,
+    enabled: () -> Boolean,
+    pass: PointerEventPass,
+    onSwipe: () -> Unit,
 ): Modifier {
-    val currentOnBack by rememberUpdatedState(onBack)
+    val currentOnSwipe by rememberUpdatedState(onSwipe)
     val currentEnabled by rememberUpdatedState(enabled)
-    val thresholdPx = with(LocalDensity.current) { BackSwipeDistance.toPx() }
+    val thresholdPx = with(LocalDensity.current) { SwipeDistance.toPx() }
     return then(
-        remember(thresholdPx) {
-            Modifier.pointerInput(thresholdPx) {
+        remember(thresholdPx, direction) {
+            Modifier.pointerInput(thresholdPx, direction) {
                 val slop = viewConfiguration.touchSlop
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = pass)
@@ -61,11 +83,11 @@ fun Modifier.swipeBack(
                             locked = true
                             // 锁定这一帧即一并消费：Initial 阶段下子级尚未看过它，
                             // 留给子级会被当作它自己的滑动起点
-                            if (horizontal && accX > 0f) change.consume()
+                            if (horizontal && accX * direction > 0f) change.consume()
                         }
                     }
-                    // 纵向主导让给列表滚动；向左拖不回退
-                    if (!locked || !horizontal || accX <= 0f) return@awaitEachGesture
+                    // 纵向主导让给列表滚动；逆向拖不切层
+                    if (!locked || !horizontal || accX * direction <= 0f) return@awaitEachGesture
                     var swipeX = accX
                     while (true) {
                         val event = awaitPointerEvent(pass)
@@ -74,7 +96,7 @@ fun Modifier.swipeBack(
                         swipeX += change.positionChange().x
                         change.consume()
                     }
-                    if (swipeX >= thresholdPx) currentOnBack()
+                    if (swipeX * direction >= thresholdPx) currentOnSwipe()
                 }
             }
         }

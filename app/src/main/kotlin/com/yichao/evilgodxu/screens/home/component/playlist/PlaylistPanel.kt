@@ -50,6 +50,7 @@ import com.yichao.evilgodxu.data.playlist.Playlist
 import com.yichao.evilgodxu.data.playlist.PlaylistGroup
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.ui.gesture.swipeBack
+import com.yichao.evilgodxu.ui.gesture.swipeForward
 import com.yichao.evilgodxu.data.playlist.SmartPlaylistType
 import com.yichao.evilgodxu.data.playlist.albumGroups
 import com.yichao.evilgodxu.data.playlist.artistGroup
@@ -62,6 +63,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalPlaylistStore
 import com.yichao.evilgodxu.navigation.LocalIsTopLayer
 import com.yichao.evilgodxu.screens.home.component.playlist.expanded.PlaylistWidePanel
+import com.yichao.evilgodxu.theme.AppMotion
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.ExpandDirection
 import com.yichao.evilgodxu.ui.component.ExpandPicker
@@ -83,6 +85,10 @@ internal fun PlaylistPanel(
     onImmersivePageChange: (Boolean) -> Unit,
     // 当前页是否接管横向滑动（下钻层级以右滑回退）：同样随页面栈上报，首页翻页据此让位
     onSwipeBackChange: (Boolean) -> Unit,
+    // 关闭面板回到播放器页：歌手页由播放器直达时，回退直接回播放器而不落在总览页
+    onClose: () -> Unit,
+    // 歌单总览页继续左滑进入设置页：与首页翻页同方向的「进入下一层」
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     // 点击播放器歌手信息后请求打开的歌手名：非空时跳转到该歌手的曲目列表
     pendingArtist: String? = null,
@@ -124,6 +130,8 @@ internal fun PlaylistPanel(
                 topInset = topInset,
                 onImmersivePageChange = onImmersivePageChange,
                 onSwipeBackChange = onSwipeBackChange,
+                onClose = onClose,
+                onOpenSettings = onOpenSettings,
                 pendingArtist = pendingArtist,
                 onPendingArtistHandled = onPendingArtistHandled,
                 pendingCreated = createdPlaylist,
@@ -158,6 +166,8 @@ private fun PlaylistStackedPanel(
     topInset: Dp,
     onImmersivePageChange: (Boolean) -> Unit,
     onSwipeBackChange: (Boolean) -> Unit,
+    onClose: () -> Unit,
+    onOpenSettings: () -> Unit,
     pendingArtist: String?,
     onPendingArtistHandled: () -> Unit,
     pendingCreated: Playlist?,
@@ -176,7 +186,7 @@ private fun PlaylistStackedPanel(
         onSwipeBackChange(stack.size > 1)
     }
     LaunchedEffect(visible) { if (!visible) go(listOf(PlaylistPage.Overview)) }
-    // 点击歌手信息直达该歌手的曲目列表：与艺术家分组页同构，保留总览页作为回退目标
+    // 点击歌手信息直达该歌手的曲目列表：与艺术家分组页同构，但回退直接回播放器
     LaunchedEffect(pendingArtist) {
         val artist = pendingArtist?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         go(
@@ -193,8 +203,18 @@ private fun PlaylistStackedPanel(
         go(backStack + PlaylistPage.Tracks(created))
         onPendingCreatedHandled()
     }
-    // 逐级回退的统一出口：系统返回键、内容列右滑、沉浸页「歌曲」标签上的右滑都走这里
+    // 逐级回退的统一出口：系统返回键、内容列右滑、沉浸页「歌曲」标签上的右滑都走这里。
+    // 歌手页由播放器「歌手信息」直达时，栈里只有总览与歌手页（没有分组页），
+    // 这时的「上一级」就是播放器，回退直接关闭面板而不是落在总览页
     fun goBack() {
+        val last = backStack.lastOrNull()
+        val openedFromPlayer = backStack.size == 2 &&
+            last is PlaylistPage.GroupTracks &&
+            last.type == SmartPlaylistType.ARTIST
+        if (openedFromPlayer) {
+            onClose()
+            return
+        }
         if (backStack.size > 1) go(backStack.dropLast(1))
     }
     // 二级/三级详情页系统返回键逐级回退；顶层页面由首页 BackHandler 关闭面板。
@@ -204,6 +224,11 @@ private fun PlaylistStackedPanel(
     }
     // 下钻层级的右滑回退：与返回键同一出口，两者都只在有上一级可退时生效
     val backSwipe = Modifier.swipeBack(enabled = { visible && backStack.size > 1 }, onBack = { goBack() })
+    // 总览页继续左滑进入设置页：只在这一层生效，下钻层级的左向位移留给标签页与列表本身
+    val forwardSwipe = Modifier.swipeForward(
+        enabled = { visible && backStack.size == 1 },
+        onForward = onOpenSettings,
+    )
 
     // 页面栈按方向滑动：下钻时新页自右滑入、旧页向左让位，回退时旧页向右滑出、上一级自左侧补位，
     // 与首页翻页同一观感。两页同速整宽位移，故透明页面在过渡中始终相邻而不叠放
@@ -211,7 +236,7 @@ private fun PlaylistStackedPanel(
         targetState = backStack,
         transitionSpec = {
             val forward = targetState.size > initialState.size
-            val spec = tween<IntOffset>(PlaylistPageTransitionMillis)
+            val spec = tween<IntOffset>(AppMotion.Standard)
             if (forward) {
                 slideInHorizontally(animationSpec = spec) { it } togetherWith
                     slideOutHorizontally(animationSpec = spec) { -it }
@@ -253,7 +278,8 @@ private fun PlaylistStackedPanel(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(top = topInset)
-                    .then(backSwipe),
+                    .then(backSwipe)
+                    .then(forwardSwipe),
             ) {
                 PanelHeader(title = page.title())
                 when (page) {
@@ -343,9 +369,6 @@ private fun PanelHeader(title: String) {
         )
     }
 }
-
-// 页面栈切换的滑动时长：进退同长，回退与下钻互为一对镜像
-private const val PlaylistPageTransitionMillis = 300
 
 // 系统歌单计数：常听/收藏按可播放曲目数，专辑/歌手按去重分组数
 internal data class SmartPlaylistCounts(

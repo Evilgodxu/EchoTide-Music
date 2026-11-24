@@ -103,6 +103,7 @@ internal fun ExpandedAssembly(
         HomePanels(
             panelState = panelState,
             topInset = topInset,
+            onOpenSettings = onOpenSettings,
         ) {
             // 播放器页铺满全屏
             Box(
