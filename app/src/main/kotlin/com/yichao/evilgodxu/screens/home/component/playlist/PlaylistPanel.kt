@@ -9,8 +9,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,17 +31,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +49,7 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.playlist.Playlist
 import com.yichao.evilgodxu.data.playlist.PlaylistGroup
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
+import com.yichao.evilgodxu.ui.gesture.swipeBack
 import com.yichao.evilgodxu.data.playlist.SmartPlaylistType
 import com.yichao.evilgodxu.data.playlist.albumGroups
 import com.yichao.evilgodxu.data.playlist.artistGroup
@@ -74,7 +68,6 @@ import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.windowsize.rememberExpandedForm
-import kotlin.math.abs
 
 // 首页左滑呼出的歌单面板：按形态分派——窄屏逐级下钻，宽屏左栏导航 + 右栏内容。
 // 共享部分（歌单存储预读、新建/重命名/删除弹窗）收在此处，两形态各自组装自己的布局
@@ -208,7 +201,7 @@ private fun PlaylistStackedPanel(
         goBack()
     }
     // 下钻层级的右滑回退：与返回键同一出口，两者都只在有上一级可退时生效
-    val backSwipe = Modifier.playlistBackSwipe(enabled = { visible && backStack.size > 1 }, onBack = { goBack() })
+    val backSwipe = Modifier.swipeBack(enabled = { visible && backStack.size > 1 }, onBack = { goBack() })
 
     // 页面栈按方向滑动：下钻时新页自右滑入、旧页向左让位，回退时旧页向右滑出、上一级自左侧补位，
     // 与首页翻页同一观感。两页同速整宽位移，故透明页面在过渡中始终相邻而不叠放
@@ -327,7 +320,7 @@ private fun PlaylistPage.title(): String = when (this) {
     is PlaylistPage.GroupTracks -> group.name
 }
 
-// 面板顶部栏：仅承载当前页标题。下钻页的返回交给右滑与系统返回键（见 [playlistBackSwipe]），
+// 面板顶部栏：仅承载当前页标题。下钻页的返回交给右滑与系统返回键（见 [swipeBack]），
 // 页内不再设返回入口
 @Composable
 private fun PanelHeader(title: String) {
@@ -349,70 +342,8 @@ private fun PanelHeader(title: String) {
     }
 }
 
-// 右滑回退的判定距离：横向拖过该距离松手即回退一级
-private val BackSwipeDistance = 72.dp
-
 // 页面栈切换的滑动时长：进退同长，回退与下钻互为一对镜像
 private const val PlaylistPageTransitionMillis = 300
-
-// 下钻层级的右滑回退：向右拖过阈值即回退一级，向左拖不动。
-// 只在有上一级可退时启用——此时首页横向翻页已关闭（见 HomePanels），一层滑动只对应一个去向；
-// 纵向主导时让出，列表照常滚动
-@Composable
-internal fun Modifier.playlistBackSwipe(
-    // 按需读而非由组合期传值：歌手页的启用条件含标签分页的实时状态，读取须落在手势发生时
-    enabled: () -> Boolean,
-    // 判定所据的事件阶段。内容列自身没有横向滑动，Main 阶段即可——此时分页已先看过事件，
-    // 本手势只收无人认领的位移；歌手页的标签分页占着横向滑动，须在 Initial 阶段抢先判定并消费，
-    // 否则这段位移会被分页吃下，本手势再收到时就已是「已消费」
-    pass: PointerEventPass = PointerEventPass.Main,
-    onBack: () -> Unit,
-): Modifier {
-    val currentOnBack by rememberUpdatedState(onBack)
-    val currentEnabled by rememberUpdatedState(enabled)
-    val thresholdPx = with(LocalDensity.current) { BackSwipeDistance.toPx() }
-    return then(
-        remember(thresholdPx) {
-            Modifier.pointerInput(thresholdPx) {
-                val slop = viewConfiguration.touchSlop
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false, pass = pass)
-                    if (!currentEnabled()) return@awaitEachGesture
-                    // 方向锁定：累计位移直到任一轴越过触摸阈值，横向主导才由本手势接管
-                    var accX = 0f
-                    var accY = 0f
-                    var locked = false
-                    var horizontal = false
-                    while (!locked) {
-                        val event = awaitPointerEvent(pass)
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed || change.isConsumed) break
-                        accX += change.positionChange().x
-                        accY += change.positionChange().y
-                        if (abs(accX) >= slop || abs(accY) >= slop) {
-                            horizontal = abs(accX) > abs(accY)
-                            locked = true
-                            // 锁定这一帧即一并消费：Initial 阶段下分页尚未看过它，
-                            // 留给分页会被当作分页自己的滑动起点
-                            if (horizontal && accX > 0f) change.consume()
-                        }
-                    }
-                    // 纵向主导让给列表滚动；向左拖不回退
-                    if (!locked || !horizontal || accX <= 0f) return@awaitEachGesture
-                    var swipeX = accX
-                    while (true) {
-                        val event = awaitPointerEvent(pass)
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed || change.isConsumed) break
-                        swipeX += change.positionChange().x
-                        change.consume()
-                    }
-                    if (swipeX >= thresholdPx) currentOnBack()
-                }
-            }
-        }
-    )
-}
 
 // 系统歌单计数：常听/收藏按可播放曲目数，专辑/歌手按去重分组数
 internal data class SmartPlaylistCounts(

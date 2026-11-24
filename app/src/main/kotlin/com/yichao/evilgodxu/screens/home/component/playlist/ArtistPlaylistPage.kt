@@ -31,6 +31,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.LocalArtistOrderStore
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.SongImmersiveBackground
+import com.yichao.evilgodxu.ui.gesture.swipeBack
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.launch
 
@@ -105,8 +106,8 @@ internal fun ArtistPlaylistPage(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            // 分页占着横向滑动，本手势须在其之前判定（见 playlistBackSwipe 的 pass 参数）
-            .playlistBackSwipe(
+            // 分页占着横向滑动，本手势须在其之前判定（见 swipeBack 的 pass 参数）
+            .swipeBack(
                 enabled = backSwipeEnabled,
                 pass = PointerEventPass.Initial,
                 onBack = onSwipeBack,

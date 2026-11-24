@@ -26,6 +26,7 @@ import com.yichao.evilgodxu.screens.settings.level.typography.TypographyPane
 import com.yichao.evilgodxu.theme.AppMotion
 import com.yichao.evilgodxu.ui.component.ContentPane
 import com.yichao.evilgodxu.ui.component.PageTopBar
+import com.yichao.evilgodxu.ui.gesture.swipeBack
 import com.yichao.evilgodxu.windowsize.WindowSizeClass
 import com.yichao.evilgodxu.windowsize.contentMaxWidth
 
@@ -65,7 +66,11 @@ internal fun SettingsAssembly(
     // 层级内容离开组合后仍保留各自的滚动位置：从下方入口进层级再退回，根页不跳回顶部
     val levelStates = rememberSaveableStateHolder()
     Scaffold(
-        modifier = modifier,
+        // 右滑返回：层级退回根页，根页退回上一页，与标题栏的返回键同一出口。
+        // 手势挂在整页上，只收无人认领的横向位移——纵向滚动与开关自身的拖动都不受影响
+        modifier = modifier.swipeBack(
+            onBack = { if (page == SettingsPage.ROOT) onBack() else onPageBack() },
+        ),
         topBar = {
             PageTopBar(
                 title = when (page) {
