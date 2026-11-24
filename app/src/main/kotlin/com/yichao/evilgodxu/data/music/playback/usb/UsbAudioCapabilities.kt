@@ -164,12 +164,13 @@ private fun clockKindName(kind: UsbAudioClock.Kind): String = when (kind) {
  * "设备到底声明了什么"读出来，平台链路不该因此受影响。`UsbManager.openDevice` 本身只校验授权并打开
  * usbfs 节点（见 AOSP `UsbHostManager.openDevice`），不碰接口归属，故这条路对正在走的平台直出无害。
  *
- * 存在的理由：平台 API 报不全设备的能力——`getSupportedMixerAttributes` 只给得出动态混音端口声明的
- * 条目，实测某解码器在描述符里声明 16/24/32 三档，那里只报最高一档的 32 位。要按设备真实声明的口径
- * 展示，就只能读描述符。
+ * 存在的理由：独占路径要按设备真实声明挑格式，而平台 API 报不全——`getSupportedMixerAttributes` 只给
+ * 得出动态混音端口声明的条目，实测某解码器在描述符里声明 16/24/32 三档，那里只报最高一档的 32 位。
+ * 平台直出与音频信息面板不读描述符，直出参数一律取平台 API 上报值。
  *
  * 无设备、无授权或读取失败一律返回 null，由调用方退回平台 API 的取值——读不到是常态而非异常。
- * 授权本身不在此申请：弹窗属于交互，由界面在合适的时机发起（见 [UsbAccessRequest]）。
+ * 授权只在独占路径上申请：平台直出不需要 USB 授权，音频信息面板的直出参数一律取平台 API 上报值，
+ * 不读描述符。
  */
 internal object UsbAudioCapabilities {
 

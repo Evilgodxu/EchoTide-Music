@@ -14,7 +14,6 @@ import com.yichao.evilgodxu.log.CrashLogManager
 import java.util.concurrent.ConcurrentHashMap
 
 // USB 解码器会以设备、耳机、配件三类上报，三者都是可直接播放的输出目标。
-// 与授权请求（UsbAccessRequest）共用同一判据：两处各列一份，迟早会漏掉其中一类
 internal val USB_OUTPUT_TYPES = setOf(
     AudioDeviceInfo.TYPE_USB_DEVICE,
     AudioDeviceInfo.TYPE_USB_HEADSET,

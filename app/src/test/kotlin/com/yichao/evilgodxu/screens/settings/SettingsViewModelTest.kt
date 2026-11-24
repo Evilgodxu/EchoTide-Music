@@ -108,7 +108,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `开启 USB 直出会关闭独占并申请两项授权`() = runTest(dispatcher) {
+    fun `开启 USB 直出会关闭独占并申请免打扰授权`() = runTest(dispatcher) {
         val environment = FakeSettingsEnvironment(notificationPolicyGranted = false)
         val viewModel = viewModel(environment = environment)
 
@@ -120,7 +120,6 @@ class SettingsViewModelTest {
 
         assertTrue(viewModel.uiState.value.playback.usbDirectOutput)
         assertFalse(viewModel.uiState.value.playback.usbExclusiveOutput)
-        assertTrue(environment.usbAccessRequested)
         assertTrue(environment.notificationPolicyWatched)
         assertTrue(viewModel.uiState.value.notificationPolicyPermissionPending)
     }

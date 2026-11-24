@@ -13,7 +13,7 @@ import com.yichao.evilgodxu.ui.component.section.GroupCard
  * 播放模式页内容：交互（悬浮窗与手势）、输出（USB 两路与增益）。
  *
  * USB 直出与独占的互斥判定留在 ViewModel，本页只管把开关状态画出来；
- * 开直出时要的两项授权由设置页骨架层跟随置位去申请。
+ * 开直出时所需的免打扰授权由设置页骨架层跟随置位去申请。
  */
 @Composable
 internal fun PlaybackModePane(

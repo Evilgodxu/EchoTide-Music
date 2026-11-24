@@ -5,7 +5,6 @@ import android.provider.Settings
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.data.cache.CacheInventory
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
-import com.yichao.evilgodxu.data.music.playback.usb.UsbAccessRequest
 import com.yichao.evilgodxu.data.music.proxy.ProxyParseResult
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceSpec
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
@@ -59,8 +58,6 @@ interface SettingsEnvironment {
     fun isNotificationPolicyGranted(): Boolean
 
     fun watchNotificationPolicyGrant()
-
-    fun requestUsbAccess()
 }
 
 // Android 实现：逐项委托到既有的单例与系统服务，不新增状态
@@ -135,8 +132,6 @@ class AndroidSettingsEnvironment(
     override fun watchNotificationPolicyGrant() {
         PermissionReturnMonitor.watch(context, PermissionType.NOTIFICATION_POLICY)
     }
-
-    override fun requestUsbAccess() = UsbAccessRequest.requestIfNeeded(context)
 
     private fun fetchText(url: String): String? {
         return try {

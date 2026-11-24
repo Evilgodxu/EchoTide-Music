@@ -120,9 +120,6 @@ class SettingsViewModel(
     fun setUsbDirectOutput(enabled: Boolean) {
         applyUsbOutputSwitch(UsbOutputKind.FORMAT_LOCKED, enabled)
         if (enabled) {
-            // 面板的设备能力按描述符给（支持采样率、支持编码都取自这里），读描述符要 USB 授权。
-            // 开关打开是用户明确表示"要走这台解码器"的时刻，此时要授权有上下文，也不会打断日常听歌
-            environment.requestUsbAccess()
             // 直出期间要把系统置为「仅闹钟」：免打扰访问权在这一刻申请。
             // 与悬浮窗授权同一套——授权页由界面在同任务内打开，这里只负责置位与跟随：
             // 该页在用户勾选后不会自己关闭，得靠跟随把应用带回前台

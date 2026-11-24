@@ -15,7 +15,6 @@ class FakeSettingsEnvironment(
     var importResult: ProxyImportMessage = ProxyImportMessage(text = null, failed = false),
 ) : SettingsEnvironment {
 
-    var usbAccessRequested = false
     var overlayMonitorStarted = false
     var overlayMonitorStopped = false
     var notificationPolicyWatched = false
@@ -55,9 +54,5 @@ class FakeSettingsEnvironment(
 
     override fun watchNotificationPolicyGrant() {
         notificationPolicyWatched = true
-    }
-
-    override fun requestUsbAccess() {
-        usbAccessRequested = true
     }
 }

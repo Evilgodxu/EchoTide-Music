@@ -9,7 +9,6 @@ import com.yichao.evilgodxu.App
 import com.yichao.evilgodxu.MainActivity
 import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveDac
 import com.yichao.evilgodxu.data.music.playback.usb.notifyUsbAttachConfirmed
-import com.yichao.evilgodxu.data.settings.usbDirectOutputModeFlow
 import com.yichao.evilgodxu.data.settings.usbExclusiveOutputModeFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -22,10 +21,10 @@ import kotlinx.coroutines.withContext
  * 弹窗只在有应用认领设备时出现，选中的应用会随之取得该设备的访问授权——这也正是应用未启动
  * 仍能弹窗的原因：弹窗由系统发出，不依赖应用进程。
  *
- * 这条链路只在两个 USB 开关中任一开启时成立：独占要用这份授权接管设备，直出要用它读设备描述符
- * （面板的设备能力只认描述符）。故组件由开关启停（见 [setUsbAttachEntryEnabled]），本入口再按落盘值
- * 核一次。此处只把界面带到前台、不写开关——是否启用由用户在设置里决定。界面也必须带出来：选完之后
- * 什么都不出现，用户只会当成没生效。
+ * 这条链路只为独占而存在：接管要用系统选择框给出的这份授权。直出不需要 USB 授权，
+ * 面板的直出参数取平台 API 上报值、不读描述符，故直出开关不参与启停。组件由独占开关启停
+ * （见 [setUsbAttachEntryEnabled]），本入口再按落盘值核一次。此处只把界面带到前台、不写开关——
+ * 是否启用由用户在设置里决定。界面也必须带出来：选完之后什么都不出现，用户只会当成没生效。
  *
  * 系统这个选择框就是一次授权，作答之后不该再问第二遍：独占路径收到接入广播时只尝试接管已授权的设备，
  * 不申请授权；授权随选择框落定，由本入口在拉起界面后补一声通知，接管才继续。
@@ -45,7 +44,7 @@ class UsbAttachActivity : Activity() {
         val app = application as App
         app.container.appScope.launch {
             // 开关刚被关掉、系统的这次启动已在投递途中时，只有这道核对拦得住——组件状态那时已来不及改
-            val entryWanted = usbExclusiveOutputModeFlow().first() || usbDirectOutputModeFlow().first()
+            val entryWanted = usbExclusiveOutputModeFlow().first()
             withContext(Dispatchers.Main) {
                 // 先起界面再结束自己：本入口没有界面，若先结束，这次启动就可能随任务的清理一起被丢掉
                 if (entryWanted) {
