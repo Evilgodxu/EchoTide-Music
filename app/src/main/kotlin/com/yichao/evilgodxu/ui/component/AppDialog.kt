@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -38,6 +37,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.theme.AppAlpha
+import com.yichao.evilgodxu.theme.AppShape
+import com.yichao.evilgodxu.theme.AppSpacing
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
 // 非列表对话框内容区的最大高度：超出后在卡片内滚动，避免长内容把对话框撑满屏幕
@@ -47,7 +49,6 @@ internal const val DIALOG_LIST_HEIGHT_FRACTION = 0.36f
 // 标题栏高度与图标按钮尺寸：保证带按钮时标题区依然紧凑，不产生额外留白
 private val DIALOG_HEADER_HEIGHT = 32.dp
 private val DIALOG_HEADER_ICON_SIZE = 32.dp
-private val DIALOG_PADDING = 16.dp
 
 // 统一对话框：卡片样式与其余确认框一致（DialogCard + 居中标题 + 内边距 16dp，高度随内容撑开）。
 // 返回、关闭、尾部操作与底部按钮均为可选参数，未传入即不渲染，不给不需要的对话框强加按钮。
@@ -78,7 +79,7 @@ internal fun AppDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(DIALOG_PADDING),
+                .padding(AppSpacing.Dialog),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             AppDialogHeader(
@@ -88,7 +89,7 @@ internal fun AppDialog(
                 trailing = trailing,
                 titleAlignment = titleAlignment,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(AppSpacing.Gap))
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -219,14 +220,14 @@ internal fun DialogOption(
     val background = MaterialTheme.colorScheme.surfaceContainerHigh
     // 选中高亮叠在抬升后的底色之上：直接以半透明 primary 覆盖卡片，其混色结果与抬升后的未选中底色几乎一致
     val selectionTint =
-        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent
+        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = AppAlpha.Selected) else Color.Transparent
     val contentColor = if (enabled) MaterialTheme.colorScheme.onSurface
-    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+    else MaterialTheme.colorScheme.onSurface.copy(alpha = AppAlpha.Disabled)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(AppShape.Option)
             .background(background)
             .background(selectionTint)
             .clickable(enabled = enabled, onClick = onClick)

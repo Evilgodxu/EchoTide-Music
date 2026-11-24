@@ -21,7 +21,7 @@ import com.yichao.evilgodxu.ui.component.AppSwitch
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 
-// 播放设置：悬浮播放与逐字渲染开关、滑动切歌与背景流动开关、USB 直出与 USB 独占开关、播放页排版入口
+// 播放设置：悬浮播放与逐字渲染开关、滑动切歌与背景流动开关、两路 USB 输出与音量增益开关、播放页排版入口
 @Composable
 fun Playback(
     miniPlayerEnabled: Boolean,
@@ -36,6 +36,8 @@ fun Playback(
     onUsbDirectOutputChange: (Boolean) -> Unit,
     usbExclusiveOutput: Boolean,
     onUsbExclusiveOutputChange: (Boolean) -> Unit,
+    volumeGain: Boolean,
+    onVolumeGainChange: (Boolean) -> Unit,
     onTypographyClick: () -> Unit,
 ) {
     GroupCard(title = stringResource(R.string.settings_section_player)) {
@@ -74,6 +76,12 @@ fun Playback(
             description = stringResource(R.string.settings_usb_exclusive_desc),
             checked = usbExclusiveOutput,
             onCheckedChange = onUsbExclusiveOutputChange,
+        )
+        PlayerSwitchRow(
+            title = stringResource(R.string.settings_volume_gain_title),
+            description = stringResource(R.string.settings_volume_gain_desc),
+            checked = volumeGain,
+            onCheckedChange = onVolumeGainChange,
         )
         SettingsEntry(
             icon = AppIcons.TextFields,

@@ -144,6 +144,20 @@ UI → ViewModel → Repository → DataStore                事件自下而上
   `SelectedPhotoAccess` 指出未处理 Android 14 部分照片授权，补上细分权限并调整授权判定即为真修。
 - 二进制资源无法内联注释，抑制理由写在 `lint.xml` 里。
 
+## 界面风格
+
+- 视觉规范的唯一权威是 `docs/界面规范.md`：动界面前先读，提交前对照其自查清单。
+- 颜色只取 `MaterialTheme.colorScheme`；除 `theme/Color.kt`、图表分类色与沉浸层前景外，不得出现 `Color(0x…)`。
+- 层次靠 `background → surface → surfaceContainerHigh` 的色阶与留白建立，不用阴影、分割线、装饰性渐变。
+- 形状、页面间距、透明度、动效时长取 `theme/Style.kt` 的 `AppShape` / `AppSpacing` / `AppAlpha` / `AppMotion`，
+  不写字面量；改到旧文件时顺手迁移该文件的相关字面量。
+- 已有共享组件（`PageTopBar`、`ContentPane`、`GroupCard`、`AppDialog` / `DialogCard` / `DialogOption`、
+  `AppSwitch`、`ExpandPicker`、`AppIcons`）能覆盖时不得自造等价物；需要新形态先给共享组件加可选参数。
+- 深浅两套主题都要成立，新增界面不得只验证一种主题。
+- 首页是唯一的沉浸舞台（封面衍生背景、隐藏系统栏、固定白色状态栏图标）；其余页面是跟随主题的纸面，
+  新增二级页自行 `navigationBarsPadding()`。
+- 新增颜色角色、圆角档位、字号档或动效时长，先在 `docs/界面规范.md` 登记，再落代码。
+
 ## 组件归属
 
 - 跨页面复用的组件上提至 `ui/component/`。

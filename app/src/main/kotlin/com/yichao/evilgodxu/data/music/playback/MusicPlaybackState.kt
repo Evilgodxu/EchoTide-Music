@@ -20,7 +20,6 @@ import com.yichao.evilgodxu.data.music.model.RecentCover
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceStore
 import com.yichao.evilgodxu.data.playlist.PlaylistStore
 import com.yichao.evilgodxu.data.playlist.albumIdentity
-import com.yichao.evilgodxu.data.settings.saveVolumeGainEnabled
 import kotlin.jvm.JvmName
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
@@ -313,7 +312,7 @@ class MusicPlaybackState(
     )
     // 心动模式自行退出的一次性原因，由界面消费后清空
     var highlightExitNotice by highlightPolicy::exitNotice
-    // 音量增益（ReplayGain）：读数来自本曲内嵌标签，系数乘进播放器音量
+    // 音量增益（ReplayGain）：按本曲内嵌标签把系数乘进播放器音量
     private var highlightFadeRef: HighlightFadeController? = null
     internal val replayGainVolume = ReplayGainVolume(
         scope = { playbackScope },
@@ -328,22 +327,14 @@ class MusicPlaybackState(
         replayGain = { replayGainVolume.linear },
     ).also { highlightFadeRef = it }
 
-    /** 音量增益开关：界面只读此值，写入走 [setVolumeGainEnabled] */
-    val volumeGainEnabled: Boolean get() = replayGainVolume.enabled
-    /** 本曲标签里的增益；null 表示该曲没有标签，界面不显示数值 */
-    val volumeGainDb: Double? get() = replayGainVolume.gainDb
-    val volumeGainPeak: Double? get() = replayGainVolume.peak
-    /** 本次施加是否因峰值触发限幅 */
-    val volumeGainLimited: Boolean get() = replayGainVolume.limited
-
     /**
-     * 切换音量增益。持久化与生效分开：先改运行时状态让当前曲目立即生效，再落盘；
-     * 落盘后的回流经同一入口进来，值未变时直接返回，不会重复触发。
+     * 把设置里的音量增益开关落到运行时，当前曲目立即生效。
+     *
+     * 开关由设置页写盘、播放服务订阅设置流后调到这里；本类不回写，落盘只留设置页一个写入方。
+     * 值未变时 [ReplayGainVolume.applyEnabled] 直接返回，设置流因其他项重发不会重复施加。
      */
-    fun setVolumeGainEnabled(enabled: Boolean) {
-        if (replayGainVolume.enabled == enabled) return
+    internal fun setVolumeGainEnabled(enabled: Boolean) {
         replayGainVolume.applyEnabled(enabled)
-        playbackScope.launch { appContext.saveVolumeGainEnabled(enabled) }
     }
 
     internal val progress = PlaybackProgressTracker(

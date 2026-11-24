@@ -27,7 +27,7 @@ interface SettingsRepository {
     // 应用语言流：统一读 DataStore
     val appLanguage: Flow<AppLanguage>
 
-    // 播放相关设置：迷你播放器、歌词渲染、滑动切歌、背景流动与两路 USB 输出
+    // 播放相关设置：迷你播放器、歌词渲染、滑动切歌、背景流动、音量增益与两路 USB 输出
     val playbackSettings: Flow<PlaybackSettings>
 
     suspend fun saveThemeMode(mode: ThemeMode)

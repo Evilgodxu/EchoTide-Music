@@ -58,10 +58,6 @@ private val volumeGainEnabledKey = booleanPreferencesKey("volume_gain_enabled")
 fun Context.volumeGainEnabledFlow(): Flow<Boolean> =
     settingsDataStore.data.map { it[volumeGainEnabledKey] ?: false }
 
-suspend fun Context.saveVolumeGainEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
-    settingsDataStore.edit { it[volumeGainEnabledKey] = enabled }
-}
-
 fun Context.exclusiveVolumeStepFlow(): Flow<Int?> =
     settingsDataStore.data.map { it[exclusiveVolumeStepKey] }
 

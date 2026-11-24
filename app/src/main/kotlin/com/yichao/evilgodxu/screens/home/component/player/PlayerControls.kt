@@ -48,8 +48,6 @@ internal fun PlayerControls(
     onPlaylistLongClick: () -> Unit = {},
     // 从播放/暂停按钮向上滑动：唤出音频信息弹窗；为 null 时该按钮保持普通点击行为
     onPlayPauseSwipeUp: (() -> Unit)? = null,
-    // 长按播放/暂停按钮：唤出调音台；为 null 时只保留单击与上滑
-    onPlayPauseLongClick: (() -> Unit)? = null,
     // 从播放列表按钮向上滑动：打开播放列表面板；为 null 时该按钮保持普通点击行为
     onPlaylistSwipeUp: (() -> Unit)? = null,
     // 音量调节进行态：起手至松手期间为 true，供宿主在调节期间暂缓自身的自动收起
@@ -112,7 +110,6 @@ internal fun PlayerControls(
                     ),
                     enabled = playbackState.playlist.isNotEmpty(),
                     onClick = { togglePlayPause(playbackState) },
-                    onLongClick = onPlayPauseLongClick,
                     onSwipeUp = onPlayPauseSwipeUp,
                     // 左右滑动调音量：起手与松手同时向宿主报告进行态
                     onVolumeSwipeStart = {

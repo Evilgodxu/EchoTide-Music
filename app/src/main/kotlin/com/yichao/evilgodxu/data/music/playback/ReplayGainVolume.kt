@@ -3,7 +3,6 @@ package com.yichao.evilgodxu.data.music.playback
 import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.yichao.evilgodxu.data.music.metadata.TagField
 import com.yichao.evilgodxu.data.music.metadata.TrackMetadataEditor
@@ -18,8 +17,7 @@ import kotlinx.coroutines.launch
 /**
  * 音量增益：把曲目内嵌的 ReplayGain 标签折算成乘进播放器音量的线性系数。
  *
- * 取值只认本地文件里已经写好的标签，不去在线补、也不在播放时自算：标签缺失即视为本曲不施加，
- * 界面也不显示数值——写死 0 dB 会让「没标签」和「正好 0 dB」看不出区别。
+ * 取值只认本地文件里已经写好的标签，不去在线补、也不在播放时自算：标签缺失即视为本曲不施加。
  *
  * 施加点是播放器音量（[applyLinear] 由持有方接到 `MediaController.volume`），而不是各自的
  * 写出缓冲：平台路径与独占路径都会把这一层乘进输出，两条路因此不会各自实现一份增益。
@@ -32,19 +30,8 @@ internal class ReplayGainVolume(
     private val onApplied: () -> Unit,
 ) {
 
-    /** 设置项：关闭时系数恒为 1，标签读数仍保留给面板展示 */
-    var enabled by mutableStateOf(false)
-        private set
-
-    /** 本曲标签里的增益（dB）；null 表示没有标签 */
-    var gainDb by mutableStateOf<Double?>(null)
-        private set
-    /** 本曲标签里的线性峰值 */
-    var peak by mutableStateOf<Double?>(null)
-        private set
-    /** 本次施加是否因峰值而限幅 */
-    var limited by mutableStateOf(false)
-        private set
+    /** 设置项：关闭时系数恒为 1 */
+    private var enabled = false
 
     /** 当前应乘进播放器音量的系数 */
     var linear by mutableFloatStateOf(1f)
@@ -55,7 +42,6 @@ internal class ReplayGainVolume(
     // 已读到的标签值按曲目缓存：切回同一首不必再解一次容器
     private val cache = HashMap<String, Pair<Double?, Double?>?>()
     private var tagLinear = 1f
-    private var tagLimited = false
 
     fun applyEnabled(value: Boolean) {
         if (enabled == value) return
@@ -70,26 +56,14 @@ internal class ReplayGainVolume(
         if (key == loadedKey) return
         loadedKey = key
         loadJob?.cancel()
-        gainDb = null
-        peak = null
         tagLinear = 1f
-        tagLimited = false
         applyLinear()
         if (track == null || key == null || !track.isLocalAudioSource) return
         val appContext = context() ?: return
         loadJob = scope().launch {
             val values = cache.getOrPut(key) { readTags(appContext, track) }
-            gainDb = values?.first
-            peak = values?.second
             val tagGain = values?.first
-            if (tagGain == null) {
-                tagLinear = 1f
-                tagLimited = false
-            } else {
-                val computed = replayGainLinear(tagGain, values.second)
-                tagLinear = computed.linear
-                tagLimited = computed.limited
-            }
+            tagLinear = if (tagGain == null) 1f else replayGainLinear(tagGain, values.second).linear
             applyLinear()
         }
     }
@@ -102,7 +76,6 @@ internal class ReplayGainVolume(
 
     private fun applyLinear() {
         linear = if (enabled) tagLinear else 1f
-        limited = enabled && tagLimited
         onApplied()
     }
 }

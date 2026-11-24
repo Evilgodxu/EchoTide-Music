@@ -48,7 +48,6 @@ import com.yichao.evilgodxu.screens.home.component.dialog.LosslessUpgradeDialog
 import com.yichao.evilgodxu.screens.home.component.player.HomeBlendedCover
 import com.yichao.evilgodxu.screens.home.component.player.PlayerControls
 import com.yichao.evilgodxu.screens.home.component.queue.PlaylistSheet
-import com.yichao.evilgodxu.screens.home.component.tuning.TuningSheet
 import com.yichao.evilgodxu.ui.component.PlayModeSelectionScrim
 import com.yichao.evilgodxu.ui.component.player.currentTrackNeedsLosslessUpgrade
 import com.yichao.evilgodxu.ui.component.player.TrackFormatInfoSection
@@ -70,9 +69,6 @@ fun LandscapePlayer(
     // 播放列表面板显隐：由首页层持有，显示期间禁用上下滑动切歌
     playlistVisible: Boolean,
     onPlaylistVisibilityChange: (Boolean) -> Unit,
-    // 调音台显隐：长按播放/暂停唤出，由首页层持有
-    tuningVisible: Boolean,
-    onTuningVisibilityChange: (Boolean) -> Unit,
     // 3D 封面轮播显隐：由首页层持有，进入沉浸覆盖层时同步隐藏标题栏与控制栏
     coverCarouselVisible: Boolean,
     onCoverCarouselVisibilityChange: (Boolean) -> Unit,
@@ -187,17 +183,10 @@ fun LandscapePlayer(
                     onPlaylistClick = { onPlaylistVisibilityChange(true) },
                     // 播放列表按钮上滑同样打开面板：与竖屏控制栏手势一致
                     onPlaylistSwipeUp = { onPlaylistVisibilityChange(true) },
-                    onPlayPauseLongClick = { onTuningVisibilityChange(true) },
                     onVolumeAdjustingChange = onVolumeAdjustingChange,
                 )
             }
         }
-
-        TuningSheet(
-            visible = tuningVisible,
-            playbackState = playbackState,
-            onDismiss = { onTuningVisibilityChange(false) },
-        )
 
         PlaylistSheet(
             visible = playlistVisible,

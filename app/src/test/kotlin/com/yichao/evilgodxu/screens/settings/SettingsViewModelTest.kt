@@ -6,6 +6,7 @@ import com.yichao.evilgodxu.data.settings.AppLanguage
 import com.yichao.evilgodxu.data.settings.ThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -75,6 +76,21 @@ class SettingsViewModelTest {
         advanceUntilIdle()
 
         assertFalse(viewModel.uiState.value.playback.wordByWordRendering)
+    }
+
+    @Test
+    fun `音量增益写入经仓库回流更新状态`() = runTest(dispatcher) {
+        val repository = FakeSettingsRepository()
+        val viewModel = viewModel(repository)
+
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.playback.volumeGain)
+
+        viewModel.setVolumeGain(true)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.playback.volumeGain)
+        assertTrue(repository.playbackSettings.first().volumeGain)
     }
 
     @Test

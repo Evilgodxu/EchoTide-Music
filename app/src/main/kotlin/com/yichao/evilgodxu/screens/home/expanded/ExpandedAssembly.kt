@@ -119,8 +119,6 @@ internal fun ExpandedAssembly(
                     onModeSelectorExpandedChange = { modeSelectorExpanded = it },
                     playlistVisible = panelState.playlistVisible,
                     onPlaylistVisibilityChange = { panelState.playlistVisible = it },
-                    tuningVisible = panelState.tuningVisible,
-                    onTuningVisibilityChange = { panelState.tuningVisible = it },
                     onVolumeAdjustingChange = { volumeAdjusting = it },
                     coverCarouselVisible = coverCarouselVisible,
                     onCoverCarouselVisibilityChange = { coverCarouselVisible = it },

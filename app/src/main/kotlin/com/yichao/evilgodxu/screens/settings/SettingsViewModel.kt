@@ -109,6 +109,14 @@ class SettingsViewModel(
         }
     }
 
+    // 音量增益只落盘：施加点在场播放器音量上，由播放服务订阅同一份设置后生效
+    fun setVolumeGain(enabled: Boolean) {
+        _uiState.update { it.copy(playback = it.playback.copy(volumeGain = enabled)) }
+        viewModelScope.launch {
+            settingsRepository.updatePlaybackSettings { it.copy(volumeGain = enabled) }
+        }
+    }
+
     fun setUsbDirectOutput(enabled: Boolean) {
         applyUsbOutputSwitch(UsbOutputKind.FORMAT_LOCKED, enabled)
         if (enabled) {

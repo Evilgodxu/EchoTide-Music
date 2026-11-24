@@ -25,6 +25,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yichao.evilgodxu.theme.AppSpacing
 
 // 设置项：可点击列表项，支持返回点击坐标以驱动主题切换动效
 @Composable
@@ -52,7 +53,7 @@ fun SettingsEntry(
                         }
                 },
             )
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = AppSpacing.RowHorizontal, vertical = AppSpacing.RowVertical),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))

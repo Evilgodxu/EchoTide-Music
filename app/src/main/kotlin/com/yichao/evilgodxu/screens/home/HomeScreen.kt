@@ -118,7 +118,6 @@ private fun landscapeToggleAction(): () -> Unit {
 private fun HomeSystemBarsEffect(panelState: HomePanelState) {
     val sheetOnTop = panelState.playlistVisible ||
         panelState.audioInfoVisible ||
-        panelState.tuningVisible ||
         panelState.libraryAnalysis.visible
     val lightNavigationBars = sheetOnTop && !LocalIsDarkTheme.current
     SideEffect {

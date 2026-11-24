@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.yichao.evilgodxu.theme.AppAlpha
+import com.yichao.evilgodxu.theme.AppShape
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
@@ -82,9 +84,9 @@ fun <T> ExpandPicker(
     // 菜单容器默认用抬升色阶：对话框与面板容器均为 surface，若菜单同色会与之融为一片难以分辨；
     // surfaceContainerHigh 在浅色下比 surface 更灰、深色下比 surface 更亮，两个主题都能拉开层次
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
-    containerShape: Shape = RoundedCornerShape(10.dp),
-    itemShape: Shape = RoundedCornerShape(6.dp),
-    itemHighlightColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+    containerShape: Shape = AppShape.Control,
+    itemShape: Shape = AppShape.Micro,
+    itemHighlightColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = AppAlpha.Selected),
     trigger: @Composable () -> Unit,
     itemContent: @Composable (option: T, selected: Boolean) -> Unit,
     onItemClick: (T) -> Unit,

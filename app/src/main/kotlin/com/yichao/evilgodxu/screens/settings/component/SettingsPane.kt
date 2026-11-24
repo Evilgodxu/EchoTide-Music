@@ -35,6 +35,7 @@ internal fun SettingsPane(
     onBackgroundFlowChange: (Boolean) -> Unit,
     onUsbDirectOutputChange: (Boolean) -> Unit,
     onUsbExclusiveOutputChange: (Boolean) -> Unit,
+    onVolumeGainChange: (Boolean) -> Unit,
     onVersionClick: () -> Unit,
     onOpenTypography: () -> Unit,
     onProxySourceImport: (String) -> Unit,
@@ -73,6 +74,8 @@ internal fun SettingsPane(
             onUsbDirectOutputChange = onUsbDirectOutputChange,
             usbExclusiveOutput = uiState.playback.usbExclusiveOutput,
             onUsbExclusiveOutputChange = onUsbExclusiveOutputChange,
+            volumeGain = uiState.playback.volumeGain,
+            onVolumeGainChange = onVolumeGainChange,
             onTypographyClick = onOpenTypography,
         )
         ProxySource(

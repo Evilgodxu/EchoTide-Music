@@ -124,6 +124,7 @@ fun SettingsScreen(
         onBackgroundFlowChange = viewModel::setBackgroundFlow,
         onUsbDirectOutputChange = viewModel::setUsbDirectOutput,
         onUsbExclusiveOutputChange = viewModel::setUsbExclusiveOutput,
+        onVolumeGainChange = viewModel::setVolumeGain,
         onVersionClick = { updateViewModel.checkForUpdate(force = true) },
         onOpenTypography = onOpenTypography,
         onProxySourceImport = viewModel::importProxySource,

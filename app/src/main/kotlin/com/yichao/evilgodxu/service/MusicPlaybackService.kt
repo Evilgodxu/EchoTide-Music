@@ -377,7 +377,7 @@ class MusicPlaybackService : MediaSessionService() {
                 playbackState.highlightPolicy.onImmersiveOutputChanged()
             }
         }
-        // 音量增益开关：持久值回灌到播放状态，界面与该状态读的是同一份
+        // 音量增益开关：设置页写的持久值落到运行时，施加只在这里发生
         serviceScope.launch {
             volumeGainEnabledFlow().collect { playbackState.setVolumeGainEnabled(it) }
         }

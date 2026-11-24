@@ -117,7 +117,7 @@ Portrait or landscape, immersion is the only goal.
 ├── gradle/
 │   ├── libs.versions.toml               # Version catalog (dependency management)
 │   └── wrapper/
-├── docs/                                # Proxy source spec, UI screenshots, design mockups, APK report & project notes
+├── docs/                                # Proxy source spec, UI style guide, screenshots, design mockups, APK report & notes
 ├── LICENSE
 ├── build.gradle.kts
 ├── settings.gradle.kts

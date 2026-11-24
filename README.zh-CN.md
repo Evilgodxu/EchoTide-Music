@@ -117,7 +117,7 @@
 ├── gradle/
 │   ├── libs.versions.toml               # 版本目录(依赖管理)
 │   └── wrapper/
-├── docs/                                # 代理音源规范、界面截图、设计稿、APK 报告与项目注意事项
+├── docs/                                # 代理音源规范、界面规范、界面截图、设计稿、APK 报告与项目注意事项
 ├── LICENSE
 ├── build.gradle.kts
 ├── settings.gradle.kts
