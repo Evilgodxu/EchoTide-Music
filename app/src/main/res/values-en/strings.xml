@@ -356,6 +356,22 @@
     <string name="metadata_field_replay_gain_reference_loudness">Reference loudness</string>
     <string name="metadata_field_empty">Not set</string>
     <string name="metadata_edit_hint">Tap an entry to edit; changes are saved automatically</string>
+    <string name="metadata_fill_action">Fill</string>
+    <string name="metadata_fill_nothing">Nothing to fill</string>
+    <string name="metadata_fill_no_candidates">No matching track found</string>
+    <string name="metadata_fill_refresh">Search again</string>
+    <plurals name="metadata_fill_done">
+        <item quantity="one">Filled %1$d field</item>
+        <item quantity="other">Filled %1$d fields</item>
+    </plurals>
+    <string name="metadata_fill_mode_title">Fill mode</string>
+    <string name="metadata_fill_mode_overwrite">Overwrite all</string>
+    <string name="metadata_fill_mode_merge">Fill empty only</string>
+    <string name="metadata_fill_mode_merge_hint">Only fill empty fields; keep existing values</string>
+    <string name="metadata_fill_mode_overwrite_hint">Overwrite existing values with online data</string>
+    <string name="metadata_replay_gain_compute">Compute</string>
+    <string name="metadata_replay_gain_done">ReplayGain calculated and filled in</string>
+    <string name="metadata_replay_gain_failed">Failed to calculate ReplayGain</string>
     <string name="metadata_section_lyrics">Lyrics</string>
     <plurals name="metadata_lyrics_line_count">
         <item quantity="one">%1$d line</item>

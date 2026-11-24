@@ -10,6 +10,7 @@ import android.provider.MediaStore
 import androidx.core.net.toUri
 import com.yichao.evilgodxu.data.music.api.LOSSLESS_TIERS
 import com.yichao.evilgodxu.data.music.api.MusicHttpClient
+import com.yichao.evilgodxu.data.music.api.enrichTrackDetail
 import com.yichao.evilgodxu.data.music.PlaylistRefresher
 import com.yichao.evilgodxu.data.music.metadata.CoverUpdate
 import com.yichao.evilgodxu.data.music.metadata.MetadataEnricher
@@ -18,6 +19,7 @@ import com.yichao.evilgodxu.data.music.metadata.MusicMetadataEditor
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataWriter
 import com.yichao.evilgodxu.data.music.metadata.TagField
 import com.yichao.evilgodxu.data.music.metadata.TrackTagFields
+import com.yichao.evilgodxu.data.music.metadata.cachedTagFields
 import com.yichao.evilgodxu.data.music.metadata.SystemThumbnailCache
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
@@ -72,7 +74,7 @@ internal suspend fun cacheToDownloads(
             }
             // 等待在线封面下载就绪后再内嵌：让下载到的封面原图与标题/艺术家一并写入缓存文件，
             // 写入触发的媒体扫描会为该文件生成系统封面略缩图
-            embedCachedMetadata(context, playbackState, trackId, coverDeferred?.await(), lyricDeferred.awaitLyrics())
+            embedCachedMetadata(context, playbackState, trackId, result, coverDeferred?.await(), lyricDeferred.awaitLyrics())
             // 补全歌词并回收无引用的歌词缓存
             metadataEnricher.enrichAndCleanup(context, playbackState)
             // 复用旧缓存同样登记本地音频库并刷新，避免旧缓存文件从未入库
@@ -134,7 +136,7 @@ internal suspend fun cacheToDownloads(
         }
         // 等封面任务结束再内嵌：封面未就绪即写入会让元数据整体丢失；
         // 此时播放源仍是在线流，文件未被占用，可安全整文件重写
-        embedCachedMetadata(context, playbackState, trackId, coverDeferred?.await(), lyricDeferred.awaitLyrics())
+        embedCachedMetadata(context, playbackState, trackId, result, coverDeferred?.await(), lyricDeferred.awaitLyrics())
         metadataEnricher.enrichAndCleanup(context, playbackState)
         registerCachedFileAsLocal(context, playbackState, trackId, audioUri, playlistRefresher)
     } catch (e: Exception) {
@@ -330,6 +332,9 @@ internal suspend fun updateTrackAudioUri(
 // 在线歌词内嵌的等待上界：超过即放弃本次内嵌，避免拖慢音频文件的元数据写入
 private const val LYRIC_EMBED_WAIT_MS = 8_000L
 
+// 详情补全的等待上界：标签属于附加项，接口慢就直接用搜索结果已给的字段落盘
+private const val DETAIL_WAIT_MS = 5_000L
+
 /**
  * 等待在线歌词任务并取回增强 LRC 文本。歌词是内嵌的附加项：等待设上界，
  * 超时或失败都只放弃本次内嵌 —— 歌词自身的缓存落盘由该任务独立完成，不受影响；
@@ -342,11 +347,17 @@ private suspend fun embedCachedMetadata(
     context: Context,
     playbackState: MusicPlaybackState,
     trackId: Long,
+    result: NeteaseSongSearchResult,
     coverOriginal: ByteArray?,
     lyrics: String?,
 ) {
     val track = playbackState.playlist.firstOrNull { it.id == trackId } ?: return
-    val ok = MusicMetadataWriter.writeMetadataToSource(context, track, track.title, track.artist, coverOriginal, lyrics)
+    // 标签字段在搜索响应里往往不全（音轨号、碟号、发行日期只在详情接口），落地前补一次；
+    // 补全失败不影响缓存本身，按搜索结果已给的字段照写
+    val detailed = withTimeoutOrNull(DETAIL_WAIT_MS) { enrichTrackDetail(result) } ?: result
+    val fields = cachedTagFields(track, detailed, lyrics)
+    val coverUpdate = coverOriginal?.let { CoverUpdate.Set(it) } ?: CoverUpdate.Keep
+    val ok = MusicMetadataWriter.writeFields(context, track, fields, coverUpdate)
     if (!ok) {
         CrashLogManager.logException(
             "MusicDownloader",
@@ -462,8 +473,8 @@ private fun findAudioMediaId(context: Context, path: String): Long? =
         )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else null }
     }.getOrNull()
 
-// 写入升级后新文件的标签：以旧文件既有标签为底，仅用在线候选覆盖标题与艺术家，
-// 用户手填的歌词、专辑、编号、作曲、ReplayGain 等随新文件保留；
+// 写入升级后新文件的标签：以旧文件既有标签为底，仅用在线候选覆盖标题与艺术家；
+// 专辑、日期、音轨号、碟号、版权只填空位（旧文件没有才写），用户手填的歌词与 ReplayGain 等随新文件保留；
 // 封面沿用旧文件内嵌原图，旧文件无内嵌封面时不主动下载，交由占位符显示
 private suspend fun embedUpgradeMetadata(
     context: Context,
@@ -479,6 +490,15 @@ private suspend fun embedUpgradeMetadata(
             put(TagField.TITLE, candidate.title)
             put(TagField.ARTIST, candidate.artist)
             oldTags.lyrics?.takeIf { it.isNotBlank() }?.let { put(TagField.LYRICS, it) }
+            // 专辑类字段只填空位：用户手填或旧文件已有的值优先，平台值不覆盖
+            fun fillAbsent(field: TagField, value: String?) {
+                if (oldTags.fields[field].isNullOrBlank()) put(field, value)
+            }
+            fillAbsent(TagField.ALBUM, candidate.album)
+            fillAbsent(TagField.DATE, candidate.releaseDate)
+            fillAbsent(TagField.TRACK_NUMBER, candidate.trackNumber?.toString())
+            fillAbsent(TagField.DISC_NUMBER, candidate.discNumber?.toString())
+            fillAbsent(TagField.COPYRIGHT, candidate.copyright)
         }
         val coverUpdate = coverBytes?.let { CoverUpdate.Set(it) } ?: CoverUpdate.Keep
         MusicMetadataWriter.writeFields(context, updated, fields, coverUpdate)

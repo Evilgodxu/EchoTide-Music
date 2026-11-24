@@ -15,12 +15,15 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,6 +31,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -58,29 +63,84 @@ private val ENTRY_VALUE_FONT_SIZE = 15.sp
 // 行/块的圆角形状。底色在各自的容器里取，与播放列表「当前曲目」行同款（见下）
 private val ROW_SHAPE = RoundedCornerShape(10.dp)
 
+// 分组标题动作按钮的点击区域圆角：与行内小控件同一档
+private val ACTION_SHAPE = RoundedCornerShape(8.dp)
+
+// 分组标题动作按钮的触控尺寸与图标尺寸：行高与 12sp 的标题对齐，图标略小于正文
+private val ACTION_TOUCH_SIZE = 28.dp
+private val ACTION_ICON_SIZE = 16.dp
+
 /**
  * 表单分组：小标题 + 字段行，不套外层卡片。
  *
  * 展示方式与音频信息弹窗一致 —— 分组只以标题区分，行自身带弱化底色，
  * 避免大卡片把整组内容再包一层背景。
+ *
+ * @param action 标题行尾部的分组动作（如「补全」「计算」）；为 null 时标题独占整行
  */
 @Composable
 internal fun MetadataSection(
     title: String,
     modifier: Modifier = Modifier,
+    action: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
         modifier = modifier.fillMaxWidth().padding(top = 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(
-            text = title,
-            color = MaterialTheme.colorScheme.primary,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            action?.invoke()
+        }
         content()
+    }
+}
+
+/**
+ * 分组标题行的动作按钮：图标按钮，执行中原地显示进度圈并禁用点击。
+ *
+ * 与字段行的点击语义区分开：它作用于整组而非单个字段，故不套行底色；
+ * 用图标而非文字，是为了不让标题行在窄窗下被按钮文字挤占。
+ */
+@Composable
+internal fun MetadataSectionAction(
+    icon: ImageVector,
+    contentDescription: String,
+    busy: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(ACTION_TOUCH_SIZE)
+            .clip(ACTION_SHAPE)
+            .clickable(enabled = enabled && !busy, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (busy) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
+                strokeWidth = 1.5.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        } else {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(ACTION_ICON_SIZE),
+            )
+        }
     }
 }
 

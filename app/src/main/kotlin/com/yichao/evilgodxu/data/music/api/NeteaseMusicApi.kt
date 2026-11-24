@@ -194,6 +194,9 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         val album = item.optJSONObject("al") ?: item.optJSONObject("album")
         val cover = album?.optString("picUrl")?.takeIf { it.isNotBlank() }?.let { ensureHttps(it) }
         val duration = item.optLong("dt", 0L).takeIf { it > 0L } ?: item.optLong("duration", 0L)
+        // 搜索结果只带专辑名与封面；音轨号、碟号、厂牌仅出现在详情响应里，缺省即留空
+        val publishTime = album?.optLong("publishTime", 0L)?.takeIf { it > 0L }
+            ?: item.optLong("publishTime", 0L).takeIf { it > 0L }
         return NeteaseSongSearchResult(
             id = item.optLong("id"),
             title = item.optString("name"),
@@ -201,6 +204,11 @@ internal object NeteaseMusicApi : OnlineMusicSource {
             coverUrl = cover,
             coverThumbUrl = cover?.let { thumbUrl(it) },
             duration = duration,
+            album = album?.optString("name")?.takeIf { it.isNotBlank() },
+            releaseDate = publishTime?.let { dateTextFromEpochMillis(it) },
+            trackNumber = item.optInt("no", 0).takeIf { it > 0 },
+            discNumber = item.optInt("disc", 0).takeIf { it > 0 },
+            copyright = album?.optString("company")?.takeIf { it.isNotBlank() },
         )
     }
 

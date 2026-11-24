@@ -358,6 +358,21 @@
     <string name="metadata_field_replay_gain_reference_loudness">参考响度</string>
     <string name="metadata_field_empty">未填写</string>
     <string name="metadata_edit_hint">点击任意条目编辑，修改后自动保存</string>
+    <string name="metadata_fill_action">补全</string>
+    <string name="metadata_fill_nothing">没有可补全的字段</string>
+    <string name="metadata_fill_no_candidates">没有找到匹配的曲目</string>
+    <string name="metadata_fill_refresh">重新搜索</string>
+    <plurals name="metadata_fill_done">
+        <item quantity="other">已补全 %1$d 项</item>
+    </plurals>
+    <string name="metadata_fill_mode_title">补全方式</string>
+    <string name="metadata_fill_mode_overwrite">全覆盖</string>
+    <string name="metadata_fill_mode_merge">仅补全</string>
+    <string name="metadata_fill_mode_merge_hint">只填空着的字段，已有内容不动</string>
+    <string name="metadata_fill_mode_overwrite_hint">用在线字段覆盖已有内容</string>
+    <string name="metadata_replay_gain_compute">计算</string>
+    <string name="metadata_replay_gain_done">已计算并填入音量增益</string>
+    <string name="metadata_replay_gain_failed">音量增益计算失败</string>
     <string name="metadata_section_lyrics">歌词</string>
     <plurals name="metadata_lyrics_line_count">
         <item quantity="other">共 %1$d 行</item>

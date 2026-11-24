@@ -56,26 +56,6 @@ internal object MusicMetadataWriter {
         }
     }
 
-    // 一次性写入标题/艺术家/封面：本地文件走文件路径重建，在线缓存歌走 content URI 就地重写
-    suspend fun writeMetadataToSource(
-        context: Context,
-        track: MusicTrack,
-        title: String,
-        artist: String,
-        cover: ByteArray?,
-        lyrics: String? = null,
-    ): Boolean = writeToTrack(context, track) { source ->
-        plan(
-            source,
-            TrackTagFields.build {
-                put(TagField.TITLE, title)
-                put(TagField.ARTIST, artist)
-                put(TagField.LYRICS, lyrics)
-            },
-            cover,
-        )
-    }
-
     /**
      * 把歌词文本内嵌进音频文件：本地文件走文件路径重建，在线缓存歌走 content URI 就地重写，
      * 纯在线流（无本地文件）无可写目标而跳过。

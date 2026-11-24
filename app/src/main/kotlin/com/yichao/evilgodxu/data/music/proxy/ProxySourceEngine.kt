@@ -140,10 +140,16 @@ internal object ProxySourceEngine {
             title = title,
             artist = resolveJoinString(item, result.artist).orEmpty(),
             coverUrl = resolveString(item, result.coverUrl),
-            duration = resolveLong(item, result.duration) ?: 0L,
+            duration = parseProxyDurationMs(ProxyJsonPath.resolve(item, result.duration)) ?: 0L,
             source = source,
             sourceId = sourceId,
             coverId = resolveString(item, result.coverId),
+            album = resolveString(item, result.album),
+            releaseDate = resolveString(item, result.date),
+            trackNumber = resolveLong(item, result.trackNo)?.toInt(),
+            discNumber = resolveLong(item, result.discNo)?.toInt(),
+            replayGainTrackGainDb = resolveDouble(item, result.rgTrackGain),
+            replayGainTrackPeak = resolveDouble(item, result.rgTrackPeak),
         )
     }
 
@@ -155,7 +161,7 @@ internal object ProxySourceEngine {
             "coverId" to target.coverId.orEmpty(),
             "title" to target.title,
             "artist" to target.artist,
-            "album" to "",
+            "album" to target.album.orEmpty(),
             "duration" to target.duration.toString(),
         )
     }
@@ -262,6 +268,17 @@ internal object ProxySourceEngine {
             is String -> value.toLongOrNull()
             else -> null
         }
+    }
+
+    // 响度按浮点取：增益与峰值都带小数，按整型读会把 -7.6 读成 -7
+    private fun resolveDouble(root: Any, path: String?): Double? {
+        val value = ProxyJsonPath.resolve(root, path) ?: return null
+        val parsed = when (value) {
+            is Number -> value.toDouble()
+            is String -> value.trim().removeSuffix("dB").trim().toDoubleOrNull()
+            else -> null
+        }
+        return parsed?.takeIf { it.isFinite() }
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")

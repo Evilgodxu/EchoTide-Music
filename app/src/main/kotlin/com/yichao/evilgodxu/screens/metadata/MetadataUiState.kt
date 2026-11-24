@@ -65,6 +65,15 @@ data class MetadataUiState(
     val coverRefreshSelectedId: Long? = null,
     val coverRefreshSaving: Boolean = false,
     val exportingCover: Boolean = false,
+    // 在线补全：候选对话框 + 二级的补全方式对话框。
+    // fillOverwrite 为 false 表示仅补全空字段，true 表示平台值覆盖本地值
+    val fillVisible: Boolean = false,
+    val fillSelectedId: Long? = null,
+    val fillModeVisible: Boolean = false,
+    val fillApplying: Boolean = false,
+    val fillOverwrite: Boolean = false,
+    // 音量增益自算进行中：期间按钮显示进度，不接受重复触发
+    val replayGainComputing: Boolean = false,
     // 自动保存结果提示：成功或失败原因，显示后可被下次保存覆盖
     val message: String? = null,
     val messageIsError: Boolean = false,

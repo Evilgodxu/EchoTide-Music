@@ -64,6 +64,11 @@ internal class SearchPanelState {
     // 歌词/封面刷新当前来源：按来源独立搜索，切换来源时轮换并重新搜索
     var lyricsRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
     var coverRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
+    // 元数据补全的候选与来源：与封面刷新分开存放 —— 封面刷新会滤掉无封面的候选，
+    // 而补全恰恰要那些「没封面但有专辑/年份」的条目
+    var metadataFillCandidates by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
+    var isMetadataFillSearching by mutableStateOf(false)
+    var metadataFillSource by mutableStateOf(MusicSearchSource.NETEASE)
 
     // 搜索上下文的公共复位：退出结果、起播命中与播放就绪收尾共用同一份清理，
     // 避免各入口各写一遍而遗漏某一项

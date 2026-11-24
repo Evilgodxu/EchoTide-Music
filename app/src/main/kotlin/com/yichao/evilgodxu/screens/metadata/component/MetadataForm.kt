@@ -81,6 +81,16 @@ internal fun MetadataForm(
     onCoverRefreshCandidateSelected: (NeteaseSongSearchResult) -> Unit,
     onCoverRefreshConfirm: () -> Unit,
     onCoverRefreshCancel: () -> Unit,
+    onFillOpen: () -> Unit,
+    onFillSourceSelected: (MusicSearchSource) -> Unit,
+    onFillReload: () -> Unit,
+    onFillCandidateSelected: (NeteaseSongSearchResult) -> Unit,
+    onFillOverwriteChange: (Boolean) -> Unit,
+    onFillConfirm: () -> Unit,
+    onFillApply: () -> Unit,
+    onFillModeDismiss: () -> Unit,
+    onFillCancel: () -> Unit,
+    onReplayGainCompute: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -119,6 +129,25 @@ internal fun MetadataForm(
         onCoverRefreshCandidateSelected = onCoverRefreshCandidateSelected,
         onCoverRefreshConfirm = onCoverRefreshConfirm,
         onCoverRefreshCancel = onCoverRefreshCancel,
+    )
+    // 在线补全：与封面刷新同款候选控件；确认候选后由二级对话框决定补全方式
+    MetadataFillDialog(
+        visible = uiState.fillVisible,
+        playbackState = playbackState,
+        selectedId = uiState.fillSelectedId,
+        onSourceSelected = onFillSourceSelected,
+        onReload = onFillReload,
+        onCandidateSelected = onFillCandidateSelected,
+        onConfirm = onFillConfirm,
+        onCancel = onFillCancel,
+    )
+    FillModeDialog(
+        visible = uiState.fillModeVisible,
+        overwrite = uiState.fillOverwrite,
+        applying = uiState.fillApplying,
+        onOverwriteChange = onFillOverwriteChange,
+        onConfirm = onFillApply,
+        onDismiss = onFillModeDismiss,
     )
     // 本地封面候选：复用播放面板的候选选择控件，选中结果仍进入本页的自动落盘路径
     LocalCoverDialog(
@@ -200,7 +229,19 @@ internal fun MetadataForm(
             messageIsError = uiState.messageIsError,
             modifier = Modifier.fillMaxWidth(),
         )
-        MetadataSection(title = stringResource(R.string.metadata_section_basic)) {
+        // 补全入口放在基本信息标题右侧：它填充的正是这几项（标题/艺术家/专辑/年份等）
+        MetadataSection(
+            title = stringResource(R.string.metadata_section_basic),
+            action = {
+                MetadataSectionAction(
+                    icon = AppIcons.CloudSync,
+                    contentDescription = stringResource(R.string.metadata_fill_action),
+                    busy = uiState.fillApplying,
+                    enabled = !uiState.saving && !uiState.loading,
+                    onClick = onFillOpen,
+                )
+            },
+        ) {
             TagField.BASIC.forEach { FieldEntry(it, labels, uiState, onFieldChange, onEditStart, onEditEnd) }
         }
         MetadataSection(title = stringResource(R.string.metadata_section_track)) {
@@ -220,7 +261,18 @@ internal fun MetadataForm(
                 }
             }
         }
-        MetadataSection(title = stringResource(R.string.metadata_section_replay_gain)) {
+        MetadataSection(
+            title = stringResource(R.string.metadata_section_replay_gain),
+            action = {
+                MetadataSectionAction(
+                    icon = AppIcons.Calculate,
+                    contentDescription = stringResource(R.string.metadata_replay_gain_compute),
+                    busy = uiState.replayGainComputing,
+                    enabled = !uiState.saving && !uiState.loading,
+                    onClick = onReplayGainCompute,
+                )
+            },
+        ) {
             TagField.REPLAY_GAIN.forEach { FieldEntry(it, labels, uiState, onFieldChange, onEditStart, onEditEnd) }
         }
         LyricsSection(

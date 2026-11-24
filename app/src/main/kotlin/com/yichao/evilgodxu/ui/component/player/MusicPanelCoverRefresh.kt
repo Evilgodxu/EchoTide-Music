@@ -81,9 +81,10 @@ internal fun CoverRefreshDialog(
     )
 }
 
-// 封面候选条目：封面图 + 标题 + 歌手（内容形态与歌词条目不同，故注入）
+// 封面候选条目：封面图 + 标题 + 歌手（内容形态与歌词条目不同，故注入）。
+// 元数据补全复用同一形态：候选的两处入口看的是同一批搜索结果，条目长得不一样反而要重新认
 @Composable
-private fun CoverCandidateItem(
+internal fun CoverCandidateItem(
     candidate: NeteaseSongSearchResult,
     selected: Boolean,
     onSelected: (NeteaseSongSearchResult) -> Unit,

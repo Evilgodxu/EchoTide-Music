@@ -46,6 +46,29 @@ data class NeteaseSongSearchResult(
     val sourceId: String? = null,
     /** 封面 ID：代理音源搜索结果仅有封面 ID 时，播放时经 pic 动作换取真实地址 */
     val coverId: String? = null,
+    /**
+     * 专辑名等标签字段：搜索响应能给出多少就填多少，缺的由详情补全或留空。
+     *
+     * 与 [title]/[artist] 不同，这些字段不参与列表展示与匹配，只在缓存落地时写进音频文件，
+     * 因此允许为空且不设兜底值 —— 拿不到就是拿不到，宁可文件里没有，也不写占位内容。
+     */
+    val album: String? = null,
+    /** 发行日期：能取到完整日期时写 yyyy-MM-dd，只有年份时写 yyyy */
+    val releaseDate: String? = null,
+    /** 专辑内音轨号（不含总数：各平台的分母口径不一致，拼出来的「3/11」反而会误导） */
+    val trackNumber: Int? = null,
+    /** 碟号 */
+    val discNumber: Int? = null,
+    /** 版权方 / 厂牌，仅网易专辑详情提供 */
+    val copyright: String? = null,
+    /**
+     * 平台自带的响度数据（QQ 详情接口的 volume），缓存落地时写成 ReplayGain 标签。
+     *
+     * 只收录单曲增益与峰值：平台没有专辑级响度，自行按专辑聚合会把同一张唱片里的
+     * 不同母带混在一起。缺失表示平台没给，由用户手动计算或保留文件原值。
+     */
+    val replayGainTrackGainDb: Double? = null,
+    val replayGainTrackPeak: Double? = null,
 )
 
 internal data class NeteaseLyricData(val lines: List<LyricLine>)

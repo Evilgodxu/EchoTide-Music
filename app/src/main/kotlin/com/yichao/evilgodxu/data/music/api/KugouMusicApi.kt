@@ -69,7 +69,12 @@ internal object KugouMusicApi : OnlineMusicSource {
             coverThumbUrl = sizedCover(rawCover, COVER_THUMB_SIZE),
             duration = if (durationSec > 0) durationSec * 1000L else timelen,
             source = MusicSearchSource.KUGOU,
-            sourceId = hash
+            sourceId = hash,
+            // 酷狗搜索直接给专辑名与发行日期（yyyy-MM-dd），无需再请求详情
+            album = item.optString("AlbumName").ifBlank { item.optString("album_name") }
+                .takeIf { it.isNotBlank() },
+            releaseDate = item.optString("PublishDate").ifBlank { item.optString("publish_date") }
+                .takeIf { it.isNotBlank() },
         )
     }
 

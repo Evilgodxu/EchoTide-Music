@@ -48,6 +48,16 @@ internal fun MetadataAssembly(
     onCoverRefreshCandidateSelected: (NeteaseSongSearchResult) -> Unit,
     onCoverRefreshConfirm: () -> Unit,
     onCoverRefreshCancel: () -> Unit,
+    onFillOpen: () -> Unit,
+    onFillSourceSelected: (MusicSearchSource) -> Unit,
+    onFillReload: () -> Unit,
+    onFillCandidateSelected: (NeteaseSongSearchResult) -> Unit,
+    onFillOverwriteChange: (Boolean) -> Unit,
+    onFillConfirm: () -> Unit,
+    onFillApply: () -> Unit,
+    onFillModeDismiss: () -> Unit,
+    onFillCancel: () -> Unit,
+    onReplayGainCompute: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val horizontalPadding = if (windowSizeClass == WindowSizeClass.Compact) {
@@ -83,6 +93,16 @@ internal fun MetadataAssembly(
             onCoverRefreshCandidateSelected = onCoverRefreshCandidateSelected,
             onCoverRefreshConfirm = onCoverRefreshConfirm,
             onCoverRefreshCancel = onCoverRefreshCancel,
+            onFillOpen = onFillOpen,
+            onFillSourceSelected = onFillSourceSelected,
+            onFillReload = onFillReload,
+            onFillCandidateSelected = onFillCandidateSelected,
+            onFillOverwriteChange = onFillOverwriteChange,
+            onFillConfirm = onFillConfirm,
+            onFillApply = onFillApply,
+            onFillModeDismiss = onFillModeDismiss,
+            onFillCancel = onFillCancel,
+            onReplayGainCompute = onReplayGainCompute,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)

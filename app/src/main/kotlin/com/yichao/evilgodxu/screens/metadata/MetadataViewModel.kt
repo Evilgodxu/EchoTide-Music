@@ -4,12 +4,17 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.data.music.analysis.ReplayGainAnalyzer
+import com.yichao.evilgodxu.data.music.api.enrichTrackDetail
 import com.yichao.evilgodxu.data.music.metadata.CoverExporter
 import com.yichao.evilgodxu.data.music.metadata.CoverUpdate
 import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.metadata.TagField
 import com.yichao.evilgodxu.data.music.metadata.TrackMetadataEditor
 import com.yichao.evilgodxu.data.music.metadata.TrackTagFields
+import com.yichao.evilgodxu.data.music.metadata.fillPlan
+import com.yichao.evilgodxu.data.music.metadata.formatReplayGainDb
+import com.yichao.evilgodxu.data.music.metadata.formatReplayGainPeak
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
@@ -18,6 +23,7 @@ import com.yichao.evilgodxu.data.music.panel.TranslateLineOutcome
 import com.yichao.evilgodxu.data.music.panel.applyCoverCandidate
 import com.yichao.evilgodxu.data.music.panel.autoTranslateLyricLine
 import com.yichao.evilgodxu.data.music.panel.searchCoverCandidates
+import com.yichao.evilgodxu.data.music.panel.searchMetadataCandidates
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,6 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 // 条目改动的落盘延迟：每次输入都重写整段音频，逐键写入会把同一份音频反复搬运。
 // 以停顿为界合并连续输入，用户停止输入后统一写一次
@@ -42,6 +49,9 @@ private const val SAME_ALBUM_COVER_LIMIT = 5
 
 // 同专辑封面候选的扫描上限：同专辑曲目通常只有十几首，上限用于挡住专辑名判等过宽时的大范围遍历
 private const val SAME_ALBUM_SCAN_LIMIT = 60
+
+// 补全时详情请求的等待上界：超时就用搜索结果已给的字段，不让一次接口慢把补全卡住
+private const val FILL_DETAIL_WAIT_MS = 5_000L
 
 /**
  * 元数据编辑页状态持有者：进入页面读取内嵌标签回填表单，
@@ -112,6 +122,12 @@ class MetadataViewModel(
                 coverRefreshSelectedId = null,
                 coverRefreshSaving = false,
                 exportingCover = false,
+                fillVisible = false,
+                fillSelectedId = null,
+                fillModeVisible = false,
+                fillApplying = false,
+                fillOverwrite = false,
+                replayGainComputing = false,
             )
         }
         loadTags(target)
@@ -498,6 +514,131 @@ class MetadataViewModel(
     fun onCoverRefreshCancel() {
         _uiState.update { it.copy(coverRefreshVisible = false, coverRefreshSelectedId = null) }
         playbackState.setCoverCandidates(emptyList())
+    }
+
+    // ---- 音量增益自算 ----
+
+    /**
+     * 本地计算 ReplayGain：整曲解码后按 EBU R128 统计整体响度与峰值，填入单曲增益与峰值。
+     *
+     * 只写这两项：专辑增益需要同专辑全部曲目一起统计，单曲分析给不出；
+     * 参考响度是测量口径而非测量结果，固定 -18 LUFS 即可，不写入文件。
+     */
+    fun onReplayGainCompute() {
+        val state = _uiState.value
+        if (state.replayGainComputing || state.loading || !state.editable) return
+        val target = findTrack() ?: return
+        _uiState.update { it.copy(replayGainComputing = true, message = null, messageIsError = false) }
+        viewModelScope.launch {
+            val measurement = ReplayGainAnalyzer.analyze(target)
+            if (measurement == null) {
+                _uiState.update {
+                    it.copy(
+                        replayGainComputing = false,
+                        messageIsError = true,
+                        message = message(R.string.metadata_replay_gain_failed),
+                    )
+                }
+                return@launch
+            }
+            onFieldChange(TagField.REPLAY_GAIN_TRACK_GAIN, formatReplayGainDb(measurement.gainDb))
+            onFieldChange(TagField.REPLAY_GAIN_TRACK_PEAK, formatReplayGainPeak(measurement.peak))
+            _uiState.update {
+                it.copy(
+                    replayGainComputing = false,
+                    messageIsError = false,
+                    message = message(R.string.metadata_replay_gain_done),
+                )
+            }
+        }
+    }
+
+    // ---- 在线补全 ----
+
+    fun onFillOpen() {
+        val target = findTrack() ?: return
+        _uiState.update { it.copy(fillVisible = true, fillSelectedId = null, message = null) }
+        viewModelScope.launch { searchMetadataCandidates(playbackState, target, playbackState.metadataFillSource) }
+    }
+
+    fun onFillSourceSelected(source: MusicSearchSource) {
+        if (source == playbackState.metadataFillSource) return
+        val target = findTrack() ?: return
+        playbackState.metadataFillSource = source
+        _uiState.update { it.copy(fillSelectedId = null) }
+        viewModelScope.launch { searchMetadataCandidates(playbackState, target, source) }
+    }
+
+    fun onFillReload() {
+        val target = findTrack() ?: return
+        _uiState.update { it.copy(fillSelectedId = null) }
+        viewModelScope.launch { searchMetadataCandidates(playbackState, target, playbackState.metadataFillSource) }
+    }
+
+    fun onFillCandidateSelected(candidate: NeteaseSongSearchResult) {
+        _uiState.update { it.copy(fillSelectedId = candidate.id) }
+    }
+
+    fun onFillOverwriteChange(overwrite: Boolean) {
+        _uiState.update { it.copy(fillOverwrite = overwrite) }
+    }
+
+    // 候选确认后进入二级对话框问补全方式：候选面板先收起来，取消时回到候选而不是退出整个流程
+    fun onFillConfirm() {
+        if (_uiState.value.fillSelectedId == null) return
+        _uiState.update { it.copy(fillVisible = false, fillModeVisible = true) }
+    }
+
+    fun onFillModeDismiss() {
+        _uiState.update { it.copy(fillModeVisible = false, fillVisible = true) }
+    }
+
+    /**
+     * 按选定的补全方式写入：以选中候选的详情字段填充表单，逐项走既有的自动落盘路径。
+     *
+     * 字段写入沿用 [onFieldChange]：待写入集与「改回原值」判定都在那一处，
+     * 补全因此与手工输入共享同一条落盘与内存同步逻辑，无需另开写入通道。
+     */
+    fun onFillApply() {
+        val state = _uiState.value
+        if (state.fillApplying) return
+        val candidate = playbackState.metadataFillCandidates.firstOrNull { it.id == state.fillSelectedId } ?: return
+        _uiState.update { it.copy(fillApplying = true) }
+        viewModelScope.launch {
+            // 音轨号、碟号、版权只在详情接口里，落地前补一次；失败就用手上这份
+            val detailed = withTimeoutOrNull(FILL_DETAIL_WAIT_MS) { enrichTrackDetail(candidate) } ?: candidate
+            val plan = fillPlan(state.fields, detailed, state.fillOverwrite)
+            if (plan.isEmpty()) {
+                _uiState.update {
+                    it.copy(
+                        fillApplying = false,
+                        fillModeVisible = false,
+                        fillSelectedId = null,
+                        messageIsError = false,
+                        message = message(R.string.metadata_fill_nothing),
+                    )
+                }
+                playbackState.metadataFillCandidates = emptyList()
+                return@launch
+            }
+            plan.forEach { (field, value) -> onFieldChange(field, value) }
+            _uiState.update {
+                it.copy(
+                    fillApplying = false,
+                    fillModeVisible = false,
+                    fillSelectedId = null,
+                    messageIsError = false,
+                    message = getApplication<Application>()
+                        .resources.getQuantityString(R.plurals.metadata_fill_done, plan.size, plan.size),
+                )
+            }
+            playbackState.metadataFillCandidates = emptyList()
+        }
+    }
+
+    fun onFillCancel() {
+        _uiState.update { it.copy(fillVisible = false, fillModeVisible = false, fillSelectedId = null) }
+        playbackState.metadataFillCandidates = emptyList()
     }
 
     // ---- 落盘 ----

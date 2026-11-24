@@ -167,6 +167,9 @@ class MusicPlaybackState(
     var lyricsRefreshError by searchPanel::lyricsRefreshError
     var lyricsRefreshSource by searchPanel::lyricsRefreshSource
     var coverRefreshSource by searchPanel::coverRefreshSource
+    var metadataFillCandidates by searchPanel::metadataFillCandidates
+    var isMetadataFillSearching by searchPanel::isMetadataFillSearching
+    var metadataFillSource by searchPanel::metadataFillSource
 
     // ===== 心动模式 =====
     // 扫描、准入/跳过策略与音量斜坡由三个独立组件承担

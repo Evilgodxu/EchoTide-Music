@@ -4,7 +4,7 @@ import com.yichao.evilgodxu.data.music.api.MusicQuality
 import org.json.JSONArray
 import org.json.JSONObject
 
-// 代理音源数据模型：对应「忆潮代理音源规范」文档 v1.5.0
+// 代理音源数据模型：对应「忆潮代理音源规范」文档 v1.6.0
 data class ProxySourceSpec(
     val name: String,
     val version: String,
@@ -59,6 +59,14 @@ data class ProxyResultSpec(
     val url: String? = null,
     val lyric: String? = null,
     val tlyric: String? = null,
+    // 标签字段：仅 search 动作取用，缺省不影响搜索与播放，只意味着缓存落地时这些标签为空
+    val album: String? = null,
+    val date: String? = null,
+    val trackNo: String? = null,
+    val discNo: String? = null,
+    // 平台自带响度：增益(dB)与线性峰值，缓存落地时写成 ReplayGain 标签
+    val rgTrackGain: String? = null,
+    val rgTrackPeak: String? = null,
 )
 
 // 最小 JSONPath 子集：仅支持 $、.字段 与 [下标]

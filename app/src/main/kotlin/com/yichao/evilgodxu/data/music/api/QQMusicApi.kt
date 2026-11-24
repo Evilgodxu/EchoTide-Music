@@ -25,6 +25,8 @@ internal object QQMusicApi : OnlineMusicSource {
     private const val ENDPOINT = "https://u.y.qq.com/cgi-bin/musicu.fcg"
     private const val MUSIC_DOMAIN = "https://isure.stream.qqmusic.qq.com/"
     private const val WEB_SEARCH_ENDPOINT = "https://c.y.qq.com/soso/fcgi-bin/search_for_qq_cp"
+    // 网页版单曲详情：给出音轨号、碟号、发行日期，搜索接口没有这些
+    private const val SONG_DETAIL_ENDPOINT = "https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg"
     // 网页版搜索接口单页上限，超出会被服务端截断
     private const val WEB_SEARCH_MAX_PAGE_SIZE = 30
     // 歌词接口的模块名，同时用作请求体中的键
@@ -112,13 +114,17 @@ internal object QQMusicApi : OnlineMusicSource {
         val artist = List(singer.length()) { singer.getJSONObject(it).optString("name") }
             .filter { it.isNotBlank() }
             .joinToString(" / ")
-        val albumMid = item.optJSONObject("album")?.optString("mid")
-            .orEmpty().ifBlank { item.optString("albummid") }
+        val albumObject = item.optJSONObject("album")
+        val albumMid = albumObject?.optString("mid").orEmpty().ifBlank { item.optString("albummid") }
         // 封面 CDN 按尺寸段生成，列表行用 150x150，其余场景用 800x800
         val cover = albumMid.takeIf { it.isNotBlank() }
             ?.let { "https://y.gtimg.cn/music/photo_new/T002R800x800M000$it.jpg" }
         val thumb = albumMid.takeIf { it.isNotBlank() }
             ?.let { "https://y.gtimg.cn/music/photo_new/T002R150x150M000$it.jpg" }
+        // 搜索响应只有专辑名与发行时间戳；音轨号、碟号只在详情接口里，由 songDetail 补齐
+        val publishSeconds = item.optLong("pubtime", 0L)
+            .takeIf { it > 0L }
+            ?: albumObject?.optLong("time_public", 0L)?.takeIf { it > 0L }
         return NeteaseSongSearchResult(
             id = stableIdFromString(mid),
             // 字段名因接口而异（title/name/songname），逐级回退
@@ -130,7 +136,59 @@ internal object QQMusicApi : OnlineMusicSource {
             duration = item.optLong("interval", 0L) * 1000L,
             source = MusicSearchSource.QQ,
             sourceId = mid,
+            album = albumObject?.optString("name")?.takeIf { it.isNotBlank() }
+                ?: item.optString("albumname").takeIf { it.isNotBlank() },
+            releaseDate = publishSeconds?.let { dateTextFromEpochSeconds(it) }
+                ?: item.optString("time_public").takeIf { it.isNotBlank() },
         )
+    }
+
+    /**
+     * 单曲详情：搜索响应不含音轨号、碟号与发行日期，缓存落地前用一次详情请求补齐。
+     *
+     * 与搜索走不同的 CGI（网页版单曲接口），只取标签需要的字段；任一字段缺失即为 null，
+     * 由调用方合并时保留搜索结果里的值。
+     */
+    suspend fun songDetail(mid: String): NeteaseSongSearchResult? = withContext(Dispatchers.IO) {
+        if (mid.isBlank()) return@withContext null
+        try {
+            val url = "$SONG_DETAIL_ENDPOINT?songmid=$mid&format=json&platform=yqq&needNewCode=0"
+            val song = JSONObject(get(url)).optJSONArray("data")?.optJSONObject(0)
+                ?: return@withContext null
+            val album = song.optJSONObject("album")
+            val singers = song.optJSONArray("singer") ?: JSONArray()
+            val artist = List(singers.length()) { singers.getJSONObject(it).optString("name") }
+                .filter { it.isNotBlank() }
+                .joinToString(" / ")
+            val songMid = song.optString("mid").ifBlank { mid }
+            val albumMid = album?.optString("mid").orEmpty()
+            val volume = song.optJSONObject("volume")
+            NeteaseSongSearchResult(
+                id = stableIdFromString(songMid),
+                title = song.optString("title").ifBlank { song.optString("name") },
+                artist = artist,
+                coverUrl = albumMid.takeIf { it.isNotBlank() }
+                    ?.let { "https://y.gtimg.cn/music/photo_new/T002R800x800M000$it.jpg" },
+                coverThumbUrl = albumMid.takeIf { it.isNotBlank() }
+                    ?.let { "https://y.gtimg.cn/music/photo_new/T002R150x150M000$it.jpg" },
+                duration = song.optLong("interval", 0L) * 1000L,
+                source = MusicSearchSource.QQ,
+                sourceId = songMid,
+                album = album?.optString("name")?.takeIf { it.isNotBlank() },
+                releaseDate = song.optString("time_public").takeIf { it.isNotBlank() }
+                    ?: album?.optString("time_public")?.takeIf { it.isNotBlank() },
+                trackNumber = song.optInt("index_album", 0).takeIf { it > 0 },
+                // index_cd 从 0 起算，0 即单碟：单碟不写碟号，避免给所有单曲都盖上「碟 1」
+                discNumber = song.optInt("index_cd", 0).takeIf { it > 0 }?.plus(1),
+                // 平台自带的响度数据：gain 为相对目标响度的增益（dB），peak 为线性峰值。
+                // 缺省或非有限值即视为平台没给，不写 0 —— 0 dB 是「无需调整」，与「没有数据」语义不同
+                replayGainTrackGainDb = volume?.optDouble("gain", Double.NaN)?.takeIf { it.isFinite() },
+                replayGainTrackPeak = volume?.optDouble("peak", Double.NaN)?.takeIf { it.isFinite() },
+            )
+        } catch (e: Exception) {
+            CrashLogManager.logException("QQMusicApi", "获取歌曲详情失败: $mid", e)
+            null
+        }
     }
 
     private fun get(url: String): String {

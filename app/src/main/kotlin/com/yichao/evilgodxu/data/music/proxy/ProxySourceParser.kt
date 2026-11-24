@@ -137,6 +137,12 @@ internal object ProxySourceParser {
             url = obj.optString("url", "").takeIf { it.isNotBlank() },
             lyric = obj.optString("lyric", "").takeIf { it.isNotBlank() },
             tlyric = obj.optString("tlyric", "").takeIf { it.isNotBlank() },
+            album = obj.optString("album", "").takeIf { it.isNotBlank() },
+            date = obj.optString("date", "").takeIf { it.isNotBlank() },
+            trackNo = obj.optString("trackNo", "").takeIf { it.isNotBlank() },
+            discNo = obj.optString("discNo", "").takeIf { it.isNotBlank() },
+            rgTrackGain = obj.optString("rgTrackGain", "").takeIf { it.isNotBlank() },
+            rgTrackPeak = obj.optString("rgTrackPeak", "").takeIf { it.isNotBlank() },
         )
     }
 }

@@ -90,6 +90,16 @@ fun MetadataScreen(
         onCoverRefreshCandidateSelected = viewModel::onCoverRefreshCandidateSelected,
         onCoverRefreshConfirm = viewModel::onCoverRefreshConfirm,
         onCoverRefreshCancel = viewModel::onCoverRefreshCancel,
+        onFillOpen = viewModel::onFillOpen,
+        onFillSourceSelected = viewModel::onFillSourceSelected,
+        onFillReload = viewModel::onFillReload,
+        onFillCandidateSelected = viewModel::onFillCandidateSelected,
+        onFillOverwriteChange = viewModel::onFillOverwriteChange,
+        onFillConfirm = viewModel::onFillConfirm,
+        onFillApply = viewModel::onFillApply,
+        onFillModeDismiss = viewModel::onFillModeDismiss,
+        onFillCancel = viewModel::onFillCancel,
+        onReplayGainCompute = viewModel::onReplayGainCompute,
         modifier = modifier,
     )
 }

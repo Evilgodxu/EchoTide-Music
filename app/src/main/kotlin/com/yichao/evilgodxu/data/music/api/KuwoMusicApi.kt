@@ -62,7 +62,10 @@ internal object KuwoMusicApi : OnlineMusicSource {
                     coverThumbUrl = coverThumb,
                     duration = durationSec * 1000L,
                     source = MusicSearchSource.KUWO,
-                    sourceId = rid.ifBlank { null }
+                    sourceId = rid.ifBlank { null },
+                    // 酷我搜索只给专辑名，不提供发行日期与编号
+                    album = item.optString("ALBUM").ifBlank { item.optString("album") }
+                        .takeIf { it.isNotBlank() },
                 )
             }
         } catch (e: Exception) {
