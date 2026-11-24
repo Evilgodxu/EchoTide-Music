@@ -270,10 +270,26 @@ class MusicPlaybackState(
         scope = { playbackScope },
         context = { appContext },
         currentTrack = { currentTrack },
-        playlist = { playlist },
+        nextTrack = { adjacentPlaybackTrack(forward = true) },
+        previousTrack = { adjacentPlaybackTrack(forward = false) },
         libraryTracks = { libraryTracks },
         colorMemory = backgroundColors,
     )
+
+    /**
+     * 真实播放次序里的相邻曲目。
+     *
+     * 取播放器的 next/previous 项而不是列表下标：随机播放下列表相邻项与真实下一首无关，
+     * 按列表下标预取会让大图始终落在不会播放的曲目上。插队队列非空时下一首就是队首。
+     */
+    private fun adjacentPlaybackTrack(forward: Boolean): MusicTrack? {
+        val controller = mediaController ?: return null
+        if (forward) {
+            playNext.tracks.firstOrNull()?.let { return it }
+        }
+        val index = if (forward) controller.nextMediaItemIndex else controller.previousMediaItemIndex
+        return playlist.getOrNull(index)
+    }
     // 封面写入成功后的缓存作废由 CoverCacheInvalidator 承担
     internal val coverCache = CoverCacheInvalidator(
         context = { appContext },
@@ -410,6 +426,14 @@ class MusicPlaybackState(
     // 下一首播放插队队列由 PlayNextQueue 持有；此处按原属性/方法名转发
     internal val playNext = PlayNextQueue(currentTrackId = { currentTrack?.id })
     var playNextQueue by playNext::tracks
+
+    // 曲末暂停开关的下发口：服务在引擎建好后接上。队列一有内容即停在曲末等队列接管，
+    // 队列恢复为空即关闭，之后的自动接续仍走逐曲无缝路径
+    internal var playNextHoldChanged: ((Boolean) -> Unit)? = null
+
+    internal fun syncPlayNextHold() {
+        playNextHoldChanged?.invoke(playNext.tracks.isNotEmpty())
+    }
     // 队列编辑操作由 PlaylistEditor 承担；此处按原方法名转发
     internal val playlistEditor by lazy { PlaylistEditor(this) }
     // 曲目移除与不可用清理由 PlaylistRemovalController 承担；此处按原方法名转发
@@ -424,11 +448,13 @@ class MusicPlaybackState(
     // 切换下一首播放：已在队列则取消插队，否则加入
     fun togglePlayNext(track: MusicTrack) {
         playNext.toggle(track)
+        syncPlayNextHold()
     }
 
     // 手动切歌时清空插队队列
     fun clearPlayNextQueue() {
         playNext.clear()
+        syncPlayNextHold()
     }
 
     /**

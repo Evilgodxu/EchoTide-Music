@@ -67,7 +67,13 @@ internal class ExoPlayerEngine(
     init {
         player.addListener(object : Player.Listener {
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                listeners.forEach { it.onPlayWhenReadyChanged(playWhenReady) }
+                val engineReason = when (reason) {
+                    Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST -> PlayWhenReadyChangeReason.USER
+                    Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM ->
+                        PlayWhenReadyChangeReason.END_OF_MEDIA_ITEM
+                    else -> PlayWhenReadyChangeReason.OTHER
+                }
+                listeners.forEach { it.onPlayWhenReadyChanged(playWhenReady, engineReason) }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -126,6 +132,10 @@ internal class ExoPlayerEngine(
 
     override fun setPreferredAudioDevice(device: AudioDeviceInfo?) {
         player.setPreferredAudioDevice(device)
+    }
+
+    override fun setHoldAtItemEnd(hold: Boolean) {
+        player.setPauseAtEndOfMediaItems(hold)
     }
 
     override fun addListener(listener: EngineListener) {

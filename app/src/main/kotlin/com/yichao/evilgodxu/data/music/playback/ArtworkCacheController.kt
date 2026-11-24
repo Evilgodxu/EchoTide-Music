@@ -23,7 +23,8 @@ internal class ArtworkCacheController(
     private val scope: () -> CoroutineScope,
     private val context: () -> Context?,
     private val currentTrack: () -> MusicTrack?,
-    private val playlist: () -> List<MusicTrack>,
+    private val nextTrack: () -> MusicTrack?,
+    private val previousTrack: () -> MusicTrack?,
     private val libraryTracks: () -> List<MusicTrack>,
     private val colorMemory: BackgroundColorMemory,
 ) {
@@ -104,14 +105,11 @@ internal class ArtworkCacheController(
         }
     }
 
-    // 队列中的当前曲、下一曲、上一曲：按播放队列顺序取相邻项。
+    // 队列中的当前曲、下一曲、上一曲：取播放器的真实播放次序。
     // 预取是串行的（解码很重），顺序即优先级：当前曲先保证高清呈现，其次下一曲提前预热，
     // 最后才是上一曲 —— 顺序播放的用户绝大多数时候只往一个方向走。
-    // 不走 nextIndex/previousIndex —— 随机播放下它们是随机抽取，预取目标与真实下一首对不上
-    private fun neighboringTracks(track: MusicTrack): List<MusicTrack> {
-        val queue = playlist()
-        val index = queue.indexOfFirst { it.id == track.id }
-        if (index < 0) return listOf(track)
-        return listOfNotNull(queue.getOrNull(index), queue.getOrNull(index + 1), queue.getOrNull(index - 1))
-    }
+    // 不按列表下标取相邻项：随机播放下列表相邻项与真实下一首无关，预取会全部落空，
+    // 切歌时大图只能先沿用上一首的封面再换
+    private fun neighboringTracks(track: MusicTrack): List<MusicTrack> =
+        listOfNotNull(track, nextTrack(), previousTrack()).distinctBy { it.id }
 }

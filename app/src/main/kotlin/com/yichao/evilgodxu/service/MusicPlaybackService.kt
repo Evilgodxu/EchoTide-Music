@@ -27,7 +27,9 @@ import com.yichao.evilgodxu.data.music.playback.engine.EngineAudioTrackInfo
 import com.yichao.evilgodxu.data.music.playback.engine.EngineListener
 import com.yichao.evilgodxu.data.music.playback.engine.EnginePlaybackState
 import com.yichao.evilgodxu.data.music.playback.engine.ExoPlayerEngine
+import com.yichao.evilgodxu.data.music.playback.engine.PlayWhenReadyChangeReason
 import com.yichao.evilgodxu.data.music.playback.engine.PlaybackEngine
+import com.yichao.evilgodxu.data.music.playback.handleEndOfMediaItem
 import com.yichao.evilgodxu.data.music.playback.handleTracksChanged
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveAudioSink
@@ -225,6 +227,10 @@ class MusicPlaybackService : MediaSessionService() {
         playbackState.usbExclusiveLatency = exclusiveSink::latencyReading
         // 播放器自身的装配（渲染器、媒体源、音频属性、唤醒锁、轨道选择）全部收在引擎实现里
         engine = ExoPlayerEngine(this, audioSink)
+        // 插队队列非空时让引擎停在曲末，由队列决定下一首（见 handleEndOfMediaItem）；
+        // 队列的每次编辑都会重新下发，恢复到空即关闭
+        playbackState.playNextHoldChanged = { hold -> engine.setHoldAtItemEnd(hold) }
+        playbackState.syncPlayNextHold()
         // 会话侧的设备音量自报：接管期间报远端（音量键归应用），归还设备即交还系统。
         // 播放器一建好就装配，独占接管的回报（设备接入侧）多半晚于此处
         exclusiveVolumePlayer = ExclusiveVolumePlayer(engine.sessionPlayer, exclusiveVolume) { step ->
@@ -234,11 +240,19 @@ class MusicPlaybackService : MediaSessionService() {
         playbackState.exclusiveVolumeStep = { exclusiveVolume.currentStep }
         playbackState.setExclusiveVolumeStep = { step -> exclusiveVolumePlayer.setStepFromUi(step) }
         engine.addListener(object : EngineListener {
-            override fun onPlayWhenReadyChanged(playWhenReady: Boolean) {
-                // 在起播意图成立的时刻申请焦点，而不是等音频已经开始播：被拒时立即收回播放意图。
-                // 播放器内置焦点处理已关闭（见引擎装配），这里不处理就没有第二道保障
-                if (playWhenReady && !requestAudioFocus()) {
-                    engine.pause()
+            override fun onPlayWhenReadyChanged(
+                playWhenReady: Boolean,
+                reason: PlayWhenReadyChangeReason,
+            ) {
+                if (playWhenReady) {
+                    // 在起播意图成立的时刻申请焦点，而不是等音频已经开始播：被拒时立即收回播放意图。
+                    // 播放器内置焦点处理已关闭（见引擎装配），这里不处理就没有第二道保障
+                    if (!requestAudioFocus()) {
+                        engine.pause()
+                    }
+                } else if (reason == PlayWhenReadyChangeReason.END_OF_MEDIA_ITEM) {
+                    // 引擎停在曲末（插队队列待消费）：由队列接管下一首，不再迈入时间线上的下一项
+                    handleEndOfMediaItem(playbackState)
                 }
             }
 

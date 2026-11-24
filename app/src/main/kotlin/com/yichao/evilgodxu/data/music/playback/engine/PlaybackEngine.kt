@@ -42,6 +42,14 @@ internal interface PlaybackEngine {
     /** 把输出路由钉定到指定设备；null 解除钉定 */
     fun setPreferredAudioDevice(device: AudioDeviceInfo?)
 
+    /**
+     * 曲末暂停开关。
+     *
+     * 打开后自然播完当前曲目即停在曲末、不迈入时间线上的下一项，由调用方决定接下来放什么。
+     * 插队队列非空时打开：否则引擎会先按顺序/随机迈入下一首，出声后才能被插队曲目顶掉。
+     */
+    fun setHoldAtItemEnd(hold: Boolean)
+
     fun addListener(listener: EngineListener)
 }
 
@@ -85,7 +93,7 @@ internal data class EngineAudioFormat(
  * 全部带默认空实现：调用方只覆写自己关心的事件，不必为空实现留样板。
  */
 internal interface EngineListener {
-    fun onPlayWhenReadyChanged(playWhenReady: Boolean) {}
+    fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: PlayWhenReadyChangeReason) {}
 
     fun onPlaybackStateChanged(state: EnginePlaybackState) {}
 
@@ -95,4 +103,11 @@ internal interface EngineListener {
     fun onTracksChanged(info: EngineAudioTrackInfo?) {}
 
     fun onAudioDecoderInitialized(decoderName: String) {}
+}
+
+/** 起播意图变化的原因：曲末暂停据此区别于用户主动暂停 */
+internal enum class PlayWhenReadyChangeReason {
+    USER,
+    END_OF_MEDIA_ITEM,
+    OTHER,
 }

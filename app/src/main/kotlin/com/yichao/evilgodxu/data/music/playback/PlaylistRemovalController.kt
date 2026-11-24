@@ -33,6 +33,7 @@ internal class PlaylistRemovalController(private val state: MusicPlaybackState) 
         } else null
         state.playlist = state.playlist.filterNot { it.id == trackId }
         state.playNext.remove(trackId)
+        state.syncPlayNextHold()
         if (removedCurrent) {
             val nextIndex = nextTrack?.let { track -> state.playlist.indexOfFirst { t -> t.id == track.id } } ?: -1
             if (advanceToNext && nextIndex >= 0) {

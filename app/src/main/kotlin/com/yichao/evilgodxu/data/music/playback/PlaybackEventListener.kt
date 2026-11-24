@@ -44,6 +44,7 @@ internal fun handleMediaItemTransition(
     if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
         if (state.playNext.tracks.isNotEmpty()) {
             val queued = state.playNext.consumeFirst() ?: return
+            state.syncPlayNextHold()
             val queuedIndex = state.playlist.indexOfFirst { it.id == queued.id }
             if (queuedIndex >= 0) {
                 state.playbackScope.launch {
@@ -145,6 +146,46 @@ internal fun handleMediaItemTransition(
     state.syncPlaybackState()
     // 心动模式：当前曲目定位不到副歌就跳过，否则为下一首预备片段
     state.highlightPolicy.onTrackSettled()
+}
+
+/**
+ * 曲末暂停后的接管。
+ *
+ * 插队队列非空时引擎打开曲末暂停（见 MusicPlaybackState.syncPlayNextHold），自然播完停在曲末、
+ * 不迈入时间线上的下一项。这里记一次完整播放并消费队首，把播放器直接挪到插队曲目：
+ * 少了这一步，随机/顺序的下一首会先出声再被顶掉。队列消费完或曲目已不在列表时恢复照常接续，
+ * 不能把播放器留在暂停态。
+ */
+internal fun handleEndOfMediaItem(state: MusicPlaybackState) {
+    // 与 AUTO 接续同口径：自然播完计一次完整播放，心动片段的副歌不算
+    if (state.playMode != PlayMode.Highlight) {
+        state.currentTrack?.id?.let { state.recordPlayed(it) }
+    }
+    if (state.sleepTimer.stopAfterCurrentTrack) {
+        state.sleepTimer.complete(songFinished = true)
+        return
+    }
+    val queued = state.playNext.consumeFirst()
+    // 队首取出后队列可能已空：先撤下曲末暂停，下一首回到逐曲无缝接续
+    state.syncPlayNextHold()
+    if (queued == null) {
+        state.mediaController?.play()
+        return
+    }
+    val queuedIndex = state.playlist.indexOfFirst { it.id == queued.id }
+    if (queuedIndex < 0) {
+        state.mediaController?.play()
+        return
+    }
+    state.playbackScope.launch {
+        playTrackAt(
+            state.appContext,
+            state,
+            queuedIndex,
+            clearQueue = false,
+            switchKind = TrackSwitchKind.Next,
+        )
+    }
 }
 
 internal fun handlePositionDiscontinuity(state: MusicPlaybackState, reason: Int) {
