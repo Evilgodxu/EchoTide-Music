@@ -9,21 +9,12 @@ import android.os.Handler
 import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.compose.runtime.snapshotFlow
-import androidx.media3.common.AudioAttributes
-import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
-import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.yichao.evilgodxu.App
-import com.yichao.evilgodxu.data.music.playback.AudioExtractorsFactory
-import com.yichao.evilgodxu.data.music.playback.AudioMediaSourceFactory
-import com.yichao.evilgodxu.data.music.playback.AudioOnlyRenderersFactory
 import com.yichao.evilgodxu.data.music.playback.DecodedOutputFormat
 import com.yichao.evilgodxu.data.music.playback.DirectOutputDoNotDisturb
 import com.yichao.evilgodxu.data.music.playback.ExclusiveVolume
@@ -32,6 +23,11 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.playback.PerDeviceAudioSink
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.data.music.playback.UsbDirectOutput
+import com.yichao.evilgodxu.data.music.playback.engine.EngineAudioTrackInfo
+import com.yichao.evilgodxu.data.music.playback.engine.EngineListener
+import com.yichao.evilgodxu.data.music.playback.engine.EnginePlaybackState
+import com.yichao.evilgodxu.data.music.playback.engine.ExoPlayerEngine
+import com.yichao.evilgodxu.data.music.playback.engine.PlaybackEngine
 import com.yichao.evilgodxu.data.music.playback.handleTracksChanged
 import com.yichao.evilgodxu.data.music.playback.playTrackAt
 import com.yichao.evilgodxu.data.music.playback.usb.UsbExclusiveAudioSink
@@ -56,7 +52,8 @@ import kotlinx.coroutines.launch
 
 @OptIn(UnstableApi::class)
 class MusicPlaybackService : MediaSessionService() {
-    private lateinit var player: ExoPlayer
+    /** 播放引擎：把全部播放器依赖收在一处，替换引擎不外溢到本类 */
+    private lateinit var engine: PlaybackEngine
     // 系统创建的服务无法构造注入，经 Application 取共享单例
     private val playbackState: MusicPlaybackState
         get() = (application as App).container.playbackState
@@ -80,7 +77,7 @@ class MusicPlaybackService : MediaSessionService() {
     private var persistVolumeJob: Job? = null
     /** 直出期间的系统免打扰：随输出成色进出 */
     private lateinit var directOutputDoNotDisturb: DirectOutputDoNotDisturb
-    // 播放设置的读取与直出都要求主线程：ExoPlayer 与其 AudioTrack 均只在主线程访问
+    // 播放设置的读取与直出都要求主线程：引擎与其 AudioTrack 均只在主线程访问
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     /** 焦点丢失前是否正在播放：恢复焦点后据此自动续播 */
     private var resumeAfterFocusLoss = false
@@ -95,13 +92,13 @@ class MusicPlaybackService : MediaSessionService() {
                 focusLossActive = false
                 if (resumeAfterFocusLoss) {
                     resumeAfterFocusLoss = false
-                    player.setPlayWhenReady(true)
+                    engine.setPlayWhenReady(true)
                 }
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
                 focusLossActive = false
                 resumeAfterFocusLoss = false
-                player.pause()
+                engine.pause()
                 abandonAudioFocus()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
@@ -109,10 +106,10 @@ class MusicPlaybackService : MediaSessionService() {
                 // 只在一轮失焦的第一次记下播放意图：此时可能已被前一次失焦暂停，
                 // 用当前的 isPlaying 覆盖会把「等会儿续播」改成「不续播」
                 if (!focusLossActive) {
-                    resumeAfterFocusLoss = player.isPlaying
+                    resumeAfterFocusLoss = engine.isPlaying
                     focusLossActive = true
                 }
-                player.pause()
+                engine.pause()
             }
         }
     }
@@ -121,7 +118,7 @@ class MusicPlaybackService : MediaSessionService() {
         super.onCreate()
         audioManager = getSystemService(AudioManager::class.java)
         // 两条路各自的上报出口收在同一处：同一批状态不该有两个写法，路由切换时也不会互相覆盖
-        // 变体切换发生在渲染器重配点，即 ExoPlayer 的播放线程，回写共享状态无需切线程
+        // 变体切换发生在渲染器重配点，即引擎的播放线程，回写共享状态无需切线程
         val reportOutputVariant: (Boolean) -> Unit = { floatOutput ->
             playbackState.audioSinkFloatOutput = floatOutput
         }
@@ -226,89 +223,57 @@ class MusicPlaybackService : MediaSessionService() {
         playbackState.audioSinkWrittenFrames = perDeviceSink::writtenOutputFrames
         // 独占路径没有音频轨可读，延迟读数只能由写出侧按自己的缓冲算出；不在那条路上时它自行返回 null
         playbackState.usbExclusiveLatency = exclusiveSink::latencyReading
-        // 三类装配件都给全（媒体3 为这类裁剪留的构造器）：默认渲染器工厂与默认媒体源工厂
-        // 因此不再被引用，视频/字幕/图片渲染器与用不到的容器解析器都可被 R8 裁掉
-        player = ExoPlayer.Builder(
-            this,
-            AudioOnlyRenderersFactory(this, audioSink),
-            AudioMediaSourceFactory(DefaultDataSource.Factory(this), AudioExtractorsFactory()),
-        )
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    // 空间化是平台唯一可能默认开启的后处理（虚拟环绕/头部追踪），音乐播放追求
-                    // 原样保真，显式禁用；音效类（均衡器等）本应用从不挂载，aux 效果默认即禁用
-                    .setSpatializationBehavior(C.SPATIALIZATION_BEHAVIOR_NEVER)
-                    .build(),
-                false
-            )
-            .setHandleAudioBecomingNoisy(true)
-            .build()
-        // 熄屏保活：在线音源经网络拉流，需同时持有 CPU 唤醒锁与 WLAN 锁（WAKE_MODE_NETWORK）。
-        // 仅 WAKE_MODE_LOCAL 时 WLAN 锁不启用，熄屏后 Wi-Fi 进入省电、缓冲停滞，
-        // 长时间无进展会被系统回收播放进程
-        player.setWakeMode(C.WAKE_MODE_NETWORK)
-        // 纯音频播放：显式禁用视频轨道。默认渲染器按视频在前的顺序建组，含内嵌视频轨的文件
-        // （MV、带画面的 MP4）会选中视频轨并解码——既白耗解码与播放线程，也会让轨道信息读到视频格式
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
-            .build()
+        // 播放器自身的装配（渲染器、媒体源、音频属性、唤醒锁、轨道选择）全部收在引擎实现里
+        engine = ExoPlayerEngine(this, audioSink)
         // 会话侧的设备音量自报：接管期间报远端（音量键归应用），归还设备即交还系统。
         // 播放器一建好就装配，独占接管的回报（设备接入侧）多半晚于此处
-        exclusiveVolumePlayer = ExclusiveVolumePlayer(player, exclusiveVolume) { step ->
+        exclusiveVolumePlayer = ExclusiveVolumePlayer(engine.sessionPlayer, exclusiveVolume) { step ->
             persistExclusiveVolume(step)
         }
         // 界面音量手势的读写入口：档位与音量键同源，写回也走同一条路（含落盘与会话播报）
         playbackState.exclusiveVolumeStep = { exclusiveVolume.currentStep }
         playbackState.setExclusiveVolumeStep = { step -> exclusiveVolumePlayer.setStepFromUi(step) }
-        player.addListener(object : Player.Listener {
-            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+        engine.addListener(object : EngineListener {
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean) {
                 // 在起播意图成立的时刻申请焦点，而不是等音频已经开始播：被拒时立即收回播放意图。
-                // 播放器内置焦点处理已关闭（见 setAudioAttributes 的 false），这里不处理就没有第二道保障
+                // 播放器内置焦点处理已关闭（见引擎装配），这里不处理就没有第二道保障
                 if (playWhenReady && !requestAudioFocus()) {
-                    player.pause()
+                    engine.pause()
                 }
             }
 
-            override fun onPlayerError(error: PlaybackException) {
+            override fun onError(errorCodeName: String, message: String?, cause: Throwable?) {
                 // 音频输出初始化或写入失败会被媒体3 升级为致命错误，界面上只表现为「自动暂停」，
                 // 故在此把错误码与原因记下
                 CrashLogManager.logException(
                     "MusicPlaybackService",
-                    "播放失败：${error.errorCodeName}，${error.message}",
-                    error,
+                    "播放失败：$errorCodeName，$message",
+                    cause,
                 )
             }
 
-            override fun onPlaybackStateChanged(playbackState: Int) {
+            override fun onPlaybackStateChanged(state: EnginePlaybackState) {
                 // 输出已拆解（停止、释放或加载失败）：上一次的浮点写出与写出编码都不再成立，
                 // 清空以免音频信息停留在已不存在的输出链路上
-                if (playbackState == Player.STATE_IDLE) {
+                if (state == EnginePlaybackState.IDLE) {
                     this@MusicPlaybackService.playbackState.audioSinkFloatOutput = null
                     this@MusicPlaybackService.playbackState.audioSinkOutputEncoding = null
                     this@MusicPlaybackService.playbackState.audioTrack = null
                 }
             }
 
-            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
-                handleTracksChanged(applicationContext, player, playbackState, tracks)
+            override fun onTracksChanged(info: EngineAudioTrackInfo?) {
+                handleTracksChanged(applicationContext, info, playbackState)
+            }
+
+            // 记录平台实际使用的解码器实现名，供音频信息展示。
+            // 解码器可跨曲复用，复用时不重复回调，故该值始终对应当前渲染器正在使用的解码器
+            override fun onAudioDecoderInitialized(decoderName: String) {
+                playbackState.audioDecoderName = decoderName
             }
 
             // 起播意图由操作入口决定，过渡回调不再强制 playWhenReady=true：
             // 否则暂停状态下 seek 到另一项、或内部换列表都会被这里拉起来自动播放
-        })
-        // 记录平台实际使用的解码器实现名，供音频信息展示。
-        // 解码器可跨曲复用，复用时不重复回调，故该值始终对应当前渲染器正在使用的解码器
-        player.addAnalyticsListener(object : AnalyticsListener {
-            override fun onAudioDecoderInitialized(
-                eventTime: AnalyticsListener.EventTime,
-                decoderName: String,
-                initializedTimestampMs: Long,
-                initializationDurationMs: Long,
-            ) {
-                playbackState.audioDecoderName = decoderName
-            }
         })
         mediaSession = MediaSession.Builder(this, SkipProxyPlayer(exclusiveVolumePlayer))
             .setCallback(sessionCallback)
@@ -316,7 +281,7 @@ class MusicPlaybackService : MediaSessionService() {
         // 直出不参与媒体会话，在会话建立后单独装配；设置变更即刻生效，无需重启服务。
         // 档位仍取自设备声明；源位深只用于在这些声明里挑与源一致的那一档
         usbDirectOutput = UsbDirectOutput(
-            player = player,
+            engine = engine,
             audioManager = audioManager,
             sourceBitDepth = { playbackState.currentSourceBitDepth },
         )
@@ -447,7 +412,7 @@ class MusicPlaybackService : MediaSessionService() {
     }
 
     /**
-     * 包装 ExoPlayer，把系统媒体面板/通知栏的上一首/下一首操作
+     * 包装会话使用的播放器视图，把系统媒体面板/通知栏的上一首/下一首操作
      * 映射到应用自己的切歌逻辑，避免默认行为中「回退到当前曲目开头」。
      */
     private inner class SkipProxyPlayer(player: Player) : ForwardingPlayer(player) {
@@ -544,7 +509,7 @@ class MusicPlaybackService : MediaSessionService() {
 
     // 播放是否仍在推进：playWhenReady 为真表示会话未结束，需保留服务等待续播
     private fun isPlaybackInProgress(): Boolean =
-        player.playWhenReady || player.playbackState == Player.STATE_BUFFERING
+        engine.playWhenReady || engine.playbackState == EnginePlaybackState.BUFFERING
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // 与通知路径同一口径：playWhenReady 或 BUFFERING 都表示会话仍在推进。
@@ -556,7 +521,7 @@ class MusicPlaybackService : MediaSessionService() {
 
     fun stopPlayback() {
         abandonAudioFocus()
-        player.stop()
+        engine.stop()
         mediaSession?.release()
         mediaSession = null
         stopSelf()
@@ -575,7 +540,7 @@ class MusicPlaybackService : MediaSessionService() {
         directOutputDoNotDisturb.release()
         mediaSession?.release()
         mediaSession = null
-        player.release()
+        engine.release()
         super.onDestroy()
     }
 }

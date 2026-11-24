@@ -9,7 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
+import com.yichao.evilgodxu.data.music.playback.engine.PlaybackEngine
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.util.concurrent.ConcurrentHashMap
 
@@ -28,7 +28,7 @@ private const val LOG_TAG = "UsbDirectOutput"
  *
  * 直出由两个原生接口共同构成，缺一不可：
  * - [AudioManager.setPreferredMixerAttributes] 为该设备建立按所请求格式打开的专用输出流；
- * - [ExoPlayer.setPreferredAudioDevice] 把播放器的输出路由固定到同一设备，
+ * - [PlaybackEngine.setPreferredAudioDevice] 把播放器的输出路由固定到同一设备，
  *   使该流成为播放的唯一出口。
  *
  * 专用流只接纳与混音器属性逐字段一致（采样率、声道、编码）的播放，混音器属性因此按当前曲目的解码格式
@@ -85,8 +85,8 @@ private const val LOG_TAG = "UsbDirectOutput"
  * 与 [pinPreferredDevice]。
  */
 @OptIn(UnstableApi::class)
-class UsbDirectOutput(
-    private val player: ExoPlayer,
+internal class UsbDirectOutput(
+    private val engine: PlaybackEngine,
     private val audioManager: AudioManager,
     /** 当前曲目的源位深；直出档位按它挑与源一致的那一档，未知时退回解码输出编码 */
     private val sourceBitDepth: () -> Int? = { null },
@@ -175,7 +175,7 @@ class UsbDirectOutput(
      * 沿用播放器自身的实例而非另建等价属性：原生侧按属性匹配播放记录。读取它需经播放器的主线程校验，
      * 而直出配置会在播放线程上下发，故在构造期（主线程）捕获一次——播放建立后音频属性不再变化。
      */
-    private val playbackAttributes = player.audioAttributes.platformAudioAttributes
+    private val playbackAttributes = engine.platformAudioAttributes
 
     private val deviceCallback = object : AudioDeviceCallback() {
         // 插拔会同时让路由与混音器属性失效，两者一并重算
@@ -195,7 +195,7 @@ class UsbDirectOutput(
      * 同一 Handler 串行执行，先后两次投递的次序与下发次序一致。
      */
     private fun pinPreferredDevice(device: AudioDeviceInfo?) {
-        audioDeviceHandler.post { player.setPreferredAudioDevice(device) }
+        audioDeviceHandler.post { engine.setPreferredAudioDevice(device) }
     }
 
     /** 开启或关闭直出；关闭时撤销配置并解除路由钉定，播放回到系统默认混音输出 */
