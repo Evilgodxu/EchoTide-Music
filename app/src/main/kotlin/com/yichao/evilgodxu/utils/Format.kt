@@ -19,12 +19,18 @@ internal fun formatMegabytes(bytes: Long): String = "%.2f MB".format(bytes / 1_0
 // 字节数按 2 进制兆字节（MiB）换算：与 [formatBytes] 同为 1024 进制，供对照展示
 internal fun formatMebibytes(bytes: Long): String = "%.2f MiB".format(bytes / (1024.0 * 1024.0))
 
-// 毫秒转 m:ss 文本
+// 毫秒转时间文本：不足一小时为 m:ss，达到一小时后补出小时段（h:mm:ss），
+// 避免长时长以「更大的分钟数」呈现而读不出实际秒数层级
 internal fun formatTime(ms: Long): String {
     val totalSeconds = ms / 1000
-    val minutes = totalSeconds / 60
-    val seconds = totalSeconds % 60
-    return "$minutes:${seconds.toString().padStart(2, '0')}"
+    val seconds = (totalSeconds % 60).toString().padStart(2, '0')
+    val minutes = totalSeconds % 3600 / 60
+    val hours = totalSeconds / 3600
+    return if (hours > 0) {
+        "$hours:${minutes.toString().padStart(2, '0')}:$seconds"
+    } else {
+        "$minutes:$seconds"
+    }
 }
 
 /**

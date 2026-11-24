@@ -82,7 +82,14 @@ class FormatTest {
         assertEquals("1:00", formatTime(60_000))
         assertEquals("1:05", formatTime(65_000))
         assertEquals("10:09", formatTime(609_000))
-        // 超过一小时不单独给小时段：播放器进度条只显示到分钟
-        assertEquals("60:00", formatTime(3_600_000))
+        assertEquals("59:59", formatTime(3_599_000))
+    }
+
+    @Test
+    fun `时间进位到小时`() {
+        // 达到一小时补出小时段，分钟归位到 0-59，不再以更大的分钟数呈现
+        assertEquals("1:00:00", formatTime(3_600_000))
+        assertEquals("1:05:30", formatTime(3_930_000))
+        assertEquals("2:00:01", formatTime(7_201_000))
     }
 }

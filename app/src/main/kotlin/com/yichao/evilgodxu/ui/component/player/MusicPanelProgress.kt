@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,6 +31,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -83,6 +86,22 @@ internal fun ProgressSection(
         )
         val displayPosition = (displayProgress * playbackState.duration).toLong()
 
+        // 时间文本宽度按内容实测，不写死：小时级时长比分钟级多出数位，固定宽度会把文本挤到换行
+        // 并与进度条错位。两侧统一取总时长文本的宽度作槽位，使播放中当前时间位数增加时进度条不抖动。
+        // 实测与渲染必须共用同一份样式：字形宽度受字距等全局文本样式影响，只给字号会让实测偏窄，
+        // 末尾字被槽位裁掉。
+        val timeStyle = LocalTextStyle.current.copy(fontSize = 9.sp, color = dimTextColor)
+        val textMeasurer = rememberTextMeasurer()
+        val density = LocalDensity.current
+        val durationText = formatTime(playbackState.duration)
+        val timeSlotWidth = remember(durationText, timeStyle, textMeasurer, density) {
+            with(density) {
+                textMeasurer
+                    .measure(durationText, style = timeStyle, maxLines = 1, softWrap = false)
+                    .size.width.toDp()
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -90,9 +109,10 @@ internal fun ProgressSection(
         ) {
             Text(
                 text = formatTime(displayPosition),
-                color = dimTextColor,
-                fontSize = 9.sp,
-                modifier = Modifier.width(24.dp),
+                style = timeStyle,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.width(timeSlotWidth),
                 textAlign = TextAlign.Start
             )
 
@@ -145,10 +165,11 @@ internal fun ProgressSection(
                 )
             }
             Text(
-                text = formatTime(playbackState.duration),
-                color = dimTextColor,
-                fontSize = 9.sp,
-                modifier = Modifier.width(24.dp),
+                text = durationText,
+                style = timeStyle,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.width(timeSlotWidth),
                 textAlign = TextAlign.End
             )
         }
