@@ -9,7 +9,9 @@
     <string name="settings_theme_title">Theme</string>
     <string name="settings_language_title">Language</string>
     <string name="settings_section_appearance">Appearance</string>
-    <string name="settings_section_language">Language</string>
+    <string name="settings_entry_appearance_language">Language &amp; appearance</string>
+    <string name="settings_entry_appearance_language_desc">Theme, language and rendering</string>
+    <string name="settings_section_rendering">Rendering</string>
     <string name="settings_theme_dialog_title">Select Theme</string>
     <string name="settings_language_dialog_title">Language</string>
 
@@ -286,6 +288,9 @@
     <string name="home_upgrade_lossless_failed">Lossless source unavailable, keeping current quality</string>
     <string name="home_artist_picker_title">Select artist</string>
     <string name="settings_section_player">Playback</string>
+    <string name="settings_entry_playback_mode">Playback mode</string>
+    <string name="settings_entry_playback_mode_desc">Floating player, swipe gestures and USB audio output</string>
+    <string name="settings_section_interaction">Interaction</string>
     <string name="settings_mini_player_title">Floating player</string>
     <string name="settings_mini_player_desc">Show mini player during background playback</string>
     <string name="settings_word_by_word_title">Word-by-word lyrics</string>
@@ -298,10 +303,12 @@
     <string name="settings_usb_direct_output_desc">System-native interface, dynamically adapts to the device</string>
     <string name="settings_usb_exclusive_title">USB audio exclusive</string>
     <string name="settings_usb_exclusive_desc">Takes over the DAC and writes directly; the device is unavailable to the system meanwhile</string>
+    <string name="settings_section_output">Output</string>
     <string name="settings_volume_gain_title">Volume gain</string>
     <string name="settings_volume_gain_desc">Balances loudness with each track\'s gain tag</string>
-    <string name="settings_typography_title">Playback layout</string>
-    <string name="settings_typography_desc">Font size, line spacing, alignment and edge fade for lyrics and track info</string>
+    <string name="settings_section_typography">Layout</string>
+    <string name="settings_typography_title">Lyric layout</string>
+    <string name="settings_typography_desc">Font size, line spacing, alignment and edge fade for lyrics</string>
 
     <!-- Playlist swipe actions -->
     <string name="playlist_advanced_menu_title">Advanced menu</string>
@@ -478,7 +485,7 @@
     <string name="cache_category_other_app_data">Other app data</string>
 
     <!-- Playback page layout settings -->
-    <string name="typography_screen_title">Playback layout</string>
+    <string name="typography_screen_title">Lyric layout</string>
     <string name="typography_section_home_portrait">Home portrait</string>
     <string name="typography_section_home_landscape">Home landscape</string>
     <string name="typography_font_size">Font size</string>

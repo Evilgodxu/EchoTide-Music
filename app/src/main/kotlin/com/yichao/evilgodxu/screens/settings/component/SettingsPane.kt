@@ -1,43 +1,30 @@
 package com.yichao.evilgodxu.screens.settings.component
 
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.unit.dp
+import com.yichao.evilgodxu.screens.settings.SettingsPage
 import com.yichao.evilgodxu.screens.settings.SettingsUiState
-import com.yichao.evilgodxu.screens.settings.component.appearance.Appearance
+import com.yichao.evilgodxu.screens.settings.component.appearance.AppearanceEntry
 import com.yichao.evilgodxu.screens.settings.component.cache.Cache
 import com.yichao.evilgodxu.screens.settings.component.info.AppInfo
-import com.yichao.evilgodxu.screens.settings.component.language.Language
-import com.yichao.evilgodxu.screens.settings.component.playback.Playback
+import com.yichao.evilgodxu.screens.settings.component.playback.PlaybackModeEntry
 import com.yichao.evilgodxu.screens.settings.component.proxy.ProxySource
+import com.yichao.evilgodxu.screens.settings.component.typography.TypographyEntry
 
-// 设置页内容：外观、语言、播放、代理音源、缓存、关于六个分组。
-// 主题与语言弹窗挂在页面骨架，这里只上抛"请求打开"，不持有弹窗状态
+/**
+ * 设置根页：语言外观、播放模式、歌词排版三个入口，其后是代理音源、存储与关于。
+ *
+ * 前两项的读写全在本页状态里，因此只是页内层级；歌词排版与存储各自持有状态，走独立路由。
+ * 主题与语言弹窗挂在页面骨架，这里只上抛「请求打开」，不持有弹窗状态。
+ */
 @Composable
 internal fun SettingsPane(
     uiState: SettingsUiState,
-    // Scaffold 内边距：由组装器透传，内容避让标题栏
     innerPadding: PaddingValues,
-    onThemeClick: (Offset) -> Unit,
-    onShowLanguageDialog: () -> Unit,
-    onMiniPlayerEnabledChange: (Boolean) -> Unit,
-    onWordByWordRenderingChange: (Boolean) -> Unit,
-    onSwipeToChangeTrackChange: (Boolean) -> Unit,
-    onBackgroundFlowChange: (Boolean) -> Unit,
-    onUsbDirectOutputChange: (Boolean) -> Unit,
-    onUsbExclusiveOutputChange: (Boolean) -> Unit,
-    onVolumeGainChange: (Boolean) -> Unit,
-    onVersionClick: () -> Unit,
+    onOpenPage: (SettingsPage) -> Unit,
     onOpenTypography: () -> Unit,
+    onVersionClick: () -> Unit,
     onProxySourceImport: (String) -> Unit,
     onProxySourceToggle: (String, Boolean) -> Unit,
     onProxySourceRemove: (String) -> Unit,
@@ -45,39 +32,10 @@ internal fun SettingsPane(
     onOpenCache: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .consumeWindowInsets(innerPadding)
-            .padding(innerPadding)
-            .padding(horizontal = 16.dp)
-            // 宿主为 edge-to-edge 且页面无底部栏代管：末项（关于分组）须自行避让系统导航栏，
-            // 否则滚到底部时被三键导航的虚拟按键压住
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState()),
-    ) {
-        Appearance(
-            themeMode = uiState.themeMode,
-            onThemeClick = onThemeClick,
-        )
-        Language(uiState.language, onShowDialog = onShowLanguageDialog)
-        Playback(
-            miniPlayerEnabled = uiState.playback.miniPlayerEnabled,
-            onMiniPlayerEnabledChange = onMiniPlayerEnabledChange,
-            wordByWordRendering = uiState.playback.wordByWordRendering,
-            onWordByWordRenderingChange = onWordByWordRenderingChange,
-            swipeToChangeTrack = uiState.playback.swipeToChangeTrack,
-            onSwipeToChangeTrackChange = onSwipeToChangeTrackChange,
-            backgroundFlow = uiState.playback.backgroundFlow,
-            onBackgroundFlowChange = onBackgroundFlowChange,
-            usbDirectOutput = uiState.playback.usbDirectOutput,
-            onUsbDirectOutputChange = onUsbDirectOutputChange,
-            usbExclusiveOutput = uiState.playback.usbExclusiveOutput,
-            onUsbExclusiveOutputChange = onUsbExclusiveOutputChange,
-            volumeGain = uiState.playback.volumeGain,
-            onVolumeGainChange = onVolumeGainChange,
-            onTypographyClick = onOpenTypography,
-        )
+    SettingsScrollColumn(innerPadding = innerPadding, modifier = modifier) {
+        AppearanceEntry(onClick = { onOpenPage(SettingsPage.APPEARANCE_LANGUAGE) })
+        PlaybackModeEntry(onClick = { onOpenPage(SettingsPage.PLAYBACK_MODE) })
+        TypographyEntry(onClick = onOpenTypography)
         ProxySource(
             sources = uiState.proxySources,
             importMessage = uiState.proxyImportMessage,

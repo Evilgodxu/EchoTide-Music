@@ -2,6 +2,7 @@ package com.yichao.evilgodxu.screens.settings
 
 import android.content.Intent
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -95,6 +96,11 @@ fun SettingsScreen(
     // 状态栏图标跟随主题：浅色主题深色图标，深色主题白色图标
     StatusBarStyleEffect()
 
+    // 页内层级先于导航栈接管返回：深于根页时退回根页，根页才让导航栈出栈
+    BackHandler(enabled = uiState.page != SettingsPage.ROOT) {
+        viewModel.backToRoot()
+    }
+
     // 弹层与形态无关，挂在骨架层：组装器只上抛"请求打开"，不持有弹窗状态
     var showThemeDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
@@ -113,6 +119,8 @@ fun SettingsScreen(
         windowSizeClass = rememberWindowSizeClass(),
         uiState = uiState,
         onBack = onBack,
+        onPageBack = viewModel::backToRoot,
+        onOpenPage = viewModel::openPage,
         onThemeClick = { position ->
             pendingThemeClickPosition = position
             showThemeDialog = true

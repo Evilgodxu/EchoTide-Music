@@ -165,6 +165,15 @@ class SettingsViewModel(
         }
     }
 
+    // 页内层级只记去向：语言外观与播放模式的读写都落在本类既有的设置状态上
+    fun openPage(page: SettingsPage) {
+        _uiState.update { it.copy(page = page) }
+    }
+
+    fun backToRoot() {
+        _uiState.update { it.copy(page = SettingsPage.ROOT) }
+    }
+
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch {
             settingsRepository.saveThemeMode(mode)

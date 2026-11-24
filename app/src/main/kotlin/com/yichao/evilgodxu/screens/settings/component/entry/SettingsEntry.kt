@@ -25,15 +25,21 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yichao.evilgodxu.theme.AppAlpha
 import com.yichao.evilgodxu.theme.AppSpacing
 
-// 设置项：可点击列表项，支持返回点击坐标以驱动主题切换动效
+/**
+ * 设置项：可点击列表项，支持返回点击坐标以驱动主题切换动效。
+ *
+ * @param subtitle 说明行；分区标题已写明该项是什么时留空，只留当前取值，避免同一句读两遍
+ * @param onClickWithPosition 需要按点击位置播放整屏揭示时使用，此时 [onClick] 不参与
+ */
 @Composable
 fun SettingsEntry(
     icon: ImageVector,
     title: String,
-    subtitle: String,
-    onClick: () -> Unit,
+    subtitle: String? = null,
+    onClick: () -> Unit = {},
     onClickWithPosition: ((Offset) -> Unit)? = null,
 ) {
     var currentCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -56,11 +62,17 @@ fun SettingsEntry(
             .padding(horizontal = AppSpacing.RowHorizontal, vertical = AppSpacing.RowVertical),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = AppAlpha.Secondary))
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(title, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-            Text(subtitle, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = AppAlpha.Secondary),
+                )
+            }
         }
     }
 }

@@ -9,7 +9,9 @@
     <string name="settings_theme_title">主题</string>
     <string name="settings_language_title">语言</string>
     <string name="settings_section_appearance">外观</string>
-    <string name="settings_section_language">语言</string>
+    <string name="settings_entry_appearance_language">语言外观</string>
+    <string name="settings_entry_appearance_language_desc">主题、语言与渲染</string>
+    <string name="settings_section_rendering">渲染</string>
     <string name="settings_theme_dialog_title">选择主题</string>
     <string name="settings_language_dialog_title">选择语言</string>
 
@@ -288,6 +290,9 @@
     <string name="home_upgrade_lossless_failed">无损音源不可用，已保持原音质</string>
     <string name="home_artist_picker_title">选择歌手</string>
     <string name="settings_section_player">播放</string>
+    <string name="settings_entry_playback_mode">播放模式</string>
+    <string name="settings_entry_playback_mode_desc">悬浮播放、切歌手势与 USB 音频输出</string>
+    <string name="settings_section_interaction">交互</string>
     <string name="settings_mini_player_title">悬浮播放</string>
     <string name="settings_mini_player_desc">后台播放显示悬浮播放器</string>
     <string name="settings_word_by_word_title">逐字渲染</string>
@@ -300,10 +305,12 @@
     <string name="settings_usb_direct_output_desc">系统原生直出，动态适应设备</string>
     <string name="settings_usb_exclusive_title">USB 音频独占</string>
     <string name="settings_usb_exclusive_desc">独占音频输出，动态适应设备</string>
+    <string name="settings_section_output">输出</string>
     <string name="settings_volume_gain_title">音量增益</string>
     <string name="settings_volume_gain_desc">按增益标签均衡曲目响度</string>
-    <string name="settings_typography_title">播放页排版</string>
-    <string name="settings_typography_desc">调整歌词与歌曲信息的字号、行距、对齐与渐隐</string>
+    <string name="settings_section_typography">排版</string>
+    <string name="settings_typography_title">歌词排版</string>
+    <string name="settings_typography_desc">歌词字号、行距、对齐与渐隐</string>
 
     <!-- 播放列表滑动操作 -->
     <string name="playlist_advanced_menu_title">高级菜单</string>
@@ -476,7 +483,7 @@
     <string name="cache_category_other_app_data">其它应用数据</string>
 
     <!-- 播放页排版设置 -->
-    <string name="typography_screen_title">播放页排版</string>
+    <string name="typography_screen_title">歌词排版</string>
     <string name="typography_section_home_portrait">首页竖屏</string>
     <string name="typography_section_home_landscape">首页横屏</string>
     <string name="typography_font_size">字号</string>

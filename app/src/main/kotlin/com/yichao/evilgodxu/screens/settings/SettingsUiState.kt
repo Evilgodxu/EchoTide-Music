@@ -5,7 +5,21 @@ import com.yichao.evilgodxu.data.settings.AppLanguage
 import com.yichao.evilgodxu.data.settings.PlaybackSettings
 import com.yichao.evilgodxu.data.settings.ThemeMode
 
+/**
+ * 设置页的页内层级。
+ *
+ * 只有自持状态的页面才配独立路由与骨架（歌词排版、存储），读写设置项的视图留在设置页内：
+ * 它们与根页共用同一份 [SettingsUiState] 与同一组事件，另立路由等于把状态复制一份。
+ */
+enum class SettingsPage {
+    ROOT,
+    APPEARANCE_LANGUAGE,
+    PLAYBACK_MODE,
+}
+
 data class SettingsUiState(
+    // 当前所在的页内层级：返回键先退层级，回到根页才交给导航栈
+    val page: SettingsPage = SettingsPage.ROOT,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val language: AppLanguage = AppLanguage.SYSTEM,
     // 播放相关设置整组入状态：与仓库读的是同一个快照类型，不再逐字段搬运

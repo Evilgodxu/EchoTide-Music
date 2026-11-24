@@ -66,6 +66,20 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `进入页内层级后返回回到根页`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+
+        advanceUntilIdle()
+        assertEquals(SettingsPage.ROOT, viewModel.uiState.value.page)
+
+        viewModel.openPage(SettingsPage.APPEARANCE_LANGUAGE)
+        assertEquals(SettingsPage.APPEARANCE_LANGUAGE, viewModel.uiState.value.page)
+
+        viewModel.backToRoot()
+        assertEquals(SettingsPage.ROOT, viewModel.uiState.value.page)
+    }
+
+    @Test
     fun `播放设置写入经仓库回流更新状态`() = runTest(dispatcher) {
         val viewModel = viewModel()
 
