@@ -267,7 +267,7 @@ internal fun MetadataForm(
             title = stringResource(R.string.metadata_section_replay_gain),
             action = {
                 MetadataSectionAction(
-                    icon = AppIcons.Calculate,
+                    icon = AppIcons.QueryStats,
                     contentDescription = stringResource(R.string.metadata_replay_gain_compute),
                     busy = uiState.replayGainComputing,
                     enabled = !uiState.saving && !uiState.loading,
