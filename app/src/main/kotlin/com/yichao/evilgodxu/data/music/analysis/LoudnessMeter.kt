@@ -9,7 +9,7 @@ import kotlin.math.tan
  * 一次响度测量的结果。
  *
  * [loudnessLufs] 是门限加权后的整体响度，[gainDb] 已换算成 ReplayGain 2.0 的增益值
- * （目标响度 -18 LUFS），[peak] 是线性峰值。
+ * （参考响度 [REPLAY_GAIN_REFERENCE_LUFS]），[peak] 是线性峰值。
  */
 internal data class ReplayGainMeasurement(
     val loudnessLufs: Double,
@@ -76,7 +76,7 @@ internal class LoudnessMeter(sampleRate: Int, channels: Int) {
         val loudness = integratedLoudness() ?: return null
         return ReplayGainMeasurement(
             loudnessLufs = loudness,
-            gainDb = TARGET_LUFS - loudness,
+            gainDb = REPLAY_GAIN_REFERENCE_LUFS - loudness,
             peak = peak,
         )
     }
@@ -101,10 +101,16 @@ internal class LoudnessMeter(sampleRate: Int, channels: Int) {
         const val LOUDNESS_OFFSET = 0.691
         const val ABSOLUTE_GATE_LUFS = -70.0
         const val RELATIVE_GATE_LU = 10.0
-        // ReplayGain 2.0 的目标响度
-        const val TARGET_LUFS = -18.0
     }
 }
+
+/**
+ * ReplayGain 2.0 的参考响度：增益 = 该值 - 实测整体响度。
+ *
+ * 同时是 `REPLAYGAIN_REFERENCE_LOUDNESS` 要写入的取值——它是增益的基准，
+ * 播放器据此判断这批增益能否直接套用，故不能只留在测量口径里。
+ */
+internal const val REPLAY_GAIN_REFERENCE_LUFS = -18.0
 
 /**
  * K 加权的两级双二阶滤波：高频搁架 + 高通。

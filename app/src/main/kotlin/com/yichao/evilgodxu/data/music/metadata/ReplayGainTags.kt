@@ -14,3 +14,12 @@ internal fun formatReplayGainDb(gainDb: Double): String =
 
 internal fun formatReplayGainPeak(peak: Double): String =
     String.format(Locale.US, "%.6f", peak)
+
+/**
+ * 参考响度的书写格式。
+ *
+ * 本应用按 EBU R128 自算增益，Reference Loudness 因此写 `LUFS` 而非 ReplayGain 1.0 时代的
+ * `89.0 dB`——两者是同一基准的不同刻度，写错刻度会让按 dB 读标签的工具算偏约 0.3 dB。
+ */
+internal fun formatReplayGainReferenceLoudness(lufs: Double): String =
+    String.format(Locale.US, "%.2f LUFS", lufs)

@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.data.music.analysis.REPLAY_GAIN_REFERENCE_LUFS
 import com.yichao.evilgodxu.data.music.analysis.ReplayGainAnalyzer
 import com.yichao.evilgodxu.data.music.api.enrichTrackDetail
 import com.yichao.evilgodxu.data.music.metadata.CoverExporter
@@ -16,6 +17,7 @@ import com.yichao.evilgodxu.data.music.metadata.TrackTagFields
 import com.yichao.evilgodxu.data.music.metadata.fillPlan
 import com.yichao.evilgodxu.data.music.metadata.formatReplayGainDb
 import com.yichao.evilgodxu.data.music.metadata.formatReplayGainPeak
+import com.yichao.evilgodxu.data.music.metadata.formatReplayGainReferenceLoudness
 import com.yichao.evilgodxu.data.music.model.LyricLine
 import com.yichao.evilgodxu.data.music.model.MusicSearchSource
 import com.yichao.evilgodxu.data.music.model.MusicTrack
@@ -517,10 +519,11 @@ class MetadataViewModel(
     // ---- 音量增益自算 ----
 
     /**
-     * 本地计算 ReplayGain：整曲解码后按 EBU R128 统计整体响度与峰值，填入单曲增益与峰值。
+     * 本地计算 ReplayGain：整曲解码后按 EBU R128 统计整体响度与峰值，填入单曲增益、峰值与参考响度。
      *
-     * 只写这两项：专辑增益需要同专辑全部曲目一起统计，单曲分析给不出；
-     * 参考响度是测量口径而非测量结果，固定 -18 LUFS 即可，不写入文件。
+     * 专辑增益需要同专辑全部曲目一起统计，单曲分析给不出，故不参与本次填充；
+     * 参考响度虽是测量口径，但它决定了增益的相对基准，须与增益一同写入——
+     * 否则其它播放器拿到增益后无从判断该按哪个基准施加。
      */
     fun onReplayGainCompute() {
         val state = _uiState.value
@@ -541,6 +544,10 @@ class MetadataViewModel(
             }
             onFieldChange(TagField.REPLAY_GAIN_TRACK_GAIN, formatReplayGainDb(measurement.gainDb))
             onFieldChange(TagField.REPLAY_GAIN_TRACK_PEAK, formatReplayGainPeak(measurement.peak))
+            onFieldChange(
+                TagField.REPLAY_GAIN_REFERENCE_LOUDNESS,
+                formatReplayGainReferenceLoudness(REPLAY_GAIN_REFERENCE_LUFS),
+            )
             _uiState.update {
                 it.copy(
                     replayGainComputing = false,
