@@ -163,7 +163,14 @@ internal class PcmAudioSink(
     private var writtenPcmBytes = 0L
 
     private var handledEndOfStream = false
-    private var playing = false
+
+    /**
+     * 起停意图：渲染器只在「停止 → 启动」的转换点下发 [play] / [pause]，重建输出不会带来第二次下发。
+     *
+     * 故作意向在此登记，[ensureOutput] 建起轨道时按它接续——少了这一次，暂停之后经路由切换、变体切换
+     * 或轨道失效重建出来的输出不会被启动，位置随之停滞（媒体3 的停滞检测满 10 秒即以超时终止播放）。
+     */
+    private var playRequested = false
 
     /** 已上报过的欠载计数：每次写入后取一次设备侧读数，增加即上报一次 */
     private var lastReportedUnderruns = 0
@@ -270,12 +277,21 @@ internal class PcmAudioSink(
         return pendingOutput == null
     }
 
+    /**
+     * 启动输出。
+     *
+     * 输出尚未建起时只登记意图（建轨时接续）；已建起却启动不了，说明这条轨道已不可用（音频服务重启、
+     * 设备被系统收回等），就地作废它——下一次写入会按同一配置重建并接续意图，位置才不至停在原处。
+     */
     override fun play() {
-        playing = true
-        output?.play()
+        playRequested = true
+        val current = output ?: return
+        if (!current.start()) releaseOutput()
     }
 
+    // 意图必须随暂停一并收回：否则期间重建出来的轨道会自己唱起来，界面却仍是暂停
     override fun pause() {
+        playRequested = false
         output?.pause()
     }
 
@@ -300,13 +316,13 @@ internal class PcmAudioSink(
 
     override fun reset() {
         flush()
-        playing = false
+        playRequested = false
     }
 
     override fun release() {
         releaseOutput()
         inputFormat = null
-        playing = false
+        playRequested = false
     }
 
     override fun playToEndOfStream() {
@@ -360,6 +376,9 @@ internal class PcmAudioSink(
      */
     override fun hasPendingData(): Boolean {
         val output = output ?: return false
+        // 轨道已失效时不能再按「已写出 > 已消费」作答：失效轨道的播放头停住不动，这个判据会恒为真，
+        // 播放器遂永远认为自己仍在出声、位置却一步不走，也不会去重建输出。如实报空，交给渲染器重填
+        if (!output.isUsable) return false
         val writtenFrames = writtenPcmBytesAsFrames()
         return pendingOutput != null || writtenFrames > output.consumedFrameCount
     }
@@ -459,7 +478,13 @@ internal class PcmAudioSink(
 
     /** 建起并按需启动输出；未建起时向上抛出初始化异常，由渲染器按致命错误处置 */
     private fun ensureOutput(): AudioTrackOutput {
-        output?.let { return it }
+        val current = output
+        if (current != null) {
+            // 轨道失效（音频服务重启、设备被系统收回）后按同一配置就地重建：死轨道写不进去，
+            // 交回写出只会把失败推到写路径，位置在重建之前一直停着
+            if (current.isUsable) return current
+            releaseOutput()
+        }
         val format = checkNotNull(inputFormat) { "建输出前必须先 configure" }
         val sampleRate = format.sampleRate
         val minimumBufferSize =
@@ -531,7 +556,7 @@ internal class PcmAudioSink(
             createdOutput.attachAuxEffect(auxEffectInfo.effectId)
             createdOutput.setAuxEffectSendLevel(auxEffectInfo.sendLevel)
         }
-        if (playing) createdOutput.play()
+        if (playRequested) createdOutput.start()
         output = createdOutput
         audioTrack = created
         trackBufferBytes = bufferSize

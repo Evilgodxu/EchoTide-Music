@@ -89,6 +89,14 @@ internal class UsbExclusiveOutput(
     /** 已请求授权而尚未作答的设备，仅用于去重 */
     private var awaiting: UsbDevice? = null
 
+    /**
+     * 是否因失焦主动让出过设备。
+     *
+     * 只让「自己让出去的」由重获焦点时收回：链路失效（[onStreamFailed]）与拔出都不置此标志，
+     * 那两种情形下立刻重接管多半还是同样的结果，按原有口径等重新插拔或用户重开开关。
+     */
+    private var suspendedForFocus = false
+
     private var state: UsbExclusiveState = UsbExclusiveState.Disabled
 
     private val receiver = object : BroadcastReceiver() {
@@ -125,6 +133,7 @@ internal class UsbExclusiveOutput(
         if (this.enabled == enabled) return
         this.enabled = enabled
         if (!enabled) {
+            suspendedForFocus = false
             releaseClaim()
             publish(UsbExclusiveState.Disabled)
             return
@@ -133,8 +142,41 @@ internal class UsbExclusiveOutput(
         acquire(prompt = true)
     }
 
+    /**
+     * 失焦时让出设备：被别的客户端抢走焦点（来电、别的播放器）即归还接口。
+     *
+     * 接管期间内核音频驱动处于解绑状态，该解码器已从系统音频里消失——继续持有，来电与其它应用就都用不到
+     * 这台设备，而平台在尝试取回同一台设备时会卡在音频栈里，此后本应用的每一次输出操作都排在它后面，
+     * 表现为通话结束后再也起不来（开关、拔插都无效，因为已经不是本应用这一层能解开的状态）。
+     * 故焦点一失即归还：设备回到系统手里，通话按用户预期走耳机。
+     *
+     * 开关与授权都不动，重获焦点时由 [reclaimAfterFocusLoss] 按原样收回。
+     */
+    @Synchronized
+    fun releaseForFocusLoss() {
+        if (claim == null) return
+        releaseClaim()
+        suspendedForFocus = true
+        publish(UsbExclusiveState.AwaitingDevice)
+    }
+
+    /**
+     * 重获焦点：收回此前因失焦让出的设备。
+     *
+     * 只收回 [releaseForFocusLoss] 让出去的那一次——链路失效与拔出都不该在这里被自动重试。
+     */
+    @Synchronized
+    fun reclaimAfterFocusLoss() {
+        if (!suspendedForFocus) return
+        suspendedForFocus = false
+        if (!enabled || claim != null) return
+        ensureRegistered()
+        acquire(prompt = false)
+    }
+
     @Synchronized
     override fun close() {
+        suspendedForFocus = false
         releaseClaim()
         if (registered) {
             runCatching { context.unregisterReceiver(receiver) }
@@ -267,6 +309,7 @@ internal class UsbExclusiveOutput(
         val current = claim ?: return
         // 拔出的可能是另一台设备，只有手里的那台走了才作废会话
         if (current.device.deviceName != device.deviceName) return
+        suspendedForFocus = false
         releaseClaim()
         if (enabled) acquire(prompt = true) else publish(UsbExclusiveState.Disabled)
     }
@@ -280,6 +323,8 @@ internal class UsbExclusiveOutput(
     @Synchronized
     fun onStreamFailed() {
         if (claim == null) return
+        // 链路已坏，不再算「因失焦让出」：重获焦点时不该把一条刚失败的链路又接管回来
+        suspendedForFocus = false
         releaseClaim()
         publish(UsbExclusiveState.AwaitingDevice)
     }

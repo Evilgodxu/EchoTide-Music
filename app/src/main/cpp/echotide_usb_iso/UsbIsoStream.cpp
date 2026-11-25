@@ -29,6 +29,24 @@ constexpr int kReapWaitMs = 5;
 constexpr int kDrainTimeoutMs = 200;
 
 /**
+ * 环满后等空间的上限（毫秒）。
+ *
+ * 环满且长时间一点空间都没腾出来，只可能是设备已不再消费（拔掉、被系统收回、端点静默挂死）。等下去的
+ * 不是一段数据，而是**整条播放线程**：暂停、切歌、改道全排在那条线程后面，播放器随之整个不可用，连
+ * 开关独占都无效。1 秒远大于任何正当的调度误期（在飞段按 64ms 标定），故超时即如实终止这条流，
+ * 由上层退回平台路径——丢一段声音远好过整台设备失去响应。
+ */
+constexpr int kWriteStallTimeoutMs = 1000;
+
+/**
+ * 曲末排空的上限（毫秒）：口径同 [kWriteStallTimeoutMs]。
+ *
+ * 正常设备上环内 80ms 的存量在百毫秒内即排空，本值留足余量；设备不再消费时宁可丢掉尾巴（最多一段
+ * 环内存量），也不把播放线程留在原地。
+ */
+constexpr int kDataDrainTimeoutMs = 500;
+
+/**
  * 非致命提交失败的重试上限。
  *
  * 提交失败的 URB 不会有完成事件，只靠完成回调补交的路径下这只槽就永远空着；全部槽落进该分支时
@@ -188,7 +206,10 @@ bool UsbIsoStream::start(const Config& config) {
 }
 
 long UsbIsoStream::write(const uint8_t* data, size_t bytes) {
+    using SteadyClock = std::chrono::steady_clock;
     size_t written = 0;
+    // 没有任何空间腾出来的累计时长：越过上限即判设备已不再消费（见 kWriteStallTimeoutMs）
+    auto stallDeadline = SteadyClock::now() + std::chrono::milliseconds(kWriteStallTimeoutMs);
     while (written < bytes) {
         if (!running_.load() || disconnected_.load()) {
             return written > 0 ? long(written) : -1;
@@ -201,12 +222,21 @@ long UsbIsoStream::write(const uint8_t* data, size_t bytes) {
             // 暂停期间环只进不出，继续等就是永久阻塞——而暂停与恢复都走调用方那一条线程。
             // 故就地把已接纳的部分交回去，余量由调用方按"下游已满"自行重试
             if (paused_.load()) break;
+            if (SteadyClock::now() >= stallDeadline) {
+                // 设备不再消费：如实终止这条流，让写侧拿到失败并退回平台路径，播放线程不陪葬
+                disconnected_ = true;
+                running_ = false;
+                ringCv_.notify_all();
+                return written > 0 ? long(written) : -1;
+            }
             // 等回收线程腾出空间。等待设施只有本线程会用（回收线程取数据时并不进锁），故不存在
             // "高位线程卡在低位线程持锁的临界区里"那种倒挂；超时只是无通知时的兜底
             std::unique_lock<std::mutex> lock(ringWaitMutex_);
             ringCv_.wait_for(lock, std::chrono::milliseconds(20));
             continue;
         }
+        // 有空间可用即视为仍在推进：停滞计时从这一刻重新起算
+        stallDeadline = SteadyClock::now() + std::chrono::milliseconds(kWriteStallTimeoutMs);
         const size_t chunk = std::min(free, bytes - written);
         const size_t head = write % ring_.size();
         const size_t first = std::min(chunk, ring_.size() - head);
@@ -222,8 +252,12 @@ long UsbIsoStream::write(const uint8_t* data, size_t bytes) {
 }
 
 void UsbIsoStream::drain() {
-    // 环空即已写入的数据全部装进了 URB。存量归零由回收线程推进读位置达成，故等它的通知
+    using SteadyClock = std::chrono::steady_clock;
+    // 环空即已写入的数据全部装进了 URB。存量归零由回收线程推进读位置达成，故等它的通知；
+    // 但上限必须有：设备不再消费时，无限等下去就是拿整条播放线程换最后那几十毫秒的尾巴
+    const auto deadline = SteadyClock::now() + std::chrono::milliseconds(kDataDrainTimeoutMs);
     while (ringUsed() > 0 && running_.load() && !disconnected_.load()) {
+        if (SteadyClock::now() >= deadline) break;
         std::unique_lock<std::mutex> lock(ringWaitMutex_);
         ringCv_.wait_for(lock, std::chrono::milliseconds(10));
     }

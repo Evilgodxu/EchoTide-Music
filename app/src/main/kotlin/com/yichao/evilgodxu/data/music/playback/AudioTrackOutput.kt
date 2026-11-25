@@ -46,6 +46,16 @@ internal class AudioTrackOutput(
 
     private var released = false
 
+    /**
+     * 轨道是否仍可用。
+     *
+     * 音频服务重启、设备被系统收回或轨道被作废之后，[AudioTrack.state] 会退回
+     * [AudioTrack.STATE_UNINITIALIZED]：此时播放头停在 0 不再推进，写入以 `ERROR_DEAD_OBJECT` 失败，
+     * 继续拿它当输出只会让上层「已写出 > 已消费」恒成立——播放器据此认为自己仍在出声，位置却再不动。
+     */
+    val isUsable: Boolean
+        get() = !released && audioTrack.state == AudioTrack.STATE_INITIALIZED
+
     /** 已从设备侧消费掉的帧数，单调不减 */
     val consumedFrameCount: Long
         get() {
@@ -98,15 +108,24 @@ internal class AudioTrackOutput(
         return written
     }
 
-    fun play() {
-        if (released) return
+    /**
+     * 启动轨道，返回是否真的启动了。
+     *
+     * 轨道已不可用时返回 false 而不抛出：调用方据此作废它并按同一配置重建——渲染器只在「停止 → 启动」
+     * 的转换点下发 play，起不来若就地吞掉，重建出来的轨道就再没有第二次启动机会，位置随之永久停滞。
+     */
+    fun start(): Boolean {
+        if (!isUsable) return false
+        // AudioTrack.play() 对未初始化的轨道抛 IllegalStateException；状态刚被判过仍可能并发失效，
+        // 故原样兜住并按「启动失败」回报
+        if (!runCatching { audioTrack.play() }.isSuccess) return false
         stopped = false
-        audioTrack.play()
+        return true
     }
 
     fun pause() {
-        if (released) return
-        audioTrack.pause()
+        if (!isUsable) return
+        runCatching { audioTrack.pause() }
     }
 
     /**

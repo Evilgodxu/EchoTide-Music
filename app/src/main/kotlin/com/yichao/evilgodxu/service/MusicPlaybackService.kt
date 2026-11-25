@@ -67,6 +67,13 @@ class MusicPlaybackService : MediaSessionService() {
     /** USB 独占：把 USB 音频接口收归本应用（内核驱动随之解绑），与直出互斥的第二条路 */
     private lateinit var usbExclusiveOutput: UsbExclusiveOutput
     /**
+     * 输出路由：平台与独占二选一。
+     *
+     * 作为字段持有而非留作局部量：让出独占设备这件事要在播放线程上与拆流同处一趟（见
+     * [UsbOutputSink.runRelease]），而焦点变化发生在主线程。
+     */
+    private lateinit var outputSink: UsbOutputSink
+    /**
      * 独占路径的应用自持音量。独占绕开混音器后系统音量不再作用于这条流，响度只能自己做，
      * 音量键经会话的远端音量通道落到它身上——见 [ExclusiveVolume] 与 [ExclusiveVolumePlayer]。
      */
@@ -92,6 +99,8 @@ class MusicPlaybackService : MediaSessionService() {
         when (focusChange) {
             AudioManager.AUDIOFOCUS_GAIN -> {
                 focusLossActive = false
+                // 先收回失焦时让出的解码器，再续播：否则这一曲的头几秒会落到平台那条路上
+                reclaimExclusiveDevice()
                 if (resumeAfterFocusLoss) {
                     resumeAfterFocusLoss = false
                     engine.setPlayWhenReady(true)
@@ -101,17 +110,21 @@ class MusicPlaybackService : MediaSessionService() {
                 focusLossActive = false
                 resumeAfterFocusLoss = false
                 engine.pause()
+                releaseExclusiveDevice()
                 abandonAudioFocus()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 // 只在一轮失焦的第一次记下播放意图：此时可能已被前一次失焦暂停，
                 // 用当前的 isPlaying 覆盖会把「等会儿续播」改成「不续播」
-                if (!focusLossActive) {
+                val firstLossInRound = !focusLossActive
+                if (firstLossInRound) {
                     resumeAfterFocusLoss = engine.isPlaying
                     focusLossActive = true
                 }
                 engine.pause()
+                // 让出设备同样只做一次：一轮失焦里重复归还只会反复解绑再挂回内核驱动
+                if (firstLossInRound) releaseExclusiveDevice()
             }
         }
     }
@@ -200,7 +213,7 @@ class MusicPlaybackService : MediaSessionService() {
                 playbackState.audioSinkOutputSampleRate = null
             },
         )
-        val audioSink = UsbOutputSink(
+        outputSink = UsbOutputSink(
             platform = perDeviceSink,
             exclusive = exclusiveSink,
             exclusiveReady = {
@@ -226,7 +239,7 @@ class MusicPlaybackService : MediaSessionService() {
         // 独占路径没有音频轨可读，延迟读数只能由写出侧按自己的缓冲算出；不在那条路上时它自行返回 null
         playbackState.usbExclusiveLatency = exclusiveSink::latencyReading
         // 播放器自身的装配（渲染器、媒体源、音频属性、唤醒锁、轨道选择）全部收在引擎实现里
-        engine = ExoPlayerEngine(this, audioSink)
+        engine = ExoPlayerEngine(this, outputSink)
         // 插队队列非空时让引擎停在曲末，由队列决定下一首（见 handleEndOfMediaItem）；
         // 队列的每次编辑都会重新下发，恢复到空即关闭
         playbackState.playNextHoldChanged = { hold -> engine.setHoldAtItemEnd(hold) }
@@ -247,7 +260,11 @@ class MusicPlaybackService : MediaSessionService() {
                 if (playWhenReady) {
                     // 在起播意图成立的时刻申请焦点，而不是等音频已经开始播：被拒时立即收回播放意图。
                     // 播放器内置焦点处理已关闭（见引擎装配），这里不处理就没有第二道保障
-                    if (!requestAudioFocus()) {
+                    if (requestAudioFocus()) {
+                        // 永久失焦时焦点是重新申请的（此前的请求已交还），不会再有一次 GAIN 回调，
+                        // 故收回设备也要挂在起播这一处，否则让出的解码器就再也回不来
+                        reclaimExclusiveDevice()
+                    } else {
                         engine.pause()
                     }
                 } else if (reason == PlayWhenReadyChangeReason.END_OF_MEDIA_ITEM) {
@@ -341,10 +358,10 @@ class MusicPlaybackService : MediaSessionService() {
                 serviceScope.launch { exclusiveVolumePlayer.setRemote(claimed) }
                 // 成色一变就地改道：接管一成立那台设备就退出了系统音频，平台那条输出写不出去，
                 // 等到下次换曲才改道的话，本曲余下的部分只能落在扬声器上；归还之后同理要改回平台路径
-                audioSink.syncRouting()
+                outputSink.syncRouting()
             },
             // 接管的三步（放开平台输出、取设备、改道）要落在播放线程的同一趟里，故改写出的路由代劳
-            beforeClaim = audioSink::runTakeover,
+            beforeClaim = outputSink::runTakeover,
         )
         // 独占开关只在此处喂给接管方：接管是否成立由它自己订阅的设备接入与授权结果决定，
         // 开关开着不等于接管成功，成色另由 UsbOutputSink 按实际路由上报
@@ -375,7 +392,7 @@ class MusicPlaybackService : MediaSessionService() {
                     if (!current) return@collect
                     usbDirectOutput.onSourceBitDepthSettled()
                     perDeviceSink.syncRouting()
-                    audioSink.syncRouting()
+                    outputSink.syncRouting()
                 }
         }
     }
@@ -506,6 +523,27 @@ class MusicPlaybackService : MediaSessionService() {
             audioManager.abandonAudioFocusRequest(request)
             audioFocusRequest = null
         }
+    }
+
+    /**
+     * 失焦时让出独占的解码器。
+     *
+     * 接管期间内核音频驱动处于解绑状态，继续持有会让来电与别的应用都用不到这台设备；平台在取回同一台
+     * 设备时还会卡在音频栈里，此后本应用的输出操作一并堵在它后面——通话结束后就再也起不来。
+     * 故设备的归属跟着焦点走：失焦即归还，焦点回到手上（或重新起播）再收回。
+     */
+    private fun releaseExclusiveDevice() {
+        if (!::usbExclusiveOutput.isInitialized) return
+        // 拆等时流与归还接口要落在播放线程的同一趟里，故经路由代劳（见 UsbOutputSink.runRelease）
+        if (::outputSink.isInitialized) {
+            outputSink.runRelease { usbExclusiveOutput.releaseForFocusLoss() }
+        } else {
+            usbExclusiveOutput.releaseForFocusLoss()
+        }
+    }
+
+    private fun reclaimExclusiveDevice() {
+        if (::usbExclusiveOutput.isInitialized) usbExclusiveOutput.reclaimAfterFocusLoss()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {

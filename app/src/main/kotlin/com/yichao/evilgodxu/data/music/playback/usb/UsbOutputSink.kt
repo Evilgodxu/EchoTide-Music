@@ -273,6 +273,35 @@ internal class UsbOutputSink(
         }
     }
 
+    /**
+     * 由接管方发起的一次归还：先在播放线程上拆掉等时流，再放手设备。
+     *
+     * 顺序与接管相反，同样是硬要求：接口一旦归还，内核音频驱动立即重新绑定，而仍在飞的 URB 会打到一条
+     * 已不属于本应用的端点上；先停流，内核才不必在一个正被本应用使用的设备上重绑驱动。
+     * 拆流只作废本层资源、不碰设备连接（见 [UsbExclusiveAudioSink.reset]），故放手这一步排在它之后才安全。
+     *
+     * 还完之后按新成色重跑一次选路：独占那条路已不存在，本次播放余下的部分（下次配置或续播）落回平台路径。
+     */
+    fun runRelease(release: () -> Unit) {
+        val handler = playbackHandler
+        if (handler == null) {
+            exclusive.reset()
+            release()
+            return
+        }
+        handler.post {
+            exclusive.reset()
+            release()
+            if (released) return@post
+            val config = lastConfig ?: return@post
+            val trackId = trackIdOf(config)
+            // 改道由本类自发起，不经渲染器的错误处置，故失败自己吞掉：下一次重配会照常重来
+            runCatching { switchTo(routeFor(config.format, trackId), config, trackId) }.onFailure {
+                CrashLogManager.logException(LOG_TAG, "归还设备后的改道失败", it)
+            }
+        }
+    }
+
     override fun handleBuffer(
         buffer: ByteBuffer,
         presentationTimeUs: Long,
