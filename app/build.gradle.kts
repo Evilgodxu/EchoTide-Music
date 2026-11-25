@@ -25,8 +25,8 @@ android {
         applicationId = "com.yichao.evilgodxu"
         minSdk = 34
         targetSdk = 37
-        versionCode = 123
-        versionName = "6.4.0"
+        versionCode = 124
+        versionName = "6.4.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -81,7 +81,7 @@ android {
             optimization {
                 // 同时开启代码优化与优化型资源缩减
                 // 默认 Android keep 规则自动包含（includeDefault 默认 true）
-                // 自定义保留规则由 src/<variant>/keepRules/*.keep 源集提供
+                // 自定义保留规则由 src/main/keepRules/*.keep 提供
                 enable = true
             }
             signingConfig = signingConfigs.getByName("release")

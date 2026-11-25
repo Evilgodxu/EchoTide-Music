@@ -39,7 +39,7 @@ Portrait or landscape, immersion is the only goal.
 | Language | Kotlin 2.4.21 |
 | UI | Jetpack Compose (BOM 2026.09.00) + Material 3 |
 | Playback | Media3 ExoPlayer 1.11.1 + MediaSessionService (USB exclusive output goes through the native isochronous layer) |
-| Navigation | AndroidX Navigation3 1.2.2 (type-safe routes) |
+| Navigation | In-house layered overlays (persistent player + overlay pages, no routing library) |
 | Dependency injection | Manual DI (singletons held on Application) |
 | Persistence | DataStore 1.3.0 (Preferences + typed stores via kotlinx.serialization) |
 | Image loading | OkHttp + BitmapFactory, in-house memory LRU |
@@ -86,19 +86,19 @@ Portrait or landscape, immersion is the only goal.
 │       │   │   └── miniplayer/          #   Mini player overlay / compact bar / expandable playlist
 │       │   ├── localization/            # In-app language management
 │       │   ├── log/                     # CrashLogManager
-│       │   ├── navigation/              # Navigation3 type-safe routes & navigation host
+│       │   ├── navigation/              # Layered-overlay root (AppRoot / AppDestination)
 │       │   ├── permission/              # Permission checks, settings-page round trips & return-to-foreground
 │       │   ├── report/                  # Device audio report (one-off file generated for sharing)
-│       │   ├── screens/                 # Screens (home / settings / storage / playback layout / spectrum / metadata)
+│       │   ├── screens/                 # Screens (home / settings / spectrum / metadata)
 │       │   │   ├── home/                #   Home player + startup permission chain + playlists (incl. artist pages) + online search
 │       │   │   │   ├── compact/         #     Portrait assembly (compact/player: portrait player)
 │       │   │   │   ├── expanded/        #     Landscape assembly (expanded/player: landscape player)
 │       │   │   │   └── component/       #     analysis / audioinfo / bar / dialog / panel / permission / player / playlist (incl. playlist/expanded) / queue / search / shell / swipe
-│       │   │   ├── settings/            #   Appearance / language / playback / proxy sources / storage / about
-│       │   │   │   └── component/       #     appearance / cache / dialog / entry / info / language / playback / proxy
-│       │   │   ├── cache/               #   Storage / cache management (assembly / component)
+│       │   │   ├── settings/            #   Settings (in-page levels: appearance & language / playback / lyric layout / proxy sources / storage / about)
+│       │   │   │   ├── assembly/        #     Assembly
+│       │   │   │   ├── component/       #     appearance / cache / dialog / entry / info / playback / proxy
+│       │   │   │   └── level/           #     In-page levels (typography / storage)
 │       │   │   ├── spectrum/            #   Spectrum analysis screen (assembly / component)
-│       │   │   ├── typography/          #   Playback page layout settings (assembly / component)
 │       │   │   └── metadata/            #   Metadata editing screen (assembly / component)
 │       │   ├── service/                 # MediaSessionService playback engine
 │       │   ├── theme/                   # Material 3 colour & typography
@@ -117,7 +117,7 @@ Portrait or landscape, immersion is the only goal.
 ├── gradle/
 │   ├── libs.versions.toml               # Version catalog (dependency management)
 │   └── wrapper/
-├── docs/                                # Proxy source spec, UI style guide, screenshots, design mockups, APK report & notes
+├── docs/                                # Proxy source spec, screenshots, design mockups & archived notes (docs/archive)
 ├── LICENSE
 ├── build.gradle.kts
 ├── settings.gradle.kts

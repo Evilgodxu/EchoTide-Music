@@ -4,7 +4,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 
 // 界面尺度令牌：把跨页面反复出现的形状、间距、透明度与动效时长收敛到一处。
-// 新增界面从这些名字取值，不再各写一份字面量；档位与用途的完整说明见 docs/界面规范.md。
+// 新增界面从这些名字取值，不再各写一份字面量。
 // 这里只收拢「有语义、跨页面复用」的值，行内微调（如 4dp 的图标与文字间距）仍就地取值。
 
 // 圆角按容器层级分档，同一层级的容器只用同一档。

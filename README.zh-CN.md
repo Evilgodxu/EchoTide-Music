@@ -39,7 +39,7 @@
 | 语言 | Kotlin 2.4.21 |
 | UI | Jetpack Compose(BOM 2026.09.00)+ Material 3 |
 | 播放 | Media3 ExoPlayer 1.11.1 + MediaSessionService（USB 独占另走原生等时层） |
-| 导航 | AndroidX Navigation3 1.2.2（类型安全路由） |
+| 导航 | 自建分层覆盖层（播放页常驻 + 覆盖层，无导航库） |
 | 依赖注入 | 手动 DI（单例挂在 Application） |
 | 持久化 | DataStore 1.3.0（Preferences + kotlinx.serialization 类型化存储） |
 | 图片加载 | OkHttp + BitmapFactory，自研内存 LRU |
@@ -86,19 +86,19 @@
 │       │   │   └── miniplayer/          #   迷你播放器浮层 / 紧凑条 / 展开式播放列表
 │       │   ├── localization/            # 应用内多语言管理
 │       │   ├── log/                     # CrashLogManager
-│       │   ├── navigation/              # Navigation3 类型安全路由与导航宿主
+│       │   ├── navigation/              # 分层覆盖层根容器(AppRoot / AppDestination)
 │       │   ├── permission/              # 权限检查、系统授权页往返与授权后回到前台
 │       │   ├── report/                  # 设备音频报告(为分享生成的一次性文件)
-│       │   ├── screens/                 # 页面(首页 / 设置 / 存储 / 播放页排版 / 频谱 / 元数据)
+│       │   ├── screens/                 # 页面(首页 / 设置 / 频谱 / 元数据)
 │       │   │   ├── home/                #   首页播放器 + 启动期授权串行 + 歌单(含歌手页) + 在线搜索
 │       │   │   │   ├── compact/         #     竖屏组装器(compact/player:竖屏播放器)
 │       │   │   │   ├── expanded/        #     横屏组装器(expanded/player:横屏播放器)
 │       │   │   │   └── component/       #     analysis / audioinfo / bar / dialog / panel / permission / player / playlist(含 playlist/expanded)/ queue / search / shell / swipe
-│       │   │   ├── settings/            #   外观 / 语言 / 播放 / 代理音源 / 存储 / 关于
-│       │   │   │   └── component/       #     appearance / cache / dialog / entry / info / language / playback / proxy
-│       │   │   ├── cache/               #   存储 / 缓存管理(assembly / component)
+│       │   │   ├── settings/            #   设置(页内层级: 外观语言 / 播放 / 歌词排版 / 代理音源 / 存储 / 关于)
+│       │   │   │   ├── assembly/        #     组装器
+│       │   │   │   ├── component/       #     appearance / cache / dialog / entry / info / playback / proxy
+│       │   │   │   └── level/           #     页内层级(typography / storage)
 │       │   │   ├── spectrum/            #   频谱分析页(assembly / component)
-│       │   │   ├── typography/          #   播放页排版设置(assembly / component)
 │       │   │   └── metadata/            #   元数据编辑页(assembly / component)
 │       │   ├── service/                 # MediaSessionService 播放引擎
 │       │   ├── theme/                   # Material 3 配色与字体
@@ -117,7 +117,7 @@
 ├── gradle/
 │   ├── libs.versions.toml               # 版本目录(依赖管理)
 │   └── wrapper/
-├── docs/                                # 代理音源规范、界面规范、界面截图、设计稿、APK 报告与项目注意事项
+├── docs/                                # 代理音源规范、界面截图、设计稿与归档笔记(docs/archive)
 ├── LICENSE
 ├── build.gradle.kts
 ├── settings.gradle.kts

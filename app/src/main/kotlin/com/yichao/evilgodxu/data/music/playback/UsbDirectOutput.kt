@@ -35,7 +35,7 @@ private const val LOG_TAG = "UsbDirectOutput"
  * 从设备声明的档位里挑，并在换曲导致格式变化时重新下发。
  *
  * 只申请**默认行为**档：专用输出流照开、按源格式、不重采样，但不向平台索要位完美（`MIXER_BEHAVIOR_BIT_PERFECT`）。
- * 位完美那一档本应用一律不用，两条理由都在原生源码里（frameworks/av，见 docs/注意事项.md）：
+ * 位完美那一档本应用一律不用，两条理由都在原生源码里（frameworks/av，见 docs/archive/注意事项.md）：
  * - 拿不到：`setPreferredMixerAttributes` 把所请求的行为并进用于匹配的输出 flags，`IOProfile::getFlagsCompatibleScore`
  *   要求「请求的每个 flag 都在 profile 声明里」，厂商没在动态端口上写 `AUDIO_OUTPUT_FLAG_BIT_PERFECT` 就必然 BAD_VALUE
  *   ——应用无从替厂商声明，试也白试；
@@ -706,7 +706,7 @@ private fun integerBitDepthOf(encoding: Int): Int? = when (encoding) {
  * 打包整型由 [PcmAudioSink] 写出，其中 32 位容得下任意线性源——32 位及以下源左移补零后逐位无损，
  * 浮点源按中间态取整；24 位则丢 32 位源的低八位，故源本就是 32 位时不列入。
  *
- * 这里只列「本应用写得出的编码」，不掺「本机是否建得起轨」：后者不再事前实测（见 docs/注意事项.md），
+ * 这里只列「本应用写得出的编码」，不掺「本机是否建得起轨」：后者不再事前实测（见 docs/archive/注意事项.md），
  * 由音频输出在真实建轨失败时降级兜底。
  *
  * [decodedPcmEncoding] 取解码头实际输出的线性 PCM 编码：未取得编码时的取值会让「高分辨率」与

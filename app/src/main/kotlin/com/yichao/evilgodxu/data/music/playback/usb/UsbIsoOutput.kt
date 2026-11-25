@@ -12,7 +12,7 @@ import java.nio.ByteBuffer
  * `linux/usbdevice_fs.h`，不含任何第三方库。
  *
  * 库名带应用名而非直接叫 usb 系：`libusb*` 这个前缀会让人读成 libusb——而本工程恰恰是**刻意不用它**
- * （见 docs/注意事项.md），名字上跟着混只会让后来者认错实现来源。
+ * （见 docs/archive/注意事项.md），名字上跟着混只会让后来者认错实现来源。
  */
 internal object UsbIsoNative {
     init {
