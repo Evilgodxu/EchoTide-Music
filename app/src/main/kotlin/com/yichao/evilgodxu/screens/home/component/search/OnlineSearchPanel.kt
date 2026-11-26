@@ -28,8 +28,10 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.KeyboardActionHandler
+import androidx.compose.foundation.text.input.TextFieldDecorator
+import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -76,6 +78,7 @@ import com.yichao.evilgodxu.ui.component.ExpandDirection
 import com.yichao.evilgodxu.ui.component.ExpandPicker
 import com.yichao.evilgodxu.ui.component.qualityLabelRes
 import com.yichao.evilgodxu.ui.component.rememberOnlinePlatformOptions
+import com.yichao.evilgodxu.ui.component.rememberSyncedTextFieldState
 import com.yichao.evilgodxu.ui.component.SEARCH_BAR_BORDER_ALPHA
 import com.yichao.evilgodxu.ui.component.SEARCH_BAR_FILL_ALPHA
 import com.yichao.evilgodxu.ui.component.dialog.SearchResultsLazyList
@@ -204,6 +207,9 @@ private fun SearchInput(
         ?: playbackState.searchSource.key
     // 当前选中平台：菜单高亮以完整候选为准
     val currentPlatform = platformOptions.firstOrNull { it.source == playbackState.searchSource }
+    val searchState = rememberSyncedTextFieldState(playbackState.searchQuery) {
+        playbackState.searchQuery = it
+    }
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -268,32 +274,29 @@ private fun SearchInput(
                 },
             )
             BasicTextField(
-                value = playbackState.searchQuery,
-                onValueChange = { playbackState.searchQuery = it },
+                state = searchState,
                 modifier = Modifier
                     .weight(1f)
                     .padding(start = 2.dp)
                     .onFocusChanged { onFocusChanged(it.isFocused) },
-                singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(
                     color = Color.White,
                     fontSize = 14.sp
                 ),
                 cursorBrush = SolidColor(Color.White),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(
-                    onSearch = {
-                        // 回车触发搜索时收起键盘
-                        keyboardController?.hide()
-                        val query = playbackState.searchQuery.trim()
-                        if (query.isNotBlank()) {
-                            scope.launch { performSearch(playbackState, context) }
-                        }
+                onKeyboardAction = KeyboardActionHandler {
+                    // 回车触发搜索时收起键盘
+                    keyboardController?.hide()
+                    val query = playbackState.searchQuery.trim()
+                    if (query.isNotBlank()) {
+                        scope.launch { performSearch(playbackState, context) }
                     }
-                ),
-                decorationBox = { innerTextField ->
+                },
+                lineLimits = TextFieldLineLimits.SingleLine,
+                decorator = TextFieldDecorator { innerTextField ->
                     Box {
-                        if (playbackState.searchQuery.isEmpty()) {
+                        if (searchState.text.isEmpty()) {
                             Text(
                                 text = stringResource(R.string.music_panel_search_placeholder),
                                 color = Color.White.copy(alpha = 0.5f),
@@ -304,7 +307,7 @@ private fun SearchInput(
                     }
                 }
             )
-            if (playbackState.searchQuery.isNotEmpty()) {
+            if (searchState.text.isNotEmpty()) {
                 IconButton(
                     onClick = { playbackState.setSearchQuery("") },
                     modifier = Modifier.size(32.dp)

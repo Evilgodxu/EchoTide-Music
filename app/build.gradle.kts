@@ -17,7 +17,9 @@ if (localPropertiesFile.exists()) {
 
 android {
     namespace = "com.yichao.evilgodxu"
+    // Compose 1.13 的 AAR 元数据要求 37.1 以上，按次版本号补齐到最新稳定 37.2
     compileSdk = 37
+    compileSdkMinor = 2
     // 自写的 usbfs 等时层要经 NDK 构建；版本与 ABI 一并锁定，避免工具链漂移改变产物
     ndkVersion = "28.2.13676358"
 

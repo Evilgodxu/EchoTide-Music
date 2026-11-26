@@ -19,6 +19,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.TextFieldDecorator
+import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -287,7 +291,8 @@ internal fun AddSongsPicker(
 ) {
     if (!visible) return
     var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
-    var query by remember { mutableStateOf("") }
+    val queryState = rememberTextFieldState()
+    val query = queryState.text.toString()
     val selectable = candidateTracks.filterNot { it.id in existingIds }
     // 按标题/艺术家关键词实时筛选候选曲目
     val filtered = remember(selectable, query) {
@@ -346,17 +351,16 @@ internal fun AddSongsPicker(
                             .size(16.dp)
                     )
                     BasicTextField(
-                        value = query,
-                        onValueChange = { query = it },
+                        state = queryState,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(start = 32.dp, end = 28.dp),
-                        singleLine = true,
                         textStyle = MaterialTheme.typography.bodyMedium.copy(
                             color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 12.sp
                         ),
-                        decorationBox = { innerTextField ->
+                        lineLimits = TextFieldLineLimits.SingleLine,
+                        decorator = TextFieldDecorator { innerTextField ->
                             Box {
                                 if (query.isEmpty()) {
                                     Text(
@@ -371,7 +375,7 @@ internal fun AddSongsPicker(
                     )
                     if (query.isNotEmpty()) {
                         IconButton(
-                            onClick = { query = "" },
+                            onClick = { queryState.clearText() },
                             modifier = Modifier
                                 .align(Alignment.CenterEnd)
                                 .size(24.dp)

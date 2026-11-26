@@ -20,8 +20,10 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.KeyboardActionHandler
+import androidx.compose.foundation.text.input.TextFieldDecorator
+import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +50,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
+import com.yichao.evilgodxu.ui.component.rememberSyncedTextFieldState
 
 // 行内容与文本对齐用的水平内边距：行底色自带 10dp 内缩，文本位置与此一致
 internal val ROW_HORIZONTAL_PADDING = 10.dp
@@ -325,6 +328,7 @@ internal fun EntryTextField(
 ) {
     val focusRequester = remember { FocusRequester() }
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val textState = rememberSyncedTextFieldState(value, onValueChange)
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     LaunchedEffect(Unit) {
         runCatching { focusRequester.requestFocus() }
@@ -336,14 +340,16 @@ internal fun EntryTextField(
         if (imeVisible) runCatching { bringIntoViewRequester.bringIntoView() }
     }
     BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
-        singleLine = singleLine,
-        maxLines = if (singleLine) 1 else maxLines,
+        state = textState,
         textStyle = TextStyle(fontSize = fontSize, color = MaterialTheme.colorScheme.onSurface),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         keyboardOptions = KeyboardOptions(imeAction = if (singleLine) ImeAction.Done else ImeAction.Default),
-        keyboardActions = KeyboardActions(onDone = { onEditDone() }),
+        onKeyboardAction = KeyboardActionHandler { onEditDone() },
+        lineLimits = if (singleLine) {
+            TextFieldLineLimits.SingleLine
+        } else {
+            TextFieldLineLimits.MultiLine(maxHeightInLines = maxLines)
+        },
         modifier = modifier
             .fillMaxWidth()
             .focusRequester(focusRequester)
@@ -356,9 +362,9 @@ internal fun EntryTextField(
                 horizontal = ENTRY_FIELD_CONTENT_PADDING,
                 vertical = ENTRY_FIELD_CONTENT_PADDING,
             ),
-        decorationBox = { innerTextField ->
+        decorator = TextFieldDecorator { innerTextField ->
             Box {
-                if (value.isEmpty() && placeholder.isNotEmpty()) {
+                if (textState.text.isEmpty() && placeholder.isNotEmpty()) {
                     Text(
                         text = placeholder,
                         fontSize = fontSize,

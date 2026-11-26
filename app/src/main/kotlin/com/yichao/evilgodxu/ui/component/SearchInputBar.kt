@@ -19,8 +19,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.KeyboardActionHandler
+import androidx.compose.foundation.text.input.TextFieldDecorator
+import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -132,6 +134,7 @@ internal fun SearchInputBar(
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+    val textState = rememberSyncedTextFieldState(query, onQueryChange)
     // 记录输入框自身焦点：键盘收起但焦点仍残留时（系统返回键/手势收键盘）需主动释放，
     // 否则上层拦截层持续生效、列表无法滚动，「置顶」「定位」按钮也一直隐藏
     var fieldFocused by remember { mutableStateOf(false) }
@@ -177,8 +180,7 @@ internal fun SearchInputBar(
                 modifier = Modifier.size(18.dp),
             )
             BasicTextField(
-                value = query,
-                onValueChange = onQueryChange,
+                state = textState,
                 modifier = Modifier
                     .weight(1f)
                     .padding(start = 8.dp)
@@ -186,21 +188,21 @@ internal fun SearchInputBar(
                         fieldFocused = focused.isFocused
                         onFocusChanged(focused.isFocused)
                     },
-                singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(
                     color = textColor,
                     fontSize = 13.sp,
                 ),
                 cursorBrush = SolidColor(textColor),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = {
+                onKeyboardAction = KeyboardActionHandler {
                     // 回车搜索后收起键盘并释放焦点，避免输入框保持聚焦态
                     keyboardController?.hide()
                     focusManager.clearFocus()
-                }),
-                decorationBox = { innerTextField ->
+                },
+                lineLimits = TextFieldLineLimits.SingleLine,
+                decorator = TextFieldDecorator { innerTextField ->
                     Box {
-                        if (query.isEmpty()) {
+                        if (textState.text.isEmpty()) {
                             Text(
                                 text = placeholder,
                                 color = hintColor,
@@ -211,7 +213,7 @@ internal fun SearchInputBar(
                     }
                 },
             )
-            if (query.isNotEmpty()) {
+            if (textState.text.isNotEmpty()) {
                 IconButton(
                     onClick = { onQueryChange("") },
                     modifier = Modifier.size(30.dp),
