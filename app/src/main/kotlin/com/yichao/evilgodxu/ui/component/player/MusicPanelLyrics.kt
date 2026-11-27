@@ -350,6 +350,8 @@ internal fun LyricsPanel(
                     if (!cancelled && candidate != null) {
                         // 对齐：跳到该行起播，并设保护窗
                         val targetMs = currentLines[candidate].timeMs
+                        // 逐帧锚点同步落点，保护窗内才不会把取样位置拉回旧行
+                        framePositionState.longValue = targetMs
                         lyricPosition = targetMs
                         seekGuardUntilMs = System.currentTimeMillis() + LYRIC_SCRUB_SEEK_GUARD_MS
                         // 绝对时间换算到播放器坐标系
