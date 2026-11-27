@@ -97,6 +97,8 @@ internal fun ExpandedAssembly(
     HomeShell(
         panelState = panelState,
         modifier = modifier,
+        // 轮播自带同源背景，盖住本层时停掉首页那份
+        backgroundSuppressed = coverCarouselVisible,
     ) { topInset ->
         HomePanels(
             panelState = panelState,

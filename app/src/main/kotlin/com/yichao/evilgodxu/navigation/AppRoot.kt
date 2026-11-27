@@ -100,7 +100,11 @@ fun AppRoot(
     // 与页内层级同速整宽位移
     val pageTransitionSpec = tween<IntOffset>(AppMotion.Standard)
     Box(modifier = modifier.fillMaxSize()) {
-        CompositionLocalProvider(LocalIsTopLayer provides (overlay == null)) {
+        CompositionLocalProvider(
+            LocalIsTopLayer provides (overlay == null),
+            // 覆盖层压住即停摆：首页的背景帧循环与转场不再消耗 vsync 与工作线程
+            LocalScreenActive provides (overlay == null),
+        ) {
             HomeScreen(
                 onOpenSettings = { overlay = Settings },
                 onOpenSpectrum = { trackId -> overlay = Spectrum(trackId) },
