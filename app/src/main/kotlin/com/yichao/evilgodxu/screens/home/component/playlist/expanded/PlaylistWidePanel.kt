@@ -37,6 +37,8 @@ import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistGroupsPage
 import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistSmartTracksPage
 import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistTracksPage
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
+import com.yichao.evilgodxu.theme.AppMotion
+import kotlinx.coroutines.delay
 
 // 左栏宽 300dp，容纳名称与计数
 private val PlaylistRailWidth = 300.dp
@@ -71,8 +73,12 @@ internal fun PlaylistWidePanel(
     var drilledGroup by remember { mutableStateOf<PlaylistGroup?>(null) }
     // 下钻后返回先退分组列表，被覆盖层压住时让出
     BackHandler(enabled = LocalIsTopLayer.current && visible && drilledGroup != null) { drilledGroup = null }
-    // 离开歌单页即退出下钻
-    LaunchedEffect(visible) { if (!visible) drilledGroup = null }
+    // 离开歌单页即退出下钻；等面板滑出视野再复位，免得退场半程露出列表
+    LaunchedEffect(visible) {
+        if (visible) return@LaunchedEffect
+        delay(AppMotion.Standard.toLong())
+        drilledGroup = null
+    }
     // 宽屏无沉浸页、不接横滑，标题栏常驻
     LaunchedEffect(Unit) {
         onImmersivePageChange(false)

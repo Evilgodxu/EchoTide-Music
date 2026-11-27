@@ -40,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
@@ -77,6 +78,7 @@ import com.yichao.evilgodxu.data.settings.LyricAlignment
 import com.yichao.evilgodxu.data.settings.LyricLayoutDefaults
 import com.yichao.evilgodxu.data.settings.wordByWordRenderingFlow
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
+import com.yichao.evilgodxu.navigation.LocalScreenActive
 import com.yichao.evilgodxu.data.music.playback.seekToAndPlay
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.theme.LocalSuccessColor
@@ -116,44 +118,61 @@ internal fun LyricsPanel(
     val context = LocalContext.current
     val wordByWordEnabled by context.wordByWordRenderingFlow().collectAsState(initial = true)
     // 跟随曲目起算，起步取状态层歌词时间轴
-    var lyricPosition by remember(playbackState.currentTrack?.id) {
-        mutableLongStateOf(playbackState.seedLyricPosition(playbackState.currentTrack?.id))
+    val seedPosition = remember(playbackState.currentTrack?.id) {
+        playbackState.seedLyricPosition(playbackState.currentTrack?.id)
     }
+    // 逐字填充按 vsync 推进；切行与滚动按固定间隔取样
+    // 两者分开：高频值只在当前行内读取，重组不外溢到整列歌词
+    val framePositionState = remember(playbackState.currentTrack?.id) {
+        mutableLongStateOf(seedPosition)
+    }
+    var lyricPosition by remember(playbackState.currentTrack?.id) { mutableLongStateOf(seedPosition) }
+    val livePosition = remember(framePositionState) { { framePositionState.longValue } }
     // 拖拽跳转后的短时保护窗，忽略旧位置
     var seekGuardUntilMs by remember(playbackState.currentTrack?.id) { mutableLongStateOf(0L) }
-    LaunchedEffect(playbackState.isPlaying, playbackState.currentTrack?.id) {
+    // 播放页被翻走或被覆盖层压住时不逐帧推进，恢复后从当前相位继续
+    val screenActive = LocalScreenActive.current
+    LaunchedEffect(playbackState.isPlaying, playbackState.currentTrack?.id, screenActive) {
         // 本次跟随所属曲目
         val trackId = playbackState.currentTrack?.id
         var lastSyncMs = 0L
+        var lastPublishMs = 0L
         while (isActive) {
+            if (!playbackState.isPlaying || !screenActive) {
+                // 暂停或不可见时不占 vsync：位置冻结，仅在外部 seek 时跟随
+                lastSyncMs = 0L
+                delay(LYRIC_PAUSED_POLL_MS)
+                if (System.currentTimeMillis() < seekGuardUntilMs) continue
+                val candidate = playbackState.lyricPositionMs
+                val held = framePositionState.longValue
+                framePositionState.longValue = when {
+                    candidate >= held -> candidate
+                    held - candidate > LYRIC_SEEK_TOLERANCE_MS -> candidate
+                    else -> held
+                }
+                lyricPosition = framePositionState.longValue
+                continue
+            }
+            // 与设备刷新率同拍推进，填充不再靠补间追赶
+            withFrameNanos { }
+            val now = System.currentTimeMillis()
+            val elapsed = if (lastSyncMs == 0L) 0L else (now - lastSyncMs).coerceAtLeast(0L)
+            lastSyncMs = now
             // 锚点取控制器即时位置，按绝对时间换算
             val candidate = playbackState.lyricPositionMs
-            val now = System.currentTimeMillis()
-            val guarding = now < seekGuardUntilMs
-            if (playbackState.isPlaying) {
-                val elapsed = if (lastSyncMs == 0L) 0L else (now - lastSyncMs).coerceAtLeast(0L)
-                // 播放中按真实流逝时间推进，锚点仅作参照
-                lyricPosition = when {
-                    guarding -> lyricPosition + elapsed
-                    candidate >= lyricPosition -> candidate
-                    lyricPosition - candidate > LYRIC_SEEK_TOLERANCE_MS -> candidate
-                    else -> lyricPosition + elapsed
-                }
-                lastSyncMs = now
-            } else {
-                // 暂停时保持本地位置，仅在正向 seek 时跟随
-                if (!guarding) {
-                    lyricPosition = when {
-                        candidate >= lyricPosition -> candidate
-                        lyricPosition - candidate > LYRIC_SEEK_TOLERANCE_MS -> candidate
-                        else -> lyricPosition
-                    }
-                }
-                lastSyncMs = 0L
+            val held = framePositionState.longValue
+            framePositionState.longValue = when {
+                now < seekGuardUntilMs -> held + elapsed
+                candidate >= held -> candidate
+                held - candidate > LYRIC_SEEK_TOLERANCE_MS -> candidate
+                else -> held + elapsed
             }
-            // 回写进度，重建时接着走
-            playbackState.recordLyricPosition(trackId, lyricPosition)
-            delay(if (playbackState.isPlaying) 50L else 200L)
+            // 切行、滚动与重建快照按固定间隔取样，不跟随逐帧抖动
+            if (lastPublishMs == 0L || now - lastPublishMs >= LYRIC_POSITION_PUBLISH_MS) {
+                lyricPosition = framePositionState.longValue
+                lastPublishMs = now
+                playbackState.recordLyricPosition(trackId, framePositionState.longValue)
+            }
         }
     }
 
@@ -471,6 +490,8 @@ internal fun LyricsPanel(
                                         line = line,
                                         nextTimeMs = nextTimeMs,
                                         positionMs = lyricPosition,
+                                        // 当前行逐帧跟随，其余行按取样值
+                                        livePositionMs = livePosition,
                                         isCurrent = isCurrent,
                                         wordByWordEnabled = wordByWordEnabled,
                                         fontSize = fontSize,
@@ -660,7 +681,12 @@ internal fun LyricText(
     pendingColor: Color,
     alignment: LyricAlignment,
     modifier: Modifier = Modifier,
+    // 当前行的逐帧位置；为空时沿用 positionMs
+    // 在此读取，状态依赖只落在行内，不外溢到整列歌词
+    livePositionMs: (() -> Long)? = null,
 ) {
+    val effectivePositionMs =
+        if (isCurrent && livePositionMs != null) livePositionMs() else positionMs
     var contentWidthPx by remember { mutableIntStateOf(0) }
     // 统一按放大预留宽度分行，避免换行跳变
     val wrapWidthPx = if (contentWidthPx <= 0) 0 else (contentWidthPx / LYRIC_ROW_SCALE_MAX).roundToInt()
@@ -686,7 +712,7 @@ internal fun LyricText(
             WordSplitLyricText(
                 line = line,
                 nextTimeMs = nextTimeMs,
-                positionMs = positionMs,
+                positionMs = effectivePositionMs,
                 isCurrent = isCurrent,
                 fontSize = fontSize,
                 fontWeight = fontWeight,
@@ -699,7 +725,7 @@ internal fun LyricText(
             LineFillLyricText(
                 line = line,
                 nextTimeMs = nextTimeMs,
-                positionMs = positionMs,
+                positionMs = effectivePositionMs,
                 isCurrent = isCurrent,
                 fontSize = fontSize,
                 fontWeight = fontWeight,
@@ -778,6 +804,12 @@ private fun WholeLineLyricText(
 
 // 位置回退容差，小于视为抖动
 private const val LYRIC_SEEK_TOLERANCE_MS = 1500L
+
+// 切行与滚动取样的间隔；逐字填充另有逐帧通道
+private const val LYRIC_POSITION_PUBLISH_MS = 50L
+
+// 暂停时的外部跳转轮询间隔，不占 vsync
+private const val LYRIC_PAUSED_POLL_MS = 200L
 
 // 可见行数，奇数使当前行居中
 private const val DEFAULT_VISIBLE_LINES = 5

@@ -2,6 +2,7 @@ package com.yichao.evilgodxu.screens.home.component.panel
 
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -12,6 +13,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.ui.platform.LocalContext
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisController
+import com.yichao.evilgodxu.theme.AppMotion
 import com.yichao.evilgodxu.theme.md_theme_dark_surface
 import com.yichao.evilgodxu.LocalPlaybackState
 import kotlinx.coroutines.CoroutineScope
@@ -45,8 +47,14 @@ internal class HomePanelState(
         get() = HomePage.entries[pagerState.currentPage]
 
     // 切到指定页面：位移与吸附动画由 Pager 结算
+    // 显式给缓动与时长，默认弹簧在整宽位移上起步过猛，看起来像瞬移
     fun goToPage(page: HomePage) {
-        scope.launch { pagerState.animateScrollToPage(page.ordinal) }
+        scope.launch {
+            pagerState.animateScrollToPage(
+                page = page.ordinal,
+                animationSpec = tween(AppMotion.Standard),
+            )
+        }
     }
 
     fun closePanels() {
@@ -54,9 +62,11 @@ internal class HomePanelState(
     }
 
     // 打开歌手歌单：切到歌单面板并跳转
+    // 直达歌手页时 Pager 直接落位，只留面板内那一层滑入；
+    // 两段整宽位移同向叠加会让转场看起来快一倍
     fun openArtistPlaylist(artist: String) {
         pendingArtistPlaylist = artist
-        goToPage(HomePage.PLAYLIST)
+        scope.launch { pagerState.scrollToPage(HomePage.PLAYLIST.ordinal) }
     }
 }
 

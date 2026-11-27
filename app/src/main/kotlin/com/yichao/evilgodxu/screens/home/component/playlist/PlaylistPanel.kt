@@ -2,6 +2,8 @@ package com.yichao.evilgodxu.screens.home.component.playlist
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -71,6 +73,7 @@ import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.windowsize.rememberExpandedForm
+import kotlinx.coroutines.delay
 
 // 歌单面板：窄屏逐级下钻，宽屏左右分栏
 // 共享的存储与增删改弹窗收在此处。
@@ -177,16 +180,30 @@ private fun PlaylistStackedPanel(
     onDelete: (Playlist) -> Unit,
 ) {
     var backStack by remember { mutableStateOf(listOf<PlaylistPage>(PlaylistPage.Overview)) }
+    // 正在复位栈：转场由面板自身的滑出承担，内部再播一层会显得快一倍
+    var stackResetting by remember { mutableStateOf(false) }
     // 页面栈唯一入口：栈、标题栏与横滑须同次写入
     fun go(stack: List<PlaylistPage>) {
         backStack = stack
         onImmersivePageChange(stack.last().immersiveGroupPage != null)
         onSwipeBackChange(stack.size > 1)
     }
-    LaunchedEffect(visible) { if (!visible) go(listOf(PlaylistPage.Overview)) }
+    // 滑出视野后再复位，退场半程里换页会露出总览
+    LaunchedEffect(visible) {
+        if (visible) {
+            stackResetting = false
+            return@LaunchedEffect
+        }
+        // 与面板滑出同长，等它离场再复位，用户看不到这一跳
+        delay(AppMotion.Standard.toLong())
+        stackResetting = true
+        go(listOf(PlaylistPage.Overview))
+    }
     // 歌手直达该歌手曲目列表，回退直接回播放器
     LaunchedEffect(pendingArtist) {
         val artist = pendingArtist?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        // 直达是一段完整的滑入，必须走正常转场
+        stackResetting = false
         go(
             listOf(
                 PlaylistPage.Overview,
@@ -229,14 +246,19 @@ private fun PlaylistStackedPanel(
     AnimatedContent(
         targetState = backStack,
         transitionSpec = {
-            val forward = targetState.size > initialState.size
-            val spec = tween<IntOffset>(AppMotion.Standard)
-            if (forward) {
-                slideInHorizontally(animationSpec = spec) { it } togetherWith
-                    slideOutHorizontally(animationSpec = spec) { -it }
+            // 复位栈发生在面板滑出之后，看不见，不必再播一层
+            if (stackResetting) {
+                EnterTransition.None togetherWith ExitTransition.None
             } else {
-                slideInHorizontally(animationSpec = spec) { -it } togetherWith
-                    slideOutHorizontally(animationSpec = spec) { it }
+                val forward = targetState.size > initialState.size
+                val spec = tween<IntOffset>(AppMotion.Standard)
+                if (forward) {
+                    slideInHorizontally(animationSpec = spec) { it } togetherWith
+                        slideOutHorizontally(animationSpec = spec) { -it }
+                } else {
+                    slideInHorizontally(animationSpec = spec) { -it } togetherWith
+                        slideOutHorizontally(animationSpec = spec) { it }
+                }
             }
         },
         modifier = Modifier.fillMaxSize(),

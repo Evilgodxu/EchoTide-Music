@@ -205,7 +205,8 @@ internal fun LyricChar(
 
 private const val LINE_CHAR_SHADOW_BLUR = 5f
 
-private const val LYRIC_FILL_SMOOTH_MS = 60
+// 逐字填充只补一帧的差：位置已按 vsync 推进，过渡再长就会持续落后于真实进度
+private const val LYRIC_FILL_SMOOTH_MS = 16
 
 // 回落 320ms，与下一字跳起重叠
 private const val LYRIC_JUMP_DOWN_MS = 320
