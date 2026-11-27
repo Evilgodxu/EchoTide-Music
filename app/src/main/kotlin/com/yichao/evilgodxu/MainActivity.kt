@@ -35,22 +35,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
-    // 系统栏显隐目标：首页（横竖屏）全沉浸隐藏 / 其余页面全部显示
+    // 系统栏目标：首页全沉浸隐藏，其余全显示
     private enum class SystemBarTarget { HIDE_ALL, VISIBLE }
 
     private companion object {
-        // 系统栏被外部显示后，由本应用主动压回隐藏的最大延迟
+        // 系统栏被外部显示后压回隐藏的最大延迟
         const val SYSTEM_BARS_AUTO_HIDE_DELAY_MS = 2000L
-        // 外部文本导入上限：代理音源配置是结构化小文件，超出即按读取失败处理，
-        // 不能让任意外部流把内存先吃掉再判断内容
+        // 外部文本导入上限 8MB，超限按读取失败
         const val MAX_PROXY_SOURCE_BYTES = 8 * 1024 * 1024
     }
 
     // 同一帧内的多次系统栏请求合并为一次下发
     private var systemBarsScheduled = false
 
-    // 沉浸态守护：系统栏被外部途径显示后最多 2 秒压回隐藏。不依赖 insets 上报与焦点回调——
-    // 部分 ROM / 独立窗口显示系统栏时本窗口 insets 不同步、焦点也不在本窗口，事件收不到
+    // 系统栏被外部显示后 2 秒压回，部分 ROM 收不到事件
     private val autoHideSystemBars = object : Runnable {
         override fun run() {
             val controller = window.insetsController ?: return
@@ -60,7 +58,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 手动 DI：经 Application 取应用级单例，ViewModel 以工厂注入构造参数
+    // 手动 DI：经 Application 取单例
     private val app: App
         get() = application as App
     private val localizationManager: LocalizationManager
@@ -78,18 +76,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 冷启动语言由系统「应用语言」偏好在创建 Activity 前配置好，无需自建同步镜像
+    // 语言由系统应用语言偏好预置，无需自建镜像
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
-            // 系统栏图标外观由 Compose 按主题与页面控制，这里仅跟随系统作为初始兜底值
+            // 图标外观由 Compose 控制，此处仅作初始兜底
             statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
         )
-        // 三键导航栏默认开启强制对比度：系统会在导航栏区域铺一层不透明底色，既不随沉浸背景透明，
-        // 又与底部控件争夺同一片区域。关闭后导航栏背景真正透明，其高度占位由界面侧自行避让
+        // 关掉导航栏强制对比度，让背景真透明，占位由界面侧避让
         window.isNavigationBarContrastEnforced = false
         setupSystemBars()
-        // 绑定当前 Activity，使对话框等独立窗口在切语言时同步更新资源
+        // 绑定 Activity，使独立窗口切语言时同步资源
         localizationManager.bindActivity(this)
 
         handleExternalIntent(intent)
@@ -116,7 +113,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        // 解除语言管理器与系统栏回调对 Activity 的持有，避免单例持有已销毁实例
+        // 解除语言与系统栏回调的持有，避免泄漏
         stopSystemBarsAutoHide()
         window.decorView.removeOnLayoutChangeListener(layoutOrientationListener)
         SystemBarAppearance.onChanged = null
@@ -126,7 +123,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // 系统 uiMode 变化时系统可能重置系统栏图标与显隐，按当前朝向复读界面声明的状态
+        // uiMode 变化可能重置系统栏，按朝向复读状态
         scheduleSystemBars()
     }
 
@@ -134,23 +131,23 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         scheduleSystemBars()
         startSystemBarsAutoHide()
-        // 已回到前台：跳系统设置后的授权跟随到此为止，不必再在后台轮询
+        // 回前台即停止授权跟随轮询
         PermissionReturnMonitor.stop()
     }
 
     override fun onPause() {
-        // 后台或被其他页面遮挡时停掉守护，避免无意义下发
+        // 退后台停止守护，避免无意义下发
         stopSystemBarsAutoHide()
         super.onPause()
     }
 
     override fun onStop() {
-        // 收起键盘并重置窗口输入状态，避免回前台时键盘偶发自动弹出
+        // 收起键盘，避免回前台误弹
         window.insetsController?.hide(WindowInsets.Type.ime())
         super.onStop()
     }
 
-    // 窗口重新获得焦点时系统可能重置系统栏（如对话框、弹窗、下拉通知栏关闭后），复读界面声明的状态
+    // 窗口重获焦点可能重置系统栏，复读状态
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) scheduleSystemBars()
@@ -162,7 +159,7 @@ class MainActivity : ComponentActivity() {
         handleExternalIntent(intent)
     }
 
-    // 处理外部通过打开/分享传入的内容：音频经迷你播放器后台播放；文本/JSON 作为代理音源导入
+    // 处理外部打开/分享：音频后台播放，文本按代理导入
     private fun handleExternalIntent(intent: Intent) {
         val uri = when (intent.action) {
             Intent.ACTION_VIEW -> intent.data
@@ -178,14 +175,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 分享方已在 Intent 里声明类型时以它为准：部分提供者对 getType 返回 null 或通用 MIME，
-    // 只看提供者会把明确标为 audio/* 的音频当代理文本导入
+    // 优先用 Intent 声明的类型，避免音频被当文本
     private fun isAudioUri(uri: Uri, declaredType: String?): Boolean =
         declaredType?.startsWith("audio/") == true ||
             contentResolver.getType(uri)?.startsWith("audio/") == true
 
-    // 读取分享/打开的文本文件并按代理音源解析导入，结果以 Toast 提示；
-    // 文件读取与同步写盘均为阻塞操作，移到 IO 线程避免阻塞主线程
+    // 导入代理文本；读取与写盘阻塞，置于 IO 线程
     private fun importProxySource(uri: Uri) {
         lifecycleScope.launch(Dispatchers.IO) {
             val text = runCatching {
@@ -210,7 +205,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 带上限的文本读取：累计超过 limit 即中止，不把整份未知长度的流读进内存
+    // 超 limit 即中止，不整份读入
     private fun readTextWithLimit(input: InputStream, limit: Int): String {
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(8192)
@@ -226,21 +221,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun setupSystemBars() {
-        // 界面侧只声明请求，窗口操作统一收敛到 applySystemBars
+        // 窗口操作统一收敛到 applySystemBars
         SystemBarAppearance.onChanged = { scheduleSystemBars() }
         installSystemBarsDiscovery()
         installSystemBarsOrientationTracking()
         scheduleSystemBars()
     }
 
-    // 窗口宽高比翻转（旋转、分屏、自由窗口改尺寸）后按新朝向复核系统栏：
-    // 下发时刻的窗口尺寸可能仍停留在翻转前，只按当时尺寸判定会把系统栏卡在显示态，
-    // 故以窗口布局结果为准再复核一次
+    // 布局翻转后复核系统栏，避免尺寸滞后卡住显示态
     private fun installSystemBarsOrientationTracking() {
         window.decorView.addOnLayoutChangeListener(layoutOrientationListener)
     }
 
-    // 最近一次按窗口布局判定的朝向：仅在宽高比翻转时触发复核，其余布局变化不打扰系统栏
+    // 仅宽高比翻转时复核系统栏
     private var layoutLandscape: Boolean? = null
 
     private val layoutOrientationListener = View.OnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
@@ -250,8 +243,7 @@ class MainActivity : ComponentActivity() {
         scheduleSystemBars()
     }
 
-    // 发现通道：期望隐藏而 insets 报系统栏可见时重置自动隐藏计时。不在此立即下发——
-    // 系统栏显示过程本身会触发分发，立即下发会与之反复竞争形成帧级循环
+    // 发现系统栏可见时重置计时；立即下发会与系统竞争成循环
     private fun installSystemBarsDiscovery() {
         window.decorView.setOnApplyWindowInsetsListener { view, insets ->
             val barsVisible = insets.isVisible(WindowInsets.Type.statusBars()) ||
@@ -263,7 +255,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 启动/重置守护计时：自最近一次「发现系统栏可见」起算，最多 2 秒后主动压回隐藏
+    // 重置守护计时，2 秒后压回隐藏
     private fun startSystemBarsAutoHide() {
         val decorView = window.decorView
         decorView.removeCallbacks(autoHideSystemBars)
@@ -275,8 +267,7 @@ class MainActivity : ComponentActivity() {
         window.decorView.removeCallbacks(autoHideSystemBars)
     }
 
-    // 合并同一帧内的多次请求，并延后到当前窗口过渡/布局结束后执行：对话框、弹出窗口等独立窗口
-    // 切换期间系统会强制显示系统栏，焦点回归时立即 hide 可能被窗口切换过程覆盖，延后执行可稳定落回预期显隐
+    // 合并同帧请求并延后执行，避免被窗口切换覆盖
     private fun scheduleSystemBars() {
         if (systemBarsScheduled) return
         systemBarsScheduled = true
@@ -287,8 +278,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 朝向判据与界面层 rememberWindowLandscape 同源（窗口实测宽高）：配置读取可能滞后于实际窗口，
-    // 若此处仍按竖屏下发，会把系统栏 show 出来并常驻遮挡顶部按钮
+    // 按窗口实测宽高判朝向，配置读取可能滞后
     private fun isWindowLandscape(): Boolean {
         val decor = window.decorView
         if (decor.width > 0 && decor.height > 0) return decor.width > decor.height
@@ -296,8 +286,7 @@ class MainActivity : ComponentActivity() {
         return bounds.width() > bounds.height()
     }
 
-    // 首页（含在线搜索页与歌单页）竖屏同横屏一样全沉浸：状态栏与导航栏一并隐藏，
-    // 播放器与各页列表都铺到屏幕边缘；其余页面两条系统栏全部显示
+    // 首页竖屏同横屏全沉浸，其余页面显示系统栏
     private fun systemBarTarget(): SystemBarTarget =
         if (isWindowLandscape() || SystemBarAppearance.isHomePortraitImmersive) {
             SystemBarTarget.HIDE_ALL
@@ -328,8 +317,7 @@ class MainActivity : ComponentActivity() {
         applySystemBarsVisibility(controller)
     }
 
-    // 按目标无条件下发显隐：不做「状态已符合则跳过」的短路——系统从外部显示系统栏时本窗口
-    // insets 未必同步上报为可见，短路会导致「显示了也压不回」；hide/show 重复下发是幂等的
+    // 无条件下发显隐；insets 未必同步，短路会压不回
     private fun applySystemBarsVisibility(controller: WindowInsetsController) {
         when (systemBarTarget()) {
             SystemBarTarget.HIDE_ALL -> controller.hide(WindowInsets.Type.systemBars())

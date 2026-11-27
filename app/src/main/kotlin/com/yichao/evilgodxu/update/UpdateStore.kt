@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
-// 待更新信息的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
+// 待更新信息落点；名字即持久化标识
 internal val UPDATE_STORE = PersistedData("update", PersistedFileKind.DATA_STORE_JSON)
 
 @Serializable
@@ -36,7 +36,7 @@ private val Context.updateDataStore: DataStore<UpdateArchive> by dataStore(
     },
 )
 
-/** 尚未处理的待更新信息。 */
+/** 尚未处理的待更新信息 */
 data class PendingUpdate(
     val version: String,
     val url: String,
@@ -44,12 +44,7 @@ data class PendingUpdate(
     val sha256: String,
 )
 
-/**
- * 更新检查与待更新信息的持久化。
- *
- * 检查日、待更新提示与忽略版本同属一份原子状态：一次检查要么整组写入，要么全不写，
- * 不会留下「已记为今天检查过、却没有待更新信息」的中间态。
- */
+/** 更新检查持久化：检查日、待更新与忽略版本原子写入 */
 class UpdateStore(context: Context, scope: CoroutineScope) {
 
     private val appContext = context.applicationContext
@@ -57,7 +52,7 @@ class UpdateStore(context: Context, scope: CoroutineScope) {
     private val archive = appContext.updateDataStore.data
         .catchPersistenceIo("UpdateStore") { UpdateArchive() }
 
-    // 预热读盘：首次进入界面时检查日与待更新信息已可用
+    // 预热读盘，首屏即可用
     init {
         scope.launch { archive.first() }
     }
@@ -81,7 +76,7 @@ class UpdateStore(context: Context, scope: CoroutineScope) {
         )
     }
 
-    /** 记录本次检查日；[pending] 为空表示本次没有可提供的更新。 */
+    /** 记录检查日；pending 为空表示无更新 */
     suspend fun recordCheck(today: String, pending: PendingUpdate?) {
         appContext.updateDataStore.updateData { archive ->
             archive.copy(

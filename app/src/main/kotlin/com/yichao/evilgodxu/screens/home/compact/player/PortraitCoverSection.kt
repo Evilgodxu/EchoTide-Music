@@ -53,8 +53,7 @@ import com.yichao.evilgodxu.ui.component.player.applyLocalCover
 import com.yichao.evilgodxu.ui.component.player.loadRecentCovers
 import kotlinx.coroutines.launch
 
-// 竖屏沉浸封面：长按打开封面菜单，在线刷新、本地选择、保存原图与替换流程在此闭环。
-// 顶部的保存失败横幅与封面同域，避免把封面操作状态散回播放器主布局
+// 竖屏封面：长按开菜单，刷新/本地/保存/替换在此闭环
 @Composable
 internal fun PortraitCoverSection(
     playbackState: MusicPlaybackState,
@@ -76,7 +75,7 @@ internal fun PortraitCoverSection(
     var coverSaving by remember { mutableStateOf(false) }
     var coverSaveFailed by remember { mutableStateOf(false) }
     var coverTargetId by remember { mutableStateOf<Long?>(null) }
-    // 本地封面候选取自系统图片库：缺图片访问时先申请，授权后直接重载候选
+    // 缺图片权限先申请，授权后重载候选
     val localCoverPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -87,7 +86,7 @@ internal fun PortraitCoverSection(
         modifier = modifier.combinedClickable(
             onClick = {},
             onLongClick = {
-                // 菜单里的在线刷新与本地封面都要写回音频文件：无权限时就地申请，本次不展开菜单
+                // 写文件需权限，无权限先申请再展开
                 val track = playbackState.currentTrack
                 if (track != null && ensureTrackFileWritable(requestAllFilesAccess)) showCoverMenu = true
             },
@@ -120,8 +119,7 @@ internal fun PortraitCoverSection(
                     localCoverPermissionLauncher.launch(mediaImagePermission())
                 }
             },
-            // 保存内嵌封面原图到系统相册：不改动曲目元数据，故无目标校验；
-            // 无内嵌封面时以提示告知，写入失败仍复用封面错误横幅
+            // 保存封面到相册，不改元数据；失败复用错误横幅
             onSaveCover = {
                 showCoverMenu = false
                 playbackState.currentTrack?.let { track ->
@@ -141,7 +139,7 @@ internal fun PortraitCoverSection(
             },
             onDismiss = { showCoverMenu = false },
         )
-        // 纵向切歌预览：滑动未松手时显示于封面底部，提醒将播放的曲目方向
+        // 切歌预览显示在封面底部
         AnimatedVisibility(
             visible = swipePreviewText != null,
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -222,7 +220,7 @@ internal fun PortraitCoverSection(
                 val candidate = selectedCoverCandidate
                 val track = playbackState.currentTrack
                 if (candidate != null && track != null && track.id == coverTargetId) {
-                    // 索引曲目的封面由系统维护，已有封面时确认是否覆盖
+                    // 索引曲目已有封面，确认是否覆盖
                     val hasCover = track.isMediaStoreIndexed
                     if (hasCover) {
                         showCoverReplace = true

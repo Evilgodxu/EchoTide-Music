@@ -10,15 +10,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * ALAC 帧接入切片器的实测：以真实 ALAC 曲目的帧为样本，核对 [AlacFramePcm] 的落盘经切片器
- * 还原成单声道整窗后与解码样本一致。
- *
- * 守的是落盘与解释两端的字节序：[AlacFramePcm] 按小端写，切片器按 [PcmFormat] 小端读，
- * 两侧一旦错开不会报错，只会让频谱静默退化成噪声——逐样本比对能立刻暴露。
- *
- * 样本取自 `YiChaoTmp` 下的《陈慧娴 - 千千阕歌.m4a》（24 bit - 96 kHz），与 `AlacDecoderCoreTest` 同源。
- */
+/** 落盘与切片器字节序须一致 */
 class AlacFramePcmTest {
 
     private val config = requireNotNull(AlacSpecificConfig.parse(COOKIE)) { "cookie 应能解析" }
@@ -33,7 +25,7 @@ class AlacFramePcmTest {
             pcm.encode(decoder).limit(),
         )
 
-        // 重复送同一帧：累计帧数越过暂存块容量，同时走遍「装满即清仓」与「收尾清仓」两条路径
+        // 越过暂存容量，覆盖两条清仓路径
         val actual = collectWindows { emit -> repeat(SENDS) { emit(pcm.encode(decoder)) } }
         val expected = referenceWindows(monoOf(decoder, config.frameLength * SENDS))
 
@@ -64,7 +56,7 @@ class AlacFramePcmTest {
 
     private fun prefixFrame(): ByteArray = readResource(PREFIX_FIXTURE).copyOfRange(0, FRAME_SIZE)
 
-    // 驱动切片器：按整帧投递，收走其发出的整窗
+    // 按整帧投递，收走整窗
     private suspend fun collectWindows(
         feed: suspend (emit: suspend (ByteBuffer) -> Unit) -> Unit,
     ): List<FloatArray> {
@@ -91,7 +83,7 @@ class AlacFramePcmTest {
         return emitted
     }
 
-    // 基准：逐样本取声道均值，口径与解码样本的浮点归一化一致
+    // 基准取声道均值，与浮点归一化一致
     private fun monoOf(decoder: AlacFrameDecoder, frames: Int): FloatArray {
         val scale = (1L shl (config.bitDepth - 1)).toFloat()
         return FloatArray(frames) { frame ->
@@ -114,7 +106,7 @@ class AlacFramePcmTest {
             .use { it.readBytes() }
 
     private companion object {
-        /** magic cookie，即容器下发的 ALACSpecificConfig，与 AlacDecoderCoreTest 同一份 */
+        /** 容器下发的 ALACSpecificConfig */
         val COOKIE = hex("000010000018280a0e0200ff000060040046500000017700")
 
         const val PREFIX_FIXTURE = "alac-frames-prefix.bin"
@@ -126,11 +118,11 @@ class AlacFramePcmTest {
         /** 分片帧的样本数，取自位流 */
         const val PARTIAL_FRAME_SAMPLES = 154
 
-        // 与解码端同源的窗长与跳步
+        // 窗长与跳步，与解码端一致
         const val FFT_SIZE = 2048
         const val HOP_SIZE = FFT_SIZE / 2
 
-        // 送帧次数：需越过暂存块容量（浮点立体声下为 16384 帧），才会走到「装满即清仓」
+        // 越过暂存容量 16384 帧
         const val SENDS = 5
 
         const val FREE_WINDOW_COUNT = 64

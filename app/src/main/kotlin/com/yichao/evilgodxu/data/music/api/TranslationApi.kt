@@ -10,28 +10,21 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
-/** 单批翻译的结局：区分「可重试」「规模过大」与「成功」，调用方据此决定是否拆分重试 */
+// 单批翻译结果，区分可重试、规模过大与成功
 internal sealed interface TranslateResult {
-    /** 成功，[texts] 与提交的文本等长且顺序一致 */
+    // 成功，texts 与提交文本等长同序
     data class Success(val texts: List<String>) : TranslateResult
 
-    /** 提交规模超出接口限制（实测单次约 1000 字符），缩小批次后可能成功 */
+    // 规模超限（约 1000 字符），缩小批次可能成功
     data object TooLarge : TranslateResult
 
-    /** 限流或网络异常，已按退避重试仍失败 */
+    // 限流或网络异常，已按退避重试仍失败
     data object Unavailable : TranslateResult
 }
 
-/**
- * 文本翻译：走有道公开的免鉴权接口（在线翻译的官方演示入口），不需要注册密钥。
- *
- * 该接口有两项硬约束，都在此处处理：
- * - 单次提交的文本总量约 1000 字符，超出返回错误码 103；
- * - 按 IP 限流，突发请求返回错误码 411。
- *
- * 批量文本以换行拼接提交、结果按行还原，还原行数与提交行数不一致即判定失败 ——
- * 宁可少补几行，也不能把译文错配到别的歌词行上。
- */
+// 文本翻译走有道免鉴权接口，无需密钥
+// 单次约 1000 字符，超限 103；限流 411
+// 批量以换行拼接提交，还原行数不符即失败，避免译文错位
 internal object TranslationApi {
 
     const val TARGET_CHINESE = "zh-CHS"
@@ -49,7 +42,7 @@ internal object TranslationApi {
 
     private val FORM_MEDIA_TYPE = "application/x-www-form-urlencoded".toMediaType()
 
-    // 限流按退避重试；规模超限立即交由调用方拆分
+    // 限流退避重试，规模超限交给调用方拆分
     suspend fun translate(texts: List<String>, targetLanguage: String = TARGET_CHINESE): TranslateResult {
         if (texts.isEmpty()) return TranslateResult.Success(emptyList())
         if (texts.size > MAX_BATCH_SIZE) return TranslateResult.TooLarge
@@ -82,7 +75,7 @@ internal object TranslationApi {
         TranslateResult.Unavailable
     }
 
-    // 译文以「单个元素内含换行分隔」的数组返回，按行还原后必须与提交行数一致，否则视为错位
+    // 译文按行还原，行数不符视为错位
     private fun parseTranslations(body: String, expected: Int): TranslateResult {
         val root = runCatching { JSONObject(body) }.getOrNull() ?: return TranslateResult.Unavailable
         val code = root.optString("errorCode")

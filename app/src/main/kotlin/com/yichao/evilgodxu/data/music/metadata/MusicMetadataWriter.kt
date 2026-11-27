@@ -19,30 +19,22 @@ import kotlinx.coroutines.withContext
 
 internal object MusicMetadataWriter {
 
-    // 同一文件的读改写事务互斥：封面、歌词、改名等入口各自完成一次整文件重写，
-    // 并发进入会以「最后写完的版本」覆盖先完成的那一份。元数据写入次数少且每次都要搬运音频躯干，
-    // 全局串行不会让不同文件的写入互相等待成瓶颈，却能让同一音频的多路写入不再互相吞改。
+    // 同文件读改写互斥，避免多路写入互相覆盖
     private val writeMutex = Mutex()
 
-    // 流式复制音频躯干时的读缓冲大小
+    // 流式复制音频躯干的读缓冲
     private const val STREAM_BUFFER_SIZE = 64 * 1024
 
     // ID3v2 标签头长度
     private const val ID3_HEADER_BYTES = 10
 
-    // content URI 重写的中转文件前缀，与缓存台账的临时文件回收共用同一份命名约定
+    // content URI 重写中转文件前缀
     private const val METADATA_TEMP_PREFIX = "metadata"
 
     suspend fun writeCover(context: Context, track: MusicTrack, coverBytes: ByteArray): Boolean =
         writeToTrack(context, track) { source -> plan(source, TrackTagFields.EMPTY, coverBytes, removeCover = false) }
 
-    /**
-     * 一次写入整批字段与封面，供元数据编辑页保存使用。
-     *
-     * 缺失字段表示不改该项，由容器解析保留文件中的既有值；封面另以 [CoverUpdate] 表达三态
-     * （不改 / 写入 / 删除），使「移除封面」能与「本次未涉及封面」区分开。一次调用只重写一遍文件 ——
-     * 各容器的标签重建都要搬运音频躯干，逐字段分别写入会把同一份音频复制多遍。
-     */
+    /** 一次写入整批字段与封面；缺项保留原值，封面三态 */
     suspend fun writeFields(
         context: Context,
         track: MusicTrack,
@@ -56,17 +48,13 @@ internal object MusicMetadataWriter {
         }
     }
 
-    /**
-     * 把歌词文本内嵌进音频文件：本地文件走文件路径重建，在线缓存歌走 content URI 就地重写，
-     * 纯在线流（无本地文件）无可写目标而跳过。
-     * 内嵌的是增强 LRC 文本，与歌词缓存文件同源，可被内嵌歌词读取器原样解析回来。
-     */
+    /** 歌词内嵌：本地写文件，在线走 URI，纯流跳过 */
     suspend fun writeLyricsToSource(context: Context, track: MusicTrack, lyrics: String): Boolean =
         writeToTrack(context, track) { source ->
             plan(source, TrackTagFields.build { put(TagField.LYRICS, lyrics) }, null)
         }
 
-    // 按曲目的源形态选择写入通道：有本地路径即写文件，在线缓存歌经 content URI 回写
+    // 有本地路径写文件，否则回写 content URI
     private suspend fun writeToTrack(
         context: Context,
         track: MusicTrack,
@@ -78,7 +66,7 @@ internal object MusicMetadataWriter {
         }
     }
 
-    // 写本地文件：同目录中转文件 + 原子替换，音频躯干在写出过程中按区间搬运
+    // 写本地文件：同目录中转 + 原子替换
     private fun write(context: Context, path: String, plan: (TagSource) -> RewritePlan?): Boolean {
         if (path.isBlank()) return false
         return try {
@@ -97,7 +85,7 @@ internal object MusicMetadataWriter {
                 FileOutputStream(temporary).use { output -> writeRewrite(rewrite, source, output) }
                 moveReplacing(temporary, file)
             } catch (e: Throwable) {
-                // 半截的中转文件不可留：替换失败时目标文件仍是原文件
+                // 替换失败时目标仍是原文件，删除中转
                 temporary.delete()
                 throw e
             }
@@ -109,9 +97,7 @@ internal object MusicMetadataWriter {
         }
     }
 
-    // 就地重写 content URI 音频文件：content URI 无寻址写能力，先按方案把结果流式落到应用私有中转文件，
-    // 再整体回写目标，全程不把文件读进堆；非 content 协议不可写时返回 false。
-    // 中转文件放在 filesDir 而非 cacheDir：清理缓存会把 cacheDir 整目录删掉，正好删到正在回写的中转文件。
+    // 原地重写 URI：先写私有中转再回写
     private fun rewriteByUri(context: Context, uriString: String, plan: (TagSource) -> RewritePlan?): Boolean {
         if (uriString.isBlank()) return false
         val uri = uriString.toUri()
@@ -138,8 +124,7 @@ internal object MusicMetadataWriter {
                 try {
                     target.use { output -> temporary.inputStream().use { it.copyTo(output, STREAM_BUFFER_SIZE) } }
                 } catch (e: Throwable) {
-                    // 目标以 wt 打开时已被截断，完整的新内容只剩这份副本：保留它并写清位置，
-                    // 否则失败一次就同时失去原文件与恢复来源
+                    // 目标已截断，保留副本供恢复
                     keepOnFailure = true
                     CrashLogManager.logException(
                         "MusicMetadataWriter",
@@ -149,7 +134,7 @@ internal object MusicMetadataWriter {
                     return false
                 }
             } finally {
-                // 目标未被截断或回写成功时删除中转；目标已截断的失败路径保留副本
+                // 成功或目标未截断时删除中转
                 if (!keepOnFailure && temporary.exists()) temporary.delete()
             }
             true
@@ -159,11 +144,11 @@ internal object MusicMetadataWriter {
         }
     }
 
-    // 元数据中转文件落在应用私有目录：缓存清理不覆盖这里，失败时也能作为恢复副本保留
+    // 中转文件放私有目录，清缓存不波及
     private fun createMetadataTemp(context: Context): File =
         File.createTempFile(METADATA_TEMP_PREFIX, ".tmp", context.filesDir)
 
-    // 方案落盘：头部字面字节 → 音频躯干区间搬运 → 尾部字面字节
+    // 方案落盘：头部 → 躯干区间搬运 → 尾部
     private fun writeRewrite(rewrite: RewritePlan, source: TagSource, out: OutputStream) {
         out.write(rewrite.head)
         if (rewrite.bodyEnd > rewrite.bodyStart) source.copyRange(rewrite.bodyStart, rewrite.bodyEnd, out)
@@ -179,7 +164,7 @@ internal object MusicMetadataWriter {
         plan(source, TrackTagFields.build { put(TagField.TITLE, title); put(TagField.ARTIST, artist) }, null)
     }
 
-    // 将专辑名写回音频文件标签，保留原有标题/艺术家/封面
+    // 写回专辑名，保留标题/艺术家/封面
     suspend fun writeAlbum(
         context: Context,
         track: MusicTrack,
@@ -188,13 +173,7 @@ internal object MusicMetadataWriter {
         plan(source, TrackTagFields.build { put(TagField.ALBUM, album) }, null)
     }
 
-    /**
-     * 重写方案的分派：按容器魔数识别（扩展名不参与判定，改名或加挂 ID3 的文件同样能识别）。
-     *
-     * 头部窗口足以定位标签的容器（MP3/FLAC/M4A）走窗口解析，音频区不进入内存；
-     * 需要遍历全文才能定位标签的容器（WAV 的块表、Ogg 的页序列）走整文件解析，
-     * 且受整文件解析上限约束。识别不出容器即不重写。
-     */
+    /** 按魔数分派容器，不认扩展名；识别不出不重写 */
     private fun plan(
         source: TagSource,
         fields: TrackTagFields,
@@ -212,7 +191,7 @@ internal object MusicMetadataWriter {
         }
     }
 
-    // MP3：解析窗口取 ID3v2 标签区（帧不越过标签末尾），音频帧按标签结束偏移整段搬运
+    // MP3 解析窗口取 ID3v2 区，音频帧整段搬运
     private fun mp3Plan(
         source: TagSource,
         head: ByteArray,
@@ -228,11 +207,7 @@ internal object MusicMetadataWriter {
         return writeMp3(window, fields, cover, removeCover)?.toPlan(source)
     }
 
-    /**
-     * WAV（RIFF）：标签布局由 LosslessContainerTags
-     * 按块表计算，返回头部字面字节 + 音频体区间 + 尾部字面字节，
-     * 定位只读块头与标签区，音频体按区间搬运。
-     */
+    /** WAV/RIFF：按块表计算标签布局 */
     private fun losslessPlan(
         source: TagSource,
         fields: TrackTagFields,
@@ -243,11 +218,7 @@ internal object MusicMetadataWriter {
         return RewritePlan(rewrite.head, rewrite.bodyStart, rewrite.bodyEnd, rewrite.tail)
     }
 
-    /**
-     * 元数据写入的纯字节入口（字节级调用与测试）：解析与线上重写共用同一套方案，
-     * 差别只在音频躯干由已驻留的字节提供，故此处覆盖的正是线上路径的容器解析逻辑。
-     * 文件为空、格式不支持或无需写入时返回 null
-     */
+    /** 纯字节写入入口；空或格式不支持返回 null */
     internal fun writeMetadataBytes(
         bytes: ByteArray,
         title: String?,
@@ -273,10 +244,7 @@ internal object MusicMetadataWriter {
         removeCover: Boolean = false,
     ): ByteArray? = plan(ByteArrayTagSource(bytes), fields, cover, removeCover)?.materialize(bytes)
 
-    /**
-     * 按文件源重写并返回结果字节（测试入口）：与线上写盘共用同一套方案与区间搬运实现，
-     * 使「定位读取 + 躯干搬运」的偏移正确性可在 JVM 上直接验证 —— 字节入口覆盖不到这一段
-     */
+    /** 按文件源重写并返回结果字节，测试入口 */
     internal fun rewriteFileBytes(
         file: File,
         fields: TrackTagFields,
@@ -290,7 +258,7 @@ internal object MusicMetadataWriter {
         return out.toByteArray()
     }
 
-    // 兼容入口：以标题/艺术家/专辑/封面/歌词为字段集合的快捷形式
+    // 快捷重载：散字段转 TrackTagFields
     internal fun rewriteFileBytes(
         file: File,
         title: String?,
@@ -309,20 +277,17 @@ internal object MusicMetadataWriter {
         cover,
     )
 
-    // 容器标签布局统一由 LosslessContainerTags 计算，返回的头部字面字节 + 音频体区间 +
-    // 尾部字面字节直接落到流式写入分支
+    // 布局由无损容器模块计算
     private fun isMp3(bytes: ByteArray) =
         bytes.startsWith("ID3") || (bytes.size >= 2 && bytes[0].toInt() and 0xff == 0xff && bytes[1].toInt() and 0xe0 == 0xe0)
 
     private fun isMp4(bytes: ByteArray) = bytes.size >= 12 && String(bytes, 4, 4, StandardCharsets.US_ASCII) == "ftyp"
     private fun isFlac(bytes: ByteArray) = bytes.startsWith("fLaC")
 
-    // Ogg 容器：Opus 与 Vorbis 的注释包位置与结构由 writeOggComments 按包头分辨。
-    // 只认 OggS 而不认 OpusHead——Vorbis 的包头不含 "OpusHead"
+    // Ogg：只认 OggS，无 OpusHead
     private fun isOgg(bytes: ByteArray) = bytes.startsWith("OggS")
 
-    // MP3：既有标签区作为帧改写底本，音频帧按标签结束偏移整段搬运。
-    // 帧的编解码与保帧规则统一由 Id3v2Tag 承担，与 WAV 内嵌的 ID3 块走同一实现
+    // MP3：既有标签区作底本，帧交 Id3v2Tag
     private fun writeMp3(
         source: ByteArray,
         fields: TrackTagFields,
@@ -340,17 +305,15 @@ internal object MusicMetadataWriter {
         } else 0
         val outputVersion = if (hasId3 && version == 3) 3 else 4
         val existing = if (hasId3) source.copyOfRange(0, tagEnd) else null
-        // 删除封面时标签仍须落盘（哪怕帧区为空），否则原有 APIC 帧会被整段保留下来
+        // 删除封面时标签仍须落盘，否则 APIC 帧会保留
         val frames = Id3v2Tag.replaceFrames(existing, fields, cover, removeCover, outputVersion)
             ?: if (removeCover) ByteArray(0) else return null
-        // 头部为重建的 ID3 标签，音频躯干按原标签结束偏移流式复制，避免整曲二次驻留内存。
-        // 扩展头不随帧区保留：新标签不再声明它，故一并省去，避免头尾声明与实际结构不符
+        // 重建 ID3 标签，音频躯干流式复制；扩展头不保留
         val tag = Id3v2Tag.buildTag(frames, outputVersion)
         return WriteResult.HeadAndTail(tag, tagEnd.toLong())
     }
 
-    // 按文件头嗅探图片类型；无法识别时按 JPEG 处理（内嵌封面绝大多数为 JPEG）。
-    // 封面导出到相册需据此定扩展名，故与写入端共用同一份判定
+    // 按文件头嗅探图片类型，未识别按 JPEG
     internal fun sniffMimeType(bytes: ByteArray): String = when {
         bytes.size >= 3 && bytes[0] == 0xff.toByte() && bytes[1] == 0xd8.toByte() && bytes[2] == 0xff.toByte() -> "image/jpeg"
         bytes.size >= 8 && bytes.copyOfRange(0, 8).contentEquals(byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) -> "image/png"
@@ -358,11 +321,11 @@ internal object MusicMetadataWriter {
         else -> "image/jpeg"
     }
 
-    // 文件头字节的十六进制表示，写入失败日志用于判断读取到的数据是否完整
+    // 文件头十六进制，失败日志判断数据完整性
     private fun hexPrefix(bytes: ByteArray, max: Int = 16): String =
         bytes.take(max).joinToString("") { "%02x".format(it) }
 
-    // 用中转文件替换目标：优先原子移动，文件系统不支持时退化为覆盖式移动
+    // 原子替换，不支持时退化为覆盖移动
     private fun moveReplacing(temporary: File, target: File) {
         try {
             Files.move(

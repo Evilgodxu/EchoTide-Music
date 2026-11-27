@@ -7,8 +7,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-// 搜索面板内的区块标题：历史区块与结果区块共用同一款样式。
-// 两处各写一遍字号/字重/颜色，随后必然只改一处而走形，故收敛成组件
+// 搜索区块标题：历史与结果共用，避免样式走形
 @Composable
 internal fun SearchSectionLabel(
     text: String,

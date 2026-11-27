@@ -19,10 +19,8 @@ import com.yichao.evilgodxu.data.music.playback.AudioMediaSourceFactory
 import com.yichao.evilgodxu.data.music.playback.AudioOnlyRenderersFactory
 
 /**
- * 媒体3 引擎：全部 ExoPlayer 依赖收在这一处。
- *
- * 播放器的装配（渲染器、媒体源工厂、音频属性、唤醒锁、轨道选择）与事件转译都在这里完成，
- * 服务侧只看得到 [PlaybackEngine]。
+ * media3 引擎：ExoPlayer 依赖收在此。
+ * 服务侧只见 PlaybackEngine。
  */
 @OptIn(UnstableApi::class)
 internal class ExoPlayerEngine(
@@ -32,8 +30,8 @@ internal class ExoPlayerEngine(
 
     private val listeners = mutableListOf<EngineListener>()
 
-    // 三类装配件都给全（媒体3 为这类裁剪留的构造器）：默认渲染器工厂与默认媒体源工厂
-    // 因此不再被引用，视频/字幕/图片渲染器与用不到的容器解析器都可被 R8 裁掉
+    // 装配件全给，默认工厂不再引用，
+    // 视频/字幕渲染器与多余容器解析器可被 R8 裁掉
     private val player: ExoPlayer = ExoPlayer.Builder(
         context,
         AudioOnlyRenderersFactory(context, audioSink),
@@ -43,8 +41,8 @@ internal class ExoPlayerEngine(
             AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                // 空间化是平台唯一可能默认开启的后处理（虚拟环绕/头部追踪），音乐播放追求
-                // 原样保真，显式禁用；音效类（均衡器等）本应用从不挂载，aux 效果默认即禁用
+                // 空间化可能默认开启，破坏原样保真，显式禁用；
+                // 均衡器等 aux 效果本应用不挂载，默认即禁用
                 .setSpatializationBehavior(C.SPATIALIZATION_BEHAVIOR_NEVER)
                 .build(),
             // 焦点由服务自行申请与释放，播放器内置处理关闭
@@ -53,12 +51,11 @@ internal class ExoPlayerEngine(
         .setHandleAudioBecomingNoisy(true)
         .build()
         .apply {
-            // 熄屏保活：在线音源经网络拉流，需同时持有 CPU 唤醒锁与 WLAN 锁（WAKE_MODE_NETWORK）。
-            // 仅 WAKE_MODE_LOCAL 时 WLAN 锁不启用，熄屏后 Wi-Fi 进入省电、缓冲停滞，
-            // 长时间无进展会被系统回收播放进程
+            // 熄屏保活：在线流同时需要 CPU 与 WLAN 锁；
+            // 仅 LOCAL 时 WLAN 锁不启用，熄屏后会被回收
             setWakeMode(C.WAKE_MODE_NETWORK)
-            // 纯音频播放：显式禁用视频轨道。默认渲染器按视频在前的顺序建组，含内嵌视频轨的文件
-            // （MV、带画面的 MP4）会选中视频轨并解码——既白耗解码与播放线程，也会让轨道信息读到视频格式
+            // 纯音频：禁用视频轨，否则含内嵌视频的文件会选它解码，
+            // 既耗线程又让轨道信息读到视频格式
             trackSelectionParameters = trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
                 .build()
@@ -89,8 +86,8 @@ internal class ExoPlayerEngine(
                 listeners.forEach { it.onTracksChanged(info) }
             }
         })
-        // 记录平台实际使用的解码器实现名，供音频信息展示。
-        // 解码器可跨曲复用，复用时不重复回调，故该值始终对应当前渲染器正在使用的解码器
+        // 记录平台实际使用的解码器名，供音频信息展示；
+        // 解码器跨曲复用时不重复回调，故始终对应现役解码器
         player.addAnalyticsListener(object : AnalyticsListener {
             override fun onAudioDecoderInitialized(
                 eventTime: AnalyticsListener.EventTime,
@@ -143,8 +140,8 @@ internal class ExoPlayerEngine(
     }
 
     /**
-     * 只取音频组自身的格式，不能取首个「有选中项」的组——渲染器按视频在前的顺序建组，
-     * 组内含视频轨时会先命中视频格式；组内优先取被选中的轨，多音轨时选中项未必在 0 号。
+     * 只取音频组，不能取首个有选中项的组（视频组在前）。
+     * 组内优先取选中轨，选中项未必在 0 号。
      */
     private fun audioTrackInfoOf(tracks: Tracks): EngineAudioTrackInfo? {
         val group = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_AUDIO } ?: return null

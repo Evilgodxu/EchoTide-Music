@@ -7,16 +7,8 @@ import androidx.media3.decoder.SimpleDecoder
 import androidx.media3.decoder.SimpleDecoderOutputBuffer
 
 /**
- * 自研 ALAC 解码器接入媒体3 的适配层。
- *
- * 媒体3 把「解压一帧」这件事抽象成逐帧进、逐帧出的解码器（[SimpleDecoder] 自带解码线程与缓冲池），
- * 本类只负责把一侧的字节缓冲接到另一侧：把输入缓冲交给 [AlacFrameDecoder]，
- * 再把解出的样本按选定的输出编码交给 [AlacPcmEncoder]。
- *
- * [outputEncoding] 由渲染器在挑选解码器时定妥，此后不再变化：写出格式是音频输出的配置输入，
- * 中途更改会让既有音频轨的格式与配置脱节。
- *
- * 解码本身不跨帧保存状态（每帧自带全部参数），故 [decode] 的 reset 无从处置也不必处置。
+ * media3 适配层：帧解码 + PCM 编码
+ * 输出编码定妥后不改；解码不跨帧保存状态。
  */
 @UnstableApi
 internal class AlacDecoder(
@@ -38,7 +30,7 @@ internal class AlacDecoder(
 
     private val bitDepth: Int = config.bitDepth
 
-    /** 位流读取需要连续字节，而输入缓冲不保证是可访问底层数组的堆缓冲，故每次拷入复用缓冲 */
+    /** 输入缓冲不保证可访问底层数组，先拷入复用缓冲 */
     private var inputScratch = ByteArray(0)
 
     init {
@@ -85,7 +77,7 @@ internal class AlacDecoder(
             outputEncoding,
             target,
         )
-        // 输出缓冲以「位置 0、上界为已写字节数」交出，与媒体3 其它解码器的约定一致
+        // 交出时位置归 0、上界为已写字节数
         target.position(0)
         target.limit(byteCount)
         return null
@@ -96,7 +88,7 @@ internal class AlacDecoder(
         return inputScratch
     }
 
-    /** 解码器的线程归属由 [SimpleDecoder] 管理，本实现不留跨帧状态，故释放即交回基类 */
+    /** 无线程与跨帧状态，释放即交回基类 */
     override fun release() {
         super.release()
         inputScratch = ByteArray(0)
@@ -107,7 +99,7 @@ internal class AlacDecoder(
     }
 }
 
-/** ALAC 解码失败的载体：媒体3 会把解码器异常转成播放错误，不再重试 */
+/** ALAC 解码失败：媒体3 会转成播放错误，不再重试 */
 @UnstableApi
 internal class AlacDecoderException(message: String, cause: Throwable? = null) :
     DecoderException(message, cause)

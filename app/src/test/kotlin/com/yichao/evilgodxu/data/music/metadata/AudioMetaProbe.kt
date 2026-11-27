@@ -4,11 +4,7 @@ import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 
-/**
- * 测试用的最小元数据读取器：独立于被测写入实现，按各容器规范解析出标题/艺术家/专辑/封面/歌词，
- * 并提供「音频区」字节用于核对元数据写入未伤及音频。
- * ID3 帧解析同时覆盖 v2.3（32 位大端长度）与 v2.4（同步安全长度）及四种文本编码。
- */
+/** 测试用最小读取器，独立于被测写入实现 */
 internal object AudioMetaProbe {
 
     class Meta(
@@ -28,7 +24,7 @@ internal object AudioMetaProbe {
         else -> error("未支持的容器: " + String(bytes, 0, minOf(12, bytes.size), StandardCharsets.ISO_8859_1))
     }
 
-    /** 音频区：剥离元数据后的音频字节，用于核对写入未改动音频数据 */
+    /** 音频区：剥离元数据后的音频字节 */
     fun audioRegion(bytes: ByteArray): ByteArray = when {
         bytes.matches(0, "ID3") -> bytes.copyOfRange(id3End(bytes, 0), mp3End(bytes))
         bytes.matches(0, "fLaC") -> bytes.copyOfRange(flacAudioStart(bytes), bytes.size)
@@ -48,7 +44,7 @@ internal object AudioMetaProbe {
         val crcValid: Boolean,
     )
 
-    /** Ogg 页序列：页头类型、granule 位置、页序号与段数，并核对每页 CRC，用于验证改写后的页面结构 */
+    /** Ogg 页序列：页头、granule、序号与 CRC */
     fun oggPages(bytes: ByteArray): List<OggPageFact> {
         val facts = mutableListOf<OggPageFact>()
         var p = 0
@@ -72,8 +68,7 @@ internal object AudioMetaProbe {
         return facts
     }
 
-    // Ogg CRC：多项式 0x04C11DB7，起始值 0、不反转、不异或；计算时 CRC 字段按零参与，
-    // 跳过该字段会少做 32 次移位而算出无效校验和
+    // Ogg CRC 多项式 0x04C11DB7
     private fun oggCrc(page: ByteArray): Int {
         val table = IntArray(256) { byte ->
             var value = byte shl 24
@@ -90,7 +85,7 @@ internal object AudioMetaProbe {
         return crc
     }
 
-    // ---- 容器解析 ----
+    // 容器解析
 
     private class Builder {
         var title: String? = null
@@ -101,7 +96,7 @@ internal object AudioMetaProbe {
 
         fun build() = Meta(title, artist, album, cover, lyrics)
 
-        // ID3v2 帧区：文本帧取 TIT2/TPE1/TALB，附图帧取 APIC，歌词帧取 USLT
+        // ID3v2：TIT2/TPE1/TALB、APIC、USLT
         fun id3(tag: ByteArray) {
             if (tag.size < 10 || !tag.matches(0, "ID3")) return
             val version = tag[3].toInt() and 0xFF
@@ -124,7 +119,7 @@ internal object AudioMetaProbe {
             }
         }
 
-        // Vorbis 注释：小端 vendor 长度 + vendor + 条目数 + 逐条「小端长度 + KEY=value」
+        // Vorbis 注释：小端长度 + KEY=value
         fun vorbisComment(data: ByteArray, from: Int) {
             var p = from
             if (p + 4 > data.size) return
@@ -201,7 +196,7 @@ internal object AudioMetaProbe {
         return builder.build()
     }
 
-    // Ogg 页序列还原为包序列：每页 27 字节页头 + 段表，段表值为 255 表示包未结束
+    // Ogg 页头 27 字节，段值 255 截包
     private fun oggPackets(bytes: ByteArray): List<ByteArray> {
         val packets = mutableListOf<ByteArray>()
         var current = ByteArrayOutputStream()
@@ -263,7 +258,7 @@ internal object AudioMetaProbe {
             val type = String(bytes, p + 4, 4, StandardCharsets.ISO_8859_1)
             val headerLength = if (size == 1) 16 else 8
             val boxEnd = if (size <= 0) to else minOf(p + size, to)
-            // 空载荷盒子（如 "free"）合法，其终点等于头部终点，故只在终点短于头部时终止
+            // 空载荷盒合法，终点短于头部才终止
             if (boxEnd < p + headerLength) break
             when (type) {
                 "moov", "udta", "trak", "mdia", "minf", "stbl" ->
@@ -290,7 +285,7 @@ internal object AudioMetaProbe {
                 val childType = String(bytes, q + 4, 4, StandardCharsets.ISO_8859_1)
                 val childEnd = if (childSize <= 0) boxEnd else minOf(q + childSize, boxEnd)
                 if (childEnd < q + 8) break
-                // data 原子：8 字节头 + 4 字节类型 + 4 字节区域设置，其后为载荷
+                // data 原子：8+4+4 字节头后为载荷
                 if (childType == "data" && childEnd > q + 16) {
                     val payload = bytes.copyOfRange(q + 16, childEnd)
                     when (name) {
@@ -321,7 +316,7 @@ internal object AudioMetaProbe {
         return ByteArray(0)
     }
 
-    // ---- 分块与帧工具 ----
+    // 分块与帧工具
 
     private class Chunk(val id: String, val start: Int, val size: Int) {
         fun payload(source: ByteArray) = source.copyOfRange(start, start + size)
@@ -340,13 +335,13 @@ internal object AudioMetaProbe {
         return chunks
     }
 
-    // ID3 文本帧：首字节为编码标志；帧内文本可能带结尾空字节，一并剥离
+    // 首字节编码标志，剥离结尾空字节
     private fun id3Text(body: ByteArray): String {
         if (body.size <= 1) return ""
         return decodeId3(body.copyOfRange(1, body.size), body[0].toInt() and 0xFF).trimEnd('\u0000')
     }
 
-    // USLT：编码字节 + 语言(3) + 空结尾描述 + 歌词正文
+    // USLT：编码+语言+描述+正文
     private fun uslt(body: ByteArray): String? {
         if (body.size <= 4) return null
         val encoding = body[0].toInt() and 0xFF
@@ -360,7 +355,7 @@ internal object AudioMetaProbe {
         return if (p > body.size) null else decodeId3(body.copyOfRange(p, body.size), encoding)
     }
 
-    // APIC：编码字节 + MIME(空结尾) + 图片类型 + 空结尾描述 + 图片数据
+    // APIC：编码+MIME+类型+描述+数据
     private fun apic(body: ByteArray): ByteArray? {
         if (body.size < 5) return null
         val encoding = body[0].toInt() and 0xFF
@@ -376,7 +371,7 @@ internal object AudioMetaProbe {
         return if (p >= body.size) null else body.copyOfRange(p, body.size)
     }
 
-    // PICTURE 块体：类型(4) + MIME(长度+内容) + 描述(长度+内容) + 宽高深色 + 数据长度(4) + 数据
+    // PICTURE：类型+MIME+描述+数据
     private fun picturePayload(block: ByteArray): ByteArray? {
         var p = 4
         if (p + 4 > block.size) return null
@@ -393,7 +388,7 @@ internal object AudioMetaProbe {
 
     private fun id3End(bytes: ByteArray, at: Int): Int = minOf(at + 10 + syncSafe(bytes, at + 6), bytes.size)
 
-    // MP3 正文终点：末尾的 ID3v1（128 字节）不计入音频区
+    // ID3v1 128 字节不计入音频区
     private fun mp3End(bytes: ByteArray): Int = if (bytes.matches(bytes.size - 128, "TAG")) bytes.size - 128 else bytes.size
 
     private fun List<ByteArray>.joinByteArrays(): ByteArray {

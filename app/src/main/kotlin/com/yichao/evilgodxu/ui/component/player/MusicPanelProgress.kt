@@ -50,7 +50,7 @@ internal fun ProgressSection(
     contentColor: Color? = null,
     onFormatClick: (() -> Unit)? = null,
 ) {
-    // 进度条与时间文本颜色：默认取主题色，传入 contentColor 时（如首页）覆盖为指定色
+    // 进度与时间颜色，可被 contentColor 覆盖
     val activeColor = contentColor ?: MaterialTheme.colorScheme.primary
     val dimTextColor = contentColor ?: MaterialTheme.colorScheme.onSurfaceVariant
     Column(
@@ -67,7 +67,7 @@ internal fun ProgressSection(
                 .fillMaxWidth()
                 .alpha(0.6f),
         )
-        // 进度显示值先于 Row 计算：左侧时间文本与进度条共用同一动画值，位置跳变时平滑联动
+        // 时间文本与进度条共用同一动画值
         val progress by remember {
             derivedStateOf {
                 if (playbackState.duration > 0) {
@@ -77,7 +77,7 @@ internal fun ProgressSection(
         }
         var seekFraction by remember { mutableFloatStateOf(progress) }
         var isSeeking by remember { mutableStateOf(false) }
-        // 以当前曲目为动画作用域：切歌时上一曲显示基准随 trackKey 一并重建，直接贴合新曲起点
+        // 以曲目为动画作用域，切歌直接贴合起点
         val displayProgress = rememberAnimatedProgress(
             trackKey = playbackState.currentTrack?.id,
             targetFraction = progress,
@@ -86,10 +86,7 @@ internal fun ProgressSection(
         )
         val displayPosition = (displayProgress * playbackState.duration).toLong()
 
-        // 时间文本宽度按内容实测，不写死：小时级时长比分钟级多出数位，固定宽度会把文本挤到换行
-        // 并与进度条错位。两侧统一取总时长文本的宽度作槽位，使播放中当前时间位数增加时进度条不抖动。
-        // 实测与渲染必须共用同一份样式：字形宽度受字距等全局文本样式影响，只给字号会让实测偏窄，
-        // 末尾字被槽位裁掉。
+        // 时间槽位取总时长实测宽，位数变化不抖动
         val timeStyle = LocalTextStyle.current.copy(fontSize = 9.sp, color = dimTextColor)
         val textMeasurer = rememberTextMeasurer()
         val density = LocalDensity.current
@@ -124,24 +121,20 @@ internal fun ProgressSection(
                         awaitPointerEventScope {
                             while (true) {
                                 val event = awaitPointerEvent()
-                                // 消耗进度条上的指针事件，与全局左右滑动互斥，拖动进度条时不触发切换面板
+                                // 消费事件，与左右滑动互斥
                                 event.changes.forEach { if (!it.isConsumed) it.consume() }
                                 val pos = event.changes.first().position.x / size.width
                                 seekFraction = pos.coerceIn(0f, 1f)
                                 if (event.changes.any { it.pressed }) {
-                                    // 按住期间只让显示跟随手指，播放位置维持按下前的状态：拖动途中连续
-                                    // 下发位置会让进度反复跳变，且每次都作废歌词时间轴快照
+                                    // 按住仅显示跟手，不下发 seek 避免跳变
                                     isSeeking = true
                                 } else {
-                                    // 松手才跳转。单击同为「按下即抬起」，与拖动走同一条路径完成定位；
-                                    // 时长未知（曲目未就绪）时不下发无意义的定位。
-                                    // 定位后起播：暂停状态下拖拽或点击进度条即视为要听该处内容，
-                                    // 与歌词拖拽跳转保持一致；播放中调用 play 不改变播放状态。
+                                    // 松手才跳转，单击同路径；定位后起播
                                     if (playbackState.duration > 0L) {
                                         val targetPosition = (seekFraction * playbackState.duration).toLong()
                                             .coerceIn(0L, playbackState.duration)
                                         seekToAndPlay(playbackState, targetPosition)
-                                        // 立刻回写位置：等控制器回报期间显示值不被钳回拖动前的进度
+                                        // 立刻回写，避免被旧回报钳回
                                         playbackState.setCurrentPosition(targetPosition)
                                     }
                                     isSeeking = false
@@ -176,8 +169,7 @@ internal fun ProgressSection(
     }
 }
 
-// 音频信息条：展示当前曲目格式、位深/采样率与比特率，信息未就绪时留空；
-// 传入 onClick 时整条可点击（首页用于触发无损升级）
+// 音频信息条：格式、位深/采样率、比特率，可点
 @Composable
 internal fun TrackFormatInfoSection(
     playbackState: MusicPlaybackState,
@@ -185,11 +177,11 @@ internal fun TrackFormatInfoSection(
     contentColor: Color? = null,
     onClick: (() -> Unit)? = null,
 ) {
-    // 仅展示属于当前曲目当前音频源的格式信息，避免后台切歌或升级换源后错配残留
+    // 仅展示当前曲目当前音源的格式
     val format = playbackState.audioSignalPathFormat
         .takeIf { playbackState.isAudioSignalPathCurrent }
     val text = format?.let { formatDisplayLabel(it) }
-    // 信息未就绪时渲染空文本，占位保持单行高度，避免底部控制栏随信息条显隐而跳变
+    // 未就绪留空，保持单行高度
     Text(
         text = text.orEmpty(),
         color = contentColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
@@ -200,8 +192,7 @@ internal fun TrackFormatInfoSection(
     )
 }
 
-// 格式信息展示文本：格式 · 位深/采样率 · 比特率；仅拼接实际读到的项，
-// 位深与采样率各自独立取用（有其一即展示其一），全部缺失时返回 null 由信息条留空
+// 格式 · 位深/采样率 · 比特率，缺失项跳过
 internal fun formatDisplayLabel(format: AudioSignalPathFormat): String? {
     val formatName = format.format?.removePrefix("audio/")?.takeIf { it.isNotBlank() }
     val spec = format.sampleRate?.let { rate ->
@@ -211,7 +202,7 @@ internal fun formatDisplayLabel(format: AudioSignalPathFormat): String? {
     return listOfNotNull(formatName, spec, bitrate).joinToString(" · ").takeIf { it.isNotBlank() }
 }
 
-// 当前曲目是否触发无损升级：展示格式低于无损且该曲目可升级
+// 低于无损且可升级时返回 true
 internal fun currentTrackNeedsLosslessUpgrade(playbackState: MusicPlaybackState): Boolean {
     val format = playbackState.audioSignalPathFormat
         .takeIf { playbackState.isAudioSignalPathCurrent }
@@ -220,18 +211,14 @@ internal fun currentTrackNeedsLosslessUpgrade(playbackState: MusicPlaybackState)
     return playbackState.currentTrack?.isUpgradableToLossless() == true
 }
 
-// 采样率转 kHz 文本：整数值不带小数点，非整数值保留一位小数
+// 采样率转 kHz，整数不带小数
 private fun formatKhz(rate: Int): String {
     val khz = rate / 1000.0
     return String.format(java.util.Locale.US, "%.1f", khz).trimEnd('0').trimEnd('.')
 }
 
-// 进度条显示值：正常播放的逐帧小增量直接贴合真实进度，仅当位置大幅跳变时（冷启动还原、
-// 切歌重载）以过渡动画平滑到达，避免进度条突兀跳动。拖动中恒跟随手指不插值；定位在松手时
-// 才下发，故松手当帧目标值与显示值一致，不经跳变动画。
-// 进度以 [trackKey]（当前曲目）为作用域：切歌时旧曲显示基准随之重建，使新曲进度
-// 直接贴合到起点，避免从旧曲中途位置回退到 0 的冗余动画。
-// 回前台不属跳变：后台期间进度照常推进，窗口重新可见时直接显示当前进度，不做补间。
+// 进度显示值：小增量直接贴合，大跳变才补间。
+// 拖动中恒跟手指；以曲目与可见会话为作用域，回前台不补间。
 @Composable
 private fun rememberAnimatedProgress(
     trackKey: Any?,
@@ -240,16 +227,15 @@ private fun rememberAnimatedProgress(
     isSeeking: Boolean,
 ): Float {
     val target = if (isSeeking) seekFraction else targetFraction
-    // 记录上一帧显示值，用于判定本次变化是否为需动画的大跳变
+    // 记录上一帧显示值，判定是否大跳变
     var lastDisplayed by remember(trackKey) { mutableFloatStateOf(target) }
-    // 以可见会话为动画作用域：会话重建使动画以当前进度为初值，回前台首帧即贴合真实进度，
-    // 而非把后台累计的增量当作跳变补间一次（观感上是一次追溯式快进）
+    // 以可见会话为作用域，回前台首帧贴合
     val visibleSession = rememberVisibleSession()
     val displayed by key(visibleSession) {
         animateFloatAsState(
             targetValue = target,
             animationSpec = if (isSeeking || abs(target - lastDisplayed) <= PROGRESS_SNAP_THRESHOLD) {
-                // 拖动中或小增量：瞬时贴合，不引入视觉滞后
+                // 拖动或小增量：瞬时贴合
                 tween(0)
             } else {
                 tween(PROGRESS_TRANSITION_MS, easing = FastOutSlowInEasing)
@@ -261,8 +247,8 @@ private fun rememberAnimatedProgress(
     return displayed
 }
 
-// 进度大幅跳变的判定阈值：超过曲目长度的该比例视为跳变需动画过渡，否则直接贴合
+// 超过曲目长度 1% 视为跳变
 private const val PROGRESS_SNAP_THRESHOLD = 0.01f
-// 进度跳变过渡时长
+// 跳变过渡时长
 private const val PROGRESS_TRANSITION_MS = 600
 

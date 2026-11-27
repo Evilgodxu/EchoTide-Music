@@ -91,25 +91,24 @@ internal fun MiniPlayerBar(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    // 逐字渲染开关：关闭后整行高亮，不再逐字点亮
+    // 关闭后整行高亮
     val wordByWordEnabled by context.wordByWordRenderingFlow().collectAsState(initial = true)
     val current = playbackState.currentTrack
     val coverDesc = stringResource(R.string.mini_player_cover)
-    // 切歌锚点：隐藏控件期间的歌名与歌词随锚点整体淡入淡出，换曲时文本不硬切
+    // 切歌锚点：歌名与歌词整体淡入淡出
     val trackAnchor = rememberTrackSwitchAnchor(current, playbackState.lastSwitchKind)
 
-    // 控件自动隐藏：3 秒无操作后隐藏控制按钮，改为显示歌曲名与歌词；任意触摸即可还原
+    // 3 秒无操作隐藏控件，改显歌名与歌词
     var controlsVisible by remember { mutableStateOf(true) }
     var interactionTick by remember { mutableIntStateOf(0) }
-    // 播放模式选择展开态：展开时四个控制按钮让位给四种播放模式，点击其他区域或选定模式后收起
+    // 播放模式展开态：控制按钮让位给模式选项
     var playModeSelectorExpanded by remember { mutableStateOf(false) }
     fun resetAutoHide() {
         controlsVisible = true
         interactionTick++
     }
     LaunchedEffect(interactionTick, playModeSelectorExpanded, playlistExpanded) {
-        // 选择展开与播放列表展开期间都不自动隐藏：否则控件（含收起列表的按钮）被收起，
-        // 用户只剩「点击列表外区域」这一条收起路径
+        // 展开期间不自动隐藏，避免只剩点外部收起
         if (playModeSelectorExpanded || playlistExpanded) {
             controlsVisible = true
             return@LaunchedEffect
@@ -117,28 +116,22 @@ internal fun MiniPlayerBar(
         delay(3000)
         controlsVisible = false
     }
-    // 隐藏控件期间跟随播放进度刷新当前歌词；跟随当前曲目，切换歌曲时重置到曲目起点。
-    // 起步位置取状态层持有的歌词时间轴：迷你播放器窗口在退后台播放时才建立，与首页歌词共用
-    // 同一条时间轴，两块界面的进度不会各推各的，也不会在建立时退回控制器回锚后的低位
+    // 歌词进度跟随当前曲目，切曲重置；起步取状态层时间轴
     var lyricPosition by remember(playbackState.currentTrack?.id) {
         mutableLongStateOf(playbackState.seedLyricPosition(playbackState.currentTrack?.id))
     }
-    // 位置跟踪随曲目常驻，不随控件显隐起停：歌词在控件隐藏后才显示，跟踪若只在显示期间进行，
-    // 控件隐藏那一刻的进度基准仍是隐藏前的旧位置，首帧点亮随即从旧位置补间追赶
+    // 跟踪随曲目常驻，避免隐藏期进度落后
     LaunchedEffect(playbackState.currentTrack?.id) {
-        // 本次跟随所属曲目：作为歌词时间轴快照的归属，切曲后不再沿用上一首的进度
+        // 本次跟随所属曲目，切曲不沿用
         val trackId = playbackState.currentTrack?.id
         var lastSyncMs = 0L
         while (isActive) {
-            // 与首页歌词同源：锚点取控制器的即时位置（连续外推，不会一顿一顿），
-            // 重建时的相位由状态层时间轴接上，故两块界面既平滑又不会各推各的。
-            // 取换算到整曲绝对时间后的值（见 lyricPositionMs）：心动模式下控制器回报的是片段内进度
+            // 锚点取即时位置，已换算为整曲绝对时间
             val candidate = playbackState.lyricPositionMs
             val now = System.currentTimeMillis()
             if (playbackState.isPlaying) {
                 val elapsed = if (lastSyncMs == 0L) 0L else (now - lastSyncMs).coerceAtLeast(0L)
-                // 位置大幅回退视为单曲循环回卷/手动拖动：直接锚定到锚点位置，
-                // 避免回卷后按流逝时间继续递增，导致歌词定格在末行不再更新
+                // 大幅回退视为回卷或拖动，直接锚定
                 lyricPosition = when {
                     candidate >= lyricPosition -> candidate
                     lyricPosition - candidate > MINI_LYRIC_SEEK_TOLERANCE_MS -> candidate
@@ -146,8 +139,7 @@ internal fun MiniPlayerBar(
                 }
                 lastSyncMs = now
             } else {
-                // 暂停时保持本地已推进的真实位置，仅跟随锚点前移（正向 seek）或大幅
-                // 回退（手动拖动），避免锚点滞后回报把已唱完的歌词高亮拉回
+                // 暂停时保留本地进度，只跟随前移或大幅回退
                 lyricPosition = when {
                     candidate >= lyricPosition -> candidate
                     lyricPosition - candidate > MINI_LYRIC_SEEK_TOLERANCE_MS -> candidate
@@ -155,18 +147,16 @@ internal fun MiniPlayerBar(
                 }
                 lastSyncMs = 0L
             }
-            // 回写本次推进到的进度：首页重建时以此接着走
+            // 回写进度，供首页重建接续
             playbackState.recordLyricPosition(trackId, lyricPosition)
             delay(if (playbackState.isPlaying) 50L else 200L)
         }
     }
 
-    // 手势交互：左右滑动切歌（右滑上一曲、左滑下一曲）；下滑隐藏播放器
+    // 左右滑切歌，下滑隐藏
     val verticalSwipeThresholdPx = with(LocalDensity.current) { MINI_SWIPE_VERTICAL_THRESHOLD_DP.dp.toPx() }
 
-    // 播放模式选择展开时才挂上的兜底点击：轻点条内非控件区域即收起选择。控件自身消费点击，
-    // 故只在点到空隙时生效，不会与切换按钮/模式选项的点击相互抵消；收起后即摘除，
-    // 不改变常态下本条目的无障碍语义
+    // 展开时才挂的兜底点击：点空隙收起选择
     val dismissSelectorModifier = if (playModeSelectorExpanded) {
         Modifier.clickable(
             interactionSource = remember { MutableInteractionSource() },
@@ -183,8 +173,7 @@ internal fun MiniPlayerBar(
         modifier = Modifier
             .fillMaxWidth()
             .height(barHeight)
-            // 手势按首个越过触摸阈值的轴向锁定：横滑切歌与下滑隐藏互斥，斜滑不会同时触发；
-            // 仅未越过阈值的轻点还原控制栏，滑动切歌/下滑隐藏属于滑动手势，不触发控制栏显隐
+            // 按首个越过阈值的轴向锁定；轻点才还原控制栏
             .pointerInput(Unit) {
                 var totalDx = 0f
                 var totalDy = 0f
@@ -197,7 +186,7 @@ internal fun MiniPlayerBar(
                         change.consume()
                     }
                     if (drag == null) {
-                        // 未越过触摸阈值（含点击控制按钮被消费）：视为轻点，还原控制栏并顺延自动隐藏计时
+                        // 未越过阈值视为轻点，还原控制栏
                         resetAutoHide()
                         return@awaitEachGesture
                     }
@@ -216,14 +205,14 @@ internal fun MiniPlayerBar(
                         }
                         change.consume()
                         if (!change.pressed) {
-                            // 仅手指正常抬起才执行手势操作，手势被系统取消时不触发
+                            // 仅正常抬起才执行，取消时不触发
                             gestureEnded = event.type == PointerEventType.Release
                             break
                         }
                     }
                     if (gestureEnded) {
                         when (axis) {
-                            // 水平：右滑上一曲、左滑下一曲；直接切歌，无需滑出动画
+                            // 右滑上一曲、左滑下一曲
                             1 -> if (kotlin.math.abs(totalDx) >= swipeTrackThreshold) {
                                 val index = if (totalDx > 0f) {
                                     playbackState.previousIndex()
@@ -254,7 +243,7 @@ internal fun MiniPlayerBar(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    // 播放模式选择展开时，点封面视为点击其他区域：只收起选择，不回到应用
+                    // 展开时点封面只收起选择
                     onClick = {
                         if (playModeSelectorExpanded) playModeSelectorExpanded = false else onOpenApp()
                     }
@@ -270,7 +259,7 @@ internal fun MiniPlayerBar(
         }
 
         if (controlsVisible) {
-            // 播放模式：按下后图标旋为右向「>」，同时四个控制按钮让位给四种播放模式
+            // 按下后图标转向，按钮让位给模式
             PlayModeToggleButton(
                 playMode = playbackState.playMode,
                 expanded = playModeSelectorExpanded,
@@ -283,7 +272,7 @@ internal fun MiniPlayerBar(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (playModeSelectorExpanded) {
-                // 展开期间四个控制按钮让位给四种播放模式：选中即切换模式并收起，原按钮随后复位
+                // 选中即切换模式并收起
                 playModeMenuOrder.forEach { mode ->
                     PlayModeOptionButton(
                         mode = mode,
@@ -335,8 +324,7 @@ internal fun MiniPlayerBar(
                         }
                     }
                 )
-                // 播放列表：就地展开窗口承载列表，再次点击收起。
-                // 展开期间图标以强调色标出当前状态，避免「点了没反应」的错觉
+                // 展开状态下图标用强调色
                 MiniControlButton(
                     icon = AppIcons.QueueMusic,
                     contentDescription = stringResource(R.string.mini_player_playlist),
@@ -357,9 +345,7 @@ internal fun MiniPlayerBar(
                     .padding(horizontal = 8.dp),
                 verticalArrangement = Arrangement.Center
             ) {
-                // 歌名与歌词整体随锚点淡入淡出：换曲时这一块不硬切。
-                // 歌名与无歌词时的歌手名取自锚点，退场的一层才显示上一首的文本。
-                // 迷你播放器是独立小窗，元素嵌在固定的小格子里，整幅横移会越出格位，恒用交叠淡出
+                // 整块交叠淡出；小窗格子固定，横移会越界
                 TrackSwitchTransition(
                     anchor = trackAnchor,
                     modifier = Modifier.fillMaxWidth(),
@@ -391,14 +377,9 @@ internal fun MiniPlayerBar(
                                 .getOrNull(lyricIndex + 1)
                                 ?.timeMs ?: (lyricLine.timeMs + 3000L)
                             val lineDuration = (lineEndMs - lyricLine.timeMs).coerceAtLeast(1L)
-                            // 行尾提前量：整行与逐字两种渲染共用同一口径，使末词与整行都在切到下一行前
-                            // 完成点亮，而不是卡在切行那一刻才刚好点亮
+                            // 行尾提前量：切行前完成点亮
                             val endLeadMs = lyricEndLeadMs(lyricLine, lineEndMs)
-                            // 点亮比例：逐字歌词按每个词自身的起止时间推进，与完整播放器同一套时序，
-                            // 词间空隙不点亮，末词终点另按行尾提前量收窄；普通歌词没有词时序，退化为按行时长
-                            // 均分，填充时长同样略短于行时长，留出余量让行尾文字在切到下一行前完整揭示。
-                            // 关闭逐字渲染时整行高亮，平移动画仍按行时长连续推进，
-                            // 避免逐字时序的空隙让滚动一顿一顿
+                            // 逐字按词时序；普通歌词按行时长均分
                             val progress = if (wordByWordEnabled && lyricLine.words.isNotEmpty()) {
                                 val wordEnds = remember(lyricLine.words, lineEndMs, endLeadMs) {
                                     lyricWordEnds(lyricLine.words, lineEndMs, tailLeadMs = endLeadMs)
@@ -431,10 +412,7 @@ internal fun MiniPlayerBar(
     }
 }
 
-// 迷你条歌词行：整行歌词常显，演唱进度从左向右点亮高亮；文字超宽时跟随点亮边缘平移，
-// 溢出部分随亮起自然滚入视野。progress 为整行已演唱比例，逐字歌词下按词时序给出，
-// 因此点亮边缘即当前演唱到的时间点，词间空隙停住不推进。关闭逐字渲染时整行高亮，
-// 仅保留跟随进度的平移滚动
+// 歌词行自左向右点亮；超宽时随点亮边缘平移
 @Composable
 private fun MiniPlayerLyricText(
     text: String,
@@ -449,7 +427,7 @@ private fun MiniPlayerLyricText(
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val layout = remember(text, style) { textMeasurer.measure(AnnotatedString(text), style) }
-    // 点亮进度按行小幅平滑推进；换行时重置归零，避免上一行进度回卷的闪烁
+    // 进度平滑推进；换行归零防闪烁
     val revealProgress = remember(lineKey) { Animatable(progress) }
     LaunchedEffect(lineKey, progress) {
         revealProgress.animateTo(
@@ -464,7 +442,7 @@ private fun MiniPlayerLyricText(
                 val textWidth = layout.size.width.toFloat()
                 if (textWidth <= 0f || size.width <= 0f) return@drawWithContent
                 val progressValue = revealProgress.value.coerceIn(0f, 1f)
-                // 点亮边缘：逐字模式随进度推进，整行模式恒为全宽
+                // 逐字按进度，整行恒为全宽
                 val revealEdge = if (wordByWordEnabled) progressValue * textWidth else textWidth
                 // 文字宽于视口时向左平移，让唱到的字始终可见
                 val translateX = min(0f, size.width - progressValue * textWidth)
@@ -487,14 +465,14 @@ private fun MiniPlayerLyricText(
     )
 }
 
-// 迷你条控制按钮：视觉圆环小于触控热区，避免在紧凑高度下贴满上下边缘
+// 圆环小于触控热区，避免贴边
 @Composable
 private fun MiniControlButton(
     icon: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
-    // 常态色之外的指定色：用于标出按钮的持续状态（如播放列表展开中）
+    // 指定色用于标出持续状态
     tint: Color? = null,
 ) {
     IconButton(
@@ -518,7 +496,7 @@ private fun MiniControlButton(
     }
 }
 
-// 歌词揭示平滑时长：行内推进无明显跳变
+// 歌词揭示平滑时长
 private const val MINI_LYRIC_REVEAL_SMOOTH_MS = 60
-// 歌词位置回退容差：超过该值视为单曲循环回卷/手动拖动，直接锚定到即时位置
+// 超过此回退视为回卷或拖动
 private const val MINI_LYRIC_SEEK_TOLERANCE_MS = 1500L

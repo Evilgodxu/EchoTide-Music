@@ -16,8 +16,7 @@ import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// 导出图内容：图下方两行——曲名与歌手、参数行。
-// 文案由界面按当前语言产出后传入，渲染端不与资源耦合
+// 导出内容：曲名歌手 + 参数行，文案由界面传入
 internal class SpectrumShareContent(
     val title: String,
     val artist: String,
@@ -25,23 +24,20 @@ internal class SpectrumShareContent(
     val info: String,
 )
 
-// 频谱图导出渲染：把时频图、频率刻度、dB 色标与图下方两行信息排成一张固定宽度的高清图。
-// 版面按导出图自身尺寸定（不随屏幕尺寸变化），绘图区按 3:2 铺开取更多频率与时间细节；
-// 图内每一行与左轴刻度的换算沿用屏幕同一套 FrequencyAxisScale 与档位挑选规则，两处读数一致。
-// 整体取深色版式：频谱图本身为深色，导出图与图内配色同源
+// 导出高清图：固定 1920px，绘图区 3:2
 internal object SpectrumShareImage {
 
-    // 版面尺寸（px）：固定宽度，高度由内容行数决定
+    // 固定宽 1920px，高度随内容
     private const val WIDTH = 1920
     private const val PAD = 48f
 
-    // 正文与刻度统一字号：图下方两行（曲名与歌手、参数行）同此号并居中
+    // 字号 30：两行同号居中
     private const val TEXT_SIZE = 30f
 
     // 曲名与歌手之间的分隔符
     private const val CREDIT_SEPARATOR = " · "
 
-    // 绘图区版面：左右两侧分别留给频率刻度与色标
+    // 绘图区左右留给刻度与色标
     private const val AXIS_LABEL_WIDTH = 160f
     private const val AXIS_GAP = 12f
     private const val SCALE_LABEL_WIDTH = 100f
@@ -49,7 +45,7 @@ internal object SpectrumShareImage {
     private const val BAR_GAP = 14f
     private const val PLOT_ASPECT = 3f / 2f
 
-    // 刻度线伸出绘图区的长度与相邻标签的最小间距
+    // 刻度线长 12，标签最小间距 40
     private const val TICK_LINE_LENGTH = 12f
     private const val TICK_MIN_GAP = 40f
 
@@ -57,15 +53,15 @@ internal object SpectrumShareImage {
     private const val LINE_GAP = 14f
     private const val BLOCK_GAP = 24f
 
-    // 导出图配色：深色底、浅色字。全图文字取同一色，层次只由字号给出
+    // 深底浅字，层次只靠字号
     private const val BACKGROUND = 0xFF0B0D14.toInt()
     private const val TEXT_COLOR = 0xFF9BA3B4.toInt()
     private const val AXIS_COLOR = 0xFF6B7280.toInt()
 
-    // 标签以字面竖向居中于给定位置时，基线相对中心的偏移（约半个字高）
+    // 基线相对中心偏移约半个字高
     private const val BASELINE_CENTER_RATIO = 0.36f
 
-    // 渲染导出图并编码为 PNG。重采样与绘制是纯计算，调用方须在后台线程调用
+    // 渲染并编码 PNG，需在后台线程调用
     suspend fun render(spectrogram: Spectrogram, content: SpectrumShareContent): ByteArray =
         withContext(Dispatchers.Default) {
             ByteArrayOutputStream().use { out ->
@@ -74,22 +70,21 @@ internal object SpectrumShareImage {
             }
         }
 
-    // 版面与绘制：先按内容行数定出图高，再逐块绘制。
-    // 时频图的重采样会自行摊到多核，故本函数须为挂起函数
+    // 先按内容定高再逐块绘制
     private suspend fun draw(spectrogram: Spectrogram, content: SpectrumShareContent): Bitmap {
         val scale = FrequencyAxisScale.ofSampleRate(spectrogram.sampleRate)
         val plotLeft = PAD + AXIS_LABEL_WIDTH + AXIS_GAP
         val plotRight = WIDTH - PAD - SCALE_LABEL_WIDTH - BAR_WIDTH - BAR_GAP
         val plotWidth = (plotRight - plotLeft).toInt()
         val plotHeight = plotWidth / PLOT_ASPECT
-        // 顶部不留标题区：图自顶缘留白起铺开
+        // 顶部不留标题区
         val plotTop = PAD
         val plotBottom = plotTop + plotHeight
 
         val paint = textPaint(TEXT_SIZE, TEXT_COLOR)
         val creditText = creditLine(content.title, content.artist, paint)
 
-        // 图下方两行自上而下排布：上为曲名与歌手，下为参数行，两行同字号并居中，空行不占位
+        // 两行同字号居中，空行不占位
         var y = plotBottom + LINE_GAP + lineHeight(paint) + BLOCK_GAP
         val creditBaseline = if (creditText.isNotBlank()) {
             baselineOfTop(paint, y).also { y += lineHeight(paint) + LINE_GAP }
@@ -124,8 +119,7 @@ internal object SpectrumShareImage {
         return bitmap
     }
 
-    // 曲名与歌手的整行文案：两者以分隔符相接，歌手名为空时只留曲名；
-    // 超出可用宽度时按末尾截断，避免溢出图缘
+    // 曲名歌手相接，超宽末尾截断
     private fun creditLine(title: String, artist: String, paint: TextPaint): String {
         if (title.isBlank() && artist.isBlank()) return ""
         val separator = if (title.isBlank() || artist.isBlank()) "" else CREDIT_SEPARATOR
@@ -135,7 +129,7 @@ internal object SpectrumShareImage {
         return TextUtils.ellipsize(full, paint, maxWidth, TextUtils.TruncateAt.END).toString()
     }
 
-    // 频率刻度：档位挑选与屏幕同一规则，标签右对齐到刻度线以左
+    // 刻度挑选同屏幕规则
     private fun drawFrequencyAxis(
         canvas: Canvas,
         scale: FrequencyAxisScale,
@@ -165,7 +159,7 @@ internal object SpectrumShareImage {
         }
     }
 
-    // dB 色标：渐变条自上而下由满强度降至量程下限，与屏幕色标同色板、同分档
+    // 色标与屏幕同色板同分档
     private fun drawColorScale(
         canvas: Canvas,
         plotRight: Float,
@@ -201,7 +195,7 @@ internal object SpectrumShareImage {
         }
     }
 
-    // 时间刻度：两端分别贴绘图区左右缘
+    // 时间刻度两端贴绘图区
     private fun drawTimeLabels(
         canvas: Canvas,
         plotLeft: Float,
@@ -232,7 +226,7 @@ internal object SpectrumShareImage {
         strokeWidth = 1.5f
     }
 
-    // 字面高度与基线换算：绘制端按字面顶/中心定位，避免受字体度量细节影响
+    // 字面高度与基线换算
     private fun lineHeight(paint: Paint): Float = -paint.fontMetrics.ascent + paint.fontMetrics.descent
 
     private fun baselineOfTop(paint: Paint, top: Float): Float = top - paint.fontMetrics.ascent

@@ -11,27 +11,23 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
 
-// 本地音频格式信息读取：解码头未给出或冷启动未播放时，直接读文件元数据补齐
+// 读取曲目格式：解码头缺失时直接读文件元数据
 internal object TrackAudioInfoReader {
 
-    // 容器头可解析的扩展名：无损与线性 PCM 容器。
-    // M4A/MP4/M4B 同属 ISO-BMFF（有声书的 .m4b 同样可能装 ALAC）——这些容器的位深与码流名
-    // 只存在于容器头中（有损编码则两者皆空），故一并纳入。
-    // .m4p（受保护 AAC）与 .m4r（铃声）内容恒为有损，容器头给不出东西，留给 mime 那条路
+    // 可解析容器头的扩展名：无损与线性 PCM
+    // 位深与码流名只能从容器头得到
     private val CONTAINER_HEADER_FORMATS = setOf(
         "FLAC", "WAV", "WAVE", "RF64",
         "ALAC", "M4A", "M4B", "MP4",
     )
 
-    // 容器头窗口：定长头块（STREAMINFO/fmt）都在文件头部，
-    // 16KB 足以覆盖前置元数据块偏移与 MP4 的 ftyp+free+moov 前段；
-    // 窗口内找不到头结构即放弃解析，不无限扩大读取量
+    // 头部窗口 16KB，够覆盖定长头块
     private const val HEADER_WINDOW_BYTES = 16 * 1024
 
-    // moov 后置（未 faststart）时的二次读取窗口：按顶层盒子尺寸外推 moov 起点后整段读取
+    // moov 后置时按盒子尺寸读整段
     private const val MOOV_WINDOW_BYTES = 64 * 1024
 
-    // 读取真实比特率（kbps）：优先媒体元数据，其次按文件大小/时长估算平均比特率
+    // 比特率优先取元数据，缺失按大小估算
     fun readBitrateKbps(context: Context, track: MusicTrack): Int? {
         val retriever = MediaMetadataRetriever()
         try {
@@ -48,14 +44,12 @@ internal object TrackAudioInfoReader {
         return estimateAverageBitrateKbps(context, track)
     }
 
-    // 读取源文件采样率/位深/声道：按容器头解析，供主线程（解码头）调用。
-    // 实际格式由容器魔数判定而非扩展名——扩展名只决定该文件是否值得读盘，
-    // 被改名或加挂了 ID3v2 标签的文件同样能解析出真实规格
+    // 读采样率/位深/声道，主线程调用
+    // 格式按魔数判定，扩展名只作门限
     fun readContainerFormat(context: Context, track: MusicTrack): ContainerFormat? {
         if (!isContainerHeaderFormat(track.path)) return null
         val head = readSlice(context, track, 0L, HEADER_WINDOW_BYTES) ?: return null
-        // ID3v2 前置标签（部分下载源在 FLAC 前写入）把容器魔数顶到标签之后，
-        // 按标签长度重新定位后再读一个窗口
+        // ID3v2 会顶开魔数，按长度重定位
         val id3Size = ContainerHeaderParser.id3v2TagSize(head)
         val bodyStart = if (id3Size > 0) id3Size.toLong() else 0L
         val body = if (bodyStart > 0) {
@@ -65,8 +59,7 @@ internal object TrackAudioInfoReader {
         }
         val fileLength = readFileSize(context, track) ?: 0L
         ContainerHeaderParser.parse(body, bodyStart, fileLength)?.let { return it }
-        // MP4 的 moov 常位于文件尾（未 faststart）：头窗遍历被超出窗口的 mdat 截断，
-        // 据其尺寸外推出 moov 起点后再整段读取解析
+        // moov 常在文件尾，按 mdat 尺寸外推
         if (fileLength <= 0L || !ContainerHeaderParser.isMp4Like(body)) return null
         val moovOffset = ContainerHeaderParser.mp4BoxOffset(body, bodyStart, fileLength, "moov")
             ?: return null
@@ -75,9 +68,7 @@ internal object TrackAudioInfoReader {
         return ContainerHeaderParser.parseMp4(moov, moovOffset, fileLength)
     }
 
-    // 冷启动未播放时预填的格式信息：采样率/比特率走官方 MediaMetadataRetriever，
-    // 位深与声道按容器头解析（覆盖无损与线性 PCM 容器）。读不到的项一律留空，
-    // 不做位深/声道推测；全部读不到时返回 null，由展示层保持空白
+    // 冷启动预填格式，读不到的项留空不猜
     fun readIdleFormat(context: Context, track: MusicTrack): AudioSignalPathFormat? {
         if (!track.isLocalAudioSource) return null
         val formatName = trackFormatName(context, track)
@@ -86,7 +77,7 @@ internal object TrackAudioInfoReader {
         if (formatName == null && sampleRate == null && bitrateKbps == null) return null
         val container = readContainerFormat(context, track)
         return AudioSignalPathFormat(
-            // 容器头读的就是采样描述，码流名以它最直接；读不出时才用扩展名/mime 定出的那个
+            // 容器头给出码流名，读不出才回退
             format = container?.codecName ?: formatName,
             sampleRate = sampleRate,
             outputRate = sampleRate,
@@ -96,7 +87,7 @@ internal object TrackAudioInfoReader {
         )
     }
 
-    // 展示用格式名：容器扩展名说不出码流，须借 mime；其余扩展名即码流名，不必为此再读一次元数据
+    // 展示格式名，容器扩展名借 mime
     private fun trackFormatName(context: Context, track: MusicTrack): String? =
         formatDisplayName(
             track.path,
@@ -172,8 +163,7 @@ internal object TrackAudioInfoReader {
         return null
     }
 
-    // 读取文件 [offset, offset+size) 区间的字节：文件短于请求长度时按实际读到的字节返回，
-    // 各容器解析器自行判断头结构是否完整；区间起点越界或流不可用返回 null
+    // 读指定区间，短读按实际返回
     private fun readSlice(context: Context, track: MusicTrack, offset: Long, size: Int): ByteArray? {
         val input = openInputStream(context, track) ?: return null
         return runCatching {
@@ -214,10 +204,7 @@ internal object TrackAudioInfoReader {
         return buffer.copyOf(read)
     }
 
-    // 是否属于可直接解析容器头的格式：扩展名门限，避免对有损格式做无谓读盘。
-    // 本判据只决定「要不要开文件读一个窗口」，与格式名怎么定无关（后者的规则见 [formatDisplayName]）；
-    // 但两者必须对得上——容器扩展名一族（格式名定不出码流的那一族）若在此被挡下，
-    // 容器头这条正面认定路径就形同虚设
+    // 仅决定是否读盘，须与格式名判定对齐
     internal fun isContainerHeaderFormat(path: String?): Boolean =
         path?.substringAfterLast('.', "")?.uppercase()?.let { it in CONTAINER_HEADER_FORMATS } == true
 }
@@ -238,8 +225,7 @@ private val FORMAT_EXTENSION_NAMES = mapOf(
     "MIDI" to "MIDI",
 )
 
-// 曲库格式分类名：扩展名映射为规范名，未知取扩展名，纯在线流归「在线」，其余归「其他」；
-// 供曲库分析统计与按格式定位歌单共用，保证两处分类一致
+// 曲库格式分类名，纯在线流归「在线」
 internal fun trackFormatCategory(context: Context, track: MusicTrack): String {
     val extension = track.path.substringAfterLast('.', "").uppercase()
     if (extension.isNotBlank()) return FORMAT_EXTENSION_NAMES[extension] ?: extension

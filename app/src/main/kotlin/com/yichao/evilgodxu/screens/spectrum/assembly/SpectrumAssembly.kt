@@ -15,13 +15,11 @@ import com.yichao.evilgodxu.screens.spectrum.component.SpectrumBody
 import com.yichao.evilgodxu.ui.component.PageTopBar
 import com.yichao.evilgodxu.windowsize.WindowSizeClass
 
-// 内容留白：窄窗横向空间紧张，图不设左右边距、只在底部留余量；
-// 宽窗可视区充裕，四周留白让时频图与屏幕边缘分离。
-// 顶部一律不留白：图与标题区的间距由内容区自身固定为 4dp，两处叠加会拉大间距
+// 留白：窄窗只留底部 8dp，宽窗四周 12dp
 private val COMPACT_CONTENT_PADDING = PaddingValues(bottom = 8.dp)
 private val EXPANDED_CONTENT_PADDING = PaddingValues(start = 12.dp, end = 12.dp, bottom = 12.dp)
 
-// 频谱页组装器：骨架为 Scaffold + 内容区，形态差异只体现在内容留白
+// 组装器：Scaffold + 内容区，差异在留白
 @Composable
 internal fun SpectrumAssembly(
     windowSizeClass: WindowSizeClass,

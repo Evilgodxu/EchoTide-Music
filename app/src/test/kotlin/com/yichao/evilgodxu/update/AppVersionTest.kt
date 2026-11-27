@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// 版本比较决定是否会提示更新：判错会让用户被反复提示同一版本，或永远收不到新版本
+// 判错会反复提示或永不提示更新
 class AppVersionTest {
 
     @Test

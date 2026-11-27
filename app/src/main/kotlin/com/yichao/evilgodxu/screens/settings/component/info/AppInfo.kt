@@ -41,7 +41,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-// 关于分区：应用信息，点击版本号主动检查更新
+// 关于区：点版本号检查更新
 @Composable
 fun AppInfo(
     version: String,
@@ -59,17 +59,17 @@ fun AppInfo(
     val reportSaved = stringResource(R.string.app_info_audio_report_saved)
     val reportSaveFailed = stringResource(R.string.app_info_audio_report_save_failed)
     val reportFailed = stringResource(R.string.app_info_audio_report_failed)
-    // 报告采集、出图与写相册期间置忙：同一条目只跑一次，并在标签旁给出加载指示
+    // 报告忙时禁止重复触发
     var reportBusy by remember { mutableStateOf(false) }
 
-    // 以系统浏览器打开链接；LocalContext 非 Activity 时需加 NEW_TASK
+    // 非 Activity 时需 NEW_TASK
     fun openUrl(url: String) {
         val intent = Intent(Intent.ACTION_VIEW, url.toUri())
         if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
     }
 
-    // 单件附件走 ACTION_SEND：部分接收方不认 SEND_MULTIPLE 的单元素列表
+    // 单件附件走 ACTION_SEND
     fun shareUri(uri: Uri, subject: String, title: String, mimeType: String = "text/plain") {
         val sendIntent = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
@@ -78,7 +78,7 @@ fun AppInfo(
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         val chooser = Intent.createChooser(sendIntent, title)
-        // LocalContext 为本地化包装 context，非 Activity 时需加 NEW_TASK
+        // 非 Activity 时需 NEW_TASK
         if (context !is Activity) chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(chooser)
     }
@@ -92,14 +92,13 @@ fun AppInfo(
         )
     }
 
-    // 分享今日日志；没有今日日志时不拉起空分享
+    // 无今日日志则不分享
     fun shareLog() {
         val log = CrashLogManager.todayLogFile() ?: return
         shareFile(log, shareLogSubject, shareLogTitle)
     }
 
-    // 生成并分享设备音频报告：报告每次重新生成，与日志互不依赖；
-    // 采集要读设备描述符、出图与写相册都是阻塞 IO，一并放到 IO 上做，避免卡住设置页
+    // 报告每次重生成，阻塞 IO 放 IO 线程
     fun shareAudioReport() {
         if (reportBusy) return
         reportBusy = true
@@ -110,7 +109,7 @@ fun AppInfo(
                 Toast.makeText(context, reportFailed, Toast.LENGTH_SHORT).show()
                 return@launch
             }
-            // 先存档进相册；只有确认写入成功，才分享相册里的这张图，失败则中止分享
+            // 先存相册，成功才分享
             val albumUri = withContext(Dispatchers.IO) {
                 runCatching {
                     AlbumImageStore.writeToAlbum(context, report.name, "image/png", report.readBytes())

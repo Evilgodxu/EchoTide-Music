@@ -21,49 +21,23 @@ import kotlin.math.min
 // 音频输出诊断的类名前缀
 private const val LOG_TAG = "PcmAudioSink"
 
-// 平台下限取不到时的兜底缓冲帧数：仅用于该异常分支的建轨，与常规路径的目标帧数无关
+// 下限取不到时的兜底缓冲帧数
 private const val FALLBACK_BUFFER_FRAMES = 4096
 
 /**
- * 线性 PCM 输出：接受任意线性 PCM 解码数据，统一写成所设编码（浮点或 16/24/32 位整型）并交给
- * [AudioTrackOutput]。
- *
- * 为何自建输出（已核实，无更轻的做法）：
- * - 媒体3 的默认音频输出只产出浮点与 16 位整型；高分辨率源走的浮点分支不挂用户处理器链，无从注入转换，
- *   而整型分支又会先把高分辨率源截成 16 位，故 24/32 位整型拿不到对应写出。
- * - 把默认输出声明的编码改写成打包整型也不行：媒体3 会用该编码解读管线缓冲（音量渐入
- *   `PcmAudioUtil.rampUpVolume` 取 configuration.outputConfig.encoding），声明与数据不符即越界崩溃；
- *   反过来让声明与数据一致，则音频轨的帧长记账按浮点算，与实际轨道差出一截。
- *
- * 四个写出编码共用本实现：它们只差每样本字节数与编码，转换、裁剪、记账、位置换算的口径完全一致，
- * 分写多套只会让同一处缺陷要修多遍。选哪一种由动态混音端口声明决定——[PerDeviceAudioSink] 按目标
- * 设备声明的条目各持一个实例。
- *
- * 本实现承担「接受解码数据 — 裁掉编码器延迟与填充 — 转成所设编码 — 交给输出」这一段；位置、欠载与
- * 写入由 [AudioTrackOutput] 承担。位置取设备侧播放头，曲末按系统时钟模拟尾音。
- *
- * 已知不做的取舍：
- * - 不支持静音跳过、隧道与卸载：直出优先保真，这些能力在直出成立时不起作用；
- * - 不参与声道映射：输出声道数取解码格式本身；
- * - 位置取设备播放头，粒度略粗，但不会越过已写出的量。
- *
- * 精度：逐样本经 [PcmConversion] 的左对齐 32 位约定中转。32 位整型容得下任意线性源——32 位及以下源
- * 左移补零后逐位无损，浮点源按中间态的 32 位整型取整（偏差不超过一个最低有效位）；24 位则放不下
- * 32 位源的低八位。
+ * 线性 PCM 输出：转码后写出
+ * 默认输出只有浮点与 16 位，自建补 24/32 位
+ * 精度经 32 位中转：24 位丢低八位
  */
 @OptIn(UnstableApi::class)
 internal class PcmAudioSink(
-    /** 写出编码：浮点或 16/24/32 位整型，取值由动态混音端口声明或默认取向决定 */
+    /** 写出编码：浮点或 16/24/32 位整型 */
     private val outputEncoding: Int,
-    /**
-     * 建轨时是否申请低延迟性能模式。
-     *
-     * 该取向只在系统混音路径上有意义：直出按源格式输出，不该被它干扰，故由调用方按当前路由回答。
-     */
+    /** 是否申请低延迟模式，仅系统混音路径有效 */
     private val preferLowLatency: () -> Boolean = { false },
 ) : AudioSink {
 
-    /** 写出每样本字节数：转换时按它申请缓冲，与编码同源 */
+    /** 写出每样本字节数 */
     private val bytesPerOutputSample = PcmConversion.byteDepth(outputEncoding)
 
     private var listener: AudioSink.Listener = SILENT_LISTENER
@@ -74,40 +48,29 @@ internal class PcmAudioSink(
     private var preferredDevice: AudioDeviceInfo? = null
     private var volume = 1f
     private var skipSilenceEnabled = false
-    /** 解码输出格式：本类接受任意线性 PCM 编码，写出统一为 [outputEncoding] */
+    /** 解码格式，写出统一为 outputEncoding */
     private var inputFormat: Format? = null
     private var outputChannelMask = AudioFormat.CHANNEL_INVALID
 
-    // 帧长与写入量成对使用（换算已写入的帧数），且一在配置期、一在写入期各自更新；
-    // 两者都由播放线程写、由信息采集在别的线程读，故各自 volatile 发布
+    // 由播放线程写、采集线程读，须 volatile
     @Volatile
     private var outputFrameSize = 0
 
-    /** 解码数据的每帧字节数：裁剪按输入帧计数，须与输出帧长分开记 */
+    /** 解码每帧字节数，裁剪按输入帧计 */
     private var inputFrameSize = 0
 
     private var output: AudioTrackOutput? = null
     private var audioTrackConfig: AudioSink.AudioTrackConfig? = null
 
-    /**
-     * 建起的轨道本体：排空判定要直接读它的播放头，而不经媒体3 的位置估计。
-     *
-     * 输出延迟同样只能从它身上取（平台没有按设备查询延迟的公开接口），取值的采集器跑在后台线程，故代为 volatile。
-     */
+    /** 轨道本体，排空与延迟都取它；采集线程读 */
     @Volatile
     private var audioTrack: AudioTrack? = null
 
-    /** 当前仍可读取的音频轨：释放后的实例读不出有效延迟，故按轨道自身的状态过滤 */
+    /** 当前可读的轨道，按状态过滤 */
     val currentAudioTrack: AudioTrack?
         get() = audioTrack?.takeIf { it.state == AudioTrack.STATE_INITIALIZED }
 
-    /**
-     * 已交给音频轨的帧数，null 表示当前没有可读的音频轨。
-     *
-     * 这是逐次写入累计的实测量（[writtenPcmBytes] 记的是音频轨实际接受的字节），不是按当前位置推算，
-     * 故与时间戳的呈现帧位相减即得「已写入而未交出」的驻留量。写入量在冲刷与重建输出时归零，
-     * 与音频轨同生同灭，两者基准因此一致。
-     */
+    /** 已交给轨道的帧数，null 为无轨道 */
     val writtenOutputFrames: Long?
         get() {
             if (audioTrack == null) return null
@@ -116,80 +79,50 @@ internal class PcmAudioSink(
             return writtenPcmBytes / frameSize
         }
 
-    /** 实际请求的轨道缓冲字节数：欠载回调按接口约定以字节上报 */
+    /** 轨道缓冲字节数，欠载按字节上报 */
     private var trackBufferBytes = 0
 
-    /** 上一次未写完的输出数据：媒体3 会以同一输入缓冲再次调用，余量须暂存于此 */
+    /** 未写完的输出余量，下次续写 */
     private var pendingOutput: ByteBuffer? = null
 
-    /** 转换用缓冲，按需增长后复用，避免每次写入都分配直接缓冲 */
+    /** 转换缓冲，按需增长复用 */
     private var scratch: ByteBuffer? = null
 
-    /** 裁剪装配用缓冲（输入编码），盛放滞留区先出的一段接本次输入，按需增长后复用 */
+    /** 裁剪装配缓冲，按需增长复用 */
     private var assembly: ByteBuffer? = null
 
-    /** 空的写出缓冲：裁剪把整块输入都吞掉时交它，避免复用缓冲被误清 */
+    /** 空写出缓冲，避免误清复用缓冲 */
     private val emptyOutput: ByteBuffer = ByteBuffer.allocateDirect(0)
 
-    /**
-     * 起裁余量：编码器延迟按输入帧换算成字节，自流起点逐块扣除。
-     *
-     * 延迟样本不属于媒体时间，写出去会让位置整体后移一截，曲首还会带上一段静音。
-     */
+    /** 起裁余量（字节），延迟样本不属于媒体时间 */
     private var trimStartBytesLeft = 0
 
-    /**
-     * 尾裁滞留区：最近若干帧压在这里，直到确认曲末才决定去向。
-     *
-     * 编码器填充在文件尾，只有拿到「流结束」才能判定；平时必须把最后 [endTrimBuffer] 容量那么多
-     * 字节留在这里不外发，否则填充会先被播出去。
-     */
+    /** 尾裁滞留区，留够填充字节待曲末判定 */
     private var endTrimBuffer: ByteArray = EMPTY_BYTES
     private var endTrimSize = 0
 
-    /**
-     * 尾裁是否仍然成立：配置后成立，冲刷（跳转）后不成立。
-     *
-     * 跳转后剩下的末段不再确定是文件尾，滞留区的内容可能是正文，照裁会吞掉真实音频，故改为照常播出。
-     */
+    /** 尾裁是否成立，跳转后作废 */
     private var endTrimArmed = false
 
-    /**
-     * 已交给输出的字节数：位置上限与待播判定都按它推算，与写入量同源。
-     *
-     * 信息采集另按它算出「已写入音频轨的帧数」，读取发生在别的线程，故 volatile 发布。
-     */
+    /** 已交给输出的字节数，采集线程读故 volatile */
     @Volatile
     private var writtenPcmBytes = 0L
 
     private var handledEndOfStream = false
 
-    /**
-     * 起停意图：渲染器只在「停止 → 启动」的转换点下发 [play] / [pause]，重建输出不会带来第二次下发。
-     *
-     * 故作意向在此登记，[ensureOutput] 建起轨道时按它接续——少了这一次，暂停之后经路由切换、变体切换
-     * 或轨道失效重建出来的输出不会被启动，位置随之停滞（媒体3 的停滞检测满 10 秒即以超时终止播放）。
-     */
+    /** 起停意图，重建轨道时据此接续 */
     private var playRequested = false
 
-    /** 已上报过的欠载计数：每次写入后取一次设备侧读数，增加即上报一次 */
+    /** 已上报的欠载计数 */
     private var lastReportedUnderruns = 0
 
-    /**
-     * 媒体时间锚点。
-     *
-     * 输出位置只按播放时长推进，与媒体时间之间隔着播放速率，只能以「媒体时刻 + 当时的写出位置」配对
-     * 换算：本类在参数生效的那次写入处落下锚点，速率变化后再落一个，查询时取最后一个已生效的锚点按速率外推。
-     *
-     * 锚点的两端分属两个基准：媒体时刻取自 [handleBuffer] 的展示时间，即渲染器时间（含渲染器时间偏移）；
-     * 写出位置则是输出侧自 0 起算的时长。换算只能在两端各自的基准内进行，跨基准取最小会把偏移削掉。
-     */
+    /** 媒体时间锚点：媒体时刻配写出位置，按速率外推 */
     private val checkpoints = ArrayDeque<PositionCheckpoint>()
 
-    /** 参数是否已变、需要在下次写入处重新落锚点 */
+    /** 是否需在下次写入重落锚点 */
     private var checkpointPending = true
 
-    /** 上次接纳写入的时刻：欠载回调按接口约定要给出「距上次接纳写入」的间隔 */
+    /** 上次接纳写入时刻，欠载回调需要 */
     private var lastAcceptedWriteMs = 0L
 
     override fun setListener(listener: AudioSink.Listener) {
@@ -202,7 +135,7 @@ internal class PcmAudioSink(
         this.clock = clock
     }
 
-    // 只接线性 PCM：本类以四个编码之一写出，压缩格式与直通不经此处
+    // 只接线性 PCM，压缩与直通不经过
     override fun supportsFormat(format: Format): Boolean =
         MimeTypes.AUDIO_RAW == format.sampleMimeType &&
             PcmConversion.isLinearPcm(format.pcmEncoding)
@@ -227,11 +160,7 @@ internal class PcmAudioSink(
         checkpoints.clear()
     }
 
-    /**
-     * 按编码器延迟与填充准备裁剪段。
-     *
-     * 两者都以帧给出，按解码侧的帧长换算成字节——裁剪发生在转换之前，基准是输入。未声明时按 0 计。
-     */
+    /** 按编码器延迟与填充准备裁剪，按输入帧换算字节 */
     private fun setupTrimming(format: Format) {
         trimStartBytesLeft = (format.encoderDelay.takeIf { it > 0 } ?: 0) * inputFrameSize
         val endTrimBytes = (format.encoderPadding.takeIf { it > 0 } ?: 0) * inputFrameSize
@@ -273,35 +202,30 @@ internal class PcmAudioSink(
         }
         pendingOutput = converted.takeIf { it.hasRemaining() }
         reportUnderruns(output)
-        // 余量未清空即未写完：返回 false 让媒体3 以同一缓冲再次调用，由本层继续消费余量
+        // 余量未清空即返回 false，让 media3 再调用
         return pendingOutput == null
     }
 
-    /**
-     * 启动输出。
-     *
-     * 输出尚未建起时只登记意图（建轨时接续）；已建起却启动不了，说明这条轨道已不可用（音频服务重启、
-     * 设备被系统收回等），就地作废它——下一次写入会按同一配置重建并接续意图，位置才不至停在原处。
-     */
+    /** 启动输出；启动失败即作废待重建 */
     override fun play() {
         playRequested = true
         val current = output ?: return
         if (!current.start()) releaseOutput()
     }
 
-    // 意图必须随暂停一并收回：否则期间重建出来的轨道会自己唱起来，界面却仍是暂停
+    // 暂停须收回意图，否则重建后会自播
     override fun pause() {
         playRequested = false
         output?.pause()
     }
 
-    // 跳转后媒体时间与已写出时长不再连续，须在新缓冲处重新落锚点，位置换算才不会沿用旧锚点
+    // 跳转后须在新缓冲重落锚点
     override fun handleDiscontinuity() {
         checkpointPending = true
     }
 
     override fun flush() {
-        // 每次冲刷都重建输出：部分机型 AudioTrack 冲刷不净，重建比复用可靠
+        // 冲刷即重建，部分机型冲刷不净
         releaseOutput()
         pendingOutput = null
         writtenPcmBytes = 0
@@ -309,7 +233,7 @@ internal class PcmAudioSink(
         lastReportedUnderruns = 0
         checkpointPending = true
         checkpoints.clear()
-        // 跳转后末段不再确定是文件尾，滞留区可能是正文，放弃尾裁并照常播出
+        // 跳转后末段不再是文件尾，放弃尾裁照常播出
         endTrimSize = 0
         endTrimArmed = false
     }
@@ -332,11 +256,11 @@ internal class PcmAudioSink(
             return
         }
         val format = checkNotNull(inputFormat)
-        // 先把本层余量写完；写不完就留待下次调用，此时不得置为已结束
+        // 余量写完才算结束
         val remaining = pendingOutput ?: when {
-            // 已冲刷过（跳转过）：末端不再是文件尾，滞留区照常播出
+            // 跳转过：滞留区照常播出
             !endTrimArmed -> consumeEndTrim(format)
-            // 曲末：滞留区就是编码器填充，不属于媒体时间，丢弃
+            // 曲末：滞留区即填充，丢弃
             endTrimSize > 0 -> {
                 endTrimSize = 0
                 null
@@ -358,32 +282,23 @@ internal class PcmAudioSink(
             }
             pendingOutput = null
         }
-        // 尾部由音频系统播完；本层按停止位置与系统时钟模拟推进，排空判定才收敛
+        // 尾部由系统播完，位置按时钟模拟
         output.markEndOfStream(writtenPcmBytesAsFrames())
         handledEndOfStream = true
     }
 
     override fun isEnded(): Boolean = output == null || (handledEndOfStream && !hasPendingData())
 
-    /**
-     * 是否仍有已写出而未播出的数据。
-     *
-     * 判据是「已写帧数 > 轨道已消费帧数」，消费量取设备侧播放头。此处不能沿用媒体3 的位置估计：
-     * 那个估计按系统时钟外推，遇到粒度粗、滞后的播放头会越过已写量，于是被判成「已播完」。
-     * 渲染器一旦认为输出已空、而上游此刻并不「就绪」（解码管线已满，样本队列无待读数据），
-     * 那条 100ms 宽限便不生效——播放状态会在播放中与缓冲中之间来回翻转，界面上正表现为反复「缓冲中」。
-     * 原始播放头只反映设备真实消费，只会滞后，不会超前。
-     */
+    /** 是否仍有已写未播数据：以设备播放头判断，防止假性缓冲 */
     override fun hasPendingData(): Boolean {
         val output = output ?: return false
-        // 轨道已失效时不能再按「已写出 > 已消费」作答：失效轨道的播放头停住不动，这个判据会恒为真，
-        // 播放器遂永远认为自己仍在出声、位置却一步不走，也不会去重建输出。如实报空，交给渲染器重填
+        // 失效轨道播放头停住，判据会恒真，如实报空
         if (!output.isUsable) return false
         val writtenFrames = writtenPcmBytesAsFrames()
         return pendingOutput != null || writtenFrames > output.consumedFrameCount
     }
 
-    // 轨道缓冲时长（毫秒）：欠载回调按接口约定上报该值，取不到时按接口的「未知」取值
+    // 轨道缓冲时长（毫秒），取不到返回未知
     private fun trackBufferSizeMs(): Long {
         val output = output ?: return C.TIME_UNSET
         if (outputFrameSize <= 0) return C.TIME_UNSET
@@ -398,10 +313,7 @@ internal class PcmAudioSink(
     override fun getCurrentPositionUs(sourceEnded: Boolean): Long {
         val output = output ?: return AudioSink.CURRENT_POSITION_NOT_SET
         if (checkpoints.isEmpty()) return AudioSink.CURRENT_POSITION_NOT_SET
-        // 上限只作用于输出位置，不作用于换算后的媒体时间：轨道位置偶发报超前时按已写出时长取上限，
-        // 使待播时长不越过已写出的内容。两个量不同基准——媒体时间是渲染器时间（含渲染器时间偏移，
-        // 量级在 1e12 微秒），已写出时长只是输出侧的时长（量级在曲目时长内），
-        // 拿后者钳前者会把渲染器时间偏移一并削掉，上报位置随之跌出时间轴
+        // 上限只钳输出位置，媒体时间含渲染器偏移
         val outputPositionUs = minOf(
             output.positionUs,
             framesToDurationUs(writtenPcmBytes, checkNotNull(inputFormat).sampleRate),
@@ -416,7 +328,7 @@ internal class PcmAudioSink(
             PcmConversion.mediaDurationForPlayoutDuration(playoutDeltaUs, checkpoint.speed)
     }
 
-    // 上报渲染器用于决定休眠上界：采样率取轨道自报值而非解码格式值
+    // 休眠上界用轨道自报采样率
     override fun getAudioTrackBufferSizeUs(): Long {
         val output = output ?: return C.TIME_UNSET
         return framesToDurationUs(
@@ -430,14 +342,14 @@ internal class PcmAudioSink(
         output?.setVolume(volume)
     }
 
-    // 直出优先保真：静音跳过需要改动时长映射，本路径不支持，仅如实回报开关状态
+    // 不支持静音跳过，仅回报开关
     override fun setSkipSilenceEnabled(skipSilenceEnabled: Boolean) {
         this.skipSilenceEnabled = skipSilenceEnabled
     }
 
     override fun getSkipSilenceEnabled(): Boolean = skipSilenceEnabled
 
-    // 变速功能已移除：playback parameters 保持默认值，不接受外部调速请求
+    // 不支持变速，保持默认参数
     override fun setPlaybackParameters(playbackParameters: PlaybackParameters) = Unit
 
     override fun getPlaybackParameters(): PlaybackParameters = PlaybackParameters.DEFAULT
@@ -462,26 +374,25 @@ internal class PcmAudioSink(
         }
     }
 
-    // 直出路由靠它钉定：播放器的首选设备必须一路传到 AudioTrack，否则直出流挂不上
+    // 首选设备须传到轨道，直出才挂得上
     override fun setPreferredDevice(audioDeviceInfo: AudioDeviceInfo?) {
         preferredDevice = audioDeviceInfo
         output?.setPreferredDevice(audioDeviceInfo)
     }
 
-    // 隧道启用是显式请求，本路径不支持，如实拒绝；关闭则按空操作处理（渲染器可能在不使用隧道时调用它）
+    // 启用隧道显式拒绝，关闭为空操作
     override fun enableTunnelingV21() = throw UnsupportedOperationException("线性 PCM 输出不支持隧道")
 
     override fun disableTunneling() = Unit
 
-    // 本类自带输出实现，不经媒体3 的输出提供者；空操作以免调用方误以为可替换
+    // 自带输出实现，忽略外部提供者
     override fun setAudioOutputProvider(audioProvider: androidx.media3.exoplayer.audio.AudioOutputProvider) = Unit
 
-    /** 建起并按需启动输出；未建起时向上抛出初始化异常，由渲染器按致命错误处置 */
+    /** 建起并按意图启动输出，失败抛初始化异常 */
     private fun ensureOutput(): AudioTrackOutput {
         val current = output
         if (current != null) {
-            // 轨道失效（音频服务重启、设备被系统收回）后按同一配置就地重建：死轨道写不进去，
-            // 交回写出只会把失败推到写路径，位置在重建之前一直停着
+            // 轨道失效即就地重建，否则位置停住
             if (current.isUsable) return current
             releaseOutput()
         }
@@ -489,8 +400,7 @@ internal class PcmAudioSink(
         val sampleRate = format.sampleRate
         val minimumBufferSize =
             AudioTrack.getMinBufferSize(sampleRate, outputChannelMask, outputEncoding)
-        // 平台下限取不到（该格式未被音频策略受理）时为负值，直接参与取值会把缓冲缩到建不起轨道，
-        // 故按兜底帧数申请，真正的下限仍交给 AudioTrack 在建轨时判定
+        // 下限为负时用兜底帧数，真正下限由轨道判定
         val bufferSize = if (minimumBufferSize > 0) {
             PlaybackBufferPolicy.trackBufferBytes(minimumBufferSize, outputFrameSize, sampleRate)
         } else {
@@ -511,7 +421,7 @@ internal class PcmAudioSink(
                 .setBufferSizeInBytes(bufferSize)
                 .apply {
                     if (audioSessionId != C.AUDIO_SESSION_ID_UNSET) setSessionId(audioSessionId)
-                    // 低延迟只是取向：真正落到 fast 通路还要求轨速率与输出设备一致、缓冲落在 fast 突发之内
+                    // 低延迟只是取向，还须速率与缓冲匹配
                     if (preferLowLatency()) {
                         setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                     }
@@ -539,9 +449,7 @@ internal class PcmAudioSink(
                 /* cause= */ null,
             )
         }
-        // 起播阈值收到缓冲的一半：平台没有 Builder 入口，只能建轨后写入；此刻尚未 play，写的是起播用的那一版。
-        // 入参取实得帧数——平台下限更高时实得量大于申请量，阈值要跟着实得量走。
-        // 失败退回平台初值（等于缓冲容量），只影响起播等待，故记录后放过
+        // 起播阈值取实得缓冲一半，失败沿用平台初值
         runCatching {
             created.setStartThresholdInFrames(
                 PlaybackBufferPolicy.startThresholdFrames(created.bufferSizeInFrames)
@@ -569,7 +477,7 @@ internal class PcmAudioSink(
             bufferSize,
         )
         audioTrackConfig = trackConfig
-        // 音频信息面板的写出编码取自这一事件，漏发会让面板显示未建立
+        // 信息面板依赖此事件
         listener.onAudioTrackInitialized(trackConfig)
         return createdOutput
     }
@@ -583,14 +491,7 @@ internal class PcmAudioSink(
         audioTrackConfig = null
     }
 
-    /**
-     * 按编码器延迟与填充裁剪一块输入，并把结果转成所设编码。
-     *
-     * 起裁直接跳过输入开头的延迟字节；尾裁把末尾若干帧留在 [endTrimBuffer] 里不外发，只有确认曲末
-     * （见 [playToEndOfStream]）才丢弃。两者都按解码侧帧长对齐——渲染器交来的是整帧。
-     *
-     * 滞留区的容量恒等于填充字节数：任何时刻都留够能构成填充的那一段，多出来的才是正文。
-     */
+    /** 按编码器延迟与填充裁剪并转换一块输入 */
     private fun convertTrimmed(source: ByteBuffer, format: Format): ByteBuffer {
         if (inputFrameSize <= 0) return emptyOutput
         if (trimStartBytesLeft > 0) {
@@ -600,7 +501,7 @@ internal class PcmAudioSink(
             if (trimStartBytesLeft > 0) return emptyOutput
         }
         val remaining = source.remaining()
-        // 可写出的字节数＝滞留区可腾出的量：滞留区满则只出本次输入的下溢部分
+        // 可写字节数＝滞留区腾出的量
         val releaseBytes = endTrimSize + remaining - endTrimBuffer.size
         val fromEnd = releaseBytes.coerceIn(0, endTrimSize)
         val fromSource = (releaseBytes - fromEnd).coerceIn(0, remaining)
@@ -619,7 +520,7 @@ internal class PcmAudioSink(
         } else {
             emptyOutput
         }
-        // 滞留区左移出已写出的部分，再接上本次输入剩下的全部字节（其量恰为容量与存留之差）
+        // 左移滞留区，再接本次输入的剩余
         val kept = endTrimSize - fromEnd
         if (kept > 0) System.arraycopy(endTrimBuffer, fromEnd, endTrimBuffer, 0, kept)
         endTrimSize = kept
@@ -632,7 +533,7 @@ internal class PcmAudioSink(
         return convert(assembled, format)
     }
 
-    /** 曲末把滞留区整块交出：只在尾裁不成立（跳转过）时使用 */
+    /** 曲末整块交出滞留区（仅跳转后） */
     private fun consumeEndTrim(format: Format): ByteBuffer? {
         val size = endTrimSize
         if (size <= 0) return null
@@ -643,11 +544,7 @@ internal class PcmAudioSink(
         return convert(target, format)
     }
 
-    /**
-     * 把整块输入转成所设编码。
-     *
-     * 输入被消费到末位，末尾凑不满一个样本的余字节由转换一并跳过（见 [packIntPcm]）。
-     */
+    /** 把整块输入转成所设编码，余字节跳过 */
     private fun convert(source: ByteBuffer, format: Format): ByteBuffer {
         val bytesPerSample = PcmConversion.frameSize(format.pcmEncoding, 1)
         val output = scratchBuffer(source.remaining() / bytesPerSample * bytesPerOutputSample)
@@ -687,11 +584,7 @@ internal class PcmAudioSink(
         return PcmConversion.sampleCountToDurationUs(bytes / frameSize, sampleRate)
     }
 
-    /**
-     * 把设备侧欠载计数如实转给渲染器。
-     *
-     * 计数在音频轨自身；本层每次写入后取一次，增加即上报。间隔按接口约定取距上次接纳写入的时长。
-     */
+    /** 欠载计数增加即上报，间隔自上次写入 */
     private fun reportUnderruns(output: AudioTrackOutput) {
         val count = runCatching { output.underrunCount }.getOrDefault(lastReportedUnderruns)
         if (count <= lastReportedUnderruns) return
@@ -710,7 +603,7 @@ internal class PcmAudioSink(
             /* isRecoverable= */ e.errorCode == AudioTrack.ERROR_DEAD_OBJECT,
         )
 
-    /** 媒体时间锚点：媒体时刻与当时的写出位置配对，换算时按速率外推 */
+    /** 媒体时间锚点：媒体时刻配写出位置 */
     private class PositionCheckpoint(
         val mediaTimeUs: Long,
         val outputPositionUs: Long,
@@ -721,7 +614,7 @@ internal class PcmAudioSink(
 
         val EMPTY_BYTES = ByteArray(0)
 
-        /** 渲染器尚未接管回调时的出口，事件不外泄 */
+        /** 默认监听器，事件不外泄 */
         val SILENT_LISTENER = object : AudioSink.Listener {
             override fun onPositionDiscontinuity() = Unit
 
@@ -736,7 +629,7 @@ internal class PcmAudioSink(
     }
 }
 
-// 编码名：供初始化失败的异常消息使用
+// 编码名，用于异常消息
 private fun bitDepthLabel(encoding: Int): String = when (encoding) {
     C.ENCODING_PCM_FLOAT -> "浮点"
     C.ENCODING_PCM_16BIT -> "16 位整型"
@@ -745,14 +638,7 @@ private fun bitDepthLabel(encoding: Int): String = when (encoding) {
     else -> "编码$encoding"
 }
 
-/**
- * 本 sink 的格式支持判定。
- *
- * 浮点格式返回 [AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY]，使 [MediaCodecAudioRenderer]
- * 把解码器配置为浮点输出；本 sink 接收浮点后自行转成所设编码，精度得以保留。
- * 非浮点编码返回 TRANSCODING：高分辨率源因此被解码器降级为 16 位整型，低 8 位在解码阶段即已丢失，
- * 与补零升位无关。
- */
+/** 浮点直出，其余转码；非 PCM 不支持 */
 @OptIn(UnstableApi::class)
 internal fun pcmFormatSupport(pcmEncoding: Int): Int {
     if (!PcmConversion.isLinearPcm(pcmEncoding)) return AudioSink.SINK_FORMAT_UNSUPPORTED
@@ -763,18 +649,7 @@ internal fun pcmFormatSupport(pcmEncoding: Int): Int {
     }
 }
 
-/**
- * 把整块线性 PCM 转成 [outputEncoding] 的整型帧写入 [output]，[source] 随之被消费到末位。
- *
- * 逐样本经 [PcmConversion] 的左对齐 32 位约定中转（32 位整型为中间态），而非另立一套缩放口径：24 位目标下
- * 24 位源原样落在高三位，16 位及以下源左移补零因而逐位不失真，32 位源与浮点源会丢低位；32 位目标下
- * 32 位及以下源逐位无损，浮点源按中间态取整。
- *
- * 循环以「剩余字节够一个样本」为条件：缓冲长度不是样本整数倍时余数无法构成样本，按剩余量判断会读到
- * limit 之外并抛 BufferUnderflowException——余数在此一并跳过。
- *
- * @return 末尾无法构成样本的字节数，正常为 0。
- */
+/** 逐样本经 32 位整型中转写出，返回末尾不足一样本的字节数 */
 internal fun packIntPcm(
     source: ByteBuffer,
     output: ByteBuffer,
@@ -791,7 +666,7 @@ internal fun packIntPcm(
     }
     val leftover = source.remaining()
     if (leftover > 0) {
-        // 余数消费掉，否则同一缓冲会反复从同一位置读出同样的余数
+        // 消费余数，避免重复读取
         source.position(source.limit())
     }
     return leftover

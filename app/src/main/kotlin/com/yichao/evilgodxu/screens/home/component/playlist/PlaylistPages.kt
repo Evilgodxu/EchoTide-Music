@@ -88,7 +88,7 @@ internal fun PlaylistGroupsPage(
     val library = playbackState.libraryTracks
     val unknownAlbum = stringResource(R.string.playlist_unknown_album)
     val unknownArtist = stringResource(R.string.music_scanner_unknown_artist)
-    // 分组是全库扫描 + 排序，缓存到曲库变化为止，避免每次重组重算
+    // 分组扫描排序较重，缓存到曲库变化
     val groups = remember(library, type, unknownAlbum, unknownArtist) {
         when (type) {
             SmartPlaylistType.ALBUM -> albumGroups(library, unknownAlbum)
@@ -96,11 +96,11 @@ internal fun PlaylistGroupsPage(
             else -> emptyList()
         }
     }
-    // 行内取封面按 id 查表，避免每行线性扫描全库
+    // 按 id 查表取封面，避免逐行扫全库
     val libraryById = remember(library) { library.associateBy { it.id } }
     val albumOrders = LocalAlbumOrderStore.current.orders
     val artistOrders = LocalArtistOrderStore.current.orders
-    // 分组封面与详情页共用同一份存档曲序：调整过歌曲次序后，列表封面随新的首曲一同切换
+    // 封面与详情共用存档曲序，调整次序后同步
     val savedOrders = when (type) {
         SmartPlaylistType.ALBUM -> albumOrders
         SmartPlaylistType.ARTIST -> artistOrders
@@ -109,7 +109,7 @@ internal fun PlaylistGroupsPage(
     val icon: ImageVector = if (type == SmartPlaylistType.ALBUM) AppIcons.Album else AppIcons.Person
     // 列表内搜索关键词：仅过滤展示，不改变曲库
     var searchQuery by remember { mutableStateOf("") }
-    // 按条目名称过滤：关键字命中歌手名/专辑名即保留
+    // 按名称过滤，命中歌手/专辑即保留
     val visibleGroups = remember(groups, searchQuery) {
         if (searchQuery.isBlank()) {
             groups
@@ -117,7 +117,7 @@ internal fun PlaylistGroupsPage(
             groups.filter { it.name.contains(searchQuery, ignoreCase = true) }
         }
     }
-    // 列表展示与邻域预取读同一份封面结果，二者不会因各算一次而在排序后短暂取到不同的曲目
+    // 展示与预取共用同一份封面结果
     val coverTracks = remember(groups, libraryById, savedOrders, type) {
         groups.associate { group ->
             val orderKey = if (type == SmartPlaylistType.ALBUM) group.key else group.name
@@ -133,13 +133,11 @@ internal fun PlaylistGroupsPage(
     } else {
         val keyboardController = LocalSoftwareKeyboardController.current
         val listState = rememberLazyListState()
-        // 分组封面取该组存档曲序中的首曲：可视区邻域提前取图，滚动进入视口时不再先闪占位符
+        // 封面预取，进入视口不闪占位符
         CoverPrefetch(listState) { index ->
             visibleGroups.getOrNull(index)?.let { coverTracks[it.key] }
         }
-        // 底部收紧：键盘展开时压缩列表，搜索框保持在键盘上方；键盘收起时让出系统导航栏高度
-        // （首页全沉浸隐藏了两条系统栏，正常路径下该值为 0，保留是为了导航栏被外部显示出来时搜索框与末项不被压住）。
-        // 两者取并集而非叠加：键盘高度已含导航栏区域
+        // 底部 inset 取 ime ∪ 导航栏，键盘只压缩列表
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -163,14 +161,14 @@ internal fun PlaylistGroupsPage(
                         .fillMaxSize()
                         .padding(horizontal = 12.dp)
                         .fadeUnderBottomSearchBar(SEARCH_BAR_LIST_FADE_FEATHER_DP),
-                    // 底部留白只取搜索框自身的占高：框体上方没有其它控件，留白不替过渡段垫高度
+                    // 底部留白只取搜索框占高
                     contentPadding = PaddingValues(bottom = SEARCH_BAR_REGION_DP),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(visibleGroups, key = { it.key }) { group ->
                         PlaylistGroupRow(
                             group = group,
-                            // 专辑/艺术家列表与自定义歌单同口径：取该歌单当前首曲的封面
+                            // 与自定义歌单同口径，取当前首曲封面
                             coverTrack = coverTracks[group.key],
                             fallbackIcon = icon,
                             onClick = {
@@ -181,8 +179,7 @@ internal fun PlaylistGroupsPage(
                     }
                 }
             }
-            // 底部搜索框常驻：列表底部已按框体占高留白，框体不再压住末项。
-            // 本面板为深色沉浸背景，底色与前景统一走白色系，与在线搜索输入框同款
+            // 搜索框常驻；深色背景下统一白色系
             BottomSearchBarOverlay(
                 placeholder = stringResource(
                     if (type == SmartPlaylistType.ALBUM) R.string.playlist_search_album_placeholder
@@ -200,8 +197,7 @@ internal fun PlaylistGroupsPage(
     }
 }
 
-// 分组行：封面（取该分组首曲）+ 主次文字 + 进入箭头。专辑与艺术家分组列表共用一份实现，
-// 两处的行高、封面档位与文字口径因此始终一致；分组内无可用曲目时回落到 [fallbackIcon]
+// 分组行：封面 + 名称 + 数量 + 箭头；无曲目回落图标
 @Composable
 internal fun PlaylistGroupRow(
     group: PlaylistGroup,
@@ -271,7 +267,7 @@ internal fun PlaylistTracksPage(
 ) {
     val playlistStore = LocalPlaylistStore.current
     val scope = rememberCoroutineScope()
-    // 实时读取最新歌单，添加/移除歌曲后立即刷新列表
+    // 读最新歌单，增删后立即刷新
     val currentPlaylist = playlistStore.playlists.find { it.id == playlist.id } ?: playlist
     val tracks = remember(playbackState.libraryTracks, currentPlaylist.trackIds) {
         resolveTracks(playbackState.libraryTracks, currentPlaylist.trackIds)
@@ -283,7 +279,7 @@ internal fun PlaylistTracksPage(
         source = PlaylistSource("custom:${playlist.id}", currentPlaylist.name),
         playbackState = playbackState,
         trailingAction = {
-            // 用紧凑点击区承载图标：Material 图标按钮的固定触控高度会把操作栏撑高
+            // 用紧凑点击区，避免 IconButton 撑高操作栏
             Box(
                 modifier = Modifier
                     .size(32.dp)
@@ -335,9 +331,7 @@ internal fun PlaylistSmartTracksPage(
     val favoriteOrder = favoriteOrderStore.order
     val scope = rememberCoroutineScope()
     val source = PlaylistSource("smart:${type.name}", smartTypeLabel(type))
-    // type 必须参与缓存键：结果为按 type 分叉的曲目集，而宽屏面板的右栏在同一个调用点切换类目，
-    // 曲库与两张 id 表都没变时只按它们缓存，会把空类目（如收藏为 0）的结果留给下一个类目。
-    // 常听按播放时间线给出顺序，收藏按收藏曲序重排；两者都走来源解析，与面板展示同一口径
+    // type 参与缓存键，避免切类目串用旧结果
     val tracks = remember(library, playbackState.recentPlayedIds, playbackState.likedIds, favoriteOrder, type) {
         resolveSourceTracks(
             all = library,
@@ -350,7 +344,7 @@ internal fun PlaylistSmartTracksPage(
             favoriteOrder = favoriteOrder,
         )
     }
-    // 收藏的曲序由用户拖拽决定并落盘；常听跟随播放时间线自动更新，不提供拖拽
+    // 收藏可拖拽并落盘；常听跟随时间线，不可拖拽
     val reorder: ((List<MusicTrack>) -> Unit)? = if (type == SmartPlaylistType.FAVORITE) {
         { ordered -> scope.launch { favoriteOrderStore.setOrder(ordered.map { it.id }) } }
     } else {
@@ -379,8 +373,8 @@ internal fun PlaylistSmartTracksPage(
     )
 }
 
-// 曲目页共享主体：播放全部 + 操作栏 + 曲目列表（支持长按手柄拖拽排序）。
-// reorderEnabled=false 时不挂手柄：顺序由数据源自身决定（如常听的时间线），拖了也会在下次解析时回滚
+// 曲目页主体：播放全部 + 操作栏 + 可拖拽列表。
+// 不可重排时不挂手柄，否则下次解析回滚
 @Composable
 internal fun TracksContent(
     tracks: List<MusicTrack>,
@@ -394,11 +388,11 @@ internal fun TracksContent(
     val context = LocalContext.current
     val metadataEnricher = LocalMetadataEnricher.current
     val listState = rememberLazyListState()
-    // 可排序的本地列表：拖拽实时重排，随数据源变化重置
+    // 本地可排序列表，数据源变化时重置
     var orderedTracks by remember(tracks) { mutableStateOf(tracks) }
-    // 曲目行封面：可视区邻域提前取图，滚动进入视口时不再先闪占位符
+    // 封面预取，进入视口不闪占位符
     CoverPrefetch(listState) { index -> orderedTracks.getOrNull(index) }
-    // 自实现 reorderable 状态：拖拽项跟随手指，其余项使用 animateItem 平滑让位
+    // 拖拽项跟手，其余 animateItem 让位
     val reorderableState = rememberReorderableLazyListState(listState) { from, to ->
         val list = orderedTracks.toMutableList()
         val moved = list.removeAt(from)
@@ -483,7 +477,7 @@ internal fun TracksContent(
     }
 }
 
-// 空态提示：各曲目页与分组列表共用，居中一行浅色说明文字
+// 空态提示：居中一行浅色文字
 @Composable
 internal fun EmptyHint(text: String) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -495,7 +489,7 @@ internal fun EmptyHint(text: String) {
     }
 }
 
-// 把歌单曲目设为默认队列的过滤结果并切入指定曲目
+// 设队列过滤并切入指定曲目
 private fun playQueue(
     context: android.content.Context,
     state: MusicPlaybackState,

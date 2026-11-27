@@ -23,8 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.R
 
-// 曲目操作的统一确认弹窗（从歌单移除 / 永久删除）：默认文案为「从歌单移除」，
-// 标题、正文与确认文案按场景传入，按钮样式与其余确认框一致
+// 曲目操作确认弹窗，文案按场景传入
 @Composable
 internal fun RemoveTrackDialog(
     track: MusicTrack?,

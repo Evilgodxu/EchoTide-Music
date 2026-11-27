@@ -65,12 +65,12 @@ import kotlinx.coroutines.launch
 internal fun PlaylistSheet(
     visible: Boolean,
     playbackState: MusicPlaybackState,
-    // 音频访问授权：空列表的成因据此区分「未授权」与「暂无本地音乐」
+    // 授权状态，用于区分空列表成因
     mediaAudioGranted: Boolean,
     onDismiss: () -> Unit,
-    // 高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
+    // 「查看频谱」：跳转频谱页
     onViewSpectrum: (Long) -> Unit = {},
-    // 高级菜单的「编辑元数据」：跳转元数据编辑页，只传曲目标识
+    // 「编辑元数据」：跳转元数据页
     onEditMetadata: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -80,20 +80,18 @@ internal fun PlaylistSheet(
     // 竖屏播放列表高度减半，横屏全高显示
     val isPortrait = !rememberWindowLandscape()
     val sheetHeightFraction = if (isPortrait) 0.5f else 1f
-    // 排序菜单高度上限：面板高度（窗口高度 × 展开比例）的 80%，超出部分在菜单内滚动，
-    // 使朝下展开的菜单不会盖过整块面板；组件还会按锚点下方的可用空间再收紧，
-    // 保证窗口较矮时菜单不翻转到排序按钮上方
+    // 菜单高上限＝面板高 × 80%，超出在菜单内滚动。
+    // 组件还会按锚点下方空间再收紧，避免翻转。
     val sortMenuMaxHeight =
         LocalWindowInfo.current.containerDpSize.height * sheetHeightFraction * 0.8f
     // 歌单副标题点击后的快捷切换弹层
     var showSwitcher by remember { mutableStateOf(false) }
-    // 面板展示的曲目：跟随播放队列时取播放队列，浏览态按来源歌单从全量库解析。
-    // 浏览态只决定展示内容，与播放队列解耦，切换时不动播放器
+    // 曲目：跟随队列时取队列，浏览态按来源解析，不动播放器
     val playlistStore = LocalPlaylistStore.current
     val albumOrders = LocalAlbumOrderStore.current.orders
     val artistOrders = LocalArtistOrderStore.current.orders
     val favoriteOrder = LocalFavoriteOrderStore.current.order
-    // 自定义歌单读盘完成前先按空列表处理，避免「暂无歌单」与「尚未读完」混淆
+    // 读盘前按空处理，避免与「暂无」混淆
     val playlistStoreLoaded = playlistStore.isLoaded
     val followsQueue = playbackState.viewedFollowsQueue
     val viewedSource = playbackState.viewedSource
@@ -127,8 +125,7 @@ internal fun PlaylistSheet(
     }
     val viewedKey = if (followsQueue) playbackState.queueFilter?.key else viewedSource?.key
     val viewedName = if (followsQueue) playbackState.queueFilter?.name else viewedSource?.name
-    // 浏览的歌单已失效（被删除、专辑/艺术家分组消失）时回落到默认播放列表，避免面板停留在空列表；
-    // 读盘完成前自定义歌单必然解析为空、扫描期间全量库可能暂时为空，都不作为失效依据
+    // 歌单失效时回落默认；读盘与扫描期间不算失效
     LaunchedEffect(playlistStoreLoaded, playbackState.isScanning, followsQueue, viewedSource, tracks) {
         if (playlistStoreLoaded && !playbackState.isScanning && !followsQueue && viewedSource != null &&
             !isViewSourceValid(playlistStore.playlists, tracks, viewedSource)
@@ -140,15 +137,13 @@ internal fun PlaylistSheet(
     var deleteTrack by remember { mutableStateOf<MusicTrack?>(null) }
     // 右滑高级菜单目标：非空时显示菜单对话框
     var advancedTrack by remember { mutableStateOf<MusicTrack?>(null) }
-    // 左滑歌单归属目标：非空时显示归属弹窗，勾选/取消勾选即时加入或移出对应歌单
+    // 归属目标：非空时归属弹窗，勾选即时增删
     var playlistTarget by remember { mutableStateOf<MusicTrack?>(null) }
-    // 设为默认铃声的请求：非空时由安装组件提交并在授权往返后自动续做
+    // 铃声请求，授权往返后自动续做
     var soundRequest by remember { mutableStateOf<DefaultSoundRequest?>(null) }
     val shareChooserTitle = stringResource(R.string.playlist_advanced_menu_share)
-    // 后台预读整份播放列表的歌词：曲目集合变化即触发，不等面板展开逐行懒加载，
-    // 展开时歌词已就绪；幂等，已缓存/补全中/全量补全中的曲目自动跳过。
-    // 封面不在此列：它按显示尺寸取图，进首页由 QueueCoverPreload 以当前曲目为中心辐射预取，
-    // 滚动中由 CoverPrefetch 按可视区维持同规模窗口
+    // 预读整份列表歌词，曲目变化即触发，已缓存跳过
+    // 封面按显示尺寸另行取图
     val playlistTrackIds = remember(tracks) { tracks.map { it.id } }
     LaunchedEffect(playlistTrackIds) {
         val currentId = playbackState.currentTrack?.id
@@ -156,7 +151,7 @@ internal fun PlaylistSheet(
             .sortedBy { it.id != currentId }
             .forEach { playbackState.requestMetadata(it) }
     }
-    // 曲目行封面：进首页即以当前曲目为中心向外辐射预取一批，同样不等面板展开
+    // 进首页即预取歌曲封面，不等面板展开
     QueueCoverPreload(
         tracks = tracks,
         currentTrackId = playbackState.currentTrack?.id,
@@ -193,14 +188,12 @@ internal fun PlaylistSheet(
                         color = MaterialTheme.colorScheme.surface,
                         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                     )
-                    // 内边距只给左右与顶部：面板底色铺到屏幕底缘，底部再留内边距就会在末行下方
-                    // 空出一条与底色同色、不随列表滚动的色带
+                    // 内边距只给左右与顶部，底部留白会露出色带
                     .padding(start = 12.dp, end = 12.dp, top = 10.dp)
-                    // 只避让键盘：键盘弹出时面板内容整体上移，其自身已覆盖导航栏区域，无需再叠加导航栏高度。
-                    // 不避让导航栏——首页全沉浸已隐藏导航栏，在面板根节点预留这段高度同样只会留下底部色带
+                    // 只避让键盘；导航栏已隐藏，预留高度只会留色带
                     .imePadding(),
             ) {
-                // 展开就绪：等面板滑入动画完成后再定位当前曲目，避免滚动与展开动画叠加卡顿
+                // 等滑入动画完成再定位当前曲目，避免卡顿
                 var playlistSettled by remember { mutableStateOf(false) }
                 LaunchedEffect(Unit) {
                     playlistSettled = false
@@ -247,7 +240,7 @@ internal fun PlaylistSheet(
                         playlistTrackIds = playlistTrackIds,
                         onDismiss = onDismiss,
                         onLongPressTrack = { track ->
-                            // 彻底删除要动音频文件：无权限时就地申请，本次不弹确认框
+                            // 删文件需权限，无权限先申请再弹框
                             if (ensureTrackFileWritable(requestAllFilesAccess)) deleteTrack = track
                         },
                         onSwipePlaylist = { playlistTarget = it },
@@ -260,10 +253,8 @@ internal fun PlaylistSheet(
             visible = showSwitcher,
             playbackState = playbackState,
             currentKey = viewedKey,
-            // 切换歌单即把所选来源设为默认队列的过滤条件：当前曲目在过滤结果中则按过滤顺序继续播放，
-            // 不在则从过滤结果首曲起播。
-            // 过滤已生效时面板回到跟随队列——展示的就是过滤结果，切回默认时排序按钮也随之恢复可用；
-            // 来源为空（播放队列保持原样）才切到浏览态展示该来源
+            // 选来源即设为队列过滤：当前曲目在结果中则续播，否则从首曲起。
+            // 过滤生效时面板回跟随队列；来源为空才进浏览态。
             onSwitch = { source ->
                 val applied = switchPlaylistSource(
                     context = context,
@@ -311,7 +302,7 @@ internal fun PlaylistSheet(
                 advancedTrack = null
             },
             onViewSpectrum = {
-                // 先收起面板再跳转，从频谱页返回时不会停在展开的面板上
+                // 先收起面板再跳转，返回不停在展开面板
                 val target = advancedTrack
                 advancedTrack = null
                 if (target != null) {
@@ -320,7 +311,7 @@ internal fun PlaylistSheet(
                 }
             },
             onEditMetadata = {
-                // 与频谱页同一处理：先收起面板再跳转，返回时不停在展开的面板上
+                // 先收起再跳转，返回不停在展开面板
                 val target = advancedTrack
                 advancedTrack = null
                 if (target != null) {
@@ -330,7 +321,7 @@ internal fun PlaylistSheet(
             },
             onDismiss = { advancedTrack = null },
         )
-        // 安装不依赖对话框存活：面板收起后授权往返仍能续做
+        // 安装不依赖对话框，面板收起仍续做
         DefaultSoundInstallerHost(
             request = soundRequest,
             onRequestChange = { soundRequest = it },
@@ -338,6 +329,6 @@ internal fun PlaylistSheet(
     }
 }
 
-// 播放列表展开进入动画时长：等动画完成后才滚动定位当前曲目，避免动画叠加卡顿
+// 展开动画 300ms，完成后才滚动定位
 private const val PLAYLIST_EXPAND_ANIM_MS = 300L
 

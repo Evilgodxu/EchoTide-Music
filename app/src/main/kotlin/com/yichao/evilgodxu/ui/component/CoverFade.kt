@@ -3,19 +3,14 @@ package com.yichao.evilgodxu.ui.component
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
-// 封面边缘渐隐带长度占封面边长的比例：封面由此比例起渐隐为透明，融入封面衍生的沉浸背景。
-// 竖屏封面下缘与横屏封面四边同取本比例，两种形态的过渡带宽度口径一致
+// 渐隐带占封面边长 0.3，竖屏横屏同口径
 internal const val COVER_FADE_RATIO = 0.3f
 
-// 渐隐曲线的采样段数：色标之间为线性插值，段数越多越逼近解析曲线。
-// 16 段时单段透明度变化不足 1/255，肉眼无法分辨；继续加密只增加色标数量，观感不再变化
+// 渐隐采样 16 段，单段透明度差不足 1/255
 private const val FADE_SAMPLE_SEGMENTS = 16
 
 /**
- * 平滑过渡曲线：t 为过渡带内的归一化位置，返回由 1 平滑收敛到 0 的透明度，即 smootherstep 的补。
- * 两端的一阶与二阶导数均为 0，与带外的常值段（全不透明、全透明）平滑相接。
- * 线性渐隐只在分段折点处连续，斜率的突变会被读成一条分界带，故过渡一律按本曲线采样。
- * 单边渐隐、双边羽化与背景压暗层缓动共用本曲线，衔接处不会出现折点。
+ * 平滑渐隐曲线，两端导数为 0
  */
 internal fun smoothFadeAlpha(t: Float): Float {
     val x = t.coerceIn(0f, 1f)
@@ -23,9 +18,7 @@ internal fun smoothFadeAlpha(t: Float): Float {
 }
 
 /**
- * 单边渐隐色标：0 到 [start] 为 [color] 的实色段，[start] 到 [end] 按 [smoothFadeAlpha] 采样淡出至全透明。
- * 末档取自采样的终点：与 [color] 同色而透明度为 0，避免 RGB 在末段向黑色插值而渗出灰调。
- * [end] 不大于 [start]（没有可过渡的距离）时退化为一条实色到透明的最小色标。
+ * 单边渐隐色标，末档同色全透明
  */
 private fun fadeOutStops(color: Color, start: Float, end: Float): Array<Pair<Float, Color>> {
     val span = end - start
@@ -44,9 +37,7 @@ private fun fadeOutStops(color: Color, start: Float, end: Float): Array<Pair<Flo
 }
 
 /**
- * 单边渐入色标：0 处全透明，0 到 [end] 按 [smoothFadeAlpha] 的镜像采样渐现至 [color] 实色，[end] 以下为实色段。
- * 镜像采样沿 [smoothFadeAlpha] 的自变量取补，与单边渐隐的轮廓互为镜像。
- * [end] 为 0（没有可过渡的距离）时退化为整幅实色。
+ * 单边渐入色标，与渐隐镜像
  */
 private fun fadeInStops(color: Color, end: Float): Array<Pair<Float, Color>> {
     val span = end.coerceIn(0f, 1f)
@@ -63,10 +54,7 @@ private fun fadeInStops(color: Color, end: Float): Array<Pair<Float, Color>> {
 }
 
 /**
- * 双边渐隐色标：轴线两端各留 [ratio] 的渐隐带，中间为实色段，得到贴靠两侧的对称羽化。
- * 起始带按 1 - t 采样而非另取曲线：[smoothFadeAlpha] 关于带中心对称（f(1 - t) = 1 - f(t)），
- * 两侧的过渡轮廓因此互为镜像，同一轴向的两条边观感一致。
- * [ratio] 上限取 0.5：再宽两条渐隐带会相互侵入，中段实色消失。
+ * 双边羽化色标，带宽上限 0.5
  */
 private fun edgeFeatherStops(color: Color, ratio: Float): Array<Pair<Float, Color>> {
     val band = ratio.coerceIn(0f, 0.5f)
@@ -86,23 +74,21 @@ private fun edgeFeatherStops(color: Color, ratio: Float): Array<Pair<Float, Colo
 }
 
 /**
- * 构造竖直单边渐隐渐变：0 到 [start] 为 [color] 的实色段，[start] 到 [end] 平滑淡出至全透明。
- * 用于只在一条边贴背景的场景（竖屏封面下缘）。
+ * 竖直单边渐隐，用于封面下缘
  */
 internal fun coverFadeBrush(color: Color, start: Float, end: Float): Brush =
     Brush.verticalGradient(colorStops = fadeOutStops(color, start, end))
 
 /**
- * 构造顶边渐入渐变：0 处全透明，0 到 [end] 渐现至 [color] 实色，[end] 以下为实色段。
- * 与 [coverFadeBrush] 的单边渐隐互为镜像，用于内容自顶边渐现（如展开列表的顶边渐隐蒙层）。
+ * 顶边渐入，如展开列表蒙层
  */
 internal fun edgeFadeInBrush(color: Color, end: Float): Brush =
     Brush.verticalGradient(colorStops = fadeInStops(color, end))
 
-/** 构造上下边缘羽化渐变：顶边与底边各按 [ratio] 的带宽渐隐，供四边羽化的竖直方向使用。 */
+/** 上下边缘羽化 */
 internal fun coverTopBottomFadeBrush(color: Color, ratio: Float = COVER_FADE_RATIO): Brush =
     Brush.verticalGradient(colorStops = edgeFeatherStops(color, ratio))
 
-/** 构造左右边缘羽化渐变：左边与右边各按 [ratio] 的带宽渐隐，供四边羽化的水平方向使用。 */
+/** 左右边缘羽化 */
 internal fun coverLeftRightFadeBrush(color: Color, ratio: Float = COVER_FADE_RATIO): Brush =
     Brush.horizontalGradient(colorStops = edgeFeatherStops(color, ratio))

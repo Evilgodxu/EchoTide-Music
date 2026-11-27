@@ -4,72 +4,46 @@ import android.app.NotificationManager
 import android.os.Build
 import com.yichao.evilgodxu.log.CrashLogManager
 
-// 异常日志的类名前缀：免打扰的读写只有出错时才记（进出决策不写日志）
+// 日志前缀，仅出错时记录
 private const val LOG_TAG = "DirectOutputDoNotDisturb"
 
 /**
- * USB 直出期间的系统免打扰。
- *
- * 源格式直出一旦成立，播放已挂上专用输出流，此时通知与系统提示音是最直接的打扰源。
- * 本类把输出成色映射为系统免打扰的进入与退出：成色成立即置为「仅闹钟」，成色消失（拔线、切换输出、
- * 关闭直出开关、服务结束）即还原。退出只认成色、不认播放与暂停——暂停时跟着进出会让手机的静音状态
- * 反复翻转。
- *
- * 档位取「仅闹钟」而非「完全静音」：平台按档位静音整条流（AudioService.updateZenModeAffectedStreams），
- * 完全静音连 STREAM_MUSIC 一并压掉，音乐会被自己的免打扰静音，与「专注聆听」的初衷相反；
- * 仅闹钟只压 SYSTEM、NOTIFICATION、RING，通知与铃声不再响而媒体照常。更进一步的「连闹钟也静音但保留
- * 媒体」平台没有对应的公开档位，需自定义免打扰规则，本类不涉足。
- *
- * 「仅闹钟」只压非媒体流，故它**不隔离其他应用的播放**：那些媒体轨会经同一台设备的同一条输出混入本应用
- * 的直出流（见 UsbDirectOutput 类注释）。本类管的是通知与提示音，不是并发播放，别把它当成独占手段。
- *
- * 只动「由本类发起」的改动：进入前通知若已被静音（系统处于仅闹钟或完全静音），目标状态本就满足，
- * 此时不改动也不标记，退出时才不会替用户改掉他自己的设置。系统处于允许全部打扰或仅限优先项时正常接管；
- * 退出时 Android 15+ 用 UNKNOWN 停用本应用自己的隐式规则，更早版本按 [restoreFilter] 还原全局档位。
- *
- * 三个读写口经构造注入而非直接持有 [NotificationManager]：进出逻辑承载的是「何时还原、能否接手」这类
- * 判断，注入后可在 JVM 上直接验证，无需真机。系统免打扰的读写本身是 binder 调用、不限线程，但
- * [holding] 与 [restoreFilter] 是一对不可分的状态，调用方须保证 [onModeChanged] 与 [release] 同处一线程
- * （服务侧统一投递主线程）。
+ * USB 直出期间置「仅闹钟」，消失还原。
+ * 只压非媒体流，只动本类发起的改动。
+ * 模式回调与 release 须同线程。
  */
 class DirectOutputDoNotDisturb(
-    /** 是否已获系统免打扰访问权；未获权时读写档位都会失败，故先问它 */
+    /** 是否有免打扰访问权 */
     private val isAccessGranted: () -> Boolean,
     /** 读取当前系统免打扰档位 */
     private val readFilter: () -> Int,
     /** 写入系统免打扰档位 */
     private val writeFilter: (Int) -> Unit,
-    /** 系统版本：Android 15 起 targetSdk 35+ 的写入只作用于应用自己的隐式规则 */
+    /** 系统版本，Android 15 起写自有规则 */
     private val sdkInt: Int = Build.VERSION.SDK_INT,
 ) {
 
-    /** Android 15+ 的写入语义：读的是全局合成档位，写的是应用自己的隐式 AutomaticZenRule */
+    /** Android 15+ 写的是应用自有隐式规则 */
     private val managesOwnRule = sdkInt >= Build.VERSION_CODES.VANILLA_ICE_CREAM
 
-    /** 是否已由本类置为完全静音；为真才在退出时还原 */
+    /** 是否已置为完全静音，真才在退出时还原 */
     private var holding = false
 
-    /** 接管前的系统档位，仅在 [holding] 为真时有意义 */
+    /** 接管前档位，仅 holding 时有效 */
     private var restoreFilter = NotificationManager.INTERRUPTION_FILTER_ALL
 
-    /**
-     * 输出成色变化时驱动免打扰进出。
-     *
-     * [AudioOutputMode.MIXER] 表示未直出（含设备被拔出、属性未被系统受理、直出开关关闭），
-     * 其余成色都视为进入聆听。
-     */
+    /** 成色变化驱动进出；MIXER 表示未直出 */
     fun onModeChanged(mode: AudioOutputMode) {
         if (mode == AudioOutputMode.MIXER) exitSilence() else enterSilence()
     }
 
-    /** 无条件还原并解除接管；直出释放时兜底调用，避免服务销毁后手机停在静音 */
+    /** 无条件还原并解除接管 */
     fun release() {
         if (!managesOwnRule) {
             exitSilence()
             return
         }
-        // Android 15+ 只需停用本应用自己的规则；即使本次没有 holding，也兜底清掉上一次进程
-        // 遗留的规则（进程被杀时来不及走正常退出），UNKNOWN 不触碰用户自己的规则
+        // Android 15+ 停用自有规则，同时清进程遗留
         holding = false
         setFilter(NotificationManager.INTERRUPTION_FILTER_UNKNOWN)
     }
@@ -78,7 +52,7 @@ class DirectOutputDoNotDisturb(
         if (holding) return
         if (!runCatching { isAccessGranted() }.getOrDefault(false)) return
         val current = currentFilter() ?: return
-        // 通知已被静音（仅闹钟、完全静音）：目标状态本就满足，动它只会把用户自己的设置换成我们的
+        // 已被静音则不动用户设置
         if (current == NotificationManager.INTERRUPTION_FILTER_ALARMS ||
             current == NotificationManager.INTERRUPTION_FILTER_NONE
         ) {
@@ -91,12 +65,10 @@ class DirectOutputDoNotDisturb(
 
     private fun exitSilence() {
         if (!holding) return
-        // 先落状态再写系统：写失败也视为已放弃接管，避免残留标记让下次还原写在错误的档位上
+        // 先落状态再写系统，写失败也视为已放弃
         val filter = restoreFilter
         holding = false
-        // Android 15+ 把非 UNKNOWN 的值理解为「启用/更新自己的规则」，写回旧全局档位
-        // 并不会停用规则，退出后应用自己的免打扰仍可能生效；UNKNOWN 才是停用隐式规则的取值。
-        // 更早版本仍是全局写入，按接管前档位还原
+        // 15+ 写 UNKNOWN 停用规则；更早还原全局档位
         setFilter(if (managesOwnRule) NotificationManager.INTERRUPTION_FILTER_UNKNOWN else filter)
     }
 

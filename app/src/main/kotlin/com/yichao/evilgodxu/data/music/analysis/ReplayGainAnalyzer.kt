@@ -15,14 +15,9 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 /**
- * 本地自算 ReplayGain：整曲解码成 PCM，交给 [LoudnessMeter] 统计响度与峰值。
- *
- * 解码来源与频谱分析同构：平台解码器覆盖多数码流，AOSP 缺失的 audio/alac 由自研帧解码接管。
- * 这里不复用频谱分析那条管线 —— 它按 2048 点窗口切片交给变换线程，与「逐样本累计」的
- * 响度统计没有可共用的中间结构；共用的是更底层的 [PcmFormat]（字节→浮点的唯一解释处）
- * 与 ALAC 帧解码。
- *
- * 无法解码或无有效音频时返回 null，由界面按失败提示，不用默认值伪造一条结果。
+ * 整曲解码后交给 LoudnessMeter 统计。
+ * 平台解码器为主，audio/alac 由自研解码接管。
+ * 无有效音频时返回 null。
  */
 internal object ReplayGainAnalyzer {
 
@@ -31,7 +26,7 @@ internal object ReplayGainAnalyzer {
     private const val INPUT_POLL_TIMEOUT_US = 0L
 
     suspend fun analyze(track: MusicTrack): ReplayGainMeasurement? = withContext(Dispatchers.IO) {
-        // 只接受文件路径：标签编辑页的曲目都有本地文件，content URI 交给调用方拦截
+        // 只接受文件路径，URI 由调用方拦
         if (track.path.isBlank()) return@withContext null
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
@@ -68,7 +63,7 @@ internal object ReplayGainAnalyzer {
         }
     }
 
-    // 与频谱分析同一套取舍：audio/alac 取不到解码器时交给自研帧解码，其余码流取不到即失败
+    // alac 取不到解码器时自研解码，其余失败
     private fun openDecoder(format: MediaFormat, mime: String): MediaCodec? {
         val codec = try {
             MediaCodec.createDecoderByType(mime)
@@ -91,7 +86,7 @@ internal object ReplayGainAnalyzer {
         return AlacSpecificConfig.parse(cookie)
     }
 
-    // 平台解码器主循环：先把输入队列喂满，再取空输出；每块 PCM 直接交给响度计
+    // 先喂满输入再取空输出，逐块交给响度计
     private suspend fun drainCodec(
         decoder: MediaCodec,
         extractor: MediaExtractor,
@@ -123,7 +118,7 @@ internal object ReplayGainAnalyzer {
             while (true) {
                 val outIndex = decoder.dequeueOutputBuffer(info, CODEC_TIMEOUT_US)
                 if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    // 输出规格以解码器上报为准：HE-AAC 的 SBR 让输出采样率高于容器声明值
+                    // 规格以解码器为准，SBR 会抬高采样率
                     val outputFormat = decoder.outputFormat
                     pcmEncoding = PcmFormat.encodingOf(outputFormat)
                     outputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE, 0)
@@ -148,7 +143,7 @@ internal object ReplayGainAnalyzer {
         }
     }
 
-    // 自研 ALAC 主循环：逐帧解码后按浮点写出，采样率取 cookie（ALAC 是线性 PCM，无 SBR 之变）
+    // 自研 ALAC 循环，采样率取 cookie
     private suspend fun drainAlac(
         extractor: MediaExtractor,
         config: AlacSpecificConfig,
@@ -172,11 +167,8 @@ internal object ReplayGainAnalyzer {
     }
 
     /**
-     * 解码输出到响度计的投递口：把交错字节解交织成浮点样本后交给 [LoudnessMeter]。
-     *
-     * 响度计按采样率推导滤波器系数，故在首块输出时按当时的采样率建表：容器声明的采样率作初值，
-     * 解码器上报输出格式后以其实测值为准（HE-AAC 的 SBR 会让输出翻倍）。已经产出样本后再改
-     * 采样率（同一容器内极罕见）沿用已建的表，不重建 —— 重建会丢掉已累计的块。
+     * 解码输出到响度计的投递口。
+     * 首块输出时才按采样率建表，之后不再改。
      */
     private class DecodingSink(initialSampleRate: Int) {
 

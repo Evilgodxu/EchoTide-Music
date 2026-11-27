@@ -28,8 +28,7 @@ import com.yichao.evilgodxu.update.UpdateDialog
 import com.yichao.evilgodxu.update.UpdateManager
 import com.yichao.evilgodxu.update.UpdateViewModel
 
-// 应用宿主内容：挂载主题、导航与全局副作用（更新检查、焦点清理、更新对话框），
-// 由 Activity 作为入口调用，Activity 本身不持有界面内容
+// 应用宿主：挂主题、导航与全局副作用
 @Composable
 fun AppContent() {
     val updateViewModel = LocalUpdateViewModel.current
@@ -38,7 +37,7 @@ fun AppContent() {
     val lifecycleOwner = LocalLifecycleOwner.current
     val miniPlayerController = LocalMiniPlayerController.current
 
-    // 回前台时自动检查更新（每日仅检查一次，是否到期由更新仓库判定）
+    // 回前台自动检查更新，每日一次由仓库判定
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -51,7 +50,7 @@ fun AppContent() {
         }
     }
 
-    // 退后台时清除输入焦点，避免回前台时系统按残留焦点偶发自动弹出键盘
+    // 退后台清除焦点，避免回前台误弹键盘
     val focusManager = LocalFocusManager.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -65,12 +64,12 @@ fun AppContent() {
         }
     }
 
-    // 更新对话框与手动检查反馈（全局弹出，覆盖所有页面）
+    // 更新对话框，全局覆盖
     val updateInfo by updateViewModel.updateInfo.collectAsStateWithLifecycle()
     val showUpdateDialog by updateViewModel.showUpdateDialog.collectAsStateWithLifecycle()
     val downloadState by updateViewModel.downloadState.collectAsStateWithLifecycle()
 
-    // 手动检查结果提示：一次性事件，自动检查静默；以文案为键重建收集，避免语言切换后仍弹旧语言文案
+    // 手动检查提示；以文案为键重建收集以跟随语言
     val upToDateText = stringResource(R.string.update_toast_up_to_date)
     val checkErrorText = stringResource(R.string.update_toast_error)
     LaunchedEffect(upToDateText, checkErrorText) {
@@ -91,7 +90,7 @@ fun AppContent() {
             AppRoot(onExit = {
                 // 先退到后台：界面不留在前台等清理走完
                 activity?.moveTaskToBack(true)
-                // 仅 finish() 会因前台服务与悬浮窗残留导致进程未退出，故由控制器彻底结束应用
+                // 仅 finish 会因服务与悬浮窗残留，交由控制器退出
                 miniPlayerController?.exitApplication()
             })
         }

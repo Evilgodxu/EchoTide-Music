@@ -5,42 +5,37 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * 独占音量的档位换算与状态。
- *
- * 这条换算直接决定独占期间的实际响度，算错不会报错、只会"音量键按了不对劲"，故把两端、每级衰减、
- * 越界、默认档位与静音行为钉住。
- */
+/** 档位→增益：-80dB 到 0dB，逐级 0.5dB */
 class ExclusiveVolumeTest {
 
     private val tolerance = 0.0005f
 
-    // 满档即满幅 0 dB：打包器整段缩放不参与，写出仍是逐位原样
+    // 满档 0dB，打包器不缩放
     @Test
     fun `最高档为增益 1`() {
         assertEquals(1f, stepToGain(EXCLUSIVE_VOLUME_STEPS), tolerance)
     }
 
-    // 每级 0.5 dB：降 20 级恰是 -10 dB，幅度为 10^(-0.5)
+    // 每级 0.5dB，降 20 级为 -10dB
     @Test
     fun `每二十档降低十分贝`() {
         assertEquals(0.316228f, stepToGain(EXCLUSIVE_VOLUME_STEPS - 20), tolerance)
     }
 
-    // 0 档是量程下界 -80 dB：1e-4 的幅度，听不见但不是零
+    // 0 档 -80dB 即 1e-4，非零
     @Test
     fun `最低档为负八十分贝`() {
         assertEquals(1e-4f, stepToGain(0), tolerance)
     }
 
-    // 越界一律按两端取值：档位来自系统音量面板与按键，不该有机会变成放大或负音量
+    // 越界取端点，不放大也不为负
     @Test
     fun `越界档位钳到两端`() {
         assertEquals(stepToGain(EXCLUSIVE_VOLUME_STEPS), stepToGain(EXCLUSIVE_VOLUME_STEPS + 5))
         assertEquals(stepToGain(0), stepToGain(-5))
     }
 
-    // 逐级单调：音量键往上是变响、往下是变轻，这条不成立就说明级数或衰减写反了
+    // 逐级单调，否则级数或衰减写反
     @Test
     fun `增益随档位递增`() {
         val gains = (0..EXCLUSIVE_VOLUME_STEPS).map(::stepToGain)
@@ -48,7 +43,7 @@ class ExclusiveVolumeTest {
         assertEquals(gains.sorted(), gains)
     }
 
-    // 默认档位是 -30 dB：起播不会一上来就是满幅
+    // 默认 -30dB，起播不满幅
     @Test
     fun `默认档为负三十分贝`() {
         val volume = ExclusiveVolume()
@@ -57,8 +52,7 @@ class ExclusiveVolumeTest {
         assertEquals(0.031623f, volume.gain(), tolerance)
     }
 
-    // 档位写入带钳制，并如实回答"是否真的变了"——调用方据此决定落盘与会话播报，两者都不该被
-    // 无效写入牵着走
+    // 写入带钳制，如实回答是否真的变了
     @Test
     fun `设置档位会钳制并回报变化`() {
         val volume = ExclusiveVolume()
@@ -71,7 +65,7 @@ class ExclusiveVolumeTest {
         assertEquals(0, volume.currentStep)
     }
 
-    // 静音只是增益归零，档位留在原处：取消静音即回到原响度，不必让用户重新找一遍
+    // 静音只归零增益，档位保留
     @Test
     fun `静音不丢失当前档位`() {
         val volume = ExclusiveVolume()

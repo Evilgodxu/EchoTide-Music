@@ -8,7 +8,7 @@ import com.yichao.evilgodxu.ui.component.section.GroupCard
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.utils.formatBytes
 
-// 存储管理入口：副标题与层级内合计同用一处文案，避免两处合计写法分叉
+// 存储入口，副标题显示合计
 @Composable
 fun CacheEntry(
     totalBytes: Long,

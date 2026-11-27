@@ -50,17 +50,14 @@
         <item quantity="other">%d 首</item>
     </plurals>
     <string name="music_panel_search_history_delete">删除历史</string>
-    <!-- 搜索历史标签流的区块标题与其右侧的清空动作 -->
+    <!-- 搜索历史标题及清空动作 -->
     <string name="music_panel_search_history_recent">最近搜索</string>
     <string name="music_panel_search_history_clear_action">清空</string>
-    <!-- 无历史也无结果时，结果区的占位说明 -->
+    <!-- 结果区空态提示 -->
     <string name="music_panel_search_empty_hint">输入关键词后，结果将显示在此区域</string>
-    <!-- 结果区的刷新动作 -->
+    <!-- 结果区刷新动作 -->
     <string name="music_panel_search_refresh">刷新</string>
-    <!-- 搜索结果区块标题的曲目数。
-         语义：本次搜索已返回并载入列表的条数 —— 上拉加载更多后该数会随之增大，不代表平台上的总量。
-         单列一条而不复用 music_panel_track_count：后者是通用曲目计数，被播放列表、歌手页、
-         曲库分析等十余处引用，写入「找到」这类搜索专有措辞会让那些页面也变成「找到 N 首」 -->
+    <!-- 本次已载入条数，随加载更多增长 -->
     <plurals name="music_panel_search_result_count">
         <item quantity="other">找到 %d 首</item>
     </plurals>
@@ -81,7 +78,7 @@
     <string name="music_quality_high">高品</string>
     <string name="music_quality_standard">标准</string>
     <string name="music_panel_play_failed">播放失败</string>
-    <!-- 设备没有当前曲目所用编码的解码器，播放器会整条音频轨不选中（静音走完且不报错） -->
+    <!-- 无对应解码器时整轨静音 -->
     <string name="music_panel_decode_unsupported">本设备无 %1$s 解码器，该曲目无法播放</string>
     <string name="music_panel_copy">复制</string>
     <string name="music_panel_rename">重命名</string>
@@ -160,7 +157,7 @@
     <string name="audio_info_file_size">文件大小</string>
     <string name="audio_info_format">音频格式</string>
     <string name="audio_info_decoder">解码器</string>
-    <!-- 本机没有该编码的解码器：解码器名缺失时用它交代原因 -->
+    <!-- 解码器缺失时说明原因 -->
     <string name="audio_info_decoder_unavailable">不可用（本设备不支持 %1$s）</string>
     <string name="audio_info_source_sample_rate">原始采样率</string>
     <string name="audio_info_output_sample_rate">输出采样率</string>
@@ -168,22 +165,21 @@
     <string name="audio_info_channel_layout">声道</string>
     <string name="audio_info_channel_count">通道数</string>
     <string name="audio_info_resampled">重采样</string>
-    <!-- 同族倍率由本应用插值，原样本逐位保留，与系统重采样不是一回事 -->
+    <!-- 同族倍率应用内插值，原样本保留 -->
     <string name="audio_info_resample_same_family">同族插值</string>
     <string name="audio_info_quality">品质</string>
     <string name="audio_info_output_mode">音频输出模式</string>
     <string name="audio_info_session_id">音频会话 ID</string>
-    <!-- 解码头实际输出的格式，与「原始采样率」给出的源格式可能不同 -->
+    <!-- 解码头实际输出格式，可能与源不同 -->
     <string name="audio_info_decoded_output">解码输出</string>
     <string name="audio_info_float_output">浮点输出</string>
     <string name="audio_info_output_encoding">输出编码</string>
-    <!-- 延迟那一行的口径：从缓冲出口（播放头）起算，不含缓冲驻留那一段——驻留另有单独一行。
-         用「缓冲」而非「音频轨」：独占路径上没有音频轨，那一段落在环形缓冲上 -->
+    <!-- 从缓冲出口起算，不含驻留 -->
     <string name="audio_info_latency">输出延迟</string>
-    <!-- 缓冲两行：容量是链路实际授予的上限，驻留是此刻的占用 -->
-    <!-- 实际授予的容量：平台下限更高时高于策略按采样率换算出的申请值 -->
+    <!-- 容量为实授上限，驻留为当前占用 -->
+    <!-- 平台下限更高时高于申请值 -->
     <string name="audio_info_track_buffer">当前缓冲</string>
-    <!-- 越接近「当前缓冲」抗欠载余量越大，贴近容量即满负荷，延迟也最大 -->
+    <!-- 越接近容量余量越小、延迟越大 -->
     <string name="audio_info_track_resident">缓冲驻留</string>
     <string name="audio_info_transport_state">传输状态</string>
     <string name="audio_info_device_usb">USB 设备</string>
@@ -195,9 +191,9 @@
     <string name="audio_info_device_name">设备名称</string>
     <string name="audio_info_device_address">设备地址</string>
     <string name="audio_info_device_sample_rates">支持采样率</string>
-    <!-- 档位列表按 kHz 紧凑呈现，尾零不展示 -->
+    <!-- 按 kHz 呈现，尾零省略 -->
     <string name="audio_info_value_khz_list">%s kHz</string>
-    <!-- 档位来源：设备自己声明的，或平台上报的。两者可以不一致，展示时须说清是哪一份 -->
+    <!-- 档位来源：设备声明或平台上报 -->
     <string name="audio_info_value_khz_list_source">%1$s kHz · %2$s</string>
     <string name="audio_info_rate_source_device">设备声明</string>
     <string name="audio_info_rate_source_platform">平台上报</string>
@@ -224,11 +220,11 @@
     <string name="audio_info_bluetooth_class_phone">手机</string>
     <string name="audio_info_bluetooth_class_wearable">可穿戴设备</string>
     <string name="audio_info_value_hz">%d Hz</string>
-    <!-- 位深是无量纲单位（「24 位」），不是可数名词，不适用复数形式 -->
+    <!-- 位深是单位，不用复数 -->
     <string name="audio_info_value_bit" tools:ignore="PluralsCandidate">%d 位</string>
     <string name="audio_info_value_kbps">%d kbps</string>
     <string name="audio_info_value_file_size">%1$s / %2$s</string>
-    <!-- 采样率 / 声道 / 位深，三段各自已本地化 -->
+    <!-- 采样率 / 声道 / 位深，均已本地化 -->
     <string name="audio_info_value_decoded_output">%1$s / %2$s / %3$s</string>
     <string name="audio_info_value_ms">%.1f ms</string>
     <plurals name="audio_info_value_channels">
@@ -253,7 +249,7 @@
     <string name="audio_info_output_mode_format_locked">源格式直出</string>
     <string name="audio_info_output_mode_mixer">系统混音</string>
     <string name="audio_info_output_mode_exclusive">USB 独占</string>
-    <!-- 「24bit」是位深单位写法（数字与单位连排），不是可数名词 -->
+    <!-- 位深单位写法，不用复数 -->
     <string name="audio_info_quality_lossless_bit_depth" tools:ignore="PluralsCandidate">%dbit 无损</string>
     <string name="audio_info_quality_lossless">无损</string>
     <string name="audio_info_quality_lossy">有损</string>

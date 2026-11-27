@@ -6,12 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/**
- * 详情补全的字段合并：详情与搜索结果各缺一部分，逐项回退。
- *
- * 合并只动标签字段：曲目标题、歌手、时长来自搜索结果，详情里同名项不得覆盖它们，
- * 否则缓存文件名（由搜索结果拼出）会与文件内标签对不上。
- */
+/** 只合并标签字段，标题/歌手/时长取搜索结果 */
 class TrackDetailMergeTest {
 
     private val base = NeteaseSongSearchResult(

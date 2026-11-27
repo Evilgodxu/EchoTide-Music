@@ -54,44 +54,42 @@ internal fun ExpandedAssembly(
     val playbackState = panelState.playbackState
     val currentTrackId = playbackState.currentTrack?.id
     val isLiked = currentTrackId?.let { playbackState.likedIds.contains(it) } ?: false
-    // 纵向切歌手势：挂在播放器页上，横向翻页由 Pager 承担
+    // 纵切歌手势挂播放页，横向交给 Pager
     val trackSwipe = rememberHomeTrackSwipeGesture(
         playbackState = playbackState,
         sheetVisible = panelState.playlistVisible,
     )
     // 横屏下标题栏与控制栏的统一显隐状态
     var chromeVisible by remember { mutableStateOf(false) }
-    // 音量调节进行中：控制栏是这次手势的宿主，收起会连同手势一起中断，故期间不自动收起
+    // 音量调节中不自动收起，否则中断手势
     var volumeAdjusting by remember { mutableStateOf(false) }
-    // 播放模式选择展开态：展开期间的点击遮罩铺满全屏，控制栏不能自动收起，否则遮罩会残留挡交互
+    // 播放模式展开时控制栏常显，否则遮罩残留
     var modeSelectorExpanded by remember { mutableStateOf(false) }
-    // 3D 封面轮播显隐：与 chrome 同层持有，进入沉浸覆盖层时联动隐藏标题栏与控制栏
+    // 3D 轮播显隐；进入时联动隐藏 chrome
     var coverCarouselVisible by remember { mutableStateOf(false) }
-    // 点击标题栏中的艺术家行时待选择的歌手候选：多位歌手时弹出选择对话框。
-    // 置于标题栏显隐子树之外，标题栏自动收起不会中断已弹出的选择
+    // 待选歌手；放在显隐子树外，收起不中断
     var artistPicker by remember { mutableStateOf<List<String>>(emptyList()) }
 
-    // 横屏下标题栏与控制栏显示 3 秒后自动隐藏；播放模式选择展开与音量调节期间保持常显：
-    // 前者需要用户完成选择，后者一旦收起会连正在进行的滑动手势一并中断；两者结束即重新起算
+    // chrome 3 秒后隐藏，调模式/音量时常显
     LaunchedEffect(chromeVisible, modeSelectorExpanded, volumeAdjusting) {
         if (chromeVisible && !modeSelectorExpanded && !volumeAdjusting) {
             delay(3000)
             chromeVisible = false
         }
     }
-    // 控制栏因其它原因收起时同步复位选择，避免全屏遮罩失去宿主后仍拦截交互
+    // chrome 收起时复位播放模式选择
     LaunchedEffect(chromeVisible) {
         if (!chromeVisible) modeSelectorExpanded = false
     }
-    // 播放列表面板展开时自动隐藏标题栏与控制栏，避免遮挡面板内容
+    // 播放列表面板展开时隐藏 chrome
     LaunchedEffect(panelState.playlistVisible) {
         if (panelState.playlistVisible) chromeVisible = false
     }
-    // 离开播放页即收起：标题栏只在播放页出现，带走展开态可避免回到播放页时残留一次唤出
+    // 离开播放页即收起，避免回页残留唤出
     LaunchedEffect(panelState.currentPage) {
         if (panelState.currentPage != HomePage.PLAYER) chromeVisible = false
     }
-    // 进入 3D 封面轮播时同样收起标题栏与控制栏，沉浸层独占全屏
+    // 进入 3D 轮播时收起 chrome
     LaunchedEffect(coverCarouselVisible) {
         if (coverCarouselVisible) chromeVisible = false
     }
@@ -125,15 +123,13 @@ internal fun ExpandedAssembly(
                     onCoverCarouselVisibilityChange = { coverCarouselVisible = it },
                     onOpenSpectrum = onOpenSpectrum,
                     onOpenMetadata = onOpenMetadata,
-                    // 歌词区快速滑动同样按切歌处理，复用整页纵向切歌的判定与偏好
+                    // 歌词快速滑动按切歌处理
                     onVerticalFling = trackSwipe::switchTrack,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
         }
-        // 横屏标题栏悬浮于播放页顶部，随控制栏一起显隐，不挤压播放器布局。
-        // 只属于播放页：在线搜索页与歌单页各有自己的顶部内容，悬浮标题栏压在其上会与之争位；
-        // 歌手页的沉浸头图同理，该页也始终不显示
+        // 标题栏只管播放页，随 chrome 显隐，不挤压布局
         AnimatedVisibility(
             visible = chromeVisible && panelState.currentPage == HomePage.PLAYER,
             modifier = Modifier.align(Alignment.TopCenter),
@@ -149,7 +145,7 @@ internal fun ExpandedAssembly(
                 onToggleFavorite = { currentTrackId?.let { playbackState.toggleFavorite(it) } },
                 onToggleLandscape = onToggleLandscape,
                 onOpenSettings = onOpenSettings,
-                // 曲名与艺术家居中于标题栏，随标题栏一同显隐
+                // 曲名与艺术家居中，随标题栏显隐
                 centerContent = {
                     playbackState.currentTrack?.let { track ->
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -168,7 +164,7 @@ internal fun ExpandedAssembly(
                                 color = Color.White.copy(alpha = 0.72f),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    // 多位歌手先弹选择对话框，单一时直接进入该歌手的歌单页
+                                    // 多位先弹选择，单一直接进歌单
                                     .clickable {
                                         val artists = parseTrackArtists(track.artist)
                                             .filter { it.isNotBlank() }
@@ -184,7 +180,7 @@ internal fun ExpandedAssembly(
                 },
             )
         }
-        // 标题栏艺术家行点击多位歌手后弹出的选择对话框（宿主在显隐子树之外，收起标题栏不中断选择）
+        // 点击多位歌手后的选择框（在显隐子树外）
         ArtistPickerDialog(
             artists = artistPicker,
             onSelect = { artist ->

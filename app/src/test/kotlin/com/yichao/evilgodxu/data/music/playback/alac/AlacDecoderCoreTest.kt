@@ -10,16 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
-/**
- * ALAC 解码核心的实测：以一条真实 ALAC 曲目的帧为样本，逐帧核对解出 PCM 的 SHA-256。
- *
- * 样本取自 `YiChaoTmp` 下的《陈慧娴 - 千千阕歌.m4a》（24 bit - 96 kHz，按容器样本表切成裸帧，
- * 即本解码器实际的输入）。期望摘要是同一条曲目经 FFmpeg（PyAV / libalac）解码所得的 PCM——
- * 即本实现与另一条独立实现逐位一致，而非与自身既有输出比对：任何一位偏差都会让摘要不同。
- *
- * 24 bit 是覆盖重点：附加低位段只在 24/32 bit 的写法中并入样本，16 bit 走不到该分支。
- * 前缀段由中熵帧过渡到高熵帧；末尾一帧是唯一自带样本数的分片帧。
- */
+/** 真实 ALAC 帧解码，SHA-256 与独立实现比对 */
 class AlacDecoderCoreTest {
 
     private val config = requireNotNull(AlacSpecificConfig.parse(COOKIE)) { "cookie 应能解析" }
@@ -37,7 +28,7 @@ class AlacDecoderCoreTest {
 
     @Test
     fun `magic cookie 忽略历史原子封装`() {
-        // 历史编码器会把配置再包一层 'frma' / 'alac' 原子，两个原子头都须跳过
+        // 跳过 frma/alac 原子头
         val framed = ByteArray(ATOM_HEADER_BYTES * 2) + COOKIE
         writeTag(framed, 0, "frma")
         writeTag(framed, ATOM_HEADER_BYTES, "alac")
@@ -51,8 +42,7 @@ class AlacDecoderCoreTest {
 
     @Test
     fun `magic cookie 拒绝过大的帧分配`() {
-        // 24 字节配置就能声明一帧上亿样本；解码器会按帧长 × 声道立刻预分配缓冲，
-        // 必须在解析阶段按内存预算拒绝，而不是等构造解码器时 OOM
+        // 声明超大帧须在解析期按预算拒绝
         val huge = COOKIE.copyOf().also { cookie ->
             cookie[0] = 0x05
             cookie[1] = 0xF5.toByte()
@@ -95,7 +85,7 @@ class AlacDecoderCoreTest {
         assertEquals(0b101, reader.read(3))
         assertEquals(0b101, reader.read(3))
         assertEquals(0b10010000, reader.read(8))
-        // 越过缓冲末尾按 0 补齐，而不是读到缓冲区里别处的数据
+        // 越界按 0 补齐，不读别处数据
         assertEquals(0, reader.read(8))
         assertEquals(0b101, AlacBitReader(byteArrayOf(0b10100000.toByte()), 1).peek(3))
     }
@@ -141,7 +131,7 @@ class AlacDecoderCoreTest {
 
     @Test
     fun `非法附加位数被拒绝`() {
-        // 附加低位字节数占标志字节的中间两位，取值 3 在参考实现里同样是非法值
+        // 低位字节数取 3 为非法值
         val frame = readResource(PREFIX_FIXTURE).copyOf(FRAME_SIZES[0])
         setBits(frame, FLAGS_BIT_POSITION + 1, 2, 0b11)
 
@@ -164,7 +154,7 @@ class AlacDecoderCoreTest {
             ),
             encodeChannels(channels, samples, 16, AlacOutputEncoding.INT16),
         )
-        // 24 位输出把 16 位源左移补齐，低位补零而不是丢位
+        // 24 位输出左移补齐，低位补零
         assertArrayEquals(
             byteArrayOf(0x00, 0x01, 0x00),
             encodeChannels(channels, samples, 16, AlacOutputEncoding.INT24).copyOfRange(0, 3),
@@ -176,8 +166,7 @@ class AlacDecoderCoreTest {
         assertEquals(-1f / 32768f, floats.getFloat(Float.SIZE_BYTES), 0f)
     }
 
-    // 摘要比对取 32 位落盘而非 16 位：24 bit 源低位若解错，右移到 16 位会把它抹掉，
-    // 那正是本用例要守的部分
+    // 取 32 位落盘，低位错误不会被右移抹掉
     private fun encodePcm(decoder: AlacFrameDecoder, encoding: AlacOutputEncoding): ByteArray =
         encodeChannels(decoder.channels, decoder.sampleCount, config.bitDepth, encoding)
 
@@ -214,7 +203,7 @@ class AlacDecoderCoreTest {
         tag.forEachIndexed { index, char -> target[offset + ATOM_TAG_OFFSET + index] = char.code.toByte() }
     }
 
-    /** 按位写入，供构造非法头字段用；位序与 ALAC 位流一致，MSB 在前 */
+    /** 按位写入 MSB 在前，用于构造非法头 */
     private fun setBits(target: ByteArray, position: Int, count: Int, value: Int) {
         for (offset in 0 until count) {
             val bit = (value shr (count - 1 - offset)) and 1
@@ -226,14 +215,14 @@ class AlacDecoderCoreTest {
     }
 
     private companion object {
-        /** 容器下发的 magic cookie，即 ALACSpecificConfig（frameLength/位深/pb/mb/kb/声道/采样率） */
+        /** 容器下发的 ALACSpecificConfig */
         val COOKIE = hex("000010000018280a0e0200ff000060040046500000017700")
 
         /** 前缀夹具里逐帧的字节数，按容器样本表原样抄录 */
         val FRAME_SIZES =
             intArrayOf(8224, 8224, 8224, 8237, 8224, 8224, 12655, 16767, 15671, 15260, 15049, 15187, 16175, 17149)
 
-        /** 各帧解出 PCM（32 位落盘）的 SHA-256，由 FFmpeg（PyAV，自带 libalac）解码同一曲目生成 */
+        /** 各帧 32 位 PCM 的 SHA-256 期望值 */
         val EXPECTED_DIGESTS = arrayOf(
             "7a57d4e7a2eed0bef0ed78ca897abebe2f92cc14cc814ee3d07a9f8690729b45",
             "dc9eb23358622728282f53c4a8e98710c7dd83a1d672a945095d7d8329f9fc5c",
@@ -257,11 +246,11 @@ class AlacDecoderCoreTest {
         const val EXPECTED_PARTIAL_DIGEST =
             "5b45929db3579a09eca88f37ff3b86ef69cfe3af1e424aa84e11c47bd60cc86b"
 
-        /** 原子头长度，与 [AlacSpecificConfig] 跳过的一致 */
+        /** 原子头长度，与配置跳过的一致 */
         const val ATOM_HEADER_BYTES = 12
         const val ATOM_TAG_OFFSET = 4
 
-        /** 标志字节的起始位：元素标签 3 位 + 实例标签 4 位 + 保留头 12 位 */
+        /** 标志字节起始位：3+4+12 位 */
         const val FLAGS_BIT_POSITION = 19
 
         fun hex(text: String): ByteArray =

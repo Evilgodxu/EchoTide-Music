@@ -11,21 +11,12 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * 文件源重写路径的实测：线上写盘（本地文件与 content URI）都经 `TagSource` 定位读取标签窗口、
- * 按区间搬运音频躯干，而字节入口把整段文件交给解析器，覆盖不到「定位读取 + 区间搬运」这一段。
- *
- * 用例分三层：
- *   1. 各容器的样本落到真实文件后走文件源重写，逐字段读回并核对音频区未被改动；
- *   2. 二次写入（标签长度变化）后躯干偏移仍须正确；
- *   3. 超大文件：WAV 的块表只读块头，故不受尺寸限制；
- *      Ogg/Opus 仍需整条包流，超限按约定跳过。
- */
+/** 文件源重写：区间搬运与二次写入落位 */
 class MetadataRewriteFileSourceTest {
 
     @Test
     fun `过短的区间拷贝被拒绝而非静默接受`() {
-        // 源在采样长度后被截短时，区间搬运必须失败：短读被当作成功会把残缺躯干提交上去
+        // 短读必须失败，否则提交残缺躯干
         val source = ByteArrayTagSource(ByteArray(2))
         try {
             source.copyRange(0, 100, ByteArrayOutputStream())
@@ -55,7 +46,7 @@ class MetadataRewriteFileSourceTest {
                     AudioMetaProbe.audioRegion(rewritten),
                 )
 
-                // 二次写入：只改标题，标签长度变化后躯干起点须随之落位
+                // 二次写入，躯干起点须重新落位
                 work.writeBytes(rewritten)
                 val second = MusicMetadataWriter.rewriteFileBytes(work, TITLE_UPDATED, null, null, null, null)
                 assertNotNull("$name 二次写入失败", second)
@@ -71,10 +62,7 @@ class MetadataRewriteFileSourceTest {
         }
     }
 
-    /**
-     * 超大文件的窗口解析：FLAC 的标签区在头部，元数据之外的尺寸上限不适用于它 ——
-     * 超过上限的文件仍须按窗口解析 + 躯干流式搬运完成重写。
-     */
+    /** FLAC 标签在头部，超限文件仍按窗口解析 */
     @Test
     fun `大 FLAC 经窗口重写而不解析整个文件`() {
         val source = flacWithStreamInfo(ByteArray(AUDIO_BYTES) { (it % 251).toByte() })
@@ -85,7 +73,7 @@ class MetadataRewriteFileSourceTest {
             val rewritten = MusicMetadataWriter.rewriteFileBytes(work, TITLE + LARGE_MARK, null, null, null, null)
             assertNotNull("大文件 FLAC 未重写", rewritten)
             assertEquals("大文件标题未写入", TITLE + LARGE_MARK, AudioMetaProbe.read(rewritten!!).title)
-            // 音频躯干整体后移（头部多出注释块），尾部落位一致即说明搬运区间正确、无截断
+            // 尾部落位一致即搬运正确、无截断
             val marker = source.copyOfRange(source.size - TAIL_MARKER_BYTES, source.size)
             assertArrayEquals(
                 "大文件尾部落位错误",
@@ -97,20 +85,14 @@ class MetadataRewriteFileSourceTest {
         }
     }
 
-    /**
-     * 超大文件的区间读写（WAV）：块表只读块头、标签区定点读取、音频体按区间搬运，
-     * 故文件大小不再构成重写上限；音频区必须逐字节保持原样。
-     */
+    /** WAV 只读块头，文件大小不设上限 */
     @Test
     fun `大 WAV 经区间 IO 完成重写`() {
         val audio = ByteArray(AUDIO_BYTES) { (it % 253).toByte() }
         assertLargeRewrite(wav(audio), "large.wav")
     }
 
-    /**
-     * Ogg/Opus 的页序列：标签页数变化后其后每页的序号与 CRC 都要重排，故仍需整条包流；
-     * 超过上限即跳过本次重写并记日志，绝不把大文件读进堆。
-     */
+    /** Ogg 页序列需整条包流，超限跳过 */
     @Test
     fun `页流不可区间读取时大 Opus 跳过重写`() {
         val source = opusShaped()
@@ -127,13 +109,7 @@ class MetadataRewriteFileSourceTest {
         }
     }
 
-    /**
-     * 分片 MP4（DASH 式 moof+mdat 序列）的重写：搬运判据须按「一侧的合计」而不是「单个盒子」。
-     *
-     * 成百上千组成对的 moof+mdat 每块都不大，合计却可达数百 MB；按整段读进内存会把进程推到
-     * 系统内存回收线以下（被系统杀死且不产生崩溃日志）。本用例的尾部块超过单块上限，
-     * 只有把尾部按区间搬运才能重写成功。
-     */
+    /** 分片 MP4 按一侧合计判搬运，尾部整段读入会 OOM */
     @Test
     fun `碎片化 MP4 以流式处理尾部连续区完成重写`() {
         val source = fragmentedMp4()
@@ -144,13 +120,13 @@ class MetadataRewriteFileSourceTest {
             val rewritten = MusicMetadataWriter.rewriteFileBytes(work, TITLE, ARTIST, ALBUM, null, LYRICS)
             assertNotNull("分片 MP4 未重写（尾部被判为超出搬运上限）", rewritten)
             assertEquals("分片 MP4 标题未写入", TITLE, AudioMetaProbe.read(rewritten!!).title)
-            // 尾部落位一致：搬运区间的终点与源一致，说明整段尾部未被截断
+            // 尾部终点与源一致，未被截断
             assertArrayEquals(
                 "分片 MP4 尾部落位错误",
                 source.copyOfRange(source.size - TAIL_MARKER_BYTES, source.size),
                 rewritten.copyOfRange(rewritten.size - TAIL_MARKER_BYTES, rewritten.size),
             )
-            // 大块内容原样保留：按标记定位后逐点抽查，避免只看文件首尾而漏掉中间错位
+            // 按标记抽查大块内容，防中间错位
             val sourceStart = indexOfAscii(source, "HEAD")
             val rewrittenStart = indexOfAscii(rewritten, "HEAD")
             assertTrue("未在源文件中找到 mdat 起始标记", sourceStart >= 0)
@@ -189,11 +165,11 @@ class MetadataRewriteFileSourceTest {
         }
     }
 
-    // FLAC 头：marker + 末块标记的 STREAMINFO（34 字节定长载荷）+ 音频帧
+    // FLAC 头 + STREAMINFO + 音频帧
     private fun flacWithStreamInfo(audio: ByteArray): ByteArray {
         val out = ByteArrayOutputStream()
         out.write("fLaC".toByteArray(Charsets.US_ASCII))
-        // 块头：类型 0 且置末块标记，3 字节大端长度
+        // 块头：末块标记 + 3 字节大端长度
         out.write(byteArrayOf(0x80.toByte(), 0, 0, STREAMINFO_BYTES.toByte()))
         out.write(ByteArray(STREAMINFO_BYTES))
         out.write(audio)
@@ -215,7 +191,7 @@ class MetadataRewriteFileSourceTest {
         return out.toByteArray()
     }
 
-    // Ogg 形状的超大文件：只用于触发页序列重排的尺寸上限，不做结构解析
+    // Ogg 形状的超大文件，仅触发尺寸上限
     private fun opusShaped(): ByteArray = ByteArrayOutputStream().apply {
         write("OggS".toByteArray(Charsets.US_ASCII))
         write(ByteArray(OGG_PAGE_HEADER_PAD))
@@ -223,14 +199,14 @@ class MetadataRewriteFileSourceTest {
         write(ByteArray(AUDIO_BYTES))
     }.toByteArray()
 
-    // 分片 MP4：ftyp + free + moov(ilst) + moof + 大 mdat + moof + 小 mdat。
-    // moov 在最前（faststart），尾部一侧字节更多，故尾部整段按区间搬运
+    // 分片 MP4：moov 在前，尾部两块 mdat
+    // 尾部一侧字节更多，故尾部整段按区间搬运
     private fun fragmentedMp4(): ByteArray {
         val ilst = mp4Box("ilst", mp4Box("©nam", mp4DataAtom("原标题")))
         val meta = mp4Box("meta", ByteArray(4) + mp4Box("hdlr", ByteArray(8)) + ilst)
         val moov = mp4Box("moov", mp4Box("mvhd", ByteArray(96)) + mp4Box("udta", meta))
         val bigMdatBody = ByteArray(BIG_MDAT_BYTES) { (it % 251).toByte() }
-        // 尾部标记：块首与块末各放一处，验证搬运区间两端都落位正确
+        // 块首块末各放标记，验证两端落位
         "HEAD".toByteArray(Charsets.US_ASCII).copyInto(bigMdatBody, 0)
         "TAIL".toByteArray(Charsets.US_ASCII).copyInto(bigMdatBody, BIG_MDAT_BYTES - 4)
         return ByteArrayOutputStream().apply {
@@ -247,7 +223,7 @@ class MetadataRewriteFileSourceTest {
     private fun mp4Box(type: String, body: ByteArray): ByteArray =
         beInt(body.size + 8) + type.toByteArray(Charsets.ISO_8859_1) + body
 
-    // data 子原子：类型/区域/版本标志 16 字节头 + 载荷
+    // data：16 字节头 + 载荷
     private fun mp4DataAtom(text: String): ByteArray {
         val payload = text.toByteArray(Charsets.UTF_8)
         val body = beInt(1) + ByteArray(4) + payload
@@ -276,16 +252,16 @@ class MetadataRewriteFileSourceTest {
         const val OGG_PAGE_HEADER_PAD = 28
         const val TAIL_MARKER_BYTES = 64
 
-        // 取自 MusicMetadataWriter.OGG_PARSE_LIMIT_BYTES 的同一口径
+        // 与写入端上限同一取值
         const val OGG_PARSE_LIMIT_BYTES = 32 * 1024 * 1024
 
-        // 音频体大小取「上限 + 余量」：仅为越界验证，不追求更大的样本
+        // 取上限+余量，仅验证越界
         const val AUDIO_BYTES = OGG_PARSE_LIMIT_BYTES + 2 * 1024 * 1024
 
-        // 分片 MP4 尾部的大块：超过单块搬运上限（写入端的 MAX_IN_MEMORY_BYTES）
+        // 超过单块搬运上限 32MB
         const val BIG_MDAT_BYTES = 34 * 1024 * 1024
 
-        // 最小 JPEG 头 + 载荷：与写入端的魔数嗅探口径一致
+        // 最小 JPEG，魔数嗅探为 JPEG
         val COVER = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()) + ByteArray(60) { it.toByte() }
 
         val FIXTURES = listOf(

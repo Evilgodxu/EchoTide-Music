@@ -52,8 +52,8 @@ import com.yichao.evilgodxu.ui.component.rememberOnlinePlatformOptions
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.launch
 
-// 无损升级对话框（与刷新封面/歌词同风格）：按来源搜索在线原曲，展示封面/标题/艺术家供用户确认，
-// 确认后下载该候选的无损版本替换本地文件；升级中不可关闭，失败时保留供重试
+// 无损升级：按来源搜原曲，确认后下载无损版替换本地文件。
+// 升级中不可关闭，失败保留供重试。
 @Composable
 internal fun LosslessUpgradeDialog(
     visible: Boolean,
@@ -83,10 +83,10 @@ internal fun LosslessUpgradeDialog(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // 标题行：居中显示当前来源名，点击向下展开平台选择（不再使用方向角标），右侧独立刷新按钮
+            // 标题行：居中来源名可展开平台，右侧刷新
             Box(Modifier.fillMaxWidth()) {
                 val platformOptions = rememberOnlinePlatformOptions()
-                // 平台展示名：候选里查不到当前平台时（平台已随音源移除）回退平台键
+                // 当前平台不在候选时回退平台键
                 val currentPlatformName = platformOptions.firstOrNull { it.source == playbackState.losslessUpgradeSource }?.name
                     ?: playbackState.losslessUpgradeSource.key
                 val currentPlatform = platformOptions.firstOrNull { it.source == playbackState.losslessUpgradeSource }
@@ -137,7 +137,7 @@ internal fun LosslessUpgradeDialog(
                     )
                 }
             }
-            // 候选或状态：展示封面/标题/艺术家，点击选中
+            // 候选卡片：封面/标题/艺术家，点击选中
             when {
                 playbackState.isLosslessUpgradeSearching -> {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
@@ -221,7 +221,7 @@ internal fun LosslessUpgradeDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            // 取消 / 升级按钮：升级中禁用并显示进度
+            // 按钮升级中禁用并显示进度
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Surface(
                     shape = RoundedCornerShape(10.dp),

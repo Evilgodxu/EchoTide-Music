@@ -5,11 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * 无损格式判定复核：决定一首歌是否还值得升级。
- *
- * 判据宁紧勿松 —— 未知格式一律不算无损，否则升级入口会对已无损的曲目反复提示。
- */
+/** 无损判定宁紧勿松，未知不算无损 */
 class LosslessFormatTest {
 
     @Test
@@ -29,7 +25,7 @@ class LosslessFormatTest {
 
     @Test
     fun `未知格式名被拒绝`() {
-        // 格式未知时不视为无损，避免把未知项展示成真实信息
+        // 未知格式不算无损
         assertFalse(isLosslessFormatName(""))
         assertFalse(isLosslessFormatName("audio/mpeg"))
     }

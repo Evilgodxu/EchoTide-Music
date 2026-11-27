@@ -2,13 +2,11 @@ package com.yichao.evilgodxu.ui.component
 
 import androidx.compose.foundation.lazy.LazyListState
 
-// 目标项距当前可见项在此范围内时用平滑滚动，超过则直接跳转
+// 距可见项 10 项内平滑滚动，否则直接跳
 private const val SCROLL_NEAR_ITEM_RANGE = 10
 
 /**
- * 定位到指定曲目，使其在列表可视区居中显示：
- * 1. [forceCenter] 为 false 且目标项已在可视区内则不动，避免切歌时反复滚动造成卡顿；
- * 2. 距离近时平滑滚动，距离远时直接跳转，避免长距离动画滚动卡顿。
+ * 定位到指定曲目并居中；已在可视区且不强制时不动
  */
 internal suspend fun LazyListState.scrollPlaylistTo(index: Int, forceCenter: Boolean = false) {
     val layout = layoutInfo
@@ -26,7 +24,7 @@ internal suspend fun LazyListState.scrollPlaylistTo(index: Int, forceCenter: Boo
     }
 }
 
-// 目标项居中所需的滚动偏移：行高统一，以可见项高度估算目标项高度；列表未布局时退化为顶部对齐
+// 居中所需偏移，未布局时退化为顶部对齐
 private fun LazyListState.centerScrollOffset(): Int {
     val layout = layoutInfo
     val viewportHeight = layout.viewportEndOffset - layout.viewportStartOffset

@@ -1,10 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
--->
-<!-- 当前无可重建的派生数据需要排除；新增需排除的文件时在此登记 -->
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 暂无需要排除的派生数据 -->
 <full-backup-content>
 </full-backup-content>

@@ -6,13 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * 直出免打扰的进出状态机。
- *
- * 两条关键约束：一是「谁发起的改动由谁还原」——通知已被静音时不得接管，否则退出会改掉用户自己的设置；
- * 二是档位不得落到完全静音——平台会连 STREAM_MUSIC 一并静音，音乐会被自己的免打扰压掉。
- * 用例围绕这两条构造，而不是只验证写入值。
- */
+/** 谁改谁还原；不得落到完全静音 */
 class DirectOutputDoNotDisturbTest {
 
     private val all = NotificationManager.INTERRUPTION_FILTER_ALL
@@ -55,7 +49,7 @@ class DirectOutputDoNotDisturbTest {
         assertEquals(alarms, filter)
     }
 
-    // 完全静音会把 STREAM_MUSIC 一并压掉，故任何路径都不得写入该档位
+    // 完全静音会压掉 STREAM_MUSIC
     @Test
     fun `从不写入完全静音档`() {
         val controller = controller()
@@ -67,7 +61,7 @@ class DirectOutputDoNotDisturbTest {
         assertFalse(writes.contains(none))
     }
 
-    // 进入前通知已被静音：目标状态已满足，不接管也不在退出时还原
+    // 已静音则不接管、不还原
     @Test
     fun `系统已静音时不作改动`() {
         listOf(none, alarms).forEach { silenced ->
@@ -83,7 +77,7 @@ class DirectOutputDoNotDisturbTest {
         }
     }
 
-    // 原档位是「仅限优先项」时按原值还原，而不是一律回到允许全部打扰
+    // 按原档位还原，不回到全部打扰
     @Test
     fun `优先级过滤规则原样恢复`() {
         filter = priority
@@ -106,7 +100,7 @@ class DirectOutputDoNotDisturbTest {
         assertEquals(all, filter)
     }
 
-    // 成色未成立时不产生任何写入，避免未直出时也动系统档位
+    // 未直出不写系统档位
     @Test
     fun `未持有时混音模式不写入`() {
         val controller = controller()
@@ -116,7 +110,7 @@ class DirectOutputDoNotDisturbTest {
         assertTrue(writes.isEmpty())
     }
 
-    // Android 15+：写回旧全局档位只是「启用自己的规则」，必须以 UNKNOWN 停用隐式规则
+    // 15+ 须以 UNKNOWN 停用自身规则
     @Test
     fun `新平台在退出时停用自己的规则`() {
         filter = priority
@@ -134,7 +128,7 @@ class DirectOutputDoNotDisturbTest {
         assertEquals(listOf(alarms, NotificationManager.INTERRUPTION_FILTER_UNKNOWN), writes)
     }
 
-    // 服务销毁兜底：持有时无条件还原，未持有时不动
+    // 持有时还原，未持有不动
     @Test
     fun `仅在持有时才恢复`() {
         val controller = controller()
@@ -145,7 +139,7 @@ class DirectOutputDoNotDisturbTest {
 
         val untouched = controller()
         untouched.release()
-        // 首次接管的进入与还原共两次写入，未持有的 release 不追加
+        // 接管两次写入，未持有不追加
         assertEquals(2, writes.size)
     }
 }

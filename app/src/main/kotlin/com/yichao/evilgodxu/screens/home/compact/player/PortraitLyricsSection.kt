@@ -49,29 +49,26 @@ import kotlinx.coroutines.delay
 // 歌词微调单次步长（毫秒）
 private const val LyricFineTuneStepMs = 100L
 
-// 竖屏歌词区：按用户排版偏好决定可见行数，点击切换微调按钮，长按交给上层打开歌词菜单。
-// 高度随字号、行数与行间距自适应，外层据此在封面与控制栏之间均分剩余空间
+// 竖屏歌词区：可见行数按偏好，点击切换微调，长按开菜单
 @Composable
 internal fun PortraitLyricsSection(
     playbackState: MusicPlaybackState,
-    // 音频访问授权：与「曲库为空」互斥，空态文案据此分开
+    // 授权状态，用于区分空态文案
     mediaAudioGranted: Boolean,
     onVerticalFling: ((next: Boolean) -> Unit)?,
-    // 歌词纵向拖拽接管手势的出口：宿主据此收回触摸瞬间顺带唤出的标题栏
+    // 拖拽接管的出口，宿主据此收回标题栏
     onVerticalDragClaim: (() -> Unit)?,
     onLongPress: (Long) -> Unit,
     modifier: Modifier = Modifier,
-    // 歌词菜单由上层持有状态，但必须挂在此区域内部：菜单 Popup 以调用处布局节点为锚点，
-    // 移出本区域会按整屏定位而失去「贴着歌词区底部向内展开」的位置
+    // 菜单须挂在本区域，Popup 以调用处为锚点
     menuContent: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
     val homePortraitLayout by context.homePortraitLyricLayoutFlow()
         .collectAsStateWithLifecycle(initialValue = LyricLayoutDefaults.HOME_PORTRAIT_LAYOUT)
 
-    // 歌词区高度随可见行数、字号与行间距自适应：每行占行高与上下 2dp 内边距，行间留出设置的行间距，
-    // 末尾补足歌词面板顶部 4dp 内边距，使外层高度与内部歌词窗口一致。
-    // 行高与行间距都必须与 LyricsPanel 同口径（行高沿用 LocalTextStyle 的 24sp 行高），否则外层偏矮裁剪歌词
+    // 高度按行数、字号、行距算，与歌词区一致
+    // 末尾补 4dp，避免外层偏矮裁剪歌词。
     val textMeasurer = rememberTextMeasurer()
     val lyricTextStyle = LocalTextStyle.current
     val lyricLineHeight = with(LocalDensity.current) {
@@ -85,7 +82,7 @@ internal fun PortraitLyricsSection(
 
     // 歌词微调按钮显示状态：点击歌词区切换
     var lyricTuneVisible by remember { mutableStateOf(false) }
-    // 微调操作计数：每次调整自增以重置自动隐藏计时
+    // 调整计数，自增以重置隐藏计时
     var tuneVersion by remember { mutableIntStateOf(0) }
     // 浮动提示：显示当前微调的毫秒数
     var tuneHintText by remember { mutableStateOf("") }
@@ -108,7 +105,7 @@ internal fun PortraitLyricsSection(
     Column(modifier = modifier.fillMaxWidth()) {
         // 封面与歌词间距（下限）
         Spacer(Modifier.height(8.dp))
-        // 歌词：高度随设置的可见行数自适应（默认 5 行），点击歌词区切换微调按钮显隐
+        // 高度随可见行数自适应，点击切换微调
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -121,9 +118,7 @@ internal fun PortraitLyricsSection(
                         onClick = { lyricTuneVisible = !lyricTuneVisible },
                         onLongClick = {
                             if (playbackState.currentTrack != null) {
-                                // 长按瞬间定格播放位置，作为歌词编辑的目标行依据。
-                                // 取整曲绝对时间（见 lyricPositionMs）：歌词行的时间戳是绝对时间，
-                                // 心动模式下 controller 回报的是片段内进度，直接用会定位到错误的行
+                                // 长按取整曲绝对时间，避免定位错行
                                 onLongPress(playbackState.lyricPositionMs)
                             }
                         },
@@ -149,7 +144,7 @@ internal fun PortraitLyricsSection(
                     )
                 }
             }
-            // 歌词微调：左-延后歌词，右+提前歌词，每次微调一个步长
+            // 左减速、右加速，每次一步长
             if (lyricTuneVisible && playbackState.currentTrack?.lyricLines?.isNotEmpty() == true) {
                 IconButton(
                     onClick = {

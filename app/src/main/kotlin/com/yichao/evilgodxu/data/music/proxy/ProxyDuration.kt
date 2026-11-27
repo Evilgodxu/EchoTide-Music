@@ -1,13 +1,7 @@
 package com.yichao.evilgodxu.data.music.proxy
 
-/**
- * 代理音源的时长解析。
- *
- * 规范约定 `duration` 为毫秒数，但实际音源常直接透传平台的展示值（`"04:29"`）。
- * 纯数字按规范当作毫秒，带冒号的按 `[时:]分:秒` 解析，其余视为无值：
- * 时长缺失只少一项展示，而把 `"04:29"` 解析成 0 会让曲目落入「时长未知」，
- * 后续的试听判定与排序都拿不到依据。
- */
+// 音源时长解析：规范为毫秒，也兼容 [时:]分:秒
+// 其余视为无值，避免解析成 0 落入时长未知
 internal fun parseProxyDurationMs(raw: Any?): Long? = when (raw) {
     null -> null
     is Long -> raw.takeIf { it > 0L }

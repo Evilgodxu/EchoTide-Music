@@ -20,61 +20,42 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-/**
- * 首页大封面（竖屏沉浸封面、横屏融合封面）的高清档缓存：内存驻留 + 落盘 WebP。
- *
- * 与 [CurrentCoverCache] 的分工：后者只留当前曲目的一张 512 缩略图，服务冷启动首帧与背景取色；
- * 本缓存服务铺满首屏的大封面，规格为长边 [MAX_EDGE_PX]、有损 WebP，
- * 并驻留当前曲及其前后各一首 —— 用户往返切歌时封面直接命中，不必现场解析内嵌原图。
- *
- * 落盘同样只保留这几张：整库封面落盘会随听过的曲目无限增长，而往返只发生在相邻几首之间。
- * 该产出可由音频文件重建，属可随时回收的系统缓存；封面被重写后由 [clear] 作废。
- */
+/** 大封面缓存：内存 + 落盘 WebP，只留相邻三首 */
 internal object LargeCoverStore {
 
-    /** 大封面的长边上限：铺满首屏（含横屏全宽）所需的分辨率，再大只是浪费内存与磁盘 */
+    /** 大封面长边上限 2048 */
     const val MAX_EDGE_PX = 2048
 
     private const val DIR_NAME = "large_cover"
     private const val TEMP_SUFFIX = ".tmp"
 
-    // 有损 WebP：与同质量的 JPEG 相比体积更小，且原生支持透明通道
+    // 有损 WebP，体积小且支持透明
     private const val WEBP_QUALITY = 90
 
-    // 内存驻留张数：上一曲、当前曲、下一曲
+    // 驻留上一曲、当前曲、下一曲
     private const val RESIDENT_CAPACITY = 3
 
     private const val TAG = "LargeCoverStore"
 
     private val resident = object : LruCache<String, Bitmap>(RESIDENT_CAPACITY) {}
 
-    // 同曲目并发只解一次：显示端与切歌预取会同时请求同一首；
-    // 与封面略缩图入口同构 —— 解码本身不占锁，不同曲目之间不互相排队
+    // 同曲目并发只解一次，不同曲目不排队
     private val lock = Mutex()
     private val inflight = mutableMapOf<String, Deferred<Bitmap?>>()
-    // 在飞解码不随任一调用方取消：结果通常还被另一个等待者共享
+    // 在飞解码不随调用方取消
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // 作废代数：封面重写会清空缓存，此时仍在飞的高清解码拿到的是旧图，
-    // 回填会把刚作废的封面重新写回内存与磁盘，故在回填前用它一票否决
+    // 作废代数，挡住作废后回填的旧图
     @Volatile
     private var generation = 0
 
-    /** 缓存落点：供缓存台账统计与回收引用，路径只在此定义一次 */
+    /** 缓存落点，供台账统计与回收 */
     fun location(context: Context): File = File(context.cacheDir, DIR_NAME)
 
-    /** 同步取已驻留的封面；未驻留返回 null，由显示端垫上底图与背景色后异步取图 */
+    /** 同步取已驻留封面，未驻留为 null */
     fun peek(audioUri: String): Bitmap? = resident.get(audioUri)
 
-    /**
-     * 取高清档：内存驻留 → 落盘高清档 → 解码内嵌原图（长边至 [MAX_EDGE_PX]）。
-     *
-     * 首帧不必由本入口负责：显示端在它之外还铺了该曲持久化的背景色与一张已就位的低清缩略图
-     * （见 rememberLargeCoverState），所以这里可以一路等到高清档，不必再插一层系统略缩图 ——
-     * 那一层与低清档同物不同尺寸，多解一次只是重复开销。
-     *
-     * 无可用封面时返回 null，由显示端保持已出的底图或显示占位图。
-     */
+    /** 取高清档：内存 → 落盘 → 解内嵌原图；无封面返回 null */
     suspend fun get(context: Context, track: MusicTrack): Bitmap? {
         resident.get(track.audioUri)?.let { return it }
         val key = track.audioUri
@@ -85,73 +66,59 @@ internal object LargeCoverStore {
         return try {
             pending.await()
         } catch (e: CancellationException) {
-            // 发起方被取消时撤掉在飞解码，避免条目永久滞留在表中
+            // 发起方取消时撤掉在飞解码
             if (owner) pending.cancel()
-            // 等待方自身未取消时，只是共享的那次解码被发起方撤掉：按「本次未取到」返回。
-            // 不能把别人的取消当成自己的取消抛出去 —— 那会静默终止调用方（如切歌预取）的协程
+            // 别人的取消按本次未取到处理，不向外抛
             currentCoroutineContext().ensureActive()
             null
         } finally {
-            // 取消路径同样要清理，故以 NonCancellable 保证清理动作不被已取消的作业拦下
+            // 清理不经已取消的作业
             if (owner) withContext(NonCancellable) {
                 lock.withLock { if (inflight[key] === pending) inflight.remove(key) }
             }
         }
     }
 
-    /**
-     * 预取首页大封面：切歌后调用，使往返切歌不必现场解析音频内嵌原图。
-     *
-     * 入参顺序即解码优先级，由调用方给出（当前曲 → 下一曲 → 上一曲）：
-     * 解码很重，逐个排队执行才能保证当前曲先出高清，也才给可视区的即时取图让出资源。
-     *
-     * 高清档落盘的同时顺手算出各曲目的背景渲染取色并记入 [CoverColorCache]：
-     * 取色与高清封面同源，显示端切歌首帧就能同步拿到新曲目的色调，
-     * 不必再等背景自己的 64px 略缩图解码 —— 否则封面已换、背景还停在上一首。
-     * 已有取色结果（持久化恢复或先前预取）的曲目直接复用，不再从封面重算。
-     *
-     * 取完即把落盘产出裁剪到这几张，磁盘占用与内存驻留保持同一口径。
-     */
+    /** 预取首页大封面：入参顺序即解码优先级，并顺带算取色 */
     suspend fun prefetch(context: Context, tracks: List<MusicTrack>) {
         if (tracks.isEmpty()) return
         tracks.forEach { track ->
             val cover = get(context, track) ?: return@forEach
-            // 命中缓存说明该曲目的取色已定，重算只会白烧一遍边缘环采样
+            // 已有取色直接复用，避免重算
             if (CoverColorCache.get(track.audioUri) != null) return@forEach
             extractCoverBackgroundColors(cover)?.let { CoverColorCache.put(track.audioUri, it) }
         }
         prune(context, tracks.map { it.audioUri }.toSet())
     }
 
-    /** 作废驻留结果与落盘产出：封面被重写后旧图不再成立 */
+    /** 作废驻留与落盘产出 */
     suspend fun clear(context: Context) {
         generation++
         resident.evictAll()
         withContext(Dispatchers.IO) { runCatching { location(context).deleteRecursively() } }
     }
 
-    // 在飞解码体：落盘命中即复用，否则解内嵌原图并落盘
+    // 在飞解码：落盘命中即复用，否则解原图并落盘
     private suspend fun loadHighRes(context: Context, track: MusicTrack): Bitmap? {
         val startGeneration = generation
         resident.get(track.audioUri)?.let { return it }
         val cached = withContext(Dispatchers.IO) { decodeFile(fileFor(context, track.audioUri)) }
-        // 与 quick 同一口径：作废后才读到或回填的落盘档不成立，改由下一行解内嵌原图取新档
+        // 作废后的落盘档不成立，改解原图
         if (cached != null && startGeneration == generation) {
             resident.put(track.audioUri, cached)
             return cached
         }
         val loaded = MusicCoverLoader.loadLarge(context, track, MAX_EDGE_PX) ?: return null
-        // 到此为止都没有新的挂起点：解码期间被取消（切歌、封面重写）时，上一行的挂起调用
-        // 会直接把取消抛上来，落盘编码与内存回填都不会执行 —— 重活就此让给接替的新解码
+        // 解码被取消则不复用结果，让给新的解码
         if (startGeneration != generation) return null
         persist(context, track.audioUri, loaded)
         resident.put(track.audioUri, loaded)
         return loaded
     }
 
-    // 落盘：先写中转文件再改名，进程在写入中被杀不会留下半截封面
+    // 先写中转再改名，避免半截封面
     private suspend fun persist(context: Context, audioUri: String, bitmap: Bitmap) = withContext(Dispatchers.IO) {
-        // 硬件位图不可直接压缩，转为软件位图；改造结果与显示端同一张图
+        // 硬件位图不可压缩，转软件位图
         val software = bitmap.takeIf { it.config != Bitmap.Config.HARDWARE }
             ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
             ?: return@withContext
@@ -170,9 +137,7 @@ internal object LargeCoverStore {
         }
     }
 
-    // 落盘裁剪：只保留给定曲目的文件，其余一并清掉。
-    // 未改名的中转文件跳过：写入方的改名与裁剪可能并发，删掉正在写的那份会让落盘静默失败；
-    // 这类残留由下一次写入同名文件覆盖，也随缓存清理整目录回收
+    // 裁剪落盘只留给定曲目；跳过未改名的中转
     private suspend fun prune(context: Context, keepAudioUris: Set<String>) = withContext(Dispatchers.IO) {
         val keep = keepAudioUris.map { fileFor(context, it).name }.toSet()
         location(context).listFiles()?.forEach {
@@ -180,15 +145,12 @@ internal object LargeCoverStore {
         }
     }
 
-    /**
-     * 回收 [persist] 未改名的中转残留：`.tmp` 只在改名窗口内存在，退出时仍在盘上说明那次写入
-     * 被进程结束打断 —— 它不属于任何曲目，也没有入口会读（见 [reclaimTempResidueIn]）。
-     */
+    /** 回收未改名的 .tmp 残留 */
     fun reclaimTempResidue(context: Context, olderThanMs: Long) {
         reclaimTempResidueIn(location(context), TEMP_SUFFIX, olderThanMs)
     }
 
-    // 文件名由音频 URI 推出：换歌即写到新名字，下次按同一推导取回，不会读到别首曲目的封面
+    // 文件名由音频 URI 推导
     private fun fileFor(context: Context, audioUri: String): File =
         File(location(context), "large_cover_${audioUri.hashCode().toUInt().toString(16)}.webp")
 

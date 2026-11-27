@@ -11,11 +11,10 @@ import com.yichao.evilgodxu.data.persistence.PersistedData
 import com.yichao.evilgodxu.data.persistence.PersistedFileKind
 import com.yichao.evilgodxu.log.CrashLogManager
 
-// 设置 DataStore 的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
+// 设置存储落点，名字即持久化标识
 internal val SETTINGS_STORE = PersistedData("settings", PersistedFileKind.DATA_STORE)
 
-// 设置 DataStore：文件损坏时由损坏处理器重置为空配置并记录日志，
-// 避免半个损坏文件导致主题/语言等全部用户偏好整体失效
+// 损坏时重置为空配置并记日志
 val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(
     name = SETTINGS_STORE.name,
     corruptionHandler = ReplaceFileCorruptionHandler<Preferences> { throwable ->
@@ -26,9 +25,9 @@ val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(
 
 object SettingsKeys {
     val THEME_MODE = stringPreferencesKey("theme_mode")
-    // 语言统一落 DataStore，由 Compose 层驱动热切换
+    // 语言落 DataStore，驱动热切换
     val LANGUAGE = stringPreferencesKey("language")
-    // 在线搜索平台：记录上次选中的平台键，重启后据此恢复
+    // 上次选中的搜索平台
     val SEARCH_SOURCE = stringPreferencesKey("search_source")
 }
 
@@ -48,7 +47,7 @@ enum class AppLanguage(val languageTag: String?) {
     ENGLISH("en");
 
     companion object {
-        // 已落盘值与枚举标签的对照集中在此：未知值或缺键一律回落到跟随系统，不抛错
+        // 未知值或缺键回落到跟随系统
         fun fromTag(tag: String?): AppLanguage = entries.find { it.languageTag == tag } ?: SYSTEM
     }
 }

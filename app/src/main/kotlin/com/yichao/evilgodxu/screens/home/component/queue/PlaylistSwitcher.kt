@@ -54,8 +54,7 @@ import com.yichao.evilgodxu.ui.component.DIALOG_LIST_HEIGHT_FRACTION
 import com.yichao.evilgodxu.ui.component.PlaylistArt
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 
-// 播放列表副标题快捷切换歌单弹层：默认 + 系统歌单 + 自定义歌单，专辑/艺术家支持分组二级导航
-// 选择结果回调所选来源，由调用方设为默认队列的过滤条件并同步面板展示
+// 歌单切换弹层：默认/系统/自定义，专辑与艺术家可分组
 @Composable
 internal fun PlaylistSwitcher(
     visible: Boolean,
@@ -74,7 +73,7 @@ internal fun PlaylistSwitcher(
         title = if (type == null) stringResource(R.string.playlist_switch_title)
         else smartTypeLabel(type),
         onBack = if (type != null) ({ showGroups = null }) else null,
-        // 列表自带 LazyColumn 滚动，不能与外壳滚动嵌套
+        // 列表自带滚动，不能与外壳嵌套
         scrollable = false,
         contentHeightFraction = DIALOG_LIST_HEIGHT_FRACTION,
     ) {
@@ -103,7 +102,7 @@ internal fun PlaylistSwitcher(
     }
 }
 
-// 一级列表：默认播放列表 + 常听/收藏 + 专辑/艺术家入口 + 我的歌单
+// 一级列表：默认、常听/收藏、分组入口、我的歌单
 @Composable
 private fun PlaylistSwitchList(
     playlistStore: PlaylistStore,
@@ -113,7 +112,7 @@ private fun PlaylistSwitchList(
     onOpenGroups: (SmartPlaylistType) -> Unit,
 ) {
     val library = playbackState.libraryTracks
-    // 行内取封面按 id 查表，避免每行线性扫描全库
+    // 按 id 查表取封面，避免逐行扫全库
     val libraryById = remember(library) { library.associateBy { it.id } }
     val recentLabel = stringResource(R.string.playlist_smart_recent)
     val favoriteLabel = stringResource(R.string.playlist_smart_favorite)
@@ -217,7 +216,7 @@ private fun PlaylistSwitchGroups(
     val library = playbackState.libraryTracks
     val unknownAlbum = stringResource(R.string.playlist_unknown_album)
     val unknownArtist = stringResource(R.string.music_scanner_unknown_artist)
-    // 分组是全库扫描 + 排序，缓存到曲库变化为止，避免每次重组重算
+    // 分组扫描排序较重，缓存到曲库变化
     val groups: List<PlaylistGroup> = remember(library, type, unknownAlbum, unknownArtist) {
         if (type == SmartPlaylistType.ALBUM) {
             albumGroups(library, unknownAlbum)
@@ -237,8 +236,7 @@ private fun PlaylistSwitchGroups(
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         items(groups, key = { it.key }) { group ->
-            // 封面与分组名同源，按该组存档曲序取第一首有效曲目；原按 group.name 反查
-            // 会漏掉「未知艺术家」组（其 name 是兜底文案，不等于实际 artist）
+            // 按组存档曲序取首曲，别用 group.name 反查
             val orderKey = if (type == SmartPlaylistType.ALBUM) group.key else group.name
             val coverTrack = remember(group.key, group.trackIds, libraryById, savedOrders) {
                 playlistCoverTrack(
@@ -259,7 +257,7 @@ private fun PlaylistSwitchGroups(
     }
 }
 
-// 切换项行：图标/封面 + 名称 + 数量 + 下级箭头；当前项以背景高亮 + 加粗标识，几何与排版对齐歌单列表行
+// 切换行：图标、名称、数量、箭头，当前项加粗
 @Composable
 private fun SwitchRow(
     icon: ImageVector,
@@ -323,7 +321,7 @@ private fun SwitchRow(
                 )
             }
         }
-        // 选中态只以背景高亮 + 加粗表示，不用勾选图标，与排序等对话框选项行一致
+        // 选中只用高亮加粗，不用勾选图标
         if (showChevron) {
             Icon(
                 imageVector = AppIcons.KeyboardArrowRight,

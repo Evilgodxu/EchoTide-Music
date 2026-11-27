@@ -19,14 +19,7 @@ import com.yichao.evilgodxu.permission.hasImageAccess
 import com.yichao.evilgodxu.permission.mediaImagePermission
 import com.yichao.evilgodxu.permission.rememberAllFilesAccessRequest
 
-/**
- * 元数据页的权限前置：打开页面即按「全部文件 → 图片」串行申请。
- *
- * 本页要做的每一件事都撞在这两项上——改动写回音频文件要全部文件，从最近图片里挑封面要图片访问。
- * 等用户改到一半才发现写不进去，比进来就问一次更糟，故把它们提前到页面打开时；
- * 用户此前拒绝过，这里就是重新申请的入口。每次进入最多自动跳一次，图片一项等全部文件
- * 就绪后再问，两者串行不叠加弹窗。
- */
+/** 进入即串行申请全部文件与图片权限，各最多一次 */
 @Composable
 internal fun MetadataPermissionRequest() {
     val context = LocalContext.current
@@ -42,8 +35,7 @@ internal fun MetadataPermissionRequest() {
         ActivityResultContracts.RequestPermission()
     ) { }
 
-    // 回到前台时复核：ActivityResult 覆盖了正常返回，这里兜住「系统没回调但权限已变」的情形，
-    // 复核结果同时把后一项接上
+    // 回前台复核权限，兜住无回调的情况
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {

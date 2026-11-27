@@ -1,16 +1,7 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
--->
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 暂无需要排除的派生数据 -->
 <data-extraction-rules>
-    <!-- 当前无可重建的派生数据需要排除；新增需排除的文件时在此登记 -->
+    <!-- 新增需排除的文件时在此登记 -->
     <cloud-backup>
     </cloud-backup>
-    <!--
-    <device-transfer>
-        <include .../>
-        <exclude .../>
-    </device-transfer>
-    -->
 </data-extraction-rules>

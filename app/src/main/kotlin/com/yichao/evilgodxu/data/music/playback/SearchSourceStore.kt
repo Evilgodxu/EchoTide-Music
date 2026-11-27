@@ -12,12 +12,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * 在线搜索平台的落盘与读回。
- *
- * 平台是单值选择，重启后应回到上次选中的那一个，而不是每次都从默认平台开始。
- * 写入在途时新选择只覆盖待写值，由在途写入以最新值收尾——连续切换不必各写一次盘。
- */
+/** 搜索平台落盘：单值选择，写入在途时只覆盖待写值 */
 internal class SearchSourceStore(
     private val scope: () -> CoroutineScope,
     private val context: () -> Context?,
@@ -26,7 +21,7 @@ internal class SearchSourceStore(
     private var pendingSource: MusicSearchSource? = null
     private var writeJob: Job? = null
 
-    /** 保存的平台；从未切换过或保存值不可解析时为 null。 */
+    /** 保存的平台，无或不可解析为 null */
     fun read(preferences: Preferences): MusicSearchSource? =
         preferences[SettingsKeys.SEARCH_SOURCE]
             ?.takeIf { it.isNotBlank() }
@@ -50,11 +45,7 @@ internal class SearchSourceStore(
     }
 }
 
-/**
- * 恢复保存的搜索平台：内置平台恒定可选，自定义平台须仍有启用的音源提供它的搜索动作。
- *
- * 已不可选的平台回退默认平台——搜索条上留着一个查不到内容的平台名，比回到默认更让人困惑。
- */
+/** 校验保存平台：内置恒可选，自定义须仍有启用音源，否则回退默认 */
 internal fun resolveSearchSource(
     saved: MusicSearchSource?,
     availableKeys: Set<String>,

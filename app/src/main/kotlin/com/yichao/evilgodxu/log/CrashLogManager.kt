@@ -16,10 +16,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ExecutorService
 import kotlin.system.exitProcess
 
-/**
- * 捕获并记录未捕获异常与 catch 到的异常，链式调用系统默认处理器。
- * 日志按天写入应用专属外部目录，仅保留今日日志供设置页分享。
- */
+/** 记录未捕获与捕获到的异常；日志按天写入，仅留今日 */
 object CrashLogManager : Thread.UncaughtExceptionHandler {
 
     private const val TAG = "CrashLogManager"
@@ -33,11 +30,7 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
 
     private var logDir: File? = null
 
-    /**
-     * 初始化时取定的应用版本，用于日志头部。
-     *
-     * 只在初始化时读一次 PackageManager：写入时再读会与头部的取值时机不同，同一份日志迟早出现两个版本。
-     */
+    /** 初始化时读一次的版本，保证日志头一致 */
     private var appVersion = "unknown"
     private var previousHandler: Thread.UncaughtExceptionHandler? = null
     private var lastCleanDate: LocalDate? = null
@@ -47,7 +40,7 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
         Thread(r, "CrashLogWriter").apply { isDaemon = true }
     }
 
-    /** 初始化日志系统，应在 Application.onCreate 最前面调用 */
+    /** 在 Application.onCreate 最前调用 */
     fun init(context: Context) {
         logDir = logDirectory(context).apply { mkdirs() }
         appVersion = runCatching {
@@ -55,17 +48,17 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
             "${info.versionName} (${info.longVersionCode})"
         }.getOrDefault("unknown")
 
-        // 链式接管默认处理器，保留系统默认崩溃流程
+        // 接管默认处理器，保留系统崩溃流程
         previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler(this)
 
         cleanOldLogs()
     }
 
-    /** 记录一般异常，标题为"类名: 描述" */
+    /** 记录一般异常，标题为类名: 描述 */
     fun logException(className: String, description: String, throwable: Throwable? = null) {
         if (logDir == null) {
-            // 未初始化（如独立进程）时降级到系统日志
+            // 未初始化时降级到系统日志
             Log.e(TAG, "$className: $description", throwable)
             return
         }
@@ -75,7 +68,7 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
     }
 
     override fun uncaughtException(thread: Thread, throwable: Throwable) {
-        // 崩溃日志必须同步落盘，确保进程终止前写入完成
+        // 崩溃日志须同步落盘
         writeLog(title = "未捕获异常（线程 ${thread.name}）", thread = thread, throwable = throwable)
         previousHandler?.uncaughtException(thread, throwable) ?: exitProcess(2)
     }
@@ -83,7 +76,7 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
     @Synchronized
     private fun writeLog(title: String, thread: Thread? = null, throwable: Throwable?) {
         val dir = logDir ?: return
-        // 旧日志清理每天一次，避免每次写入都遍历目录
+        // 每天清理一次，避免每次遍历
         val today = LocalDate.now()
         if (lastCleanDate != today) {
             lastCleanDate = today
@@ -96,12 +89,12 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
                 appendEntry(writer, title, thread, throwable)
             }
         } catch (e: Exception) {
-            // 写日志本身失败时降级到系统日志，避免递归崩溃
+            // 写入失败降级系统日志，避免递归
             Log.e(TAG, "写入日志失败", e)
         }
     }
 
-    /** 保证头部反映当前版本：新文件直接写，版本变化时连正文一起重写 */
+    /** 新文件写头；版本变化时连正文重写 */
     private fun ensureHeader(logFile: File) {
         when {
             !logFile.exists() -> FileWriter(logFile).use { writeHeader(it) }
@@ -123,7 +116,7 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
         return false
     }
 
-    /** 用当前头部重写日志文件，保留旧头部之后的正文 */
+    /** 重写头部，保留旧正文 */
     private fun rewriteHeader(logFile: File) {
         val body = runCatching {
             val text = logFile.readText()
@@ -166,10 +159,10 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
         return File(dir, "$LOG_FILE_PREFIX$today.log").takeIf { it.exists() }
     }
 
-    /** 日志目录：缓存台账统计日志占用时按此定位，目录名只在此处定义一次 */
+    /** 日志目录，存储统计按此定位 */
     fun logDirectory(context: Context): File = File(context.getExternalFilesDir(null), LOG_DIR_NAME)
 
-    /** 写入头部：设备与环境信息，用于定位用户反馈的问题出自何种环境 */
+    /** 写头部：设备与环境信息 */
     private fun writeHeader(writer: FileWriter) {
         writer.appendLine("======== EchoTideMusic 日志 ========")
         writer.appendLine("设备: ${Build.MANUFACTURER} ${Build.MODEL}")
@@ -178,7 +171,7 @@ object CrashLogManager : Thread.UncaughtExceptionHandler {
         writer.appendLine()
     }
 
-    /** 清理非今日的旧日志文件，仅保留今日日志 */
+    /** 仅保留今日日志 */
     private fun cleanOldLogs() {
         val dir = logDir ?: return
         val today = LocalDate.now()

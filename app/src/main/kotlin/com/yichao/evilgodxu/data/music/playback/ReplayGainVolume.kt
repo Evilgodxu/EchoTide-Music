@@ -14,32 +14,25 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-/**
- * 音量增益：把曲目内嵌的 ReplayGain 标签折算成乘进播放器音量的线性系数。
- *
- * 取值只认本地文件里已经写好的标签，不去在线补、也不在播放时自算：标签缺失即视为本曲不施加。
- *
- * 施加点是播放器音量（[applyLinear] 由持有方接到 `MediaController.volume`），而不是各自的
- * 写出缓冲：平台路径与独占路径都会把这一层乘进输出，两条路因此不会各自实现一份增益。
- */
+/** 把 ReplayGain 标签折算成播放器音量系数 */
 internal class ReplayGainVolume(
     private val scope: () -> CoroutineScope,
     private val context: () -> Context?,
     private val currentTrack: () -> MusicTrack?,
-    /** 系数变化后的落地：持有方据此把音量重新写进播放器 */
+    /** 系数变化后由持有方重写播放器音量 */
     private val onApplied: () -> Unit,
 ) {
 
-    /** 设置项：关闭时系数恒为 1 */
+    /** 设置项，关闭时系数为 1 */
     private var enabled = false
 
-    /** 当前应乘进播放器音量的系数 */
+    /** 当前音量系数 */
     var linear by mutableFloatStateOf(1f)
         private set
 
     private var loadedKey: String? = null
     private var loadJob: Job? = null
-    // 已读到的标签值按曲目缓存：切回同一首不必再解一次容器
+    // 标签值按曲目缓存，避免重复解析
     private val cache = HashMap<String, Pair<Double?, Double?>?>()
     private var tagLinear = 1f
 
@@ -49,7 +42,7 @@ internal class ReplayGainVolume(
         applyLinear()
     }
 
-    /** 曲目落定后调用；同一首重复调用不会重复读盘 */
+    /** 曲目落定后调用，同一首不重复读盘 */
     fun onTrackChanged() {
         val track = currentTrack()
         val key = track?.let { "${it.id}|${it.audioUri}" }

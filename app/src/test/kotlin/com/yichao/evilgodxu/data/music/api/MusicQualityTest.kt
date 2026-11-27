@@ -5,12 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * 音质档位复核：自适应候选顺序决定解析失败时向哪一档回退。
- *
- * 候选链顶端恒为 Hi-Res，母带等平台升频音质不参与匹配 ——
- * 顺序错一档就会在无损可用时播到有损，或在有损可用时反复解析失败。
- */
+/** 候选链顶端 Hi-Res，顺序错则回退错档 */
 class MusicQualityTest {
 
     @Test
@@ -38,7 +33,7 @@ class MusicQualityTest {
 
     @Test
     fun `每个候选链都以最低档收尾`() {
-        // 全部档位都不可用才判定失败，故候选链必须覆盖全部四档且不重复
+        // 候选链须覆盖四档且不重复
         MusicQuality.entries.forEach { quality ->
             val candidates = quality.adaptiveCandidates()
             assertEquals("${quality}候选链未覆盖全部档位", MusicQuality.entries.size, candidates.toSet().size)
@@ -48,7 +43,7 @@ class MusicQualityTest {
 
     @Test
     fun `高解析档不可由用户选择`() {
-        // Hi-Res 只作为无损档内的解析层级，不作为用户可选档位
+        // Hi-Res 仅解析层级，不可选
         assertFalse(MusicQuality.HI_RES.userSelectable)
         assertTrue(MusicQuality.LOSSLESS.userSelectable)
         assertTrue(MusicQuality.HIGH.userSelectable)

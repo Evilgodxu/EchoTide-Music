@@ -13,7 +13,7 @@ import com.yichao.evilgodxu.screens.spectrum.assembly.SpectrumAssembly
 import com.yichao.evilgodxu.theme.StatusBarStyleEffect
 import com.yichao.evilgodxu.windowsize.rememberWindowSizeClass
 
-// 页面入口：形态分发 + 跨形态副作用，不承载布局
+// 页面入口：分发与副作用，不承载布局
 @Composable
 fun SpectrumScreen(
     trackId: Long,
@@ -23,7 +23,7 @@ fun SpectrumScreen(
     val application = LocalApplication.current
     val playbackState = LocalPlaybackState.current
     val viewModel: SpectrumViewModel = viewModel(
-        // 按曲目区分实例：同一路由重复进入不同曲目时不复用上一次的分析状态
+        // 按曲目区分实例，避免复用分析状态
         key = "spectrum-$trackId",
         factory = viewModelFactory {
             initializer {
@@ -36,10 +36,10 @@ fun SpectrumScreen(
         },
     )
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    // 状态栏图标跟随主题：浅色主题深色图标，深色主题白色图标
+    // 状态栏图标跟随主题
     StatusBarStyleEffect()
 
-    // 窗口尺寸类在此计算一次后下传，组装器不自行读取窗口尺寸
+    // 尺寸类在此计算后下传
     SpectrumAssembly(
         windowSizeClass = rememberWindowSizeClass(),
         uiState = uiState,

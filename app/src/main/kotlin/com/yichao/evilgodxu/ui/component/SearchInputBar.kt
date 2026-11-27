@@ -49,22 +49,20 @@ import android.graphics.Rect
 import android.view.ViewTreeObserver
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 底部搜索框自身的占位高度（框体 44dp + 底边距 10dp）：列表底部留白按它决定框体不压住末项
+// 搜索框占位 54dp，供列表底部留白
 internal val SEARCH_BAR_REGION_DP = 54.dp
 
-// 搜索框上方悬浮操作区与搜索框的间距
+// 操作区与搜索框间距
 internal val SEARCH_ACTION_GAP_DP = 6.dp
 
-// 搜索条底色与描边的透明度：歌手/专辑分组列表与在线搜索共用同一档，两处观感因此一致
+// 搜索条底色与描边透明度
 internal const val SEARCH_BAR_FILL_ALPHA = 0.08f
 internal const val SEARCH_BAR_BORDER_ALPHA = 0.22f
 
-// 判定软键盘可见的高度差比例：可见区域较根视图缩减超过该比例即视为键盘弹出
+// 可见区缩减超 15% 视为键盘弹出
 private const val KEYBOARD_VISIBLE_RATIO = 0.15f
 
-// 常驻在列表底部的搜索输入框：框体不随滚动收起，列表底部须留出与框体占高相称的空白
-// （见 fadeUnderBottomSearchBar），末项因此不会被框体压住。
-// actions 为输入框右上方的悬浮操作区，与输入框同处一列，间距由 SEARCH_ACTION_GAP_DP 给出
+// 底部常驻搜索框，列表底部按占位留白
 @Composable
 internal fun BoxScope.BottomSearchBarOverlay(
     placeholder: String,
@@ -76,7 +74,7 @@ internal fun BoxScope.BottomSearchBarOverlay(
     textColor: Color = MaterialTheme.colorScheme.onSurface,
     hintColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     actions: (@Composable () -> Unit)? = null,
-    // 搜索框聚焦进入输入态时隐藏操作按钮，释放按钮占用的高度空间
+    // 输入态隐藏操作按钮，释放高度
     actionsVisible: Boolean = true,
 ) {
     Column(
@@ -86,7 +84,7 @@ internal fun BoxScope.BottomSearchBarOverlay(
             .padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
     ) {
         if (actions != null) {
-            // 操作区右对齐，与输入框右缘对齐；聚焦进入输入态时整组隐藏，释放占位高度
+            // 操作区右对齐，输入态整组隐藏
             AnimatedVisibility(
                 visible = actionsVisible,
                 enter = fadeIn(animationSpec = tween(120)) +
@@ -118,8 +116,7 @@ internal fun BoxScope.BottomSearchBarOverlay(
     }
 }
 
-// 列表内搜索输入框：胶囊描边样式，输入即回调过滤。默认不加底色；
-// 深色沉浸背景的面板可传入白色系填充与描边，避免主题色压在深底上不可辨
+// 胶囊搜索框；深色面板可传入浅色填充
 @Composable
 internal fun SearchInputBar(
     placeholder: String,
@@ -135,10 +132,9 @@ internal fun SearchInputBar(
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val textState = rememberSyncedTextFieldState(query, onQueryChange)
-    // 记录输入框自身焦点：键盘收起但焦点仍残留时（系统返回键/手势收键盘）需主动释放，
-    // 否则上层拦截层持续生效、列表无法滚动，「置顶」「定位」按钮也一直隐藏
+    // 键盘收起时主动释放残留焦点
     var fieldFocused by remember { mutableStateOf(false) }
-    // 键盘收起瞬间释放输入焦点：以可见区域高度差判定软键盘显隐
+    // 按可见区高度差判定键盘显隐
     val view = LocalView.current
     DisposableEffect(view) {
         val rootView = view.rootView
@@ -195,7 +191,7 @@ internal fun SearchInputBar(
                 cursorBrush = SolidColor(textColor),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 onKeyboardAction = KeyboardActionHandler {
-                    // 回车搜索后收起键盘并释放焦点，避免输入框保持聚焦态
+                    // 回车后收起键盘并释放焦点
                     keyboardController?.hide()
                     focusManager.clearFocus()
                 },

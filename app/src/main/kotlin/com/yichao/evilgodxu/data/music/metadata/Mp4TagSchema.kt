@@ -1,7 +1,6 @@
 package com.yichao.evilgodxu.data.music.metadata
 
-// MP4 的普通文本原子：字段到 ilst 原子名的映射（© 为 0xA9）。
-// 读取端复用同一张表，避免写出的原子名与读取端识别的名字各写一份
+// 普通文本原子名映射，读写共用
 internal object Mp4TagSchema {
     val ATOMS: Map<TagField, String> = mapOf(
         TagField.TITLE to "©nam",
@@ -18,7 +17,7 @@ internal object Mp4TagSchema {
         TagField.LYRICS to "©lyr",
     )
 
-    // MP4 的自由格式原子（----:com.apple.iTunes:键）：无专用原子名的字段按此承载。读取端复用同一张表
+    // 自由格式原子键，读写共用
     val FREEFORM_KEYS: Map<TagField, String> = mapOf(
         TagField.LANGUAGE to "LANGUAGE",
         TagField.LYRICIST to "LYRICIST",
@@ -32,6 +31,6 @@ internal object Mp4TagSchema {
 
     const val FREEFORM_MEAN = "com.apple.iTunes"
 
-    // MP4 的自由格式原子标识：键名与值分别在 name/data 子原子中，故多个自由格式原子共用同一标识
+    // 自由格式原子标识，键与值在子原子中
     const val FREE_FORM_ATOM = "----"
 }

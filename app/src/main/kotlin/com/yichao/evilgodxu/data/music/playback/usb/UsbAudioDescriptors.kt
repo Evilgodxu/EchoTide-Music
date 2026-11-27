@@ -1,18 +1,13 @@
 package com.yichao.evilgodxu.data.music.playback.usb
 
 /**
- * USB Audio Class 描述符的模型与解析。
+ * UAC 描述符的模型与解析。
  *
- * 独占直出必须自己决定"按什么格式、什么采样率把数据交给设备"，而这些答案只存在于设备的类特定描述符里：
- * 平台侧 API 只暴露接口与端点的通用字段（类、子类、端点类型、最大包长），格式类型、子槽字节、位深、
- * 采样率档位、时钟实体与音量能力一概读不到。故本文件把
- * [android.hardware.usb.UsbDeviceConnection.getRawDescriptors] 给出的原始描述符流解析成模型，
- * 供后续按源格式选定备用设置与时钟。
- *
- * 解析是纯函数、不依赖 Android 与设备：原始字节进、模型出，故可在 JVM 上直接验证。
+ * 平台 API 读不到类特定字段，故解析原始描述符。
+ * 解析是纯函数，可在 JVM 验证。
  */
 
-/** 等时端点的同步类型（bmAttributes 位 2..3）。异步设备的实际速率由设备自行决定，需读反馈端点跟随。 */
+/** 等时端点同步类型（bmAttributes 位 2..3）；异步需读反馈端点跟随 */
 enum class UsbAudioSyncType {
     NONE,
     ASYNCHRONOUS,
@@ -21,41 +16,39 @@ enum class UsbAudioSyncType {
 }
 
 /**
- * 一个可播放的备用设置：AudioStreaming 接口的某个 alt setting，且带等时 OUT 端点。
- *
- * 只收下同时具备格式描述与等时 OUT 端点的备用设置：alt setting 0 表示零带宽、没有端点，
- * 缺少格式描述的备用设置也无从据此建流，两者都不是可播放的目标。
+ * 一个可播放的备用设置：带等时 OUT 端点。
+ * alt 0 为零带宽，缺格式也不收。
  */
 data class UsbAudioOutputFormat(
     val interfaceNumber: Int,
     val altSetting: Int,
     val endpointAddress: Int,
-    /** 每个服务间隔的最大字节数，已按 wMaxPacketSize 的高两位（每微帧附加事务数）折算 */
+    /** 每服务间隔最大字节，已折算 wMaxPacketSize 高两位附加事务 */
     val maxPacketBytes: Int,
-    /** bInterval：服务间隔；高速下按 2^(bInterval-1) 个微帧换算 */
+    /** bInterval 服务间隔；高速按 2^(bInterval-1) 微帧换算 */
     val interval: Int,
     val syncType: UsbAudioSyncType,
-    /** 显式反馈端点地址，0 表示没有（同步与自适应设备不需要跟随） */
+    /** 反馈端点地址，0 表示没有 */
     val feedbackEndpoint: Int,
     val feedbackMaxPacketBytes: Int,
     val feedbackInterval: Int,
-    /** 格式标签，1 表示 PCM（Type I）；非 PCM 的备用设置不参与直出 */
+    /** 格式标签，1 为 PCM，非 PCM 不参与直出 */
     val formatTag: Int,
     val channels: Int,
-    /** 每样本子槽字节数：写出时按它决定每帧的排布 */
+    /** 每样本子槽字节数，决定每帧排布 */
     val subslotBytes: Int,
-    /** 有效位深，可能小于子槽位数（如 24 位放在 4 字节槽里） */
+    /** 有效位深，可小于子槽位数（如 24 位放 4 字节槽） */
     val bitResolution: Int,
     val continuousRates: Boolean,
     val minRate: Int,
     val maxRate: Int,
-    /** 离散采样率档位；[continuousRates] 为真时为空 */
+    /** 离散采样率档位，连续区间时为空 */
     val rates: List<Int>,
-    /** UAC1：采样率在端点上用 SET_CUR 设置；UAC2 恒为假（走时钟实体） */
+    /** UAC1 端点设速率；UAC2 恒假，走时钟实体 */
     val rateControlOnEndpoint: Boolean,
-    /** UAC2：馈入该格式的时钟实体编号，0 表示未解析出 */
+    /** 馈入该格式的时钟实体编号，0 为未解析出 */
     val clockId: Int,
-    /** AS_GENERAL 的 bTerminalLink：该流接口所连接的终端，用于回溯音量与时钟 */
+    /** bTerminalLink，本流连接的终端，用于回溯音量与时钟 */
     val terminalLink: Int,
 ) {
     /** 每帧字节数：写出侧按它换算帧数 */
@@ -65,7 +58,7 @@ data class UsbAudioOutputFormat(
         if (continuousRates) rate in minRate..maxRate else rates.contains(rate)
 }
 
-/** Feature Unit：音量的承载实体。音量始终交给设备硬件设置，数据本身不参与缩放。 */
+/** Feature Unit：音量承载实体，交给硬件设置，数据不缩放 */
 data class UsbAudioFeatureUnit(
     val unitId: Int,
     val sourceId: Int,
@@ -77,11 +70,11 @@ data class UsbAudioFeatureUnit(
     val hasVolume: Boolean get() = masterVolume || channelVolume.any { it }
 }
 
-/** UAC2 时钟实体。采样率只能设在时钟源上，选择器与倍频器负责把源接到某个终端。 */
+/** UAC2 时钟实体；采样率只能设在时钟源上 */
 data class UsbAudioClock(
     val kind: Kind,
     val id: Int,
-    /** 选择器的输入引脚、倍频器的上游时钟；时钟源为空 */
+    /** 选择器输入引脚或倍频器上游时钟，时钟源为空 */
     val inputs: List<Int>,
     /** 时钟源：宿主可否设置采样率 */
     val frequencyWritable: Boolean,
@@ -92,10 +85,8 @@ data class UsbAudioClock(
 }
 
 /**
- * 单元链的一环。
- *
- * 只保留回溯所需的三类与它们的连接关系：经过混音器与选择器单元之后，"哪个 Feature Unit 服务于本播放
- * 链路"已不再唯一，故回溯遇到它们即停止，宁可退回回退分支也不把音量设到错误的单元上。
+ * 单元链的一环，只留回溯所需三类。
+ * 遇混音器或选择器即停，宁可不设音量。
  */
 data class UsbAudioUnit(
     val kind: Kind,
@@ -109,7 +100,7 @@ data class UsbAudioUnit(
 
 /** 一台 UAC 设备的解析结果。 */
 data class UsbAudioDevice(
-    /** 1 或 2；0 表示没有找到 AudioControl 接口 */
+    /** 1 或 2；0 表示无 AudioControl 接口 */
     val uacVersion: Int,
     val controlInterfaceNumber: Int,
     val outputs: List<UsbAudioOutputFormat>,
@@ -120,13 +111,8 @@ data class UsbAudioDevice(
     fun clock(id: Int): UsbAudioClock? = clocks.firstOrNull { it.id == id }
 
     /**
-     * 本播放链路可用的 Feature Unit。
-     *
-     * 从每个输出终端沿 sourceId 往回走，遇到具备音量能力的 Feature Unit 即记为候选，直到抵达本流接口
-     * 所连的输入终端。之所以要认准这个终点：同一台设备上可能还有服务于录音链路的 Feature Unit，
-     * 只按"离得近"取会把音量设到错误的单元上。
-     *
-     * 回退一支用于终端链路不完整（部分厂商省略输出终端）的设备：直接取由本流终端馈入的 Feature Unit。
+     * 本播放链的 Feature Unit，由输出回溯输入
+     * 认准终点以避开录音链；不完整时取本流终端馈入的。
      */
     fun playbackFeatureUnit(format: UsbAudioOutputFormat): UsbAudioFeatureUnit? {
         val unitById = units.associateBy { it.id }
@@ -155,11 +141,8 @@ data class UsbAudioDevice(
     }
 
     /**
-     * 把一个时钟实体回溯到时钟源。
-     *
-     * 选择器与倍频器只是通路：真正的采样率只能设在时钟源上。选择器当前选中哪一路取决于设备状态，
-     * 由 [selectedPin] 提供（返回 1 起的引脚号，0 或越界按第一路处理）——解不出时按第一路走，
-     * 与内核驱动在拿不到状态时的处理一致。
+     * 把时钟实体回溯到时钟源。
+     * 选择器按引脚走，0 或越界取第一路。
      */
     fun resolveClockSource(clockId: Int, selectedPin: (selectorId: Int) -> Int): Int {
         var current = clockId
@@ -182,17 +165,14 @@ data class UsbAudioDevice(
 private const val MAX_UNIT_HOPS = 16
 private const val MAX_CLOCK_HOPS = 8
 
-/** 连续范围展开时保留的常见音频采样率。区间内其余取值不取：设备通常并不真正支持它们。 */
+/** 展开连续范围时只保留常见音频采样率，设备未必真支持其余值 */
 private val COMMON_AUDIO_RATES = longArrayOf(
     32000, 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000, 705600, 768000,
 )
 
 /**
  * 原始描述符流的解析。
- *
- * 只解析第一个配置：设备在当前配置下工作，其余配置不在直出可达范围内。
- * 描述符流由 [android.hardware.usb.UsbDeviceConnection.getRawDescriptors] 给出，
- * 形如「设备描述符 + 配置描述符 + 接口/端点/类特定描述符」的连续字节流。
+ * 只解析第一个配置，其余不可达。
  */
 internal object UsbAudioDescriptorParser {
 
@@ -243,7 +223,7 @@ internal object UsbAudioDescriptorParser {
         var area = Area.NONE
         var configsSeen = 0
 
-        // 当前备用设置的累积状态。alt setting 之间由接口描述符分隔，故遇到新接口时结算上一个
+        // 当前备用设置的累积状态，遇新接口时结算上一个
         var alt = AltBuilder()
 
         fun finishAlt() {
@@ -295,7 +275,7 @@ internal object UsbAudioDescriptorParser {
                         attributes = raw.u8(start + 3),
                         maxPacket = raw.u16(start + 4),
                         interval = raw.u8(start + 6),
-                        // UAC1 的等时端点比通用端点多两位：bRefresh 与 bSynchAddress
+                        // UAC1 端点另有 bRefresh 两字节
                         synchAddress = if (length >= 9) raw.u8(start + 8) else 0,
                     )
                 }
@@ -322,7 +302,7 @@ internal object UsbAudioDescriptorParser {
         }
         finishAlt()
 
-        // UAC2 的采样率出自时钟实体：经 AS_GENERAL 的终端链接找到输入终端，再取它声明的时钟
+        // UAC2 采样率出自时钟：经终端链接找输入终端并取其时钟
         val resolved = if (uacVersion == 2) {
             val terminalClock = units
                 .filter { it.kind == UsbAudioUnit.Kind.INPUT_TERMINAL }
@@ -375,7 +355,7 @@ internal object UsbAudioDescriptorParser {
                 var masterMute = false
                 var masterVolume = false
                 val channelVolume = mutableListOf<Boolean>()
-                // 条目为「主控制 + 每声道一个」，UAC1 的条目宽度由描述符自述
+                // 条目为主控制 + 每声道一个，宽度由描述符自述
                 if (controlSize > 0) {
                     val entries = (length - 7) / controlSize
                     for (i in 0 until entries) {
@@ -398,7 +378,7 @@ internal object UsbAudioDescriptorParser {
                 units += UsbAudioUnit(UsbAudioUnit.Kind.FEATURE, unitId, sourceId, clockId = 0)
             }
 
-            // 其余单元只需记住连接关系，回溯在遇到它们时即停止
+            // 其余单元只记连接关系，回溯遇到即停
             else -> if (length >= 4 && d.u8(start + 2) > AC_INPUT_TERMINAL) {
                 units += UsbAudioUnit(
                     kind = UsbAudioUnit.Kind.OTHER,
@@ -440,7 +420,7 @@ internal object UsbAudioDescriptorParser {
             AC_FEATURE_UNIT -> if (length >= 10) {
                 val unitId = d.u8(start + 3)
                 val sourceId = d.u8(start + 4)
-                // UAC2 每条目固定 4 字节，控制位为 2 位字段，「宿主可写」取 0b11
+                // UAC2 每条目 4 字节，控制位 2 位，0b11 可写
                 val entries = (length - 6) / 4
                 var masterMute = false
                 var masterVolume = false
@@ -507,7 +487,7 @@ internal object UsbAudioDescriptorParser {
         }
     }
 
-    /** 一个备用设置的累积状态；切换到下一个接口时结算 */
+    /** 一个备用设置的累积状态，切到下一个接口时结算 */
     private class AltBuilder {
         var interfaceNumber = 0
         var altSetting = 0
@@ -534,8 +514,8 @@ internal object UsbAudioDescriptorParser {
         private var hasOutEndpoint = false
 
         /**
-         * 端点分类：等时 OUT 且用途非反馈的是数据端点；等时 IN 且用途为反馈（或地址与 UAC1 在数据端点上
-         * 声明的 bSynchAddress 相符）的是反馈端点。UAC1 没有"反馈"用途位，只能靠地址配对识别。
+         * 等时 OUT 非反馈为数据端点，IN 反馈为反馈端点。
+         * UAC1 无用途位，靠 bSynchAddress 配对
          */
         fun onEndpoint(
             address: Int,
@@ -546,7 +526,7 @@ internal object UsbAudioDescriptorParser {
         ) {
             if ((attributes and XFER_TYPE_MASK) != XFER_TYPE_ISOCHRONOUS) return
             val isFeedback = (attributes shr USAGE_TYPE_SHIFT) and USAGE_TYPE_MASK == USAGE_TYPE_FEEDBACK
-            // wMaxPacketSize 高两位为每微帧的附加事务数
+            // wMaxPacketSize 高两位为每微帧附加事务数
             val packetBytes = (maxPacket and 0x7FF) * (1 + ((maxPacket shr 11) and 0x03))
             val directionIn = (address and DIRECTION_IN) != 0
             if (!directionIn && !isFeedback) {
@@ -567,7 +547,7 @@ internal object UsbAudioDescriptorParser {
 
         fun onClassSpecific(d: ByteArray, start: Int, length: Int, uacVersion: Int) {
             when {
-                // UAC1：终端链接 + 格式标签；UAC2：终端链接 + bmFormats 位 0 表示 PCM，声道数在此声明
+                // UAC1 取终端链接与格式标签，UAC2 另读
                 uacVersion == 1 && d.u8(start + 2) == AS_GENERAL && length >= 7 -> {
                     terminalLink = d.u8(start + 3)
                     formatTag = d.u16(start + 5)
@@ -598,7 +578,7 @@ internal object UsbAudioDescriptorParser {
                     hasFormat = true
                 }
 
-                // UAC2 的档位不出现在描述符里，改由时钟源在运行期应答
+                // UAC2 档位不在描述符，由时钟源运行期应答
                 uacVersion == 2 && d.u8(start + 2) == AS_FORMAT_TYPE && length >= 6 &&
                     d.u8(start + 3) == FORMAT_TYPE_I -> {
                     subslotBytes = d.u8(start + 4)
@@ -608,7 +588,7 @@ internal object UsbAudioDescriptorParser {
             }
         }
 
-        /** 不具备格式描述、等时 OUT 端点，或仅为 alt 0（零带宽）时，不是可播放目标 */
+        /** 缺格式描述、缺等时 OUT 端点或为 alt 0 时不可播放 */
         fun build(): UsbAudioOutputFormat? {
             if (!hasFormat || !hasOutEndpoint || altSetting == 0) return null
             return UsbAudioOutputFormat(
@@ -638,7 +618,7 @@ internal object UsbAudioDescriptorParser {
 
     private enum class Area { NONE, CONTROL, STREAMING, OTHER }
 
-    /** 同步类型取值与 [UsbAudioSyncType] 的声明顺序一致，故按位取值可直接索引 */
+    /** 同步类型按位取值可直接索引，顺序与枚举一致 */
     private val SYNC_TYPE_ORDER = arrayOf(
         UsbAudioSyncType.NONE,
         UsbAudioSyncType.ASYNCHRONOUS,
@@ -648,19 +628,15 @@ internal object UsbAudioDescriptorParser {
 }
 
 /**
- * 展开 UAC2 时钟源的 RANGE 应答：先给子区间数，每个区间 12 字节（下限、上限、步长），各为 32 位。
- *
- * 区间内只保留常见音频采样率。把算术上落在区间里的每个值都当成可用档位是错的：不少设备的区间宽到
- * 覆盖大量非音频频率，而它实际只在其中少数档位上工作。
- *
- * @param length 可读字节数，自 [offset] 起算；应答长度由调用方从控制传输的返回长度给出。
+ * 展开时钟源 RANGE：2 字节区间数 + 12 字节
+ * 只留常见采样率，许多设备实际档位很少。
  */
 internal fun usbAudioRatesFromRange(data: ByteArray, offset: Int, length: Int): List<Int> {
     if (length < 2) return emptyList()
     val ranges = data.u16(offset)
     val rates = mutableListOf<Int>()
     for (i in 0 until ranges) {
-        // 区间条目须完整落在可读范围内，否则停止而非读越界
+        // 条目须完整落在可读范围内，否则停止而非读越界
         if (12 * (i + 1) > length - 2) break
         val entry = offset + 2 + 12 * i
         rates += usbAudioRatesInRange(data.u32(entry), data.u32(entry + 4), data.u32(entry + 8))
@@ -669,10 +645,8 @@ internal fun usbAudioRatesFromRange(data: ByteArray, offset: Int, length: Int): 
 }
 
 /**
- * 一个采样率区间里可用的档位。
- *
- * 上下限相同是单点档位；步长为 0 表示连续。UAC1 的连续区间与 UAC2 的 RANGE 应答走同一条口径，
- * 两处因此给出同一份档位表——同一个区间不该因声明它的是哪个版本而报出不同的支持范围。
+ * 区间内可用的档位。
+ * 上下限相同为单点；步长 0 为连续。
  */
 internal fun usbAudioRatesInRange(low: Long, high: Long, step: Long): List<Int> {
     if (low == high) return if (low in 1L..MAX_AUDIO_RATE.toLong()) listOf(low.toInt()) else emptyList()
@@ -683,7 +657,7 @@ internal fun usbAudioRatesInRange(low: Long, high: Long, step: Long): List<Int> 
 
 private const val MAX_AUDIO_RATE = 768000
 
-/** UAC2 的控制位为 2 位字段，0b11 才表示宿主可写 */
+/** UAC2 控制位为 2 位字段，0b11 才表示宿主可写 */
 private fun Long.writable(field: Int): Boolean = (this shr (2 * field)) and 0x3L == 0x3L
 
 private fun ByteArray.u8(pos: Int): Int = this[pos].toInt() and 0xFF

@@ -13,11 +13,8 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 当前播放链路的可观测状态：源格式、解码器、输出编码与 USB 输出成色。
- *
- * 这些值只服务音频信息面板与输出路由判定，不参与播放推进；它们的写入方来自播放服务、
- * 轨道回调与输出装配，读取方来自界面。状态与「按当前曲目源格式做一次探测」的编排放在一起，
- * 避免归属判定散落到各个写入点。
+ * 播放链路快照：源格式到 USB 成色
+ * 只服务信息面板与路由判定。
  */
 internal class AudioSignalPathState(
     private val scope: () -> CoroutineScope,
@@ -26,154 +23,73 @@ internal class AudioSignalPathState(
 ) {
 
     var audioSignalPathFormat by mutableStateOf<AudioSignalPathFormat?>(null)
-    // 音频信息所属曲目：保证格式信息始终与当前曲目对应，后台切歌后再回前台不会错配
+    // 格式信息所属曲目
     var audioSignalPathTrackId by mutableStateOf<Long?>(null)
-    // 音频信息所属的音频源 URI：无损升级会就地替换同一曲目的文件，曲目 ID 不变而格式已变，
-    // 仅以 ID 判定"已是最新"会漏刷新（信息条停留在旧格式），故与 ID 一并作为归属标识
+    // 格式所属音源 URI；换源时 ID 不变，须一并判定
     var audioSignalPathSourceUri by mutableStateOf<String?>(null)
 
-    // 当前音频渲染器实际使用的平台解码器名（如 c2.android.flac.decoder）。
-    // 由播放服务的解码器初始化回调写入。解码器可跨曲复用、复用时不重复回调，故该值不随切歌清空；
-    // 它只保证「上一次初始化时是哪个解码器」，切到本机没有解码器的格式后不会再更新（见 audioTrackDecodable），
-    // 展示端须以归属判定为准，不能把这里的残留值当作当前曲目的解码器
+    // 平台解码器名，初始化回调写入；可能残留，须校验归属
     var audioDecoderName by mutableStateOf<String?>(null)
 
-    // 当前音频轨的编码 mime（如 audio/alac）：由轨道回调按当前曲目的音频组写入，
-    // 与是否被选中无关——选中与否正是「本机有没有该格式解码器」的判据。
-    // 播放停止后保持末值，切歌时随之刷新
+    // 音频轨编码 mime，与是否被选中无关；停止后保持末值
     var audioTrackMimeType by mutableStateOf<String?>(null)
-    // 当前音频轨是否被播放器选中：媒体3 在设备无该格式解码器时把整条音频轨判为不支持而不选中，
-    // 表现为静音播放且不报错，是音频信息面板与提示判断「能不能解码」的唯一依据。
-    // null 表示尚未装载曲目（无从判定）
+    // 是否选中，无解码器的唯一判据
     var audioTrackDecodable by mutableStateOf<Boolean?>(null)
-    // 音频输出链路当前是否以浮点 PCM 写出：null 表示输出尚未建立（未起播或已停止）
+    // 是否以浮点 PCM 写出，null 为输出未建立
     var audioSinkFloatOutput by mutableStateOf<Boolean?>(null)
 
-    // 音频输出链路实际写出的 PCM 编码（AudioFormat 编码值）：null 表示输出尚未建立（未起播或已停止）
+    // 实际写出的 PCM 编码，null 为输出未建立
     var audioSinkOutputEncoding by mutableStateOf<Int?>(null)
 
-    /**
-     * 音频轨实际建起的采样率：null 表示输出尚未建立。
-     *
-     * 不按源格式推算——同族倍率档下轨开在倍率速率上（44.1 的源、88.2 的轨），推算值会与真正写出速率的
-     * 那一个差一个倍率。取轨道自报值，面板的「输出采样率」才不会把 44.1 的源说成 44.1 的输出。
-     */
+    /** 音频轨实际采样率，null 为未建立；倍率档须取轨道自报值 */
     var audioSinkOutputSampleRate by mutableStateOf<Int?>(null)
 
-    /**
-     * 解码头实际输出的格式，null 表示尚未取得。
-     *
-     * 由音频输出在重配那一刻上报——容器格式对压缩源只给采样率与声道，编码要等解码头出格式才知道，
-     * 故这一项是全链路最早拿到的解码输出真值（直出据此挑选混音器属性，音频信息面板据此展示）。
-     */
+    /** 解码头实际输出格式，null 为未取得；重配时上报 */
     var audioSinkDecodedFormat by mutableStateOf<DecodedOutputFormat?>(null)
 
-    /**
-     * 输出链路当前使用的音频轨，null 表示输出尚未建立。
-     *
-     * 延迟只能从该轨本身取：平台既没有按设备查询延迟的公开接口，AudioManager 给的输出帧数也只对应 HAL
-     * 单次突发、与当前走哪一路无关。它由音频输出在建轨与释放时上报，生命周期与写出编码一致，
-     * 取值的信息采集跑在后台线程，故以 volatile 跨线程发布。
-     */
+    /** 当前音频轨，null 未建立；采集线程读故 volatile */
     @Volatile
     var audioTrack: AudioTrack? = null
 
-    /**
-     * 已写入当前音频轨的帧数读取入口，外层 null 表示当前链路不提供这一读数、内层 null 表示此刻取不到。
-     *
-     * 写作入口而非取值：写入量随播放持续变化，按轨道建立那一刻的取值发布只会得到一个过期数。
-     * 入口随音频输出装配一次（服务创建），取值发生在界面组合，两者同在主线因此无需额外同步；
-     * 入口内部读到的是播放线程写的量，那几项各自按 volatile 发布。
-     */
+    /** 已写入帧数入口；外层 null 无，内层 null 取不到 */
     var audioSinkWrittenFrames: (() -> Long?)? = null
 
-    /**
-     * 独占路径的延迟读数入口；未建立等时输出时返回 null。
-     *
-     * 与 [audioTrack] 并列而非二选一：那条路上没有音频轨可读（数据直接交给等时端点），故读数只能由
-     * 写出侧按自己的缓冲算出，取值为 null 即表示当前不在独占路径上。
-     */
+    /** 独占路径延迟读数入口；未建立等时输出时为 null */
     var usbExclusiveLatency: (() -> OutputLatencyReading?)? = null
-    // 直出的当前成色：未启用、无设备接入或设备未提供动态混音端口时保持系统混音
+    // 直出成色，未启用或无可用档位时为系统混音
     var directOutputMode by mutableStateOf(AudioOutputMode.MIXER)
 
-    /**
-     * 独占路径当前是否在承接写出。
-     *
-     * 不复用 [directOutputMode] 是因为两者的判定方不同：直出的成色由 UsbDirectOutput 按平台是否受理那条
-     * 专用输出流判定，独占的有无则是输出路由本次实际选中了哪条路。两个写入方共用一个字段会互相覆盖，
-     * 而这两件事都可能各自变化（开关打开但设备声明不了本次格式时，独占并不成立）。
-     */
+    /** 独占路径是否在承接写出；判定方与直出成色不同，故独立记 */
     var usbExclusiveRoute by mutableStateOf(false)
 
-    /**
-     * 独占路径接管到的解码器；未接管时为 null。
-     *
-     * 独占期间它已从系统音频里消失（内核驱动被解绑），平台侧一次也查不到，故设备信息只能由接管方给出。
-     */
+    /** 独占接管到的设备，未接管为 null；设备已离开系统音频 */
     var usbExclusiveDevice by mutableStateOf<UsbExclusiveDeviceInfo?>(null)
 
-    /**
-     * 独占模式是否已接管设备（开关开启且设备接入并授权）。
-     *
-     * 与 [usbExclusiveRoute] 的区别在时机：路由要到独占真正承接写出时才成立，而接管在设备接入那一刻
-     * 就已发生——设备已被内核解绑，系统媒体音量此后不再作用于它。因此音量归属（应用自持档位还是
-     * 系统媒体流）以本标志为准，不能等路由成立。
-     */
+    /** 独占是否已接管设备；音量归属以此为准，不等路由成立 */
     var usbExclusiveClaimed by mutableStateOf(false)
 
-    /**
-     * 独占音量的读写入口，由播放服务装配；服务不在时为空。
-     *
-     * 界面侧的音量手势直接落在这里，而不是经媒体会话的远端通道转一手：档位的事实由播放服务持有，
-     * 会话只是它对系统音量键与音量面板的出口。会话尚未连上时界面同样能读写，接管与起播之间的
-     * 那段时间因此不会落到系统媒体音量上。
-     */
+    /** 独占音量读写入口，由播放服务装配；会话未连上也可用 */
     var exclusiveVolumeStep: (() -> Int)? = null
     var setExclusiveVolumeStep: ((Int) -> Unit)? = null
 
-    /**
-     * 两个 USB 输出开关的启用状态，由播放服务从设置订阅后写入。
-     *
-     * 心动模式的准入直接看这两个开关，而不是看输出成色：两条路的成色都要等设备接入、属性和格式被受理
-     * 之后才成立，而用户的取向在拨动开关那一刻就定了——等到成色成立才挡，中间那段时间里仍能进入片段
-     * 播放，取向自相矛盾。
-     */
+    /** 两个 USB 输出开关状态；心动准入看开关而非成色 */
     var usbDirectOutputEnabled by mutableStateOf(false)
     var usbExclusiveEnabled by mutableStateOf(false)
 
-    /** 格式信息是否对应当前曲目的当前音频源（供信息条判定是否展示，避免换源后短暂错配残留）。 */
+    /** 格式信息是否对应当前曲目与音源 */
     val isCurrentForCurrentTrack: Boolean
         get() = currentTrack()?.let(::isSourceCurrent) == true
 
-    /**
-     * 曲目 id → 容器头读出的源格式（位深与声道）。
-     *
-     * 两件事共用这一份记录：
-     * - **按 id 取位深**。换曲重配发生在播放线程上，那一刻界面侧的当前曲目还没推进到新曲，
-     *   [audioSignalPathFormat] 里那一份位深仍是上一曲的——输出配置若照它建流，位深一变就只能等播放中
-     *   再拆一次流重建。按 id 留档后，配置方在换曲那一刻就能拿到本次真正要播的那一首的位深，
-     *   位深不同就在配置期换档，而不是先按旧档建好流、播到一半再拆。
-     * - **省掉重复读盘**。起播前预置（[recordSourceBitDepthBeforePlayback]）与切歌时的预读读的是同一个
-     *   容器头，留一份就只读一次——读取器本身没有缓存（见 `TrackAudioInfoReader.readContainerFormat`），
-     *   这里不做这件事，同一曲就要读两遍文件。
-     *
-     * 并发：写入在主线程（切歌）与 IO 线程（预读），读取在播放线程（输出配置），故用并发映射。
-     */
+    /** 曲目 id 到源格式：按 id 取位深；三线程读写 */
     private val knownSourceFormats = ConcurrentHashMap<Long, SourceFormat>()
 
-    /** 容器头里与本链路有关的两项：位深决定子槽宽度，声道数决定档位 */
+    /** 容器头里的位深与声道 */
     private data class SourceFormat(val bitDepth: Int?, val channels: Int?)
 
-    /** 按曲目 id 取已知源位深；未预读到时为 null，调用方退回解码输出位深 */
+    /** 按 id 取已知源位深；未预读到为 null */
     fun bitDepthOfTrack(trackId: Long): Int? = knownSourceFormats[trackId]?.bitDepth
 
-    /**
-     * 预读某曲目的容器头入档。
-     *
-     * 只读容器头（定长窗口），不读采样率与比特率——那两项要解码头或完整解析才知道，而配置期只需要位深。
-     * 已入档即跳过：同一曲目的容器头不会变，重读只是白读一次文件。
-     */
+    /** 预读某曲目容器头入档；只读位深，已入档即跳过 */
     fun preloadSourceFormat(track: MusicTrack) {
         if (knownSourceFormats.containsKey(track.id)) return
         val context = context() ?: return
@@ -183,28 +99,17 @@ internal class AudioSignalPathState(
         }
     }
 
-    // 只在读到位深时入档：读不出位深的记录留着会挡住后来的补齐，也与"未读到"分不开
+    // 只在读到位深时入档，避免挡住后续补齐
     private fun rememberSourceFormat(trackId: Long?, bitDepth: Int?, channels: Int?) {
         if (trackId == null || bitDepth == null || bitDepth <= 0) return
         knownSourceFormats[trackId] = SourceFormat(bitDepth, channels)
     }
 
-    /**
-     * 起播前落定目标曲目的源位深与声道，供音频信息条在解码前即展示源格式。
-     *
-     * 源格式是异步读来的，而信息条在切歌后随即读取；先在把新曲目交给播放器之前按容器头读一次，展示即
-     * 不必等待解码回填，播放线程上的轨道回调也因记录已归属本曲目而省去一次同步的容器头读取。
-     *
-     * 只读容器头（定长窗口，含前置元数据块的偏移重定位），不读采样率与比特率——那两项由轨道回调补齐。
-     * 容器头读不出的源（有损格式、在线源）保持原样不动，后续由轨道回调或缓存完成后的补读取齐。
-     *
-     * 归属已属于该曲目时直接跳过：此时记录只会更完整（可能已由轨道回调填了采样率与比特率），
-     * 重读不会带来更多信息。
-     */
+    /** 起播前落定源位深与声道，供解码前展示；已归属则跳过 */
     fun recordSourceBitDepthBeforePlayback(track: MusicTrack) {
         val context = context() ?: return
         if (isSourceCurrent(track)) return
-        // 已预读过就沿用那份记录：起播前这一趟不该再读一次同一个容器头
+        // 已预读过就沿用，不再读同一容器头
         val container = knownSourceFormats[track.id] ?: run {
             val read = TrackAudioInfoReader.readContainerFormat(context, track) ?: return
             rememberSourceFormat(track.id, read.bitDepth, read.channels)
@@ -222,14 +127,13 @@ internal class AudioSignalPathState(
         audioSignalPathSourceUri = track.audioUri
     }
 
-    // 冷启动未播放时预读当前曲目格式信息，供音频信息条展示；开始播放后由解码头覆盖
+    // 未播放时预读当前曲目格式，供信息条展示
     fun refreshIdleTrackFormatInfo(context: Context) {
         val track = currentTrack() ?: return
         if (isCompleteFor(track)) return
         scope().launch(Dispatchers.IO) {
             val info = TrackAudioInfoReader.readIdleFormat(context, track) ?: return@launch
-            // 落盘前的两道闸：读盘期间已切歌的不覆盖，已被解码回调补全的记录也不覆盖；
-            // 归属为空但曲目未变（reconcile 清空后重读）时照常写入
+            // 读盘期间已切歌或已补全则不覆盖
             if (currentTrack()?.id != track.id || isCompleteFor(track)) return@launch
             rememberSourceFormat(track.id, info.bitDepth, info.channels)
             audioSignalPathFormat = info
@@ -238,7 +142,7 @@ internal class AudioSignalPathState(
         }
     }
 
-    // 缓存完成后以本地缓存文件为源强制补齐当前曲目格式信息，避免在线播放期间信息条空白
+    // 缓存完成后以本地文件补齐格式信息
     fun refreshTrackFormatInfoFromLocal(context: Context) {
         val track = currentTrack() ?: return
         if (!track.isLocalAudioSource) return
@@ -253,8 +157,7 @@ internal class AudioSignalPathState(
         }
     }
 
-    // 回到前台时校正音频信息：与当前曲目错配时清掉旧值并重新读取当前曲目源格式，
-    // 保证信息条始终对应当前曲目而不依赖解码回调回填
+    // 回前台校正音频信息，错配则重读
     fun reconcileTrackFormatInfo(context: Context) {
         val track = currentTrack() ?: return
         if (isSourceCurrent(track)) return
@@ -264,13 +167,11 @@ internal class AudioSignalPathState(
         refreshIdleTrackFormatInfo(context)
     }
 
-    // 已展示的格式信息是否就属于该曲目的当前音频源：曲目或音频源任一变化都需重算
+    // 格式信息是否属于当前曲目与音源
     private fun isSourceCurrent(track: MusicTrack): Boolean =
         audioSignalPathTrackId == track.id && audioSignalPathSourceUri == track.audioUri
 
-    // 可用的最新记录：归属正确之外，格式与采样率还须已就位。起播前只预置位深与声道
-    // （见 recordSourceBitDepthBeforePlayback），格式与采样率尚缺；仅按归属就把它当最新，
-    // 会挡住后来的补齐，信息条与音频参数面板便停在这份缺项记录上不再回填
+    // 可用记录须归属正确且格式齐全；仅预置位深时不可当最新
     private fun isCompleteFor(track: MusicTrack): Boolean =
         isSourceCurrent(track) &&
             audioSignalPathFormat?.let { it.format != null && it.sampleRate != null } == true

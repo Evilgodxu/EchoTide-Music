@@ -22,11 +22,7 @@ import com.yichao.evilgodxu.data.music.model.PlayMode
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
 /**
- * 播放模式切换按钮：按下后图标旋转一次并变为右向「>」，表示四种播放模式选项已就位；
- * 再次按下、选定模式或点击其他区域后旋转回当前模式的图标。
- *
- * 两处播放控制区（首页、悬浮窗迷你播放器）的按钮尺寸与配色各不相同，故只在此统一
- * 「旋转—换图标」的动画与无障碍语义，由各控制区按自身规格组装。
+ * 播放模式切换钮：展开时图标旋转成右箭头，收起还原
  */
 @Composable
 internal fun PlayModeToggleButton(
@@ -47,9 +43,7 @@ internal fun PlayModeToggleButton(
             ) { onExpandedChange(!expanded) },
         contentAlignment = Alignment.Center,
     ) {
-        // 旋转进度：展开 1、收起 0。两个图标共用同一进度，一个旋出淡出、另一个旋入淡入，
-        // 读起来是「转一下换成了另一个图标」。收起后的图标取自当前播放模式，故选择模式与收起
-        // 同帧发生时直接呈现新选中的图标
+        // 两个图标共用进度：一个旋出，一个旋入
         val progress by animateFloatAsState(
             targetValue = if (expanded) 1f else 0f,
             animationSpec = tween(PLAY_MODE_TOGGLE_MS),
@@ -82,8 +76,7 @@ internal fun PlayModeToggleButton(
 }
 
 /**
- * 展开后取代某个控制按钮的播放模式选项：点击即选中该模式并收起，恢复原控制按钮。
- * 当前模式以 [selectedTint] 与未选项区分，补偿收起态由切换按钮承担的模式示意。
+ * 模式选项，当前模式单独着色
  */
 @Composable
 internal fun PlayModeOptionButton(
@@ -116,10 +109,7 @@ internal fun PlayModeOptionButton(
 }
 
 /**
- * 播放模式选择展开期间的「点击其他区域」遮罩：铺满可用区域并吞掉点击，命中即收起选择。
- *
- * 各控制区把它叠在背景内容之上、控制按钮之下：按钮位于上层照常响应，其余位置落到遮罩上收起。
- * 遮罩范围由调用方经 [modifier] 收窄（如剔除底部控制栏所占高度），故此处只负责铺满剩余区域。
+ * 展开期间的点击遮罩，命中即收起
  */
 @Composable
 internal fun PlayModeSelectionScrim(
@@ -139,7 +129,7 @@ internal fun PlayModeSelectionScrim(
     )
 }
 
-// 触发图标旋转的时长：与右向「>」的出现同步，过快看不清旋转，过慢显得拖沓
+// 旋转 280ms，与箭头出现同步
 private const val PLAY_MODE_TOGGLE_MS = 280
-// 旋转幅度：整半圈，收起态的模式图标与展开态的右向「>」之间读起来是一次明确翻转
+// 旋转 180°，读作一次明确翻转
 private const val PLAY_MODE_TOGGLE_DEGREES = 180f

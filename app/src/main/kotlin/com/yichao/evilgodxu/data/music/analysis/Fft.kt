@@ -5,20 +5,18 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-// 频谱图（时频分析）所用的离散变换与窗函数：基 2 快速傅里叶变换，仅支持 2 的幂长度。
+// 时频分析用的基 2 FFT 与窗函数，仅支持 2 的幂长度
 internal object Fft {
 
-    // 窗函数按长度缓存：变换本身可跨线程并发执行，缓存须线程安全
+    // 窗缓存，可跨线程并发，故须线程安全
     private val windows = ConcurrentHashMap<Int, FloatArray>()
 
-    // Hann 窗，最末点回零以保证两端连续。
-    // 用 computeIfAbsent 而非 getOrPut：多核变换会在启动瞬间同时索取同一长度，
-    // 前者保证只构造一次，后者只保证不损坏映射，会重复构造同一窗函数
+    // 末点回零，两端连续；只构造一次
     fun hannWindow(size: Int): FloatArray = windows.computeIfAbsent(size) {
         FloatArray(size) { i -> 0.5f - 0.5f * cos(2f * PI.toFloat() * i / (size - 1)) }
     }
 
-    // 就地基 2 快速傅里叶变换：输入实部与虚部，输出未归一化的频谱，长度须为 2 的幂
+    // 就地基 2 FFT，未归一化，长度须为 2 的幂
     fun transform(re: FloatArray, im: FloatArray) {
         val n = re.size
         // 位反转重排

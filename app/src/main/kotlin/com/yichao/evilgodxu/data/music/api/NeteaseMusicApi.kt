@@ -77,7 +77,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         fillMissingCovers(rankSearchResults(results, keyword))
     }
 
-    // 网易模糊搜索常把同名翻唱/伴奏等排在原唱之前，这里按相关性降权重排
+    // 模糊搜索易把翻唱排前，按相关性降权重排
     internal fun rankSearchResults(
         results: List<NeteaseSongSearchResult>,
         query: String,
@@ -87,7 +87,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
             val nt = normalize(result.title)
             var score = if (nq.isNotBlank() && nt.isNotEmpty() && (nq == nt || nq.contains(nt) || nt.contains(nq))) -100 else 0
             if (VERSION_MARKERS.any { result.title.lowercase().contains(it) }) score += 60
-            // 查询中剔除歌名部分后仍剩歌手关键词，而结果歌手未匹配该关键词时降权
+            // 歌名剔除后仍有歌手关键词但未匹配，则降权
             val normArtist = normalize(result.artist)
             val residue = nq.replace(nt, "")
             if (residue.isNotEmpty() && normArtist.isNotEmpty() && !nq.contains(normArtist)) score += 80
@@ -95,7 +95,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         }.distinctBy { it.id }
     }
 
-    // 原曲以外的版本/翻唱等标记，命中即降权
+    // 翻唱/伴奏等版本标记，命中即降权
     private val VERSION_MARKERS = listOf(
         "深情版", "女声版", "男声版", "童声", "翻唱", "现场", "弹唱", "伴奏",
         "演唱会", "钢琴", "吉他", "纯音乐", "dj版", "remix", "cover", "live版", "重唱"
@@ -130,7 +130,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         }
     }
 
-    // 试听片段也如实返回，由调用方决定是否接受
+    // 试听片段如实返回，由调用方决定
     suspend fun getSongUrlInfo(songId: Long, level: String = "standard"): SongUrlInfo? = withContext(Dispatchers.IO) {
         try {
             val root = requestEapi("song/enhance/player/url/v1", eapiSongUrlPayload(songId, level))
@@ -147,13 +147,13 @@ internal object NeteaseMusicApi : OnlineMusicSource {
 
     data class SongUrlInfo(val url: String, val trial: Boolean)
 
-    // 多音质回退获取播放 URL：优先非试听完整 URL，全为试听时降级返回试听片段
+    // 多音质回退取播放 URL，优先完整非试听
     suspend fun getSongUrlWithFallback(songId: Long): String? {
         for (level in arrayOf("standard", "higher", "exhigh")) {
             val info = getSongUrlInfo(songId, level) ?: continue
             if (!info.trial && info.url.isNotBlank()) return info.url
         }
-        // 全为试听片段时降级返回第一个试听 URL
+        // 全为试听时降级返回第一个试听 URL
         for (level in arrayOf("standard", "higher", "exhigh")) {
             val info = getSongUrlInfo(songId, level) ?: continue
             if (info.url.isNotBlank()) return info.url
@@ -161,7 +161,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         return null
     }
 
-    // 返回 null 表示该层级不可用（无版权/试听受限等）
+    // null 表示该层级不可用（无版权/试听受限）
     suspend fun songUrl(songId: Long, quality: MusicQuality): String? {
         val level = when (quality) {
             MusicQuality.HI_RES -> "hires"
@@ -182,10 +182,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         }
     }
 
-    /**
-     * 曲目字段映射：搜索与详情的响应同源（`ar`/`al`/`dt` 或旧版 `artists`/`album`/`duration`），
-     * 统一在此收敛，避免同一组字段在各调用点各写一遍。
-     */
+    // 曲目字段映射：统一收敛搜索与详情同源字段
     private fun songResult(item: JSONObject): NeteaseSongSearchResult {
         val artists = item.optJSONArray("ar") ?: item.optJSONArray("artists") ?: JSONArray()
         val artist = List(artists.length()) { artists.getJSONObject(it).optString("name") }
@@ -194,7 +191,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         val album = item.optJSONObject("al") ?: item.optJSONObject("album")
         val cover = album?.optString("picUrl")?.takeIf { it.isNotBlank() }?.let { ensureHttps(it) }
         val duration = item.optLong("dt", 0L).takeIf { it > 0L } ?: item.optLong("duration", 0L)
-        // 搜索结果只带专辑名与封面；音轨号、碟号、厂牌仅出现在详情响应里，缺省即留空
+        // 搜索响应缺音轨号/碟号/厂牌，缺省留空
         val publishTime = album?.optLong("publishTime", 0L)?.takeIf { it > 0L }
             ?: item.optLong("publishTime", 0L).takeIf { it > 0L }
         return NeteaseSongSearchResult(
@@ -269,7 +266,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         }
     }
 
-    // EAPI 加密请求（播放直链接口使用）：body 须为与加密摘要一致的 JSON 文本
+    // EAPI 加密请求，body 须与摘要一致
     private fun requestEapi(path: String, body: String): JSONObject {
         val params = NeteaseCrypto.eapi("/api/$path", body)
         val form = "params=${URLEncoder.encode(params, "UTF-8")}"
@@ -289,7 +286,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         }
     }
 
-    // 构造播放接口请求体（std 键序/分隔风格，需与 EAPI 摘要算法保持一致）；无损档返回 FLAC
+    // 播放请求体，键序须与 EAPI 摘要一致，无损用 FLAC
     private fun eapiSongUrlPayload(songId: Long, level: String): String {
         val header = """{"os": "pc", "appver": "", "osver": "", "deviceId": "pyncm!", "requestId": "${(20000000..29999999).random()}"}"""
         val escaped = header.replace("\\", "\\\\").replace("\"", "\\\"")
@@ -311,8 +308,7 @@ internal object NeteaseMusicApi : OnlineMusicSource {
             val words = wordPattern.findAll(line.groupValues[3]).map {
                 val rawStart = it.groupValues[1].toLong()
                 LyricWord(
-                    // YRC 字标签的起点是绝对时间（与行标签同一时间基准）；个别源给的是相对行首的偏移，
-                    // 小于行起点时按相对偏移补上行起点，统一归一为绝对时间
+                    // 字起点多为绝对时间，小于行起点时按相对偏移补行起点
                     startMs = if (rawStart >= start) rawStart else start + rawStart,
                     durationMs = it.groupValues[2].toLong(),
                     text = it.groupValues[3]
@@ -330,19 +326,18 @@ internal object NeteaseMusicApi : OnlineMusicSource {
         return "$a.${kotlin.random.Random.nextInt(256)}.${kotlin.random.Random.nextInt(256)}.${1 + kotlin.random.Random.nextInt(254)}"
     }
 
-    // CDN 缩略图 URL：追加 ?param=128y128 请求小图
+    // 缩略图追加 param=128y128
     internal fun thumbUrl(coverUrl: String): String {
         return coverUrl + if (coverUrl.contains("?")) "&param=128y128" else "?param=128y128"
     }
 
-    // 确保 URL 使用 HTTPS（网易云 CDN 可能返回 HTTP 链接）
+    // 网易云 CDN 可能返回 HTTP，统一改 HTTPS
     private fun ensureHttps(url: String): String {
         return if (url.startsWith("http://")) url.replace("http://", "https://") else url
     }
 }
 
-// 把字符串平台标识（QQ 的 songmid、酷狗的 hash）转成稳定的数字 id，
-// 搜索结果列表和播放列表统一用 Long 类型 id 做去重与关联
+// 平台字符串标识转稳定数字 id，供去重与关联
 internal fun stableIdFromString(value: String): Long {
     var hash = -0x340d631b7bdddcdbL
     for (c in value) {

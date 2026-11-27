@@ -33,13 +33,7 @@ import com.yichao.evilgodxu.ui.component.player.CoverCandidateItem
 import com.yichao.evilgodxu.ui.component.player.RefreshCandidateDialog
 
 /**
- * 在线补全元数据的候选对话框：与「刷新封面 / 刷新歌词」同一个控件、同一种候选条目，
- * 差异只在确认后多问一步 —— 补全方式（仅补全 / 全覆盖）放在二级对话框里，
- * 不往候选列表底下塞选择器，免得一屏里叠两套决策。
- *
- * 候选与来源状态由 [MusicPlaybackState] 持有：搜索在调用方的状态持有者里发起，
- * 对话框只负责展示与回传选择 —— 元数据编辑页与专辑信息栏因此共用同一个入口，
- * 两处的候选、来源与刷新行为天然一致。
+ * 在线补全候选对话框：与刷新封面同一控件，确认后另选补全方式
  */
 @Composable
 internal fun MetadataFillDialog(
@@ -57,7 +51,7 @@ internal fun MetadataFillDialog(
     RefreshCandidateDialog(
         visible = visible,
         searching = playbackState.isMetadataFillSearching,
-        // 写入不在本对话框发生：确认候选后交给二级对话框，故这里不存在保存中状态
+        // 写入在二级对话框，这里没有保存中态
         saving = false,
         candidates = playbackState.metadataFillCandidates,
         selectedId = selectedId,
@@ -77,10 +71,7 @@ internal fun MetadataFillDialog(
 }
 
 /**
- * 二级对话框：确认候选之后选择补全方式。
- *
- * 默认停在「仅补全」——它不动用户已经填过的内容；要换掉旧值必须显式切到「全覆盖」。
- * 这是补全唯一的破坏性分支，值得多问一次。
+ * 二级对话框：选择补全方式，默认仅补全
  */
 @Composable
 internal fun FillModeDialog(
@@ -159,7 +150,7 @@ internal fun FillModeDialog(
     }
 }
 
-// 补全方式的单选项：标题 + 一句说明，选中态以主题色淡染区分
+// 补全方式单选项，选中以主题色淡染
 @Composable
 private fun FillModeOption(
     label: String,

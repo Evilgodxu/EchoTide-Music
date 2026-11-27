@@ -61,15 +61,14 @@ import com.yichao.evilgodxu.ui.component.scrollPlaylistTo
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.launch
 
-// 列表顶部继续下拉的收起阈值：累计下拉超过该距离即收起面板
+// 顶部下拉 64dp 累计即收起面板
 private val PLAYLIST_DISMISS_OVERSCROLL_DP = 64.dp
 // 搜索框右上角操作按钮的直径
 private val SEARCH_ACTION_BUTTON_DP = 32.dp
-// 「滚动至顶」平滑滚动的范围：可见首项距顶部超过该值即直接跳转
+// 首项距顶超过 10 项即直接跳转
 private const val SEARCH_ACTION_SCROLL_RANGE = 10
 
-// 播放列表面板列表区：搜索过滤、歌词命中、滚动定位与行内操作。
-// 搜索与滚动状态只在本区域内使用，避免回抛到面板骨架
+// 列表区：搜索过滤、歌词命中、滚动定位与行内操作
 @Composable
 internal fun PlaylistSheetList(
     playbackState: MusicPlaybackState,
@@ -90,37 +89,33 @@ internal fun PlaylistSheetList(
     val scope = rememberCoroutineScope()
     val metadataEnricher = LocalMetadataEnricher.current
     val listState = rememberLazyListState()
-    // 列表内搜索关键词：仅过滤展示，不改变播放队列
+    // 搜索关键词，只过滤展示，不改队列
     var searchQuery by remember { mutableStateOf("") }
-    // 搜索框聚焦状态：键盘展开期间用拦截层接住列表点击，仅收起键盘避免误触播放
+    // 聚焦态，键盘展开时拦截列表点击
     var searchFocused by remember { mutableStateOf(false) }
-    // 搜索结果：标题/歌手命中在前，歌词命中按相关度排序并附带歌词片段
+    // 结果：标题/歌手在前，歌词按相关度
     val searchHits = remember(tracks, searchQuery) { searchPlaylistTracks(tracks, searchQuery) }
-    // 过滤后仍保留原展示列表索引：点击播放与定位需回填真实索引
-    // 索引仅来自当前 tracks 快照；列表收缩后布局期可能读到过期索引，须容忍缺失
+    // 保留原索引供回填；列表收缩后须容忍过期索引
     val filteredIndices = remember(searchHits) { searchHits.map { it.index } }
-    // 歌词命中项的下标 → 匹配片段：行副标题据此改显示歌词片段
+    // 下标 → 歌词片段，供行副标题使用
     val lyricSnippets = remember(searchHits) {
         searchHits.mapNotNull { hit -> hit.lyricSnippet?.let { hit.index to it } }.toMap()
     }
-    // 曲目行封面：滚动中始终以当前视口为中心维持取图窗口，按滚动方向优先取前方
-    // （进入首页时由 QueueCoverPreload 以当前曲目为中心先辐射一批，此处接手滚动）。
-    // 列表项是过滤后的下标，须经 filteredIndices 回填到真实曲目
+    // 取图窗口按视口维持，下标经映射回填
     CoverPrefetch(listState) { index ->
         filteredIndices.getOrNull(index)?.let { tracks.getOrNull(it) }
     }
-    // 滚动到顶部后继续下拉：累计下拉距离超过阈值即收起面板
+    // 到顶后累计下拉过阈值即收起
     val density = LocalDensity.current
     val dismissOverscrollPx = with(density) { PLAYLIST_DISMISS_OVERSCROLL_DP.toPx() }
-    // 列表已在顶部时「滚动至顶」无效果，按钮置灰
+    // 已在顶部时置灰
     val atListTop by remember {
         derivedStateOf {
             listState.firstVisibleItemIndex == 0 &&
                 listState.firstVisibleItemScrollOffset == 0
         }
     }
-    // 手动「定位播放」请求：置位后待过滤结果与目标索引对齐再滚动 ——
-    // 过滤态下清空关键词需一次重组才恢复全量队列，直接滚动会落到错误曲目
+    // 定位请求：待过滤结果对齐后再滚动，否则落错曲目
     var pendingLocate by remember { mutableStateOf(false) }
     val dismissNestedScroll = remember(listState) {
         object : NestedScrollConnection {
@@ -160,8 +155,7 @@ internal fun PlaylistSheetList(
                     .fillMaxSize()
                     .nestedScroll(dismissNestedScroll)
                     .fadeUnderBottomSearchBar(),
-                // 底部留白与整条渐隐带同高：过渡段落在框体上方的操作按钮区域内，
-                // 末项停在按钮上方，不会被框体压住或被渐隐抹掉
+                // 底部留白同渐隐带高度，末项停在按钮上方
                 contentPadding = PaddingValues(bottom = SEARCH_BAR_EDGE_FADE_DP),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
@@ -170,19 +164,18 @@ internal fun PlaylistSheetList(
                     key = { _, index -> tracks.getOrNull(index)?.id ?: -1L },
                 ) { _, index ->
                     val track = tracks.getOrNull(index) ?: return@itemsIndexed
-                    // 展示列表可能与播放队列不同，播放态按曲目 id 判定而非列表下标
+                    // 播放态按曲目 id 判定，不按列表下标
                     val isActive = track.id == playbackState.currentTrack?.id
-                    // 右滑露出高级菜单，左滑露出歌单归属：归属弹窗只调整自定义歌单成员，
-                    // 列表项本身保持可见
+                    // 右滑高级菜单，左滑归属；归属弹窗不隐藏列表
                     TrackSwipeRow(
                         onSwipePlaylist = { onSwipePlaylist(track) },
                         onSwipeAdvanced = { onSwipeAdvanced(track) },
                     ) {
                         PlaylistRow(
                             track = track,
-                            // 歌词命中项以匹配片段替代歌手，标出该曲因何出现在结果中
+                            // 歌词命中用片段替代歌手，标出命中原因
                             subtitle = lyricSnippets[index] ?: track.artist,
-                            // 片段内高亮命中的关键词；非歌词命中项无片段，不高亮
+                            // 片段内高亮关键词，非歌词命中不高亮
                             subtitleHighlight = lyricSnippets[index]?.let { searchQuery.trim() },
                             isActive = isActive,
                             isPlaying = isActive && playbackState.isPlaying,
@@ -190,14 +183,14 @@ internal fun PlaylistSheetList(
                             onClick = {
                                 keyboardController?.hide()
                                 when {
-                                    // 跟随播放队列：切歌或切换播放/暂停，不动队列
+                                    // 跟随队列：切歌或播放/暂停
                                     followsQueue && isActive -> togglePlayPause(playbackState)
                                     followsQueue -> scope.launch {
                                         playTrackAt(context, playbackState, index)
                                     }
-                                    // 浏览态点击正在播放的曲目：只切换播放/暂停，保持浏览内容不变
+                                    // 浏览态点当前曲目只切播放/暂停
                                     isActive -> togglePlayPause(playbackState)
-                                    // 浏览态点击其它曲目：把该来源设为默认队列的过滤条件并起播，随后回到跟随播放队列
+                                    // 浏览态点其它曲目：设为过滤并起播，随后跟随队列
                                     else -> {
                                         switchToPlaylistQueue(
                                             context,
@@ -220,25 +213,21 @@ internal fun PlaylistSheetList(
                     }
                 }
             }
-            // 面板展开动画完成后：始终将当前曲目滚动到列表居中位置；
-            // 浏览的歌单不含当前曲目时无需定位。
-            // 以曲目 id 序列而非列表引用为 key：收藏等仅改标记的操作会替换列表实例，
-            // 用引用作 key 会把这类无关变更误判为列表变化而重新定位
+            // 展开后居中当前曲目，用 id 序列作 key
             LaunchedEffect(playlistSettled, playlistTrackIds) {
                 val index = tracks.indexOfFirst { it.id == playbackState.currentTrack?.id }
                 if (playlistSettled && searchQuery.isBlank() && index >= 0) {
                     listState.scrollPlaylistTo(index, forceCenter = true)
                 }
             }
-            // 切歌时定位：当前曲目不在可视区内才滚动到居中位置，避免反复滚动卡顿
+            // 切歌时不在可视区才居中，避免反复滚动
             LaunchedEffect(playbackState.currentTrack?.id, playlistTrackIds) {
                 val index = tracks.indexOfFirst { it.id == playbackState.currentTrack?.id }
                 if (playlistSettled && searchQuery.isBlank() && index >= 0) {
                     listState.scrollPlaylistTo(index)
                 }
             }
-            // 手动定位播放：待过滤结果与当前曲目对齐后居中滚动。
-            // 当前曲目被过滤掉时上游会清空关键词，此处等重组恢复全量列表再定位
+            // 定位播放：对齐过滤结果后居中；关键词由上游清空
             LaunchedEffect(pendingLocate, filteredIndices) {
                 if (!pendingLocate) return@LaunchedEffect
                 val playingIndex = tracks.indexOfFirst { it.id == playbackState.currentTrack?.id }
@@ -248,7 +237,7 @@ internal fun PlaylistSheetList(
                 pendingLocate = false
             }
         }
-        // 键盘展开期间覆盖列表的拦截层：点击列表任意处仅收起键盘，阻断误触播放歌单行
+        // 键盘展开时拦截列表点击，只收键盘
         if (searchFocused) {
             Box(
                 modifier = Modifier
@@ -265,14 +254,13 @@ internal fun PlaylistSheetList(
                     }
             )
         }
-        // 底部搜索框常驻：列表底部已按渐隐带高度留白，框体不再压住末项。
-        // 右上角两个操作按钮与搜索框同容器
+        // 搜索框常驻，底部留白后不再压末项
         BottomSearchBarOverlay(
             placeholder = stringResource(R.string.playlist_search_placeholder),
             query = searchQuery,
             onQueryChange = { searchQuery = it },
             onFocusChanged = { searchFocused = it },
-            // 聚焦进入输入态时隐藏「置顶」「定位」按钮，避免按钮占位挤压搜索框
+            // 输入态隐藏置顶与定位按钮，避免挤压
             actionsVisible = !searchFocused,
             actions = {
                 SearchActionButton(
@@ -281,7 +269,7 @@ internal fun PlaylistSheetList(
                     enabled = !atListTop,
                     onClick = {
                         scope.launch {
-                            // 距顶部较远时直接跳转，避免长距离动画滚动消耗
+                            // 距顶较远直接跳转，避免长动画消耗
                             if (listState.firstVisibleItemIndex > SEARCH_ACTION_SCROLL_RANGE) {
                                 listState.scrollToItem(0)
                             } else {
@@ -297,7 +285,7 @@ internal fun PlaylistSheetList(
                     // 当前曲目不在展示列表内时无从定位
                     enabled = tracks.any { it.id == playbackState.currentTrack?.id },
                     onClick = {
-                        // 当前曲目被过滤掉则先清空关键词，否则该按钮永远定位不到目标
+                        // 被过滤掉则先清空关键词，否则定位不到
                         val playingIndex = tracks.indexOfFirst {
                             it.id == playbackState.currentTrack?.id
                         }
@@ -312,7 +300,7 @@ internal fun PlaylistSheetList(
     }
 }
 
-// 搜索框上方的悬浮操作按钮：圆形描边 + 透明底，描边与着色沿用底部搜索框的线条风格
+// 悬浮操作按钮：圆形描边 + 透明底
 @Composable
 private fun SearchActionButton(
     icon: ImageVector,

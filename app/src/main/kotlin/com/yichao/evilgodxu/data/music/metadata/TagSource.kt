@@ -7,36 +7,25 @@ import java.io.FileInputStream
 import java.io.InputStream
 import java.io.OutputStream
 
-/**
- * 标签读写的字节来源：只暴露区间读取与区间搬运，解析与写出都不必持有整文件。
- *
- * 高解析无损单文件可达数百 MB，整文件驻留会把进程推到系统内存回收线以下
- * （被系统直接杀死且不产生任何崩溃日志），故标签定位只读它所在的窗口，
- * 音频躯干一律按区间流式搬运。
- */
+/** 标签读写字节源：只暴露区间读取与搬运，不持有整文件 */
 internal interface TagSource {
 
-    /** 源长度；无法取得时返回 [UNKNOWN_SIZE]，区间搬运以 EOF 为准 */
+    /** 源长度；不可知为 UNKNOWN_SIZE，搬运以 EOF 为准 */
     val size: Long
 
-    /** 读取 [offset, offset + length) 区间；区间不可读返回 null，短读按实际读到的字节返回 */
+    /** 读区间；不可读返回 null，短读按实际返回 */
     fun readAt(offset: Long, length: Int): ByteArray?
 
-    /**
-     * 把 [start, end) 区间逐块搬运到 [out]，不整体驻留内存。
-     *
-     * 区间长度已知时短读视为失败并抛出：源在采样长度后被截短或提供者提前 EOF 时，
-     * 静默接受短读会把残缺躯干连同新标签一起提交，原文件仍会被替换。
-     */
+    /** 搬运 [start, end)；长度已知时短读视为失败 */
     fun copyRange(start: Long, end: Long, out: OutputStream)
 
-    /** 长度不可知：以文件末尾为界的定位（块表、尾部标签）在此值下无从成立 */
+    /** 长度不可知，按 EOF 为界 */
     companion object {
         const val UNKNOWN_SIZE = Long.MAX_VALUE
     }
 }
 
-// 本地文件源：每次读取都按请求长度定位后读，不缓存文件内容
+// 本地文件源：按请求长度定位读取
 internal class FileTagSource(private val file: File) : TagSource {
     override val size: Long = file.length()
 
@@ -55,8 +44,7 @@ internal class FileTagSource(private val file: File) : TagSource {
     }
 }
 
-// 在线缓存源（content URI）：定位读取同样按 ContentResolver 打开流后跳过，
-// 长度取文件描述符上报值，读不到时按不可知处理
+// content URI：流式跳过定位，长度取 fd
 internal class ContentUriTagSource(private val context: Context, private val uri: Uri) : TagSource {
     override val size: Long = runCatching {
         context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize }
@@ -77,7 +65,7 @@ internal class ContentUriTagSource(private val context: Context, private val uri
     }
 }
 
-// 已驻留内存的字节源：供内存字节入口与测试使用
+// 内存字节源，供测试用
 internal class ByteArrayTagSource(private val bytes: ByteArray) : TagSource {
     override val size: Long = bytes.size.toLong()
 
@@ -97,8 +85,7 @@ internal class ByteArrayTagSource(private val bytes: ByteArray) : TagSource {
 
 private const val STREAM_BUFFER_SIZE = 64 * 1024
 
-// 跳过指定字节数：InputStream.skip 允许少跳，而 content URI 的流还可能直接返回 0
-// （不可定位的流），故在 skip 无进展时退化为读取丢弃；未跳到位返回 false
+// 跳字节；skip 可能少跳或返回 0，退化为读取丢弃
 internal fun skipFully(input: InputStream, count: Long): Boolean {
     var remaining = count
     val buffer = ByteArray(STREAM_BUFFER_SIZE)
@@ -127,7 +114,7 @@ internal fun readUpTo(input: InputStream, size: Int): ByteArray {
     return buffer.copyOf(read)
 }
 
-// 按块搬运至多 length 字节（length 为 Long.MAX_VALUE 时搬到 EOF），返回实际搬运字节数
+// 按块搬运至多 length，返回实际字节数
 internal fun copyUpTo(input: InputStream, length: Long, output: OutputStream): Long {
     val buffer = ByteArray(STREAM_BUFFER_SIZE)
     var remaining = length
@@ -142,7 +129,7 @@ internal fun copyUpTo(input: InputStream, length: Long, output: OutputStream): L
     return copied
 }
 
-// 长度已知的区间必须完整搬运；UNKNOWN_SIZE 表示以 EOF 为界，无从核对
+// 长度已知时区间必须完整搬运
 private fun requireRangeComplete(start: Long, end: Long, copied: Long) {
     if (end == TagSource.UNKNOWN_SIZE) return
     check(copied == end - start) {

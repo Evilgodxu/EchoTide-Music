@@ -89,7 +89,7 @@ internal fun SearchResultRow(
                     url = coverModel,
                     contentDescription = result.title,
                     targetSize = 28.dp,
-                    // 搜索行与播放列表行同为 28dp、同屏可能十余行同时到图，沿用列表行的短淡入
+                    // 与列表行同档短淡入
                     fadeInMillis = LIST_COVER_FADE_IN_MS,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -127,18 +127,16 @@ internal fun SearchResultRow(
     }
 }
 
-// 提示行完全展开所需的上拉距离：只决定展开快慢，不参与是否加载的判定
+// 提示行完全展开的上拉距离
 private val SEARCH_LOAD_ROW_FULL_PULL_DP = 60.dp
 
-// 底部加载提示行完全展开后的行高，展开过程中据此按比例取当前行高
+// 提示行展开后的行高
 private val SEARCH_LOAD_ROW_HEIGHT = 40.dp
 
-// 提示行的最短展开时长：代理音源的分页是在本地缓冲里切分，毫秒级即返回，
-// 若随即收起会让人以为没触发加载，故对展开态做最短保持
+// 最短展开 500ms，避免秒回像未触发
 private const val MIN_LOAD_ROW_MS = 500L
 
-// 搜索结果列表：列表已在底部时上拉即展开提示行，松手后加载下一页；
-// 上拉量与加载状态共同驱动提示行展开，列表同步整体上移为其让位
+// 列表到底上拉展开提示行，松手加载下一页
 @Composable
 internal fun SearchResultsLazyList(
     playbackState: MusicPlaybackState,
@@ -148,24 +146,22 @@ internal fun SearchResultsLazyList(
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
     val listState = rememberLazyListState()
-    // 兜底去重：上游即使仍重复下发同一条目，渲染前按键过滤，杜绝 LazyColumn key 冲突
+    // 上游兜底去重，避免 LazyColumn key 冲突
     val uniqueResults = remember(playbackState.searchResults) {
         playbackState.searchResults.distinctBy { it.source to it.id }
     }
-    // 到底后的过拉量：决定提示行展开多少，同时标记本次上拉确有加载意图。
-    // 取自原始指针位移而非滚动量 —— 列表到底后本就不再滚动，滚动量恒为零，方向与幅度都无从取得。
-    // 以进入底部那一刻的手指位置为锚点，其后的净位移即过拉量：手指上移拉开、下移收回
+    // 到底后的过拉量：取自指针位移，列表已不滚动
+    // 进入底部时记锚点，之后的净上移即过拉
     var pullDistance by remember { mutableFloatStateOf(0f) }
-    // 本次触发是否仍在加载：不直接用 playbackState.isLoadingMore，因本地切分的分页不置该标记
+    // 本次加载中；本地分页不置 isLoadingMore
     var loadInProgress by remember { mutableStateOf(false) }
-    // 松手时自增以请求加载：加载要耗时，不压在指针回调里做
+    // 松手自增以请求加载，不压在指针回调里
     var loadRequest by remember { mutableIntStateOf(0) }
     val fullPullPx = with(LocalDensity.current) { SEARCH_LOAD_ROW_FULL_PULL_DP.toPx() }
-    // 手指离开屏幕即结算：本次上拉在底部拉出过溢出就加载下一页。不设距离门槛 ——
-    // 列表已在底部时任何上拉都算明确的加载意图，免得同一位置要拉第二次；
-    // 但此刻仍须确在底部，惯性把列表带离底部后残留的过拉量不该兑现成加载
+    // 抬手结算：底部上拉即加载，不设距离门槛
+    // 但须仍在底部，惯性离开后的残留不计
     fun settlePull() {
-        // 加载进行中抬手不计入，避免同一页被反复请求
+        // 加载中抬手不重复请求
         val shouldLoad = pullDistance > 0f && !loadInProgress && !listState.canScrollForward &&
             playbackState.hasMoreSearchResults &&
             !playbackState.isSearching && playbackState.searchResults.isNotEmpty()
@@ -175,7 +171,7 @@ internal fun SearchResultsLazyList(
         }
         pullDistance = 0f
     }
-    // 松手后的加载：补足最短展开时长，使本地切分的秒回分页同样有可见的加载反馈
+    // 补足最短展开时长，秒回也有反馈
     LaunchedEffect(loadRequest) {
         if (loadRequest == 0) return@LaunchedEffect
         val startedAt = SystemClock.elapsedRealtime()
@@ -187,20 +183,19 @@ internal fun SearchResultsLazyList(
             loadInProgress = false
         }
     }
-    // 展开比例：上拉期间随手指出量，加载中保持完全展开，已无更多可加载时收起
+    // 展开比例：跟手、加载中全开、无更多收起
     val expandFraction by animateFloatAsState(
         targetValue = when {
             loadInProgress -> 1f
             !playbackState.hasMoreSearchResults -> 0f
             else -> (pullDistance / fullPullPx).coerceIn(0f, 1f)
         },
-        // 上拉时须紧跟手指，故取高刚度无回弹弹簧；收起同样据此平滑收回
+        // 紧跟手指，高刚度无回弹
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh),
         label = "search_load_more_expand",
     )
     val expandHeight = with(LocalDensity.current) { SEARCH_LOAD_ROW_HEIGHT.toPx() } * expandFraction
-    // 加载结束后提示行还要收拢，收拢途中继续按「加载中」呈现：若这时回落到手势文案，
-    // 看着就像又被拉了一次。行完全收起即复位
+    // 收拢途中仍按加载中呈现，收起后复位
     var settlingAfterLoad by remember { mutableStateOf(false) }
     LaunchedEffect(loadInProgress, expandFraction <= 0f) {
         when {
@@ -209,13 +204,12 @@ internal fun SearchResultsLazyList(
         }
     }
 
-    // 列表为让位而上移，顶部行会被截断 —— 与真实滚动的观感一致，但须裁剪以免画到上方标题区
+    // 上移会截断顶部行，须裁剪
     Box(
         modifier = Modifier
             .fillMaxSize()
             .clipToBounds()
-            // 过拉手势挂在列表外的容器上：列表自身随展开上移，挂在它身上会让拖动中途丢失指针。
-            // 只读不消费，列表的滚动与结果行的点击都不受影响
+            // 过拉手势挂在容器上，列表上移不丢指针
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) {
@@ -226,7 +220,7 @@ internal fun SearchResultsLazyList(
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!change.pressed) break
                             if (listState.canScrollForward) {
-                                // 列表还能继续上滚：内容仍在滚动，过拉尚未成立
+                                // 仍可上滚，过拉尚未成立
                                 anchorY = null
                                 pullDistance = 0f
                             } else {
@@ -248,13 +242,13 @@ internal fun SearchResultsLazyList(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                // 提示行占多高，列表就上移多少：二者由同一展开比例算出，不会错位或露缝
+                // 提示行占多高，列表上移多少
                 .graphicsLayer { translationY = -expandHeight },
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             itemsIndexed(
                 items = uniqueResults,
-                // 聚合两种来源后 id 可能重复，key 需结合来源保证唯一
+                // 两种来源 id 可能重复，key 结合来源
                 key = { _, result -> "${result.source}-${result.id}" }
             ) { _, result ->
                 SearchResultRow(
@@ -263,7 +257,7 @@ internal fun SearchResultsLazyList(
                     onClick = { onResultClick(result) }
                 )
             }
-            // 底部脚注只留终态；上拉提示与加载中由列表外展开的提示行承担
+            // 脚注只留终态，上拉提示另由浮层承担
             if (!playbackState.hasMoreSearchResults && uniqueResults.isNotEmpty()) {
                 item(key = "search-load-end") {
                     Text(
@@ -288,9 +282,8 @@ internal fun SearchResultsLazyList(
     }
 }
 
-// 底部加载提示行：行高随上拉量自列表底部向上展开，加载中保持完全展开；
-// 行内按整行高度布局再整体裁剪，故展开途中内容只是被逐段露出，不会随行高被压扁。
-// 到底部后松手即加载，故上拉期间只提示「松开」，不区分是否拉过某个距离
+// 底部加载行：随上拉展开，按整行布局再裁剪
+// 到底松手即加载，上拉期间只提示「松开」
 @Composable
 private fun SearchLoadMoreRow(
     fraction: Float,
@@ -313,7 +306,7 @@ private fun SearchLoadMoreRow(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 转圈只在加载时出现：上拉阶段只是提示，不该让人以为已经在加载
+            // 转圈只在加载时出现
             if (loading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(14.dp),
@@ -333,7 +326,7 @@ private fun SearchLoadMoreRow(
                     fontSize = 11.sp
                 )
             }
-            // 两者皆非即收拢途中（取消的上拉），此时既非上拉也非加载，不给文案
+            // 收拢途中既非上拉也非加载，不给文案
         }
     }
 }

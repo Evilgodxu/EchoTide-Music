@@ -28,9 +28,7 @@ internal object NeteaseCrypto {
         )
     }
 
-    // EAPI 参数加密：拼接 path/body/digest 后 AES-128-ECB 加密，输出 hex。
-    // ECB 由服务端协议固定：换用 CBC/GCM 等模式会导致接口拒绝请求，故此处不适用
-    // 「ECB 不应使用」的通则——本处加密的是接口凭据，不是需要语义安全的用户数据
+    // EAPI 用 AES-128-ECB，协议固定不可换
     @SuppressLint("GetInstance")
     fun eapi(path: String, body: String): String {
         val params = "${path}${EAPI_MARK}${body}${EAPI_MARK}${md5Hex("nobody${path}use${body}md5forencrypt")}"

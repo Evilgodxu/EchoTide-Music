@@ -17,7 +17,7 @@ import com.yichao.evilgodxu.theme.AppAlpha
 import com.yichao.evilgodxu.theme.AppSpacing
 import com.yichao.evilgodxu.ui.component.AppSwitch
 
-// 设置项的开关行：标题 + 说明 + 右侧开关，与 SettingsEntry 同一套行距与字号
+// 开关行：标题 + 说明 + 右侧开关
 @Composable
 fun SettingsSwitchRow(
     title: String,

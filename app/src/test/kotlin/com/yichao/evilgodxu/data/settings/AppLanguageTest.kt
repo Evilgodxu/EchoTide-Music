@@ -3,7 +3,7 @@ package com.yichao.evilgodxu.data.settings
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-// 语言持久化值解析：未知值与缺键都必须回落到跟随系统，否则升级后界面语言会变成空文案
+// 未知值与缺键回落到跟随系统
 class AppLanguageTest {
 
     @Test

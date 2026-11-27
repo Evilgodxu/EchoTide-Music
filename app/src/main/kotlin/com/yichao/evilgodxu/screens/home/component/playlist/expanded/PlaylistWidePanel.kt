@@ -38,22 +38,21 @@ import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistSmartTracksP
 import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistTracksPage
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 
-// 左栏宽度：平板横屏下既容得下歌单名与计数，又不挤占右栏内容
+// 左栏宽 300dp，容纳名称与计数
 private val PlaylistRailWidth = 300.dp
 
-// 宽屏歌单面板：左栏常驻导航 + 右栏所选类目的内容。横向宽度在此即导航，点选直接换右栏，
-// 不设整屏沉浸页；仅专辑/歌手分组列表的下钻在右栏内保留一层回退
+// 宽屏歌单：左栏导航 + 右栏内容，仅分组下钻保留一层回退
 @Composable
 internal fun PlaylistWidePanel(
-    // 面板是否停在歌单页：返回键的下钻回退只在本页在场时接管，否则会抢走其它页面自己的返回处理
+    // 面板在场时才接管返回键的下钻回退
     visible: Boolean,
     playbackState: MusicPlaybackState,
     playlistStore: PlaylistStore,
     menuBackgroundColor: Color,
-    // 标题栏高度：本面板的内容都从标题栏下方开始
+    // 标题栏高度，内容从下方开始
     topInset: Dp,
     onImmersivePageChange: (Boolean) -> Unit,
-    // 本面板不接管横向滑动：随形态切换复位，避免从窄屏下钻页旋转过来时首页翻页仍被关闭
+    // 本面板不接管横滑；切换形态时复位
     onSwipeBackChange: (Boolean) -> Unit,
     pendingArtist: String?,
     onPendingArtistHandled: () -> Unit,
@@ -64,23 +63,22 @@ internal fun PlaylistWidePanel(
     onDelete: (Playlist) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // 左栏当前选中项，右栏内容随之切换；切项即清空右栏内的下钻
+    // 左栏选中项，切项清空下钻
     var destination by remember {
         mutableStateOf<PlaylistDestination>(PlaylistDestination.Smart(SmartPlaylistType.RECENT))
     }
-    // 右栏内的一层下钻：从专辑/歌手分组列表进入该分组的曲目
+    // 右栏下钻：分组列表进入曲目
     var drilledGroup by remember { mutableStateOf<PlaylistGroup?>(null) }
-    // 下钻进入分组曲目后，系统返回键先退回分组列表，再退才由首页收起面板；
-    // 被覆盖层压住时让出，返回键交给覆盖层
+    // 下钻后返回先退分组列表，被覆盖层压住时让出
     BackHandler(enabled = LocalIsTopLayer.current && visible && drilledGroup != null) { drilledGroup = null }
-    // 离开歌单页即退出下钻：与窄屏面板「离开即复位页面栈」同口径，回来落在类目列表而非上次的分组里
+    // 离开歌单页即退出下钻
     LaunchedEffect(visible) { if (!visible) drilledGroup = null }
-    // 宽屏面板无整屏沉浸页、也不接管横向滑动：标题栏始终在场，首页翻页照常
+    // 宽屏无沉浸页、不接横滑，标题栏常驻
     LaunchedEffect(Unit) {
         onImmersivePageChange(false)
         onSwipeBackChange(false)
     }
-    // 点击播放器歌手信息直达该歌手：选中歌手类目并直接下钻到该歌手
+    // 播放器点击歌手直达该歌手歌单
     LaunchedEffect(pendingArtist) {
         val artist = pendingArtist?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         destination = PlaylistDestination.Smart(SmartPlaylistType.ARTIST)
@@ -131,13 +129,13 @@ internal fun PlaylistWidePanel(
     }
 }
 
-// 左栏可选目的地：系统歌单（常听/收藏/专辑/歌手）与自定义歌单
+// 左栏目的地：系统歌单与自定义歌单
 internal sealed interface PlaylistDestination {
     data class Smart(val type: SmartPlaylistType) : PlaylistDestination
     data class Custom(val playlist: Playlist) : PlaylistDestination
 }
 
-// 右栏内容：分组下钻优先于左栏所选类目，其余按类目分发到既有页面
+// 右栏内容：下钻优先，其余按类目分发
 @Composable
 private fun PlaylistDetailPane(
     playlistStore: PlaylistStore,
@@ -175,7 +173,7 @@ private fun PlaylistDetailPane(
                 }
         }
         is PlaylistDestination.Custom -> {
-            // 歌单可能刚被重命名：标题与内容都按当前存储里的那份取名
+            // 可能刚改名，标题按当前存储取
             val current = playlistStore.playlists.find { it.id == destination.playlist.id } ?: destination.playlist
             Column(modifier = Modifier.fillMaxSize()) {
                 WideDetailHeader(title = current.name)
@@ -185,8 +183,7 @@ private fun PlaylistDetailPane(
     }
 }
 
-// 右栏标题栏：仅承载当前内容的名字。下钻的返回交给系统返回键（见 [PlaylistWidePanel] 的 BackHandler），
-// 页内不再设返回入口
+// 右栏标题：只显示名字，返回交给系统键
 @Composable
 private fun WideDetailHeader(title: String) {
     Row(

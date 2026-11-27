@@ -49,7 +49,7 @@ internal fun RenameDialog(
     }
 }
 
-// 重命名共享主体：标题 + 输入框 + 确认/取消，供全屏蒙层与对话框复用
+// 重命名主体：标题 + 输入框 + 双按钮
 @Composable
 private fun RenameContent(
     initialValue: String,

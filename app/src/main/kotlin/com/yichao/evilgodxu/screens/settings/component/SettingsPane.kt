@@ -12,12 +12,7 @@ import com.yichao.evilgodxu.screens.settings.component.playback.PlaybackModeEntr
 import com.yichao.evilgodxu.screens.settings.component.proxy.ProxySourceEntry
 import com.yichao.evilgodxu.screens.settings.component.typography.TypographyEntry
 
-/**
- * 设置根页：五个入口各占一区，其后是品牌、版本与反馈入口。
- *
- * 五个入口都指向页内层级，根页只留入口与一行摘要；主题与语言弹窗挂在页面骨架，
- * 这里只上抛「请求打开」，不持有弹窗状态。
- */
+/** 设置根页：五个入口 + 品牌与版本 */
 @Composable
 internal fun SettingsPane(
     uiState: SettingsUiState,

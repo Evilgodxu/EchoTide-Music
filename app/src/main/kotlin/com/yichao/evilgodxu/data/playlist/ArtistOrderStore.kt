@@ -17,7 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
-// 歌手曲序的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
+// 歌手曲序存储落点，名字即持久化标识
 internal val ARTIST_ORDER_STORE = PersistedData("artist_orders", PersistedFileKind.DATA_STORE_JSON)
 
 @Serializable
@@ -34,25 +34,16 @@ private val Context.artistOrderDataStore: DataStore<ArtistOrderArchive> by dataS
     },
 )
 
-/**
- * 歌手分组曲序存储。
- *
- * 歌手分组的曲目由曲库即时解析（见 PlaylistGrouping.artistGroup），顺序本身没有落脚点——
- * 用户拖拽调整后按歌手名记一份曲目 id 序列，进页时按它重排。DataStore 是唯一事实源，
- * 写入整份表一次提交，读取由 [orders] 的收集侧持续回流。
- */
+/** 歌手曲序存储，DataStore 为准 */
 class ArtistOrderStore(context: Context, scope: CoroutineScope) {
 
     private val appContext = context.applicationContext
 
-    // 歌手名 → 该歌手曲目的自定义次序。只记次序不记成员：曲库增删后按 id 查表过滤，
-    // 序列里已消失的 id 自然落空，下次拖拽整条覆盖时随之清掉。
-    // 歌手改名会留下一条再也命不中的旧条目——改名后重新排序才生成新条目，旧条目无人认领；
-    // 残留量以「改过名的歌手数」为界，不值得为它引入一次全库比对来清理
+    // 歌手名 → 曲目次序；只记次序，改名后的旧条目留作残留
     var orders by mutableStateOf<Map<String, List<Long>>>(emptyMap())
         private set
 
-    // 首轮读盘完成：启动期重建播放来源前先等它，避免以空曲序覆盖用户已保存的顺序
+    // 等首轮读盘，避免空曲序覆盖已存顺序
     private val initialLoad = CompletableDeferred<Unit>()
 
     init {

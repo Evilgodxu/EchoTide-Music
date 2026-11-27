@@ -1,8 +1,6 @@
 package com.yichao.evilgodxu.data.music.playback
 
-// 当前曲目的音频格式信息（音频信息条展示用）。
-// 各项仅承载实际读取到的值，读取不到即为 null，不以推测默认值填充，
-// 避免未知项被展示成真实信息而误导用户
+// 当前曲目音频格式，读不到为 null，不用默认值
 data class AudioSignalPathFormat(
     val format: String?,
     val sampleRate: Int?,
@@ -12,33 +10,29 @@ data class AudioSignalPathFormat(
     val bitrate: Int?,
 )
 
-// 默认队列的过滤来源：key 标识来源，name 为副标题显示名
+// 过滤来源：key 标识，name 为副标题
 data class PlaylistSource(
     val key: String,
     val name: String,
 )
 
-// 单次播放记录：曲目 ID + 播放时间戳（毫秒）
+// 单次播放记录：曲目 ID + 时间戳（毫秒）
 data class PlayEvent(
     val trackId: Long,
     val timestamp: Long,
 )
 
-// 曲目变更的类型：界面据此决定换图、换色与换文案的过渡。
-// 不取播放列表的下标差——随机播放下标差是随机数，读不出前后；
-// 变更的类型本身（上一曲/下一曲/选曲）则始终能读出方向
+// 曲目变更类型：不用下标差，随机下读不出方向
 enum class TrackSwitchKind {
-    // 上一曲：新内容自左侧移入
+    // 上一曲：内容自左侧移入
     Previous,
 
-    // 下一曲：新内容自右侧移入。自然接续（自动下一首、插队队列）同属此列
+    // 下一曲：自右侧移入，自然接续同属
     Next,
 
-    // 无方向可读的曲目变更：选曲播放（含外部音频起播、搜索结果起播）。
-    // 移入的一侧取不出来，元素不做位移
+    // 无方向变更：选曲播放，元素不位移
     Select,
 
-    // 曲目身份变了而画面同源：在线曲缓存完成后迁移为本地曲目、库扫描后重建列表实例等。
-    // 内容一致，直接替换看不出变化；横移则会把两张同源封面错位成一道可辨的接缝
+    // 身份变了但画面同源，直接替换避免错位接缝
     SameContent,
 }

@@ -4,17 +4,10 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/**
- * 播放列表排序复核：各字段的排序口径与自然序比较器。
- *
- * 默认顺序是三段聚拢（锚点 + 歌手块 + 专辑块），用例按构造数据推演出的分组断言，
- * 而非仅断言「结果已排序」——后者在聚拢失效时同样成立。
- */
+/** 默认顺序为锚点+歌手块+专辑块 */
 class PlaylistSortTest {
 
-    // -----------------------------------------------------------------------
     // 歌手解析
-    // -----------------------------------------------------------------------
 
     @Test
     fun `歌手按支持的分隔符切分`() {
@@ -25,13 +18,11 @@ class PlaylistSortTest {
         assertEquals(listOf("A"), parseTrackArtists(" A "))
     }
 
-    // -----------------------------------------------------------------------
     // 自然序
-    // -----------------------------------------------------------------------
 
     @Test
     fun `前导数字按数值排序且优先`() {
-        // 逐字符比较会把 "10" 排到 "2" 之前；自然序按数值排，且数字开头者一律靠前
+        // 自然序按数值，数字开头者靠前
         val tracks = listOf(track(1, "明天"), track(2, "10 年"), track(3, "2 年"))
         assertEquals(listOf("2 年", "10 年", "明天"), titles(sortTracks(tracks, PlaylistSortField.TITLE, false)))
     }
@@ -45,9 +36,7 @@ class PlaylistSortTest {
         )
     }
 
-    // -----------------------------------------------------------------------
     // 各字段
-    // -----------------------------------------------------------------------
 
     @Test
     fun `收藏排序把喜欢的置前，其余按标题自然序`() {
@@ -57,7 +46,7 @@ class PlaylistSortTest {
             track(3, "B", isFavorite = true),
             track(4, "A"),
         )
-        // 收藏态优先：已收藏者整体在前；同一收藏态内仍按标题自然序（数字开头靠前）
+        // 收藏在前，同态内按标题自然序
         assertEquals(
             listOf("10 年", "B", "A", "C"),
             titles(sortTracks(tracks, PlaylistSortField.FAVORITE, false)),
@@ -93,7 +82,7 @@ class PlaylistSortTest {
             track(2, "A", albumName = "同名", albumId = 1),
             track(3, "C", albumName = "同名", albumId = 1),
         )
-        // 同名专辑靠 albumId 区分，同一专辑内再按标题
+        // 同名专辑按 albumId 区分
         assertEquals(listOf("A", "C", "B"), titles(sortTracks(tracks, PlaylistSortField.ALBUM, false)))
     }
 
@@ -116,9 +105,7 @@ class PlaylistSortTest {
         )
     }
 
-    // -----------------------------------------------------------------------
     // 默认顺序
-    // -----------------------------------------------------------------------
 
     @Test
     fun `默认顺序以首曲为锚，按歌手再按专辑分组`() {
@@ -131,9 +118,7 @@ class PlaylistSortTest {
             track(6, "董小姐", artist = "宋冬野", albumName = "摩登天空", albumId = 4),
             track(7, "莉莉安", artist = "陈粒", albumName = "摩登天空", albumId = 4),
         )
-        // 锚点：标题自然序首位「安和桥」，位置固定；
-        // 二级：锚点之下同歌手（≥2 首）聚拢 —— 周杰伦 2 首、赵雷 2 首；
-        // 三级：锚点之下归属歌手仅 1 首的曲目按专辑聚拢，可跨歌手 —— 董小姐与莉莉安同属「摩登天空」
+        // 锚点固定；同歌手≥2 首聚拢
         assertEquals(
             listOf("安和桥", "安静", "斑马", "成都", "理想", "董小姐", "莉莉安"),
             titles(sortTracks(tracks, PlaylistSortField.DEFAULT, false)),
@@ -149,7 +134,7 @@ class PlaylistSortTest {
         val ascending = sortTracks(tracks, PlaylistSortField.DEFAULT, false)
         val descending = sortTracks(tracks, PlaylistSortField.DEFAULT, true)
         assertEquals("安静", ascending.first().title)
-        // 逆序只翻转已排定的序列，锚点随之落到末位，不重新挑选
+        // 逆序只翻转序列，不重挑锚点
         assertEquals("安静", descending.last().title)
     }
 
@@ -162,12 +147,9 @@ class PlaylistSortTest {
             track(4, "D", artist = "甲", albumName = "甲的专辑", albumId = 2),
             track(5, "E", artist = "甲 / 丙", albumName = "合辑", albumId = 1),
         )
-        // 锚点 A 之下：甲有 3 首（含合作曲 E）成歌手块，乙仅 1 首（C）走专辑块；
-        // 歌手块按首次出现顺序整体排在专辑块之前，故 D、E 都前移到 C 之前
+        // 甲 3 首成歌手块，整体排在专辑块前
         assertEquals(listOf("A", "B", "D", "E", "C"), titles(sortTracks(tracks, PlaylistSortField.DEFAULT, false)))
     }
-
-    // -----------------------------------------------------------------------
 
     private fun titles(tracks: List<MusicTrack>): List<String> = tracks.map { it.title }
 

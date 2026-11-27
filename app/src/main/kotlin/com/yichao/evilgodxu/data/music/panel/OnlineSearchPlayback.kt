@@ -43,7 +43,7 @@ internal suspend fun downloadAndPlay(
         artist = result.artist,
         duration = result.duration,
         albumId = 0L,
-        // 仅网易云结果写入 neteaseId，供播放失败重试时匹配原曲
+        // 仅网易云写 neteaseId，供重试匹配
         neteaseId = if (result.source == MusicSearchSource.NETEASE) result.id else 0L,
         neteaseCoverUrl = result.coverUrl.orEmpty(),
         isOnlinePlay = true,
@@ -52,8 +52,7 @@ internal suspend fun downloadAndPlay(
     withContext(Dispatchers.Main) {
         val existingIndex = playbackState.playlist.indexOfFirst { it.id == trackId }
         val targetIndex = if (existingIndex >= 0) {
-            // 同一在线曲目换音质重播：新解析出的直链必须写回既有条目，
-            // 否则下面取 currentTrack 时又拿到旧列表项，新 URL 在起播前就被丢掉
+            // 换音质须写回既有条目，否则新链接会被丢弃
             val previous = playbackState.playlist[existingIndex]
             val refreshed = previous.copy(
                 audioUri = url,
@@ -68,8 +67,7 @@ internal suspend fun downloadAndPlay(
             if (playbackState.currentTrack?.id == trackId) {
                 playbackState.currentTrack = refreshed
             }
-            // 有过滤时播放结果只是默认队列的子集，换音质换源须同时回写默认队列，
-            // 否则切换过滤来源会退回旧直链
+            // 有过滤时须回写默认队列，否则退回旧直链
             if (playbackState.queueFilter != null) {
                 playbackState.defaultPlaylist = playbackState.defaultPlaylist.map { item ->
                     if (item.id == trackId) refreshed else item
@@ -80,9 +78,7 @@ internal suspend fun downloadAndPlay(
             playbackState.playlist = playbackState.playlist + track
             playbackState.playlist.size - 1
         }
-        // 曲目由本处先行写入，类型必须与它同帧记下：随后的 playTrackAt 因目标已是当前曲目
-        // 而不再补记，本处漏记就会沿用上一次的类型，方向随之失真。
-        // 搜索结果起播没有前后关系可读，类型为无方向的选曲播放
+        // 类型须先于曲目状态记下，搜索结果起播为选曲
         playbackState.beginTrackSwitch(TrackSwitchKind.Select)
         playbackState.currentIndex = targetIndex
         playbackState.currentTrack = playbackState.playlist[targetIndex]
@@ -90,9 +86,7 @@ internal suspend fun downloadAndPlay(
         playTrackAt(context, playbackState, targetIndex)
     }
 
-    // 在线结果后台加载歌词：各平台各有歌词接口。
-    // 以 async 返回增强 LRC 文本，供缓存流程把歌词与标题/艺术家/封面一次内嵌进音频文件；
-    // 异常已在块内捕获并返回 null，不会向作用域抛出
+    // 后台取歌词，返回增强 LRC；异常返回 null
     val lyricsJob = playbackState.playbackScope.async(Dispatchers.IO) {
         try {
             val lines = ProxySourceEngine.lyricLines(playbackState.proxySourceStore, result)
@@ -100,15 +94,14 @@ internal suspend fun downloadAndPlay(
             if (lines.isEmpty()) return@async null
             val lyricPath = MusicMetadataCache.saveLyrics(context, result.title, result.artist, lines).orEmpty()
             withContext(Dispatchers.Main) {
-                // updateTrack 同步回写并持久化引用：仅改内存态会丢失持久化引用，
-                // 下次启动就无法复用刚落盘的歌词缓存
+                // updateTrack 同步持久化引用，否则重启丢失缓存
                 val track = playbackState.playlist.firstOrNull { it.id == trackId } ?: return@withContext
-                // 歌词已就位，清掉此前的失败标记，否则缓存文件被删后不再重建
+                // 清掉失败标记，否则缓存被删不再重建
                 playbackState.updateTrack(
                     track.copy(lyricCachePath = lyricPath, lyricLines = lines, lyricFailed = false)
                 )
             }
-            // 与歌词缓存文件同一份增强 LRC 文本，内嵌后可被内嵌歌词读取器原样解析回来
+            // 与缓存同一份增强 LRC，内嵌后可解析回来
             MusicMetadataCache.encodeLyrics(lines)
         } catch (e: Exception) {
             CrashLogManager.logException("OnlineSearchPlayback", "获取在线歌词失败", e)
@@ -116,12 +109,10 @@ internal suspend fun downloadAndPlay(
         }
     }
 
-    // 在线播放时同步下载封面原图：仅以字节形式交回缓存流程，由其在缓存完成后内嵌进音频文件，
-    // 系统随即为该文件生成封面略缩图（显示端只读系统略缩图，仅当前曲目的一张缩略图由 CurrentCoverCache 落盘）。
-    // 在线播放由用户主动选择曲目触发，属用户决策下的联网补齐；自动补全路径不联网
+    // 同步下载封面字节，由缓存流程内嵌进音频文件
     val coverJob = playbackState.playbackScope.async(Dispatchers.IO) {
         try {
-            // 代理音源优先按 coverId 换取封面，失败时回退搜索结果的封面直链
+            // 代理优先按 coverId 换封面，失败回退直链
             ProxySourceEngine.coverBytes(playbackState.proxySourceStore, result)
                 ?: run {
                     val coverUrl = result.coverUrl?.takeIf { it.isNotBlank() } ?: return@run null
@@ -134,8 +125,7 @@ internal suspend fun downloadAndPlay(
     }
 
     playbackState.playbackScope.launch(Dispatchers.IO) {
-        // 同一曲目的缓存任务按 ID 去重：add 的返回值才是「本次是否抢到任务」，
-        // 重复起播不应再下载一遍，也不能让先完成者移除另一个任务的进行中标记
+        // 按 ID 去重缓存任务，重复起播不再下载
         val started = synchronized(playbackState.cacheInProgressIds) {
             playbackState.cacheInProgressIds.add(trackId)
         }
@@ -165,7 +155,7 @@ internal suspend fun enrichOnlineMetadata(
         } else ""
         embedLyricsText(context, track, MusicMetadataCache.encodeLyrics(lyric.lines))
         withContext(Dispatchers.Main) {
-            // updateTrack 同步回写并持久化引用，避免进程被杀后重启清理误删刚下载的歌词缓存
+            // 同步持久化引用，避免重启清理误删缓存
             val track = playbackState.playlist.firstOrNull { it.id == track.id } ?: return@withContext
             playbackState.updateTrack(
                 track.copy(
@@ -173,7 +163,7 @@ internal suspend fun enrichOnlineMetadata(
                     neteaseCoverUrl = result.coverUrl.orEmpty(),
                     lyricCachePath = lyricPath,
                     lyricLines = lyric.lines,
-                    // 取到歌词即清掉失败标记；本次没取到则保留原标记，不清也不新置
+                    // 取到歌词才清失败标记，否则保留
                     lyricFailed = lyric.lines.isEmpty() && track.lyricFailed
                 )
             )
@@ -204,7 +194,7 @@ internal suspend fun tryPlayLocalMatch(
         }
     }
     playbackState.errorMsg = null
-    // 类型须先于曲目状态记下，且与搜索结果起播同属无方向的选曲播放（见 downloadAndPlay）
+    // 类型须先于曲目状态记下，同为选曲播放
     playbackState.beginTrackSwitch(TrackSwitchKind.Select)
     playbackState.currentIndex = idx
     playbackState.currentTrack = playbackState.playlist[idx]
@@ -214,7 +204,7 @@ internal suspend fun tryPlayLocalMatch(
     return true
 }
 
-// 代理音源优先，返回 null 表示该音质不可用
+// 代理优先，null 表示该音质不可用
 internal suspend fun resolvePlayUrlByQuality(
     sourceStore: com.yichao.evilgodxu.data.music.proxy.ProxySourceStore,
     target: NeteaseSongSearchResult,
@@ -229,8 +219,7 @@ internal suspend fun resolvePlayUrlByQuality(
     }
 }
 
-// 按用户选定音质自适应解析播放地址：选定档优先，其次向上匹配更高档，最后降级到更低档；
-// 全部档位都无直链才返回 null（此时保留音质对话框供用户改选）
+// 自适应解析：选定档→更高档→更低档，全无则 null
 private suspend fun resolveAdaptivePlayUrl(
     sourceStore: com.yichao.evilgodxu.data.music.proxy.ProxySourceStore,
     target: NeteaseSongSearchResult,
@@ -241,8 +230,7 @@ private suspend fun resolveAdaptivePlayUrl(
     }
 }
 
-// 按用户选定音质播放在线搜索结果；URL 解析成功即加入播放列表开始播放，
-// 并标记待确认曲目交由播放器回调判定成败（失败时移除曲目、保留音质对话框）
+// 按选定音质起播，标记待确认曲目供回调判成败
 internal suspend fun playSearchResultWithQuality(
     target: NeteaseSongSearchResult,
     quality: MusicQuality,

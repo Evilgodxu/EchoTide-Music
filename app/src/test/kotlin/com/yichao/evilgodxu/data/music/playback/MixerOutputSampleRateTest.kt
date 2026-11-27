@@ -4,17 +4,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/**
- * 混音模式输出速率的取值口径复核。
- *
- * 这三条判据决定了面板上「输出采样率」与「重采样」两行是否可信，判错不会报错，只会把系统重采样
- * 报成未发生，故逐条断言：蓝牙只认编码速率、其余通路取主输出流速率、设备声明不了该档时留空。
- */
+/** 蓝牙认编码速率，其余取主输出流速率 */
 class MixerOutputSampleRateTest {
 
     @Test
     fun `蓝牙按协商出的编码速率报输出速率`() {
-        // 主输出那条流报的仍是扬声器的 48k，与 A2DP 输出流无关，故不能被它覆盖
+        // 主输出仍报扬声器 48k，不得覆盖
         assertEquals(
             44_100,
             mixerOutputSampleRateHz(
@@ -47,7 +42,7 @@ class MixerOutputSampleRateTest {
 
     @Test
     fun `设备声明不了主输出那一档时不报速率`() {
-        // 设备只声明 96k：平台会另开一条按设备档位跑的输出流，主输出速率不落在它身上，只能留空
+        // 设备只声明 96k 时留空
         assertNull(
             mixerOutputSampleRateHz(
                 device(OutputDeviceKind.USB, sampleRates = listOf(96_000)),

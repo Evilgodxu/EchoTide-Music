@@ -11,7 +11,7 @@ import androidx.compose.ui.window.Dialog
 import com.yichao.evilgodxu.theme.AppAlpha
 import com.yichao.evilgodxu.theme.AppShape
 
-// 统一卡片对话框容器：供歌单元数据编辑、封面与歌词刷新等场景复用
+// 统一卡片对话框容器
 @Composable
 internal fun DialogCard(
     onDismiss: () -> Unit,

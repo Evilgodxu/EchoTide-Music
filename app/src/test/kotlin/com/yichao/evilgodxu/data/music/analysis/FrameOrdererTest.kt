@@ -8,13 +8,7 @@ import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/**
- * 并行帧序重排复核。
- *
- * 频谱行的合并与列序都依赖时间序，而多核变换的产出顺序不定。
- * 重排器一旦漏放或错序一帧，频谱图会整段错位，且不会有任何显式报错，
- * 因此这里针对「乱序到达」「缺口未补齐」「并发提交」三种情形分别设防。
- */
+/** 并行帧重排：乱序、缺口、并发三种情形 */
 class FrameOrdererTest {
 
     @Test
@@ -36,11 +30,11 @@ class FrameOrdererTest {
 
         orderer.submit(1L, floatArrayOf(1f))
         orderer.submit(2L, floatArrayOf(2f))
-        // 缺口未补齐时必须压住：一旦提前放出，合并就会按错误的时间序发生
+        // 缺口未补齐须压住，否则错序合并
         assertEquals(emptyList<Float>(), emitted)
 
         orderer.submit(0L, floatArrayOf(0f))
-        // 补齐后不仅放出该帧，还应连锁放出此前积压的连续帧
+        // 补齐后连锁放出积压帧
         assertEquals(listOf(0f, 1f, 2f), emitted)
     }
 
@@ -50,7 +44,7 @@ class FrameOrdererTest {
         val emitted = mutableListOf<Float>()
         val orderer = FrameOrderer { emitted += it[0] }
 
-        // 打乱提交次序并在多线程上并发提交，模拟多核变换的产出顺序不定
+        // 乱序并发提交，模拟多核产出
         val indices = (0 until count).shuffled()
         withContext(Dispatchers.Default) {
             indices.map { index ->

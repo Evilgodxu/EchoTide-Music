@@ -6,7 +6,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
-// 应用中统一的 Switch 组件，修复深色主题下关闭态圆点与背景色对比度不足的问题
+// 统一 Switch，修正深色下关闭态对比度
 @Composable
 fun AppSwitch(
     checked: Boolean,

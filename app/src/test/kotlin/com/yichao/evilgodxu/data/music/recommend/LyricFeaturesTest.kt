@@ -3,9 +3,7 @@ package com.yichao.evilgodxu.data.music.recommend
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/**
- * 歌词清洗复核：剔除制作信息行与空行。
- */
+/** 歌词清洗：剔除制作信息与空行 */
 class LyricFeaturesTest {
 
     @Test

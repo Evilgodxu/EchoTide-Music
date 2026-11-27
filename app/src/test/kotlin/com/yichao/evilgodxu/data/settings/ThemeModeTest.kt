@@ -3,7 +3,7 @@ package com.yichao.evilgodxu.data.settings
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-// 主题持久化值解析：未知值回落到跟随系统，避免升级后主题停在半截状态
+// 未知值回落到跟随系统
 class ThemeModeTest {
 
     @Test

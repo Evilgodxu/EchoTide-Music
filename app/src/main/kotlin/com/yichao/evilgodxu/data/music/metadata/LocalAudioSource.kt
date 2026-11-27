@@ -7,9 +7,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
 
-// 本地音频源的字节读取：文件路径优先，其次 content/file URI；纯在线流取不到流。
-// 内嵌歌词与内嵌封面读取共用同一套打开、长度查询与区间读取，
-// 使「头部窗口 + 尾部窗口 + 窗口外定点读取」这套定位方式只有一处实现
+// 读字节：路径优先，其次 URI
 internal object LocalAudioSource {
 
     fun open(context: Context, path: String, audioUri: String): InputStream? = when {
@@ -19,7 +17,7 @@ internal object LocalAudioSource {
         else -> null
     }
 
-    // 文件字节数。读不到时返回 null——不做「读整文件」的兜底，避免大文件全量读入
+    // 文件字节数；读不到返回 null
     fun size(context: Context, path: String, audioUri: String): Long? {
         val size = if (path.isNotBlank()) {
             runCatching { File(path).length() }.getOrNull()
@@ -34,7 +32,7 @@ internal object LocalAudioSource {
         return size?.takeIf { it > 0 }
     }
 
-    // 读取 [offset, offset + count) 区间的字节，不足时返回已读部分；区间越界或流不可用返回 null
+    // 读区间，不足返回已读部分；越界或流不可用返回 null
     fun read(context: Context, path: String, audioUri: String, offset: Long, count: Int): ByteArray? {
         if (offset < 0 || count <= 0) return null
         val input = open(context, path, audioUri) ?: return null
@@ -46,8 +44,7 @@ internal object LocalAudioSource {
         }.getOrNull()
     }
 
-    // 尾部窗口：自文件末回溯至多 cap 字节，返回窗口字节与其在文件中的绝对偏移。
-    // 标签位于文件末尾的容器靠它定位；文件长度不可得时返回 null
+    // 尾窗字节与其绝对偏移，长度未知为 null
     fun tail(context: Context, path: String, audioUri: String, cap: Int): Pair<ByteArray, Long>? {
         val size = size(context, path, audioUri) ?: return null
         val offset = (size - cap).coerceAtLeast(0)
@@ -68,7 +65,7 @@ internal object LocalAudioSource {
         return out.toByteArray()
     }
 
-    // InputStream.skip 允许少跳，循环补齐
+    // skip 允许少跳，循环补齐
     private fun skipFully(stream: InputStream, count: Long): Boolean {
         var skipped = 0L
         while (skipped < count) {

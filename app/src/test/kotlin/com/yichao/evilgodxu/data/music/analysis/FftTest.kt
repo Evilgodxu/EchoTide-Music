@@ -7,12 +7,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-/**
- * 离散变换与窗函数复核。
- *
- * FFT 的结果不另找实现对照就无法发现符号与位反转错误，
- * 故以朴素 DFT 作为基准逐点比对 —— 基准按定义直接求和，不含任何位运算。
- */
+/** 以朴素 DFT 逐点比对 FFT */
 class FftTest {
 
     private companion object {
@@ -49,7 +44,7 @@ class FftTest {
 
     @Test
     fun `单个冲激把单位幅度铺满各频点`() {
-        // 时域单个冲激在所有频点上的幅度恒为 1：验证变换未做归一化且不丢能量
+        // 冲激各频点幅度恒 1，不归一化
         val size = 8
         val re = FloatArray(size).also { it[1] = 1f }
         val im = FloatArray(size)
@@ -70,11 +65,11 @@ class FftTest {
 
     @Test
     fun `汉宁窗按长度缓存`() {
-        // 逐帧重建窗函数是主要开销之一，缓存后同一长度必须复用同一实例
+        // 同长度须复用缓存实例
         assertSame(Fft.hannWindow(512), Fft.hannWindow(512))
     }
 
-    /** 朴素 DFT：按定义逐点求和，作为 FFT 的独立基准 */
+    /** 按定义求和的独立基准 */
     private fun naiveDft(re: FloatArray, im: FloatArray): Pair<FloatArray, FloatArray> {
         val n = re.size
         val outRe = FloatArray(n)

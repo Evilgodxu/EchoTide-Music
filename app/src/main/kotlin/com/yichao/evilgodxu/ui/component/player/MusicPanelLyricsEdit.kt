@@ -29,7 +29,7 @@ import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.DialogCard
 
-// 歌词原文编辑对话框：预填整行原始文本(时间戳/逐字/翻译)，校验格式后确认
+// 歌词原文编辑：预填文本，校验格式后确认
 @Composable
 internal fun LyricsEditDialog(
     visible: Boolean,
@@ -40,7 +40,7 @@ internal fun LyricsEditDialog(
     if (visible) {
         DialogCard(onDismiss = onCancel) {
             var value by remember(initialValue) { mutableStateOf(initialValue) }
-            // 无法解析出歌词行(缺时间戳前缀)时禁用确认并提示
+            // 解析不出歌词行时禁用确认
             var invalid by remember(initialValue) { mutableStateOf(false) }
             Column(
                 modifier = Modifier
@@ -99,7 +99,7 @@ internal fun LyricsEditDialog(
                         color = MaterialTheme.colorScheme.primary,
                         onClick = {
                             val trimmed = value.trim()
-                            // 确认前校验，避免写入格式无效的歌词文本
+                            // 确认前校验格式，避免写入无效文本
                             if (MusicMetadataCache.parseLyricsText(trimmed).isNotEmpty()) {
                                 onConfirm(trimmed)
                             } else {

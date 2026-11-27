@@ -10,11 +10,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
 
-/**
- * Ogg Opus 改写后的页面结构：Ogg Opus 要求承载 OpusHead 与 OpusTags 的前两页 granule 为 0，
- * 末页置 EOS。标签包长度变化后若仍按原页面段数重新分页，音频包会被吸进注释页，
- * 注释页 granule 随之变为音频位置，改写结果随即无法被解码器打开。
- */
+/** 头两页 granule 为 0，末页置 EOS */
 class OpusPageLayoutTest {
 
     @Test
@@ -42,15 +38,7 @@ class OpusPageLayoutTest {
     }
 }
 
-/**
- * 支持元数据写入的全部容器的实测往返：样本取自 src/test/resources/audio（本地生成，
- * 用标准编码器产出或按容器规范构造），逐个走「写入 → 独立解析 → 应用读取器复核 → 覆盖写入」。
- *
- * 断言分三层，互相独立：
- *   1. 独立解析器 [AudioMetaProbe] 按容器规范读回五个字段，核对写入结果本身；
- *   2. 应用自身的读取器（内嵌歌词/封面）复核，保证显示路径能读到；
- *   3. 音频区字节前后一致，保证改写只动元数据。
- */
+/** 全容器往返：写入、独立解析、应用读取器复核 */
 @RunWith(Parameterized::class)
 class FormatMetadataRoundTripTest(private val fixture: String) {
 
@@ -89,7 +77,7 @@ class FormatMetadataRoundTripTest(private val fixture: String) {
         assertArrayEquals("$fixture 封面不一致", COVER, meta.cover)
     }
 
-    // 应用自身的内嵌歌词读取器：MP3 走 ID3 USLT，FLAC/OGG/M4A 走容器注释，其余走容器标签层
+    // 内嵌歌词：MP3 走 USLT，余走注释
     private fun appLyrics(bytes: ByteArray): String? = when {
         fixture.endsWith(".mp3") -> Id3v2Tag.readUslt(bytes, 0)
         fixture.endsWith(".flac") || fixture.endsWith(".opus") || fixture.endsWith(".m4a") ||
@@ -97,7 +85,7 @@ class FormatMetadataRoundTripTest(private val fixture: String) {
         else -> LosslessContainerTags.readLyrics(bytes, bytes, 0L, null)
     }
 
-    // 应用自身的封面读取器：FLAC/Ogg/M4A 的封面由平台读取，自实现不覆盖
+    // FLAC/Ogg/M4A 封面由平台读取
     private fun appCover(bytes: ByteArray): ByteArray? = when {
         fixture.endsWith(".mp3") -> Id3v2Tag.readApic(bytes, 0)
         fixture.endsWith(".flac") || fixture.endsWith(".opus") || fixture.endsWith(".m4a") -> null
@@ -113,7 +101,7 @@ class FormatMetadataRoundTripTest(private val fixture: String) {
         const val ALBUM = "探针专辑"
         const val LYRICS = "[00:01.00]第一行\n[00:03.50]第二行"
 
-        // 最小 JPEG 头 + 载荷：写入端按魔数嗅探 MIME，读取端按字节比对
+        // 最小 JPEG，魔数嗅探 MIME
         val COVER = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()) + ByteArray(60) { it.toByte() }
 
         @JvmStatic

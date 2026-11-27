@@ -2,107 +2,74 @@ package com.yichao.evilgodxu.data.music.playback
 
 import android.media.AudioFormat
 
-// 输出设备类别：区分外接 USB 解码器、蓝牙音频、内置扬声器、有线耳机与其它通路
+// 输出设备类别：USB、蓝牙、扬声器、有线与其它
 enum class OutputDeviceKind { USB, BLUETOOTH, SPEAKER, WIRED, OTHER }
 
-// 蓝牙链路类型：经典蓝牙承载 A2DP/SCO，低功耗蓝牙承载 LE Audio，双模两者兼有
+// 蓝牙链路类型：经典、低功耗或双模
 enum class BluetoothLinkType { CLASSIC, LE, DUAL }
 
 // 蓝牙编解码器声道模式
 enum class BluetoothChannelMode { MONO, STEREO }
 
-// 蓝牙编解码器参数：A2DP 链路上实际协商出的编码规格，各项未上报时为空
+// 蓝牙编解码器参数，未上报项为空
 data class BluetoothCodecInfo(
-    /** 编解码器名称，取自平台对编解码器标识的命名，厂商编解码器同样有名称 */
+    /** 编解码器名称 */
     val name: String?,
     /** 编码采样率 */
     val sampleRateHz: Int?,
-    /**
-     * 编码器每样本位数，与源文件的位深无关。
-     *
-     * SBC/AAC 的编码器输入端固定按 16 位取样，源文件即使是 24 位也只会被编码器重新取样；
-     * 24 位须协商到 aptX HD / LDAC 才成立。
-     */
+    /** 每样本位数与源位深无关；24 位需 aptX HD/LDAC */
     val bitsPerSample: Int?,
     val channelMode: BluetoothChannelMode?,
 )
 
-// 蓝牙链路的附加信息：取自蓝牙栈而非音频栈，读不到时各项为空
+// 蓝牙链路附加信息，读不到为空
 data class BluetoothLinkInfo(
     val linkType: BluetoothLinkType?,
     val deviceClass: Int?,
-    /** 当前链路的编解码器参数；未协商完成或读不到时为 null */
+    /** 当前编解码器参数，未协商完成时 null */
     val codec: BluetoothCodecInfo?,
 )
 
-// 支持采样率的来源。设备声明的档位与平台上报的档位可以不一致（平台常漏报），
-// 面板上必须说清正在看的是哪一份，否则同一个设备在两处显示不同档位就无从对账
+// 支持采样率的来源；设备声明与平台上报可能不一致
 enum class SampleRateSource { DEVICE, PLATFORM }
 
-// 当前输出设备的信息。各项均为平台上报值，未上报的项留空；
-// 蓝牙设备的名称与真实地址受 BLUETOOTH_CONNECT 限制，未授权时两项都读不到，同为留空
+// 当前输出设备信息；未授权时蓝牙名称与地址读不到
 data class OutputDeviceInfo(
     val kind: OutputDeviceKind,
     val name: String?,
     val address: String?,
-    /** 设备支持的全部采样率，升序：设备自报的档位与动态混音端口声明的档位取并集 */
+    /** 设备支持采样率，自报与声明的并集，升序 */
     val supportedSampleRates: List<Int>,
-    /** [supportedSampleRates] 的出处：设备声明还是平台上报 */
+    /** supportedSampleRates 的出处 */
     val sampleRateSource: SampleRateSource?,
     val channelCount: Int?,
-    /**
-     * 设备动态混音端口声明的 PCM 编码。
-     *
-     * 该端口是直出唯一能挂上的输出流，故它声明的编码即设备可直出的位深；未声明该端口的设备（非 USB 通路、
-     * 厂商未开放端口）为空，由展示层跳过该行。
-     */
+    /** 动态混音端口声明的编码，未开放端口为空 */
     val supportedEncodings: List<OutputEncoding>,
-    /** 蓝牙链路的附加信息；非蓝牙设备为 null */
+    /** 蓝牙链路附加信息；非蓝牙为 null */
     val bluetooth: BluetoothLinkInfo?,
 )
 
-/**
- * 音频输出模式。
- *
- * 位完美那一档本应用不再使用（见 [UsbDirectOutput] 的类注释：厂商没声明就请求不到，能请求到时又会被别的应用
- * 的播放吸进来并静默失效），故只有三档：
- * - 源格式直出：按设备声明的动态混音端口条目申请专用输出流，输出格式与源逐字段一致，因而不发生重采样，
- *   但音轨音量与音效按常规链路处理；
- * - USB 独占：把 USB 音频接口收归本应用（内核驱动随之解绑），绕开平台混音器直接写等时端点。同样不发生
- *   重采样，但平台音量与音效都不再作用于这条流——音量由本应用按系统音量自行施加；
- * - 系统混音：没有可承载当前格式的设备声明条目（或设备不可用）时交回系统混音器，输出采样率由系统决定，
- *   与源不一致即发生重采样。
- */
+/** 音频输出模式：源格式直出 / USB 独占 / 系统混音 */
 enum class AudioOutputMode {
     FORMAT_LOCKED,
     EXCLUSIVE,
     MIXER,
 }
 
-/**
- * 独占路径上由本应用接管的解码器。
- *
- * 独占成立期间该设备已从系统音频里消失（内核驱动被解绑），平台侧一次也查不到它，故这些项只能由接管方
- * 给出，而不是像其它设备那样从 `AudioDeviceInfo` 读。
- */
+/** 独占接管的设备；已从系统音频消失，只能由接管方给出 */
 data class UsbExclusiveDeviceInfo(
     val name: String,
-    /** 设备声明的全部采样率，升序。UAC2 的档位不在描述符里，由接管方问过时钟后补入 */
+    /** 设备声明的采样率，UAC2 档位由时钟查询补入 */
     val supportedSampleRates: List<Int>,
-    /** 设备声明的全部有效位深对应的写出编码，升序去重 */
+    /** 有效位深对应的写出编码，升序去重 */
     val supportedEncodings: List<OutputEncoding>,
     /** 设备声明的通道数 */
     val channelCount: Int?,
-    /** UAC 版本（1 或 2，0 表示未找到 AudioControl 接口）：档位来源随版本不同，诊断时须先看这一项 */
+    /** UAC 版本，0 为未找到 AudioControl */
     val uacVersion: Int? = null,
 )
 
-/**
- * 有效位深 → 展示用编码。
- *
- * 设备声明的位深落在哪一档就报哪一档：USB 音频的 Type I 只有 8/16/24/32 四种子槽宽度，
- * 归不了的取值返回 null 由调用方跳过。
- */
+/** 有效位深转展示编码，归不了一档返回 null */
 internal fun outputEncodingOfBitDepth(bitDepth: Int): OutputEncoding? = when (bitDepth) {
     8 -> OutputEncoding.PCM_8BIT
     16 -> OutputEncoding.PCM_16BIT
@@ -114,29 +81,19 @@ internal fun outputEncodingOfBitDepth(bitDepth: Int): OutputEncoding? = when (bi
 // 音频传输状态：由播放器的播放状态与起播意愿共同判定
 enum class AudioTransportState { PLAYING, BUFFERING, PAUSED, ENDED, IDLE }
 
-/**
- * 浮点写出状态。
- *
- * 输出链路的取向与「输出是否已建立」是两件事：前者是变体决策的结果，后者说明链路尚未起播。
- * 二者合并成同一个布尔值时，未起播会与未启用显示成同一种取值。
- */
+/** 浮点写出状态；未建立与未启用须分开 */
 enum class FloatOutputState {
     /** 浮点变体生效：以 32 位浮点写出 */
     ENABLED,
 
-    /** 降级为整型变体：以固定容量的整型写出 */
+    /** 降级为整型变体 */
     DISABLED,
 
-    /** 输出尚未建立（未起播或已停止），此时链路取向无从谈起 */
+    /** 输出尚未建立 */
     NOT_ESTABLISHED,
 }
 
-/**
- * 输出链路的 PCM 编码。
- *
- * 取音频轨被创建时的实际写出编码，不按源格式或变体推算：写出编码由生效变体与音频轨的实际能力共同
- * 决定，专用输出流又只接纳与混音器属性一致的格式，推算值未必等于真正写出的编码。
- */
+/** 输出编码，取音频轨实际写出值，不按源格式推算 */
 enum class OutputEncoding {
     PCM_8BIT,
     PCM_16BIT,
@@ -144,16 +101,11 @@ enum class OutputEncoding {
     PCM_32BIT,
     PCM_FLOAT,
 
-    /** 输出尚未建立（未起播或已停止），此时无从取得写出编码 */
+    /** 输出尚未建立，无从取得写出编码 */
     NOT_ESTABLISHED,
 }
 
-/**
- * 平台 PCM 编码 → 展示用编码枚举。
- *
- * 只认线性 PCM：专用输出流与直通输出给出的编码可能不属任何位深，归不了类即返回 null，
- * 由调用方决定是跳过该行还是跳过该片段。
- */
+/** 平台编码转展示编码，非线性 PCM 返回 null */
 internal fun outputEncodingOf(pcmEncoding: Int): OutputEncoding? = when (pcmEncoding) {
     AudioFormat.ENCODING_PCM_8BIT -> OutputEncoding.PCM_8BIT
     AudioFormat.ENCODING_PCM_16BIT -> OutputEncoding.PCM_16BIT
@@ -163,15 +115,7 @@ internal fun outputEncodingOf(pcmEncoding: Int): OutputEncoding? = when (pcmEnco
     else -> null
 }
 
-/**
- * 解码头实际输出的格式。
- *
- * 与源格式是两回事：解码器会按需求改采样率与声道，编码更是要到解码头出格式才知道——容器格式对压缩源
- * 只给采样率与声道，pcmEncoding 仍是 NO_VALUE。这一项也是直出能否挂上专用输出流的直接依据：
- * 该流只接纳与解码输出逐字段一致的目标格式。
- *
- * [pcmEncoding] 为平台编码值，非 PCM 输出（直通）无位深可言。
- */
+/** 解码头实际输出格式；与源格式不同，是直出能否挂流的依据 */
 data class DecodedOutputFormat(
     val sampleRate: Int,
     val channelCount: Int,
@@ -179,39 +123,21 @@ data class DecodedOutputFormat(
 )
 
 /**
- * 当前播放音频的信息快照。
- *
- * 每个可选项为 null 均表示该项在本次播放链路中不可获取（平台或设备未上报、尚未起播、权限不足），
- * 展示层据此跳过对应行；不写占位值顶替，避免把未知项展示成真实信息。
- *
- * 输出延迟不在此列：它是随链路持续波动的观测量，按固定间隔单独采样（见 [OutputLatencySampler]），
- * 与本快照「随关键项变化才重算」的节奏不同，合并进来只会得到一个停留在旧时刻的数。
+ * 当前播放音频信息快照，null 表示该项不可获取。
+ * 输出延迟不在此列：它按固定间隔单独采样。
  */
 data class AudioInfoSnapshot(
     // 音频源
     val sourcePath: String?,
-    /** 源文件字节数；在线音源与读不到大小的本地源为 null */
+    /** 源文件字节数，在线或读不到为 null */
     val fileSizeBytes: Long?,
     val format: String?,
     val decoder: String?,
-    /**
-     * 当前音频轨在本机没有解码器时的格式展示名（如 ALAC），非空即本条音频无法解码。
-     *
-     * 无解码器时播放器不选中该音频轨、也不初始化解码器，[decoder] 会空着——空着无从区分
-     * 「尚未起播」与「本机解不了」，故由采集端把原因补成一条可读的说明。
-     */
+    /** 本机无解码器时的格式名，非空即无法解码 */
     val decoderUnavailableFormat: String?,
     // 音频参数
     val sourceSampleRate: Int?,
-    /**
-     * 设备链路上实际跑着的速率：报的是写出去、并且真的由设备跑起来的那一个，不是源的速率。
-     *
-     * 直出挂上同族倍率档时（如 44.1 的源只有 88.2 的档位可挂），写出确实是 88.2，此时报源速率会让人
-     * 以为设备按 44.1 在跑——同一个数在两行里各指一件事，对照时就分不清哪一行才是真的。
-     *
-     * 混音模式取的是**设备侧**的速率（蓝牙为协商出的编码速率，其余通路为主输出流的速率），而不是本应用
-     * 音频轨自报的速率：后者在混音轨上恒等于解码输出速率，拿它当输出速率会把系统重采样一律报成未发生。
-     */
+    /** 设备链路实际速率；倍率档下不同于源速率，混音取设备侧 */
     val outputSampleRate: Int?,
     val bitrateKbps: Int?,
     val channelCount: Int?,
@@ -219,7 +145,7 @@ data class AudioInfoSnapshot(
     val lossless: Boolean?,
     // 播放链路
     val outputMode: AudioOutputMode?,
-    /** 解码头实际输出的格式；未装载曲目、格式尚未上报或位深不明时均为 null */
+    /** 解码头输出格式，未上报时 null */
     val decodedOutput: DecodedOutputFormat?,
     val audioSessionId: Int?,
     val floatOutput: FloatOutputState?,
@@ -228,12 +154,7 @@ data class AudioInfoSnapshot(
     // 输出设备
     val outputDevice: OutputDeviceInfo?,
 ) {
-    /**
-     * 输出侧的变速方式：源速率与写出速率不一致时发生了什么。
-     *
-     * 三态而非布尔：直出的同族倍率由本应用插值（原样本逐位保留、不经系统重采样器），与系统重采样
-     * 是两回事，合成一个「是」会把「没经系统重采样器」这个关键事实抹掉。
-     */
+    /** 输出侧变速方式：源速率与写出速率不一致时发生了什么 */
     val resampleState: ResampleState?
         get() {
             val source = sourceSampleRate ?: return null
@@ -242,16 +163,16 @@ data class AudioInfoSnapshot(
                 AudioOutputMode.MIXER ->
                     if (source != output) ResampleState.SYSTEM else ResampleState.NONE
 
-                // 直出按源格式，唯一可能改速率的是同族倍率档
+                // 直出按源格式，唯一改速率的是同族倍率档
                 AudioOutputMode.FORMAT_LOCKED ->
                     if (source != output) ResampleState.SAME_FAMILY else ResampleState.NONE
 
-                // 独占按源速率直接写出，两端必然相等；写成显式分支是为了让「独占没有变速这一档」可读
+                // 独占按源速率写出，显式分支为可读性
                 AudioOutputMode.EXCLUSIVE -> ResampleState.NONE
                 null -> null
             }
         }
 }
 
-/** 输出速率与源速率的关系：[NONE] 未变，[SYSTEM] 经系统重采样器，[SAME_FAMILY] 本应用同族插值 */
+/** 输出速率与源速率的关系：未变 / 系统重采样 / 同族插值 */
 enum class ResampleState { NONE, SYSTEM, SAME_FAMILY }

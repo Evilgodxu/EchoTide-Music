@@ -10,10 +10,10 @@ sealed interface ProxyParseResult {
     data class Failure(val reason: String) : ProxyParseResult
 }
 
-// 代理音源解析与校验：严格校验必填字段，宽松处理可选动作
+// 解析校验音源：严格校验必填，宽松处理可选动作
 internal object ProxySourceParser {
 
-    // 缺省与推荐均为 POST：参数走表单体，URL 只携带 query，歌名等动态值不进查询串
+    // 缺省为 POST：参数走表单体，动态值不进查询串
     private const val DEFAULT_METHOD = "POST"
 
     private val QUALITY_KEYS = mapOf(
@@ -44,7 +44,7 @@ internal object ProxySourceParser {
             val builtIn = key in MusicSearchSource.builtInKeys
             val name = platformObj.optString("name").trim()
             if (!builtIn) {
-                // 自定义平台没有内置搜索与内置名称，二者都只能由音源提供，缺任一项该平台都不可用
+                // 自定义平台无内置搜索与名称，缺任一项不可用
                 if (name.isEmpty()) return ProxyParseResult.Failure("自定义平台 $key 缺少必填字段 name")
                 if (!platformObj.has("search")) return ProxyParseResult.Failure("自定义平台 $key 缺少必填动作 search")
             }

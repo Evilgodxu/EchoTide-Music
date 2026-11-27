@@ -29,19 +29,14 @@ import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
-// 纵向切换曲目：滑动（未松手）期间在封面底部显示将播放的曲目方向；
-// 松手时位移回到起点该距离内判定为取消切歌，否则按方向切换
+// 取消阈值 100dp：滑回起点此距离内松手即不切歌
 private val TRACK_PREVIEW_CANCEL_DISTANCE = 100.dp
-// 提示显示所需的最小位移，兼作滑动的方向判定阈值
+// 提示最小位移 8dp，兼作方向阈值
 private val TRACK_PREVIEW_MIN_DISTANCE = 8.dp
-// 滑动开始后持续按住该时长才视为按住滑动（显示预览）；短于此视为瞬间滑动，直接切歌不提示
+// 持续按住 200ms 才显示预览，短于此直接切歌
 private const val TRACK_PREVIEW_FLICK_HOLD_MS = 200L
 
-/**
- * 首页纵向切歌手势：向上切下一曲、向下切上一曲，只在播放器页生效。
- *
- * 横向翻页由 Pager 承担：本手势在纵向主导时消费事件，横向主导时直接让出，两者互斥。
- */
+/** 纵向切歌：上下一首、下上一首，横向让给 Pager */
 @Stable
 internal class HomeTrackSwipeGesture(
     private val playbackState: MusicPlaybackState,
@@ -52,7 +47,7 @@ internal class HomeTrackSwipeGesture(
     private val nextPreviewText: State<String>,
     private val previousPreviewText: State<String>,
     private val cancelPreviewText: State<String>,
-    // 纵向切歌滑回取消与提示显示的距离阈值（px）
+    // 取消与提示的距离阈值（px）
     private val cancelDistancePx: Float,
     private val previewMinDistancePx: Float,
 ) {
@@ -60,7 +55,7 @@ internal class HomeTrackSwipeGesture(
     var previewText by mutableStateOf<String?>(null)
         private set
 
-    // 纵向切歌手势（横向已交由 Pager，本手势不再参与左右翻页）
+    // 纵向切歌手势，横向交给 Pager
     val modifier: Modifier
         get() = Modifier.pointerInput(Unit) {
             val slop = viewConfiguration.touchSlop
@@ -68,17 +63,17 @@ internal class HomeTrackSwipeGesture(
                 // 手势开始时清空预览，避免上一次手势残留
                 previewText = null
                 val down = awaitFirstDown(requireUnconsumed = false)
-                // 方向锁定：累计位移直到任一轴越过触摸阈值，横向主导则让出给 Pager
+                // 累计位移过阈值后锁定方向，横向让给 Pager
                 var accX = 0f
                 var accY = 0f
                 var horizontal = false
                 var locked = false
-                // 纵向滑动锁定时刻：作为瞬间滑动(一甩即松手)的判定基准
+                // 锁定时刻，作瞬间滑动判定基准
                 var axisLockUptime = 0L
                 while (!locked) {
                     val event = awaitPointerEvent()
                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                    // 手指抬起或被子控件（进度条/控制栏等）消费，放弃本手势
+                    // 抬手或被控件消费则放弃本手势
                     if (!change.pressed || change.isConsumed) break
                     accX += change.positionChange().x
                     accY += change.positionChange().y
@@ -89,11 +84,10 @@ internal class HomeTrackSwipeGesture(
                     }
                 }
                 if (!locked || horizontal) return@awaitEachGesture
-                // 首页播放列表显示期间让出纵向手势：不消费事件也不切歌，滚动交由播放列表处理
+                // 播放列表显示时让出手势，交给列表滚动
                 if (sheetVisible.value) return@awaitEachGesture
                 val previewEnabled = swipeToChangeTrack.value
-                // 滑动开始后持续按住（未松手）才实时显示将播放的曲目方向，滑回起点附近松手取消切歌；
-                // 瞬间滑动（一甩即松手）保持原逻辑直接切歌，不显示提示
+                // 按住滑动才显示预览，滑回起点附近松手取消
                 var swipeY = accY
                 var maxSwipeY = abs(accY)
                 var steadyHold = false
@@ -113,7 +107,7 @@ internal class HomeTrackSwipeGesture(
                         previewText = previewTextOf(swipeY, maxSwipeY)
                     }
                 }
-                // 松手判定：按住滑动时位移回到起点附近则取消切歌；瞬间滑动保持原逻辑直接切歌
+                // 按住滑动回起点附近取消，瞬间滑动直接切
                 if (previewEnabled && (!steadyHold || abs(swipeY) >= cancelDistancePx)) {
                     switchTrack(next = swipeY < 0f)
                 }
@@ -121,10 +115,7 @@ internal class HomeTrackSwipeGesture(
             }
         }
 
-    /**
-     * 切到相邻曲目：纵向切歌手势松手与歌词区快速滑动共用同一出口，
-     * 偏好关闭或播放列表弹层展开时不切歌。
-     */
+    /** 切相邻曲目；偏好关闭或面板展开时不切 */
     fun switchTrack(next: Boolean) {
         if (!swipeToChangeTrack.value || sheetVisible.value) return
         val index = if (next) playbackState.nextIndex() else playbackState.previousIndex()
@@ -140,8 +131,7 @@ internal class HomeTrackSwipeGesture(
         }
     }
 
-    // 纵向切歌预览文本：未滑出过取消区时按方向预览（极小位移不显示）；
-    // 滑出过取消区后回落到取消区内统一提示松手取消，接近起点也保持显示
+    // 预览文本：未出取消区按方向，回落后提示取消
     private fun previewTextOf(swipeY: Float, maxSwipeY: Float): String? {
         if (maxSwipeY >= cancelDistancePx) {
             return if (abs(swipeY) < cancelDistancePx) cancelPreviewText.value
@@ -151,7 +141,7 @@ internal class HomeTrackSwipeGesture(
         return directionPreviewText(swipeY)
     }
 
-    // 按当前滑动方向返回将播放的曲目提示，目标不存在时不显示
+    // 按方向返回预览，无目标不显示
     private fun directionPreviewText(swipeY: Float): String? = if (swipeY < 0f) {
         if (playbackState.nextIndex() >= 0) nextPreviewText.value else null
     } else {
@@ -162,17 +152,17 @@ internal class HomeTrackSwipeGesture(
 @Composable
 internal fun rememberHomeTrackSwipeGesture(
     playbackState: MusicPlaybackState,
-    // 底部弹层（播放列表、音频信息）可见时让出纵向手势
+    // 底部弹层可见时让出手势
     sheetVisible: Boolean,
 ): HomeTrackSwipeGesture {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // 播放偏好：滑动切歌开关；手势协程中读取实时值，避免捕获过期状态
+    // 滑切歌开关，手势协程读实时值
     val swipeToChangeTrack by context.swipeToChangeTrackFlow()
         .collectAsStateWithLifecycle(initialValue = true)
     val swipeToChangeTrackState = rememberUpdatedState(swipeToChangeTrack)
     val sheetVisibleState = rememberUpdatedState(sheetVisible)
-    // 提示文案随语言切换更新，同样以 State 形式供手势协程读取
+    // 提示文案随语言更新，以 State 传入
     val nextPreviewText = rememberUpdatedState(stringResource(R.string.home_player_swipe_preview_next))
     val previousPreviewText = rememberUpdatedState(stringResource(R.string.home_player_swipe_preview_previous))
     val cancelPreviewText = rememberUpdatedState(stringResource(R.string.home_player_swipe_preview_cancel))

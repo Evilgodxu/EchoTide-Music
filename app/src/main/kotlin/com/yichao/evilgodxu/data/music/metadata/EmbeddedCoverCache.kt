@@ -13,19 +13,13 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-// 非索引曲目的封面临时缓存：本缓存只驻留内存，进程结束即失效，不产生任何落盘产出
-// （当前曲目的一张缩略图由 CurrentCoverCache 另行落盘）。
-// 这类曲目没有系统略缩图可供读取（见 rememberSystemThumbnail），显示端每次重新进入视口都要重读音频文件并解码，
-// 同一首歌还会按列表行与首页大封面两种尺寸各解一次，故以内存换重复读取。
-// 尺寸参与缓存键：解码行为对齐系统略缩图（整数级降采样，输出随请求尺寸变化），不同尺寸的结果不可互相顶替
+// 非索引曲目封面内存缓存，不落盘；键含尺寸
 internal object EmbeddedCoverCache {
 
-    // 驻留上限：按解码后位图的真实内存占用计，不随可用内存推算。
-    // AOSP 等价采样可能输出大于请求尺寸的位图，单张偏大时由该上限整体收口
+    // 驻留上限按位图真实内存计
     private const val MAX_BYTES = 12 * 1024 * 1024
 
-    // 「无内嵌封面」结论的记账值：这类记录按固定小值计入同一预算，
-    // 使其数量同样受上限约束，不会被逐曲累积成无界表
+    // 「无封面」记录按固定小值计入预算
     private const val NO_COVER_COST_BYTES = 1024
 
     private sealed interface Entry {
@@ -42,17 +36,17 @@ internal object EmbeddedCoverCache {
         }
     }
 
-    // 同键并发读取只解码一次（列表与面板可能同时请求同一首歌）
+    // 同键并发只解码一次
     private val lock = Mutex()
     private val inflight = mutableMapOf<Key, Deferred<EmbeddedCoverReader.Result>>()
-    // 在飞读取不随任一调用方取消：同一结果可能正被多个等待者共享
+    // 在飞读取不随调用方取消
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** 同步取已缓存的封面：命中即返回位图，未命中返回 null。供显示端重建时避免先闪占位符 */
+    /** 同步取已缓存封面，未命中 null */
     fun peek(trackId: Long, sizePx: Int): Bitmap? =
         (cache.get(Key(trackId, sizePx)) as? Entry.Cover)?.bitmap
 
-    /** 取曲目的内嵌封面（按最长边 [sizePx] 请求解码）；确无内嵌封面或读取失败时返回 null，由调用方显示占位符 */
+    /** 取内嵌封面；无封面或失败返回 null */
     suspend fun cover(context: Context, track: MusicTrack, sizePx: Int): Bitmap? {
         val key = Key(track.id, sizePx)
         lock.withLock {
@@ -73,19 +67,19 @@ internal object EmbeddedCoverCache {
                 inflight.remove(key)
                 cache.put(
                     key,
-                    // 只有「文件正常且确实没有内嵌图片」值得记为否定结论；读取失败是暂时状态，不入缓存
+                    // 仅「确实无图」记否定结论；读取失败不入缓存
                     if (result is EmbeddedCoverReader.Result.Found) Entry.Cover(result.bitmap) else Entry.NoCover,
                 )
             }
             (result as? EmbeddedCoverReader.Result.Found)?.bitmap
         } catch (e: CancellationException) {
-            // 发起方被取消时撤掉在飞读取，避免条目永久滞留在表中；仅等待的调用方直接退出等待
+            // 发起方取消时撤掉在飞读取
             if (owner) lock.withLock { inflight.remove(key)?.cancel() }
             throw e
         }
     }
 
-    /** 作废全部驻留结果：封面被重写后，旧位图与「无封面」的旧结论都不再成立 */
+    /** 作废全部驻留结果 */
     fun clear() {
         cache.evictAll()
     }

@@ -34,21 +34,9 @@ import com.yichao.evilgodxu.ui.component.ExpandPicker
 import com.yichao.evilgodxu.ui.component.rememberOnlinePlatformOptions
 
 /**
- * 「刷新封面」与「刷新歌词」共用的候选选择组合控件。
- *
- * 一致的部位（由本组件统一承载，两处不各自演化）：
- *  - 对话框容器样式与背景；
- *  - 内容区内边距、刷新状态（进度 / 空结果 / 候选列表）表现；
- *  - 底部双操作按钮的排列、尺寸与样式（含保存中状态）；
- *  - 顶部标题行（来源名 + 下拉切换 + 独立刷新按钮）。
- *
- * 不一致的部位（封面图片 vs 歌词文本）通过「内容视图注入」差异化：
- *  - `titleText` / `refreshLabel` / `noCandidatesText`：文案；
- *  - `candidateItem`：候选条目的内容形态；
- *  - `footer`：对话框底部的附加信息槽位。
- *
- * 内容区以 `weight(1f, fill = false)` 承载，高度封顶、不抢占底部按钮的固定显示空间，
- * 避免候选内容撑开 / 压缩底部双按钮。
+ * 刷新封面与刷新歌词共用的候选选择对话框。
+ * 框架统一，候选内容由调用方注入。
+ * 内容区 weight 且高度封顶，不挤压底部按钮。
  */
 @Composable
 internal fun RefreshCandidateDialog(
@@ -96,7 +84,7 @@ internal fun RefreshCandidateDialog(
     }
 }
 
-// 刷新候选选择共享主体：标题行(点击切换来源+刷新按钮) + 候选/状态 + 底部双按钮
+// 标题行 + 候选状态 + 底部双按钮
 @Composable
 internal fun RefreshCandidateContent(
     titleText: String,
@@ -120,7 +108,7 @@ internal fun RefreshCandidateContent(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 标题行：居中显示当前来源名，点击向下展开平台选择（不再使用方向角标），右侧独立刷新按钮
+        // 标题居中，点击向下选来源；右侧刷新
         Box(Modifier.fillMaxWidth()) {
             val platformOptions = rememberOnlinePlatformOptions()
             val currentPlatform = platformOptions.firstOrNull { it.source == source }
@@ -162,7 +150,7 @@ internal fun RefreshCandidateContent(
                 )
             }
         }
-        // 内容区：固定占位、可缩放（weight + 高度封顶），不抢占底部按钮固定显示空间
+        // 内容区可缩放，不挤压底部按钮
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -185,7 +173,7 @@ internal fun RefreshCandidateContent(
                 }
             }
         }
-        // 底部双按钮：排列与样式两处统一
+        // 底部双按钮，两处统一
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Surface(
                 shape = RoundedCornerShape(10.dp),

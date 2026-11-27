@@ -35,12 +35,7 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 import kotlin.math.roundToInt
 
-/**
- * 歌词排版层级：接上该层的状态持有者，内容本身由 [TypographyGroups] 按收到的状态渲染。
- *
- * 排版参数自有一套读写路径，故由本层级自持 ViewModel：它随设置页的导航条目存活，
- * 离开层级再回来仍说同一份取值，不重读一遍 DataStore。
- */
+/** 排版层级：自持 ViewModel，返回仍保留 */
 @Composable
 internal fun TypographyPane(innerPadding: PaddingValues) {
     val application = LocalApplication.current
@@ -68,12 +63,11 @@ internal fun TypographyPane(innerPadding: PaddingValues) {
     )
 }
 
-// 排版分组：首页竖屏、首页横屏两场景独立调节字号、行数、行间距，竖屏另可切换对齐方式，
-// 横屏额外调节 3D 强度
+// 两场景独立调节；竖屏含对齐，横屏含 3D
 @Composable
 internal fun TypographyGroups(
     uiState: TypographyUiState,
-    // Scaffold 内边距：由形态组装器透传，内容避让标题栏
+    // 内边距透传，避让标题栏
     innerPadding: PaddingValues,
     onHomePortraitFontSizeChange: (Int) -> Unit,
     onHomePortraitLinesChange: (Int) -> Unit,
@@ -125,7 +119,7 @@ internal fun TypographyGroups(
                 selected = uiState.homePortrait.alignment,
                 onSelect = onHomePortraitAlignmentChange,
             )
-            // 渐隐与留白均以半行为一档：留白是视口内缩的纯空白（歌词不进入该区间），渐隐自留白内缘起算
+            // 渐隐与留白以半行为档，留白自内缘起算
             FadeRows(
                 fadeLines = uiState.homePortrait.fadeLines,
                 fadeInsetLines = uiState.homePortrait.fadeInsetLines,
@@ -199,7 +193,7 @@ private fun StepperRow(
     onIncrease: () -> Unit,
     decreaseEnabled: Boolean = true,
     increaseEnabled: Boolean = true,
-    // 步进图标：数值类调节用加减号，选项类（对齐方式）用左右箭头
+    // 数值用加减号，选项用箭头
     decreaseIcon: ImageVector = AppIcons.Remove,
     increaseIcon: ImageVector = AppIcons.Add,
 ) {
@@ -249,8 +243,7 @@ private fun StepperRow(
     }
 }
 
-// 对齐方式：左右箭头在「靠左对齐」与「居中对齐」之间切换，当前选项显示在中间。
-// 选项全序为 START → CENTER，行至边界时对应箭头置灰，与其它调节行的步进手感一致
+// 对齐：START ↔ CENTER，边界箭头置灰
 @Composable
 private fun AlignmentRow(
     title: String,
@@ -274,7 +267,7 @@ private fun LyricAlignment.labelRes(): Int = when (this) {
     LyricAlignment.CENTER -> R.string.typography_align_center
 }
 
-// 渐隐与渐隐留白两行：两个场景各有一套取值，调节手感与展示口径相同，故共用一处组装
+// 渐隐与留白两行共用组装
 @Composable
 private fun FadeRows(
     fadeLines: Float,
@@ -300,7 +293,7 @@ private fun FadeRows(
     )
 }
 
-// 半行档位的展示值：整档不带小数位，半档保留一位，避免出现「2.0 行」这类冗余
+// 整档不带小数位，半档保留一位
 private fun halfLinesText(value: Float): String =
     if (value % 1f == 0f) value.toInt().toString() else value.toString()
 

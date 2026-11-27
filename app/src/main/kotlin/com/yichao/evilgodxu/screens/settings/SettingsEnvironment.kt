@@ -21,21 +21,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 
-/** 代理音源导入的展示结果：文案由实现侧拼好，ViewModel 只负责放进状态 */
+/** 导入结果：文案已拼好，ViewModel 只放状态 */
 data class ProxyImportMessage(val text: String?, val failed: Boolean)
 
-/**
- * 设置页需要的平台能力出口。
- *
- * 存在的唯一理由是让 [SettingsViewModel] 不持有 Context：代理音源、缓存采样与三条授权流程都是
- * 数据层单例或系统服务，直接调用会把 ViewModel 钉死在 Android 运行时上，JVM 单测无从构造。
- * 这里只做委托，不含业务判定——判定留在 ViewModel，能力留在各自的实现。
- */
+/** 平台能力出口，ViewModel 不持 Context */
 interface SettingsEnvironment {
 
     val appVersion: String
 
-    // 音源状态流：设置页订阅它，外部导入（系统分享）与页内增删都经同一份状态回流
+    // 音源状态流，外部与页内共用
     val proxySources: StateFlow<List<ProxySourceSpec>>
 
     suspend fun importProxySource(content: String): ProxyImportMessage
@@ -46,7 +40,7 @@ interface SettingsEnvironment {
 
     suspend fun sampleCacheBytes(): Long
 
-    // 语言热切换要换掉界面的本地化上下文，与授权流程同属界面侧平台动作
+    // 语言热切换属界面侧动作
     fun applyLanguage(language: AppLanguage)
 
     fun canDrawOverlays(): Boolean
@@ -60,7 +54,7 @@ interface SettingsEnvironment {
     fun watchNotificationPolicyGrant()
 }
 
-// Android 实现：逐项委托到既有的单例与系统服务，不新增状态
+// Android 实现，逐项委托
 class AndroidSettingsEnvironment(
     private val context: Context,
     private val localizationManager: LocalizationManager,
@@ -75,7 +69,7 @@ class AndroidSettingsEnvironment(
     override val proxySources: StateFlow<List<ProxySourceSpec>>
         get() = proxySourceStore.sources
 
-    // 链接先拉取、文本直接解析；失败原因来自解析器，文案在此拼好后交给状态
+    // 链接先拉取，文本直接解析
     override suspend fun importProxySource(content: String): ProxyImportMessage =
         withContext(Dispatchers.IO) {
             val raw = if (content.startsWith("http://") || content.startsWith("https://")) {
@@ -120,7 +114,7 @@ class AndroidSettingsEnvironment(
 
     override fun canDrawOverlays(): Boolean = Settings.canDrawOverlays(context)
 
-    // 授权后自动把应用带回前台；部分 ROM 拦截后台拉起时，用户手动返回仍会触发对账
+    // 授权后自动带回前台，手动返回也会对账
     override fun startOverlayGrantMonitor() {
         OverlayGrantMonitor.start(context) { appContext -> bringAppToFront(appContext) }
     }

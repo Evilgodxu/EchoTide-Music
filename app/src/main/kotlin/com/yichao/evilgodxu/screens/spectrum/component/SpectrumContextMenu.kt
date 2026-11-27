@@ -19,7 +19,7 @@ import androidx.compose.ui.window.PopupProperties
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.menuEdgePositionProvider
 
-// 频谱图长按菜单：自频谱图下缘在图的范围内向上弹出，提供导出图片的两条路径
+// 长按菜单：图内向上弹出，导出图片
 @Composable
 internal fun SpectrumContextMenu(
     visible: Boolean,
@@ -56,7 +56,7 @@ internal fun SpectrumContextMenu(
     }
 }
 
-// 菜单项：与播放器长按菜单同一呈现（次要底色 + 主色文字）
+// 菜单项：主色文字
 @Composable
 private fun SpectrumMenuItem(text: String, onClick: () -> Unit) {
     Surface(shape = RoundedCornerShape(6.dp), color = Color.Transparent, onClick = onClick) {

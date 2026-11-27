@@ -10,36 +10,33 @@
         tools:ignore="ScopedStorage" />
     <!-- 音乐访问：读取本地音乐文件 -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-    <!-- 读取本地封面候选图片：仅从最近图片里挑一张作为封面。
-         Android 14 起用户可只授权部分图片，须一并声明该细分权限，
-         否则用户选择「仅选中的照片」后应用读不到任何候选图 -->
+    <!-- 封面候选图；Android 14+ 可能只授权部分图片 -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
-    <!-- 蓝牙音频设备：读取已连接设备的远端名称（Android 12+ 为运行时权限） -->
+    <!-- 读取蓝牙设备名称（Android 12+ 运行时权限） -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <!-- 音乐播放器声明 -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <!-- USB 直出期间置为「仅闹钟」档位，挡掉通知与铃声（不压媒体流）；须用户在系统设置中单独授予免打扰访问权 -->
+    <!-- 直出时挡通知与铃声，需免打扰授权 -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <!-- 熄屏后台播放保活：ExoPlayer 熄屏期间持有的 CPU 唤醒锁与 WLAN 锁均要求该权限 -->
+    <!-- 熄屏保活所需的唤醒锁 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- 在线音乐搜索与歌词获取 -->
+    <!-- 在线搜索与歌词 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- 更新通知（Android 13+ 需运行时授权） -->
+    <!-- 更新通知（Android 13+ 运行时授权） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- 应用内更新：拉起系统安装器安装已下载的更新包 -->
+    <!-- 拉起系统安装器 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <!-- 设为默认来电铃声/闹钟铃声：写入系统设置，需用户在系统设置中单独授权 -->
+    <!-- 设为默认铃声，需系统设置授权 -->
     <uses-permission
         android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
 
-    <!-- USB 独占直出：自接管 USB 音频接口，需 USB 主机能力。
-         声明为非必需——不支持主机模式或未接解码器的设备照常可用，直出只是其上的可选一路 -->
+    <!-- USB 直出，非必需 -->
     <uses-feature
         android:name="android.hardware.usb.host"
         android:required="false" />
@@ -68,7 +65,7 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- 作为音乐播放器可打开与接收音频文件 -->
+            <!-- 接收音频文件 -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -79,7 +76,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="audio/*" />
             </intent-filter>
-            <!-- 可接收外部分享/打开的代理音源文件（JSON/文本） -->
+            <!-- 接收代理音源 JSON -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -94,13 +91,7 @@
             </intent-filter>
         </activity>
 
-        <!-- USB 接入的接管入口：无界面，存在的唯一目的是让系统在插入音频类 USB 设备时弹出
-             「用哪个应用打开」的选择框——系统只对**有应用认领**的设备弹窗，没有这条声明就什么都不会发生。
-             exported 是该机制的既定形态（弹窗由系统发起、选中后由系统启动本活动）；
-             范围由 usb_device_filter 限到音频类，故不会在插 U 盘、键鼠时来打扰。
-
-             默认停用：弹窗换来的授权只有两个 USB 开关用得着（独占接管、直出读描述符），故该入口由
-             这两个开关任一启停，都关着时插入设备不该有任何弹窗（见 UsbAttachEntry / App 启动时的镜像） -->
+        <!-- USB 接入选择框入口，仅音频类，随直出开关启停 -->
         <activity
             android:name=".service.UsbAttachActivity"
             android:enabled="false"
@@ -116,9 +107,7 @@
                 android:resource="@xml/usb_device_filter" />
         </activity>
 
-        <!-- 音乐播放前台服务：媒体会话控制通知栏/锁屏。
-             须 exported 才能被系统媒体会话框架与外部控制器绑定；无权限保护是
-             MediaSessionService 的既定形态——会话只暴露播放控制，不接受任意指令 -->
+        <!-- 前台播放服务，须 exported 供媒体会话绑定 -->
         <service
             android:name=".service.MusicPlaybackService"
             android:enabled="true"
@@ -130,7 +119,7 @@
             </intent-filter>
         </service>
 
-        <!-- APK 安装文件提供者 -->
+        <!-- 安装包文件提供者 -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

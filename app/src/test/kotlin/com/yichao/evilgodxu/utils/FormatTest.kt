@@ -6,12 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 
-/**
- * 文本格式化复核：字节数按 1024 进制递进、兆字节按 10 进制与 2 进制两种口径换算、毫秒按 m:ss 截断。
- *
- * 三个字节数格式化函数均走 `String.format`，小数分隔符随默认语言区域变化，
- * 故测试固定区域为 US，断言的才是格式本身而非运行环境。
- */
+/** 字节与时间格式化；固定 US 区域比较格式本身 */
 class FormatTest {
 
     private lateinit var originalLocale: Locale
@@ -50,7 +45,7 @@ class FormatTest {
 
     @Test
     fun `超过最大单位仍用该单位`() {
-        // 单位表末尾之后不再递进：TB 之上仍以 TB 表示，只是数值继续增大
+        // TB 之上不再递进
         assertEquals("1024.00 TB", formatBytes(1024L * 1024 * 1024 * 1024 * 1024))
     }
 
@@ -58,7 +53,7 @@ class FormatTest {
     fun `MB 用十进制幂`() {
         assertEquals("0.00 MB", formatMegabytes(0))
         assertEquals("1.00 MB", formatMegabytes(1_000_000))
-        // 同一字节数在两种口径下数值不同：5 MiB 的 5242880 字节只有 5.24 MB
+        // 5242880 字节即 5.24 MB
         assertEquals("5.24 MB", formatMegabytes(5242880))
     }
 
@@ -87,7 +82,7 @@ class FormatTest {
 
     @Test
     fun `时间进位到小时`() {
-        // 达到一小时补出小时段，分钟归位到 0-59，不再以更大的分钟数呈现
+        // 满一小时补小时段，分钟归 0-59
         assertEquals("1:00:00", formatTime(3_600_000))
         assertEquals("1:05:30", formatTime(3_930_000))
         assertEquals("2:00:01", formatTime(7_201_000))

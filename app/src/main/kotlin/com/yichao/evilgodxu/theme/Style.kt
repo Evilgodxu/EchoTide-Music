@@ -3,13 +3,8 @@ package com.yichao.evilgodxu.theme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 
-// 界面尺度令牌：把跨页面反复出现的形状、间距、透明度与动效时长收敛到一处。
-// 新增界面从这些名字取值，不再各写一份字面量。
-// 这里只收拢「有语义、跨页面复用」的值，行内微调（如 4dp 的图标与文字间距）仍就地取值。
-
-// 圆角按容器层级分档，同一层级的容器只用同一档。
-// 不复用 MaterialTheme.shapes 的 small/medium/large：它的四档粒度（4/8/12/16）与本项目的
-// 层级（20/12/10/8/6）对不上，硬套会让「卡片」与「选项」落进同一个角色，反而丢失层次。
+// 界面尺度令牌：形状、间距、透明度与动效统一取值
+// 圆角按容器层级分档
 object AppShape {
     /** 卡片与对话框容器 */
     val Container = RoundedCornerShape(20.dp)
@@ -27,7 +22,7 @@ object AppShape {
     val Micro = RoundedCornerShape(6.dp)
 }
 
-// 间距以 4dp 为基准。6 / 10 / 14 只用于行内视觉微调，不用于页面级布局。
+// 间距以 4dp 为基准；6/10/14 仅行内微调
 object AppSpacing {
     /** 页面左右内边距 */
     val PageHorizontal = 16.dp
@@ -51,7 +46,7 @@ object AppSpacing {
     val Gap = 8.dp
 }
 
-// 透明度只允许这几档，避免每个文件各调一个「看起来差不多」的值。
+// 透明度只允许这几档
 object AppAlpha {
     /** 次要文字与图标 */
     const val Secondary = 0.6f
@@ -59,17 +54,17 @@ object AppAlpha {
     /** 禁用态 */
     const val Disabled = 0.4f
 
-    /** 选中态叠加在容器底色之上（与 primary 组合） */
+    /** 选中态叠加底色（配 primary） */
     const val Selected = 0.10f
 
-    /** 极轻填充：输入框底、次要按钮底、错误提示底 */
+    /** 极轻填充：输入框、次要按钮、错误提示 */
     const val Subtle = 0.08f
 
-    /** 浮层卡片自身不透明度：透出一点底下的层次，同时保住文字对比度 */
+    /** 浮层卡片不透明度，保对比度 */
     const val FloatingSurface = 0.96f
 }
 
-// 动效时长按「反馈 / 小元素 / 中等 / 标准转场」四档取，不写零散毫秒数。
+// 动效时长按四档取值
 object AppMotion {
     /** 按压、勾选一类即时反馈 */
     const val Micro = 120
@@ -80,6 +75,6 @@ object AppMotion {
     /** 中等区块的出现与让位 */
     const val Medium = 200
 
-    /** 页面内标准转场（默认档）：整宽位移需要更长时间才不显仓促 */
+    /** 标准转场：整宽位移需更长时间 */
     const val Standard = 350
 }

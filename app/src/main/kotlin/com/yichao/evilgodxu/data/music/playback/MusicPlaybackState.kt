@@ -39,20 +39,19 @@ class MusicPlaybackState(
 ) {
 
     companion object {
-        // 定时关闭时长（分钟）：单次调节步长、下限与上限
+        // 定时关闭步长与上下限（分钟）
         const val TIMER_STEP_MINUTES = 5
         const val TIMER_MIN_MINUTES = 5
         const val TIMER_MAX_MINUTES = 999
     }
 
-    // 冷启动恢复任务去重：并发调用方共享同一恢复任务并等待完成，
-    // 避免界面、悬浮窗与授权扫描各自触发重复的读盘与解析
+    // 冷启动恢复任务去重，多个调用方共享同一任务
     private val restoreMutex = Mutex()
     private var restoreJob: Deferred<Unit>? = null
     var mediaController: MediaController? by mutableStateOf(null)
     var player: Player? by mutableStateOf(null)
     internal var suppressAutoNext = false
-    // 播放器事件只在这里分发，迁移逻辑见 PlaybackEventListener
+    // 播放器事件在此分发
     val controllerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             syncPlaybackState()
@@ -91,7 +90,7 @@ class MusicPlaybackState(
         get() = progress.currentPosition
         set(value) { progress.currentPosition = value }
 
-    // 进度与坐标换算由 PlaybackProgressTracker 持有；此处按原属性/方法名转发
+    // 进度换算由进度跟踪器持有
     val livePositionMs: Long get() = progress.livePositionMs
     val highlightPositionOffsetMs: Long get() = progress.highlightPositionOffsetMs
     val lyricPositionMs: Long get() = progress.lyricPositionMs
@@ -101,7 +100,7 @@ class MusicPlaybackState(
     private val persistablePositionMs: Long get() = progress.persistablePositionMs
 
     private val _playlist = mutableStateOf<List<MusicTrack>>(emptyList())
-    // 列表内容版本：后台排序回来时据此判断快照是否仍代表当前列表，过期结果直接丢弃
+    // 列表版本号，后台排序据此丢弃过期快照
     internal var playlistRevision = 0
     var playlist: List<MusicTrack>
         get() = _playlist.value
@@ -109,28 +108,25 @@ class MusicPlaybackState(
             _playlist.value = value
             playlistRevision++
             cachedMediaItems = null
-            // 无过滤时播放队列即默认队列：保持同源，不再单独维护一份备份
+            // 无过滤时默认队列与播放队列同源
             if (queueFilter == null) defaultPlaylist = value
         }
-    /** 缓存 playlist 对应的 MediaItem 列表，避免切歌时重复构建 */
+    /** 缓存的 MediaItem 列表，避免重复构建 */
     var cachedMediaItems by mutableStateOf<List<androidx.media3.common.MediaItem>?>(null)
     var currentIndex by mutableIntStateOf(-1)
     var currentTrack by mutableStateOf<MusicTrack?>(null)
 
-    // 最近一次曲目变更的类型：封面、整屏底色与歌曲信息的过渡据此判定。
-    // 随曲目一并被界面读取，故写入必须与曲目状态同帧，见 beginTrackSwitch
+    // 最近一次切换类型，须与曲目状态同帧写入
     var lastSwitchKind by mutableStateOf(TrackSwitchKind.Select)
         private set
     var playMode by mutableStateOf(PlayMode.RepeatAll)
     var errorMsg by mutableStateOf<String?>(null)
     var isScanning by mutableStateOf(false)
-    // 元数据补全（封面解码 / 歌词读取）进行中：曲库分析的自动触发据此让路，
-    // 避免频谱解码与封面解码在同一时间窗内争抢 CPU 与原生解码器内存
+    // 元数据补全进行中，曲库分析据此让路
     var isEnrichingMetadata by mutableStateOf(false)
     var isLyricsVisible by mutableStateOf(false)
 
-    // 在线搜索与在线资源匹配的界面状态收在 SearchPanelState 中；
-    // 此处按原属性名转发，界面侧无需感知拆分
+    // 搜索态转发 SearchPanelState
     internal val searchPanel = SearchPanelState()
 
     var isSearchMode by searchPanel::isSearchMode
@@ -171,14 +167,13 @@ class MusicPlaybackState(
     var isMetadataFillSearching by searchPanel::isMetadataFillSearching
     var metadataFillSource by searchPanel::metadataFillSource
 
-    // ===== 心动模式 =====
-    // 扫描、准入/跳过策略与音量斜坡由三个独立组件承担
+    // 心动模式：三个独立组件分担扫描与策略
 
     suspend fun removeUnavailableExternalTracks(context: Context) {
         playlistRemoval.removeUnavailableExternalTracks(context)
     }
 
-    // 缓存下载进行中的曲目 ID 集合：切歌清理时保留这些曲目，等待下载完成后将索引指向本地文件
+    // 缓存下载中的曲目，切歌清理时保留
     val cacheInProgressIds: MutableSet<Long> =
         java.util.Collections.synchronizedSet(mutableSetOf())
 
@@ -190,8 +185,7 @@ class MusicPlaybackState(
         playlistRemoval.deleteSongPermanently(context, track)
     }
 
-    // 音频链路可观测状态与格式探测收在 AudioSignalPathState 中；
-    // 此处按原属性名转发，播放服务与界面的写入/读取点不变
+    // 音频链路状态归 audioSignal
     private val audioSignal = AudioSignalPathState(
         scope = { playbackScope },
         context = { appContext },
@@ -212,13 +206,13 @@ class MusicPlaybackState(
     var audioSinkOutputSampleRate by audioSignal::audioSinkOutputSampleRate
     var audioSinkDecodedFormat by audioSignal::audioSinkDecodedFormat
 
-    // @Volatile 修饰的是持有方的实际字段，此处只转发读写
+    // volatile 在持有方生效，此处只转发
     var audioTrack: AudioTrack?
         get() = audioSignal.audioTrack
         set(value) { audioSignal.audioTrack = value }
     var audioSinkWrittenFrames by audioSignal::audioSinkWrittenFrames
     var usbExclusiveLatency by audioSignal::usbExclusiveLatency
-    // 直出的当前成色由 AudioSignalPathState 持有
+    // 直出成色归 audioSignal
     var directOutputMode by audioSignal::directOutputMode
 
     var usbExclusiveRoute by audioSignal::usbExclusiveRoute
@@ -243,7 +237,7 @@ class MusicPlaybackState(
         context = appContext,
         scope = persistenceScope,
     )
-    // 写协程挂在主线程作用域，待写平台值只由界面事件改动，不必额外加锁
+    // 写协程在主线程，待写值只由界面改，无需加锁
     internal val searchSourceStore = SearchSourceStore(
         scope = { playbackScope },
         context = { appContext },
@@ -258,7 +252,7 @@ class MusicPlaybackState(
         playlistPersistence = playlistPersistence,
         proxySourceStore = proxySourceStore,
     )
-    // 冷启动恢复的应用编排由 PlaybackRestorer 承担
+    // 冷启动恢复由 PlaybackRestorer 编排
     private val restorer by lazy { PlaybackRestorer(this) }
     internal val backgroundColors = BackgroundColorMemory(
         scope = { playbackScope },
@@ -276,12 +270,7 @@ class MusicPlaybackState(
         colorMemory = backgroundColors,
     )
 
-    /**
-     * 真实播放次序里的相邻曲目。
-     *
-     * 取播放器的 next/previous 项而不是列表下标：随机播放下列表相邻项与真实下一首无关，
-     * 按列表下标预取会让大图始终落在不会播放的曲目上。插队队列非空时下一首就是队首。
-     */
+    /** 相邻曲目：随机按 next/previous，插队优先 */
     private fun adjacentPlaybackTrack(forward: Boolean): MusicTrack? {
         val controller = mediaController ?: return null
         if (forward) {
@@ -290,12 +279,12 @@ class MusicPlaybackState(
         val index = if (forward) controller.nextMediaItemIndex else controller.previousMediaItemIndex
         return playlist.getOrNull(index)
     }
-    // 封面写入成功后的缓存作废由 CoverCacheInvalidator 承担
+    // 封面缓存作废归 coverCache
     internal val coverCache = CoverCacheInvalidator(
         context = { appContext },
         colorMemory = backgroundColors,
     )
-    // 封面写入成功后自增，通知封面组件强制重载最新封面
+    // 封面写入后自增，触发强制重载
     var coverRevision by coverCache::coverRevision
     internal val highlightScan = HighlightScanCoordinator(
         scope = { playbackScope },
@@ -326,9 +315,9 @@ class MusicPlaybackState(
         exitToNormal = { setPlayMode(PlayMode.RepeatAll) },
         immersiveOutputActive = { immersiveOutputActive },
     )
-    // 心动模式自行退出的一次性原因，由界面消费后清空
+    // 心动模式自行退出的原因，消费后清空
     var highlightExitNotice by highlightPolicy::exitNotice
-    // 音量增益（ReplayGain）：按本曲内嵌标签把系数乘进播放器音量
+    // ReplayGain：按本曲标签调整播放器音量
     private var highlightFadeRef: HighlightFadeController? = null
     internal val replayGainVolume = ReplayGainVolume(
         scope = { playbackScope },
@@ -343,12 +332,7 @@ class MusicPlaybackState(
         replayGain = { replayGainVolume.linear },
     ).also { highlightFadeRef = it }
 
-    /**
-     * 把设置里的音量增益开关落到运行时，当前曲目立即生效。
-     *
-     * 开关由设置页写盘、播放服务订阅设置流后调到这里；本类不回写，落盘只留设置页一个写入方。
-     * 值未变时 [ReplayGainVolume.applyEnabled] 直接返回，设置流因其他项重发不会重复施加。
-     */
+    /** 把音量增益开关落到运行时，当前曲目立即生效 */
     internal fun setVolumeGainEnabled(enabled: Boolean) {
         replayGainVolume.applyEnabled(enabled)
     }
@@ -364,32 +348,28 @@ class MusicPlaybackState(
         recentPlayedStore = recentPlayedStore,
     )
 
-    // 单曲循环回卷检测、进度单调与周期持久化节流由 PlaybackProgressTracker 持有
+    // 回卷检测与进度持久化由进度跟踪器持有
 
     val recentPlayedIds: List<Long> get() = recentPlayedStore.ids
 
-    // 默认队列的过滤来源（null = 不过滤，播放整条默认队列）
+    // 默认队列过滤来源，null 为不过滤
     var queueFilter by mutableStateOf<PlaylistSource?>(null)
-    // 播放列表面板的浏览态：为 true 时面板展示播放队列，否则展示 viewedSource 指定的歌单。
-    // 浏览态只决定面板展示内容，与播放队列解耦，切换时不触碰播放器
+    // 面板浏览态：true 显示队列，false 显示来源
     var viewedFollowsQueue by mutableStateOf(true)
         private set
-    // 面板浏览的歌单来源（null = 默认全量播放列表）
+    // 面板浏览的歌单来源，null 为默认列表
     var viewedSource by mutableStateOf<PlaylistSource?>(null)
         private set
-    // 播放列表排序规则（仅对默认全量播放列表生效），随列表一并持久化
+    // 排序规则，仅作用于默认全量列表
     var playlistSortField by mutableStateOf(PlaylistSortField.DEFAULT)
     var playlistSortDescending by mutableStateOf(false)
-    // 默认播放队列：唯一队列本体，全量库按当前排序规则排列。
-    // 过滤只作用于播放结果，不替换它
+    // 默认播放队列本体，过滤只作用于播放结果
     var defaultPlaylist by mutableStateOf<List<MusicTrack>>(emptyList())
-    // 全量库：始终取自默认队列，过滤期间也保持完整
+    // 全量库，过滤期间仍保持完整
     val libraryTracks: List<MusicTrack>
         get() = defaultPlaylist
 
-    // 面板切换为浏览指定歌单：只改变列表展示内容，播放队列与播放状态保持不变。
-    // 无过滤时「浏览默认」与「跟随队列」展示同一份内容，统一收口到跟随队列，
-    // 避免停留在浏览态导致排序按钮无谓置灰
+    // 浏览歌单只改面板展示，不动播放队列
     fun viewPlaylist(source: PlaylistSource?) {
         if (source == null && queueFilter == null) {
             followPlaybackQueue()
@@ -400,7 +380,7 @@ class MusicPlaybackState(
         persistPlaylist()
     }
 
-    // 恢复路径写入面板浏览态：跟随播放队列时忽略来源；无过滤时浏览默认与跟随队列等价
+    // 恢复面板浏览态：无过滤时浏览默认等价于跟随队列
     internal fun applyRestoredViewedState(followsQueue: Boolean, source: PlaylistSource?) {
         viewedFollowsQueue = followsQueue || (source == null && queueFilter == null)
         viewedSource = if (viewedFollowsQueue) null else source
@@ -413,39 +393,37 @@ class MusicPlaybackState(
         persistPlaylist()
     }
 
-    // 记录一次完整播放：追加带时间戳的播放记录，并清理超出窗口的旧记录
+    // 记录完整播放，并清理超出窗口的旧记录
     fun recordPlayed(trackId: Long) {
         recentPlayedStore.record(trackId)
     }
 
-    // 从常听手动移除：清除该曲目的播放记录，期间不再自动收录
+    // 手动移除常听记录，期间不再自动收录
     fun removeFromRecentPlayed(trackId: Long) {
         recentPlayedStore.remove(trackId)
     }
 
-    // 下一首播放插队队列由 PlayNextQueue 持有；此处按原属性/方法名转发
+    // 插队队列由 PlayNextQueue 持有，此处转发
     internal val playNext = PlayNextQueue(currentTrackId = { currentTrack?.id })
     var playNextQueue by playNext::tracks
 
-    // 曲末暂停开关的下发口：服务在引擎建好后接上。队列一有内容即停在曲末等队列接管，
-    // 队列恢复为空即关闭，之后的自动接续仍走逐曲无缝路径
+    // 曲末暂停开关的下发口，队列非空即停在曲末等接管
     internal var playNextHoldChanged: ((Boolean) -> Unit)? = null
 
     internal fun syncPlayNextHold() {
         playNextHoldChanged?.invoke(playNext.tracks.isNotEmpty())
     }
-    // 队列编辑操作由 PlaylistEditor 承担；此处按原方法名转发
+    // 队列编辑由 PlaylistEditor 承担
     internal val playlistEditor by lazy { PlaylistEditor(this) }
-    // 曲目移除与不可用清理由 PlaylistRemovalController 承担；此处按原方法名转发
+    // 曲目移除交给移除控制器
     internal val playlistRemoval by lazy { PlaylistRemovalController(this) }
-    // 待接入队列的起播位置（null = 无待接入队列）：切换过滤来源时正在播放的曲目仍出声，
-    // 新过滤结果暂不装载以免打断播放，待该曲目播完（或用户手动切歌）后从这个位置接入播放器
+    // 待接入队列起播位置，null 为无；等当前曲播完再接
     internal var pendingQueueStartIndex: Int? = null
 
-    // 曲目是否已在下一首播放队列中
+    // 曲目是否已在下一首播放队列
     fun isInPlayNext(trackId: Long): Boolean = playNext.isIn(trackId)
 
-    // 切换下一首播放：已在队列则取消插队，否则加入
+    // 切换下一首播放：在队列则取消，否则加入
     fun togglePlayNext(track: MusicTrack) {
         playNext.toggle(track)
         syncPlayNextHold()
@@ -457,17 +435,12 @@ class MusicPlaybackState(
         syncPlayNextHold()
     }
 
-    /**
-     * 记下本次曲目变更的类型。
-     *
-     * 所有会让当前曲目换人的路径都要经过这里——漏掉一处，该次变更就会沿用上一次的类型，
-     * 横移方向随之失真。类型须与曲目状态同帧写入，界面才能读到与之配套的方向。
-     */
+    /** 记下本次曲目切换类型，须与曲目状态同帧写入 */
     internal fun beginTrackSwitch(kind: TrackSwitchKind) {
         lastSwitchKind = kind
     }
 
-    // 定时关闭的倒计时与布防由 SleepTimerController 持有；此处按原属性名转发
+    // 定时关闭归 sleepTimer
     internal val sleepTimer = SleepTimerController(
         isPlaying = { isPlaying },
         playMode = { playMode },
@@ -478,30 +451,29 @@ class MusicPlaybackState(
     var timerRemaining by sleepTimer::timerRemaining
     var onSleepTimerFinished by sleepTimer::onSleepTimerFinished
 
-    // 播放控制协程作用域（用于曲目结束自动下一首）
+    // 播放控制作用域，用于自动下一首
     private val playbackJob = SupervisorJob()
     val playbackScope = CoroutineScope(playbackJob + Dispatchers.Main)
 
-    // ===== 歌词进度时间轴 =====
-    // 快照由 LyricTimeline 持有；此处只保留界面需要的读写入口
+    // 歌词时间轴由 LyricTimeline 持有
     internal val lyricTimeline = LyricTimeline()
 
     fun seedLyricPosition(trackId: Long?): Long {
-        // 取绝对时间：心动模式下控制器回报的是片段内进度，换算回整曲时间后歌词才对得上
+        // 心动模式回报片段内进度，换算回整曲时间
         return lyricTimeline.seed(trackId, lyricPositionMs)
     }
 
-    // 面板每轮跟随回写当前进度，供界面重建时接着推进
+    // 每轮回写当前进度，供界面重建续推
     fun recordLyricPosition(trackId: Long?, positionMs: Long) {
         lyricTimeline.record(trackId, positionMs)
     }
-    // 防止手动切歌与自动切歌并发导致状态错乱
+    // 防止手动与自动切歌并发
     val playTrackMutex = Mutex()
 
     val hasTrack: Boolean get() = currentTrack != null
 
     suspend fun restoreSavedState(context: Context) {
-        // 首个调用方负责恢复，其余调用方共享同一任务并等待完成（冷启动由 App 预触发）
+        // 首个调用方恢复，其余共享同一任务
         val job = restoreMutex.withLock {
             restoreJob ?: playbackScope.async { doRestoreSavedState(context.applicationContext) }
                 .also { restoreJob = it }
@@ -510,48 +482,42 @@ class MusicPlaybackState(
     }
 
     private suspend fun doRestoreSavedState(context: Context) {
-        // 读取与状态应用由 PlaybackRestorer 承担
+        // 读取与应用由 PlaybackRestorer 承担
         restorer.restore(context)
     }
 
-    // 源格式预读与归属判定由 AudioSignalPathState 承担，详见其实现说明
+    // 源格式预读归 audioSignal
     fun recordSourceBitDepthBeforePlayback(track: MusicTrack) =
         audioSignal.recordSourceBitDepthBeforePlayback(track)
 
-    /**
-     * 按曲目 id 取已知源位深。
-     *
-     * 与 [currentSourceBitDepth] 分工不同：那一个只对"当前曲目"有效，而换曲重配发生在播放线程上、
-     * 当前曲目尚未推进，输出配置必须按本次真正要播的那一首的 id 取。
-     */
+    /** 按 id 取已知源位深；换曲重配时当前曲目尚未推进 */
     fun bitDepthOfTrack(trackId: Long): Int? = audioSignal.bitDepthOfTrack(trackId)
 
-    // 预读源格式入档：自动接续的下一曲要提前备好，配置期才不必按上一曲的位深建流
+    // 预读源格式入档，供配置期定档
     fun preloadSourceFormat(track: MusicTrack) = audioSignal.preloadSourceFormat(track)
 
-    // 冷启动未播放时预读当前曲目格式信息，供音频信息条展示；开始播放后由解码头覆盖
+    // 未播放时预读当前曲目格式，供信息条展示
     fun refreshIdleTrackFormatInfo(context: Context) =
         audioSignal.refreshIdleTrackFormatInfo(context)
 
-    // 缓存完成后以本地缓存文件为源强制补齐当前曲目格式信息，避免在线播放期间信息条空白
+    // 缓存完成后以本地文件补齐格式信息
     fun refreshTrackFormatInfoFromLocal(context: Context) =
         audioSignal.refreshTrackFormatInfoFromLocal(context)
 
-    // 回到前台时校正音频信息：与当前曲目错配时清掉旧值并重新读取当前曲目源格式，
-    // 保证信息条始终对应当前曲目而不依赖解码回调回填
+    // 回前台校正音频信息，错配则重读
     fun reconcileTrackFormatInfo(context: Context) =
         audioSignal.reconcileTrackFormatInfo(context)
 
-    // 格式信息是否对应当前曲目的当前音频源（供信息条判定是否展示，避免换源后短暂错配残留）
+    // 格式信息是否对应当前曲目与音源
     val isAudioSignalPathCurrent: Boolean
         get() = audioSignal.isCurrentForCurrentTrack
 
-    /** 当前曲目已知源位深；归属不符视为未读到，按高分辨率处理 */
+    /** 当前曲目源位深，归属不符视为未读到 */
     val currentSourceBitDepth: Int?
         get() = audioSignalPathFormat?.takeIf { isAudioSignalPathCurrent }?.bitDepth
 
     fun persistPlaylist() {
-        // 过滤结果、过滤来源、默认队列、浏览态与排序同属一份偏好文件，由 PlaylistPersistence 合并为一次落盘
+        // 偏好合并后一次落盘
         playlistPersistence.persist(
             PlaylistPersistence.Snapshot(
                 tracks = playlist,
@@ -579,71 +545,58 @@ class MusicPlaybackState(
 
     var pendingSavedUri: String? = null
     var pendingResumePosition: Long = 0L
-    // 首页背景取色结果由 BackgroundColorMemory 持有与落盘；此处只保留界面查询入口
+    // 背景取色归 backgroundColors
     fun restoredBackgroundColorFor(track: MusicTrack?): Color? =
         backgroundColors.restoredColorFor(track)?.representative
 
-    // 续播锚点：playTrackAt 以保存位置起播时记录该目标，供异步派发的 onMediaItemTransition 保留已还原进度。
-    // -1 表示无续播锚点（真实切歌/重播），过渡回调按常规复位进度到起点。
+    // 续播锚点：-1 表示真实切歌，过渡回调复位进度
     internal var resumeAnchorPosition: Long = -1L
 
-    // 续播锚点归属的曲目 ID：过渡回调只在该曲目的过渡上消费锚点。
-    // 无损升级会就地替换同一曲目的音频源，此时旧源的过渡回调可能后于 playTrackAt 到达，
-    // 若无归属校验会提前消费锚点，导致新文件从 0 起播（表现为升级后不续播）。
+    // 锚点归属曲目；无损升级换源时防旧回调提前消费
     internal var resumeAnchorTrackId: Long = -1L
 
     fun persistState() {
         val track = currentTrack ?: return
-        // 位置取整曲的绝对位置：心动模式下控制器回报的是片段内进度，直接落盘会让恢复时对不上
+        // 位置取整曲绝对位置，心动片段须换算
         playbackStateStore.persist(track.audioUri, persistablePositionMs, playMode.ordinal)
         persistBootMirror()
     }
 
-    // 播放状态快照的落盘与读回由 PlaybackStateStore 承担
+    // 播放状态快照归 playbackStateStore
     internal val playbackStateStore = PlaybackStateStore(
         scope = { playbackScope },
         context = { appContext },
     )
-    // ===== 播放启动镜像 =====
-    //
-    // 单键轻量副本只服务首帧；完整语义与写入点见 BootMirrorStore。
+    // 启动镜像：轻量副本只服务首帧
     private val bootMirrorStore = BootMirrorStore(
         scope = { playbackScope },
         context = { appContext },
     )
 
-    /**
-     * 是否有可预置的启动镜像：首启动没有，据此跳过首帧前的同步读盘。
-     */
+    /** 是否有可预置的启动镜像；首启动没有 */
     fun hasBootMirror(context: Context): Boolean = bootMirrorStore.has(context)
 
-    /** 落盘本轮扫描所用的曲库签名，供下次冷启动比对 */
+    /** 落盘本轮扫描的曲库签名 */
     suspend fun writeLibrarySignature(signature: String) {
         playlistPersistence.writeLibrarySignature(signature)
     }
 
-    /** 上次扫描时的曲库签名：为空表示从未扫完过，需按首启动处理 */
+    /** 上次扫描的曲库签名，空表示从未扫完 */
     suspend fun readLibrarySignature(): String? = playlistPersistence.readLibrarySignature()
 
-    /**
-     * 同步读取启动镜像并预置首帧状态：曲目、进度、背景取色、封面位图与歌词内容一并就位。
-     *
-     * 只可在冷启动的 Application.onCreate 主线程调用一次。读盘量固定为一份 JSON 镜像、
-     * 一张封面缩略图与一份歌词缓存文件，换取首帧即是完整界面、启动不出现空态与占位符。
-     */
+    /** 同步读取启动镜像并预置首帧状态，只可在冷启动主线程调用一次 */
     fun seedFromBootMirror(context: Context) {
         val snapshot = bootMirrorStore.read(context) ?: return
         val track = snapshot.track
-        // 歌词内容随首帧一并读出：歌词区不再经历「空白 → 内容」。
-        // 缓存文件保存的始终是原始时间戳，需与补全路径一致地应用手动偏移，否则首帧歌词会错位
+        // 歌词随首帧读出，须与补全路径一致应用手动偏移
         val lines = track.lyricCachePath
             .takeIf { MusicMetadataCache.isValid(context, it) }
             ?.let { MusicMetadataCache.loadLyrics(context, it) }
             ?.let { if (track.lyricOffsetMs != 0L) MusicMetadataCache.shiftLyrics(it, track.lyricOffsetMs) else it }
             .orEmpty()
-        // 封面位图同步驻留：封面不再经历「占位符 → 图片」
+        // 封面位图同步驻留，避免占位符
         CurrentCoverCache.loadBlocking(context, track.audioUri)
-        // 首帧时播放列表尚未恢复，下标先置 -1，由 PlaybackRestorer 在列表就绪后补齐
+        // 首帧列表未恢复，下标先置 -1
         currentIndex = -1
         currentTrack = track.copy(lyricLines = lines)
         currentPosition = snapshot.position
@@ -654,7 +607,7 @@ class MusicPlaybackState(
         pendingResumePosition = currentPosition
     }
 
-    // 同步落盘启动镜像：写入当前曲目、进度、播放模式与背景取色，供下次冷启动首帧同步取用
+    // 同步落盘启动镜像，供下次首帧取用
     private fun persistBootMirror() {
         val track = currentTrack ?: return
         bootMirrorStore.write(
@@ -666,7 +619,7 @@ class MusicPlaybackState(
         )
     }
 
-    // 播放器空闲时才释放：调用方只需表达「此刻可以回收」，是否真的回收由当前输出状态决定
+    // 播放器空闲时才真正释放
     fun releaseIfIdle() {
         if (!isPlayerActive) softRelease()
     }
@@ -678,7 +631,7 @@ class MusicPlaybackState(
             pendingSavedUri = track.audioUri
             pendingResumePosition = persistablePositionMs
         }
-        // 清掉未消费的续播锚点，避免释放后残留锚点被后续非续播的过渡回调误用
+        // 清掉未消费的续播锚点
         resumeAnchorPosition = -1L
         resumeAnchorTrackId = -1L
         mediaController?.let { controller ->
@@ -690,7 +643,7 @@ class MusicPlaybackState(
         mediaController = null
         player = null
         isPlaying = false
-        // 释放播放器后复位单调基准，避免恢复播放时进度被残留基准钳到高位
+        // 释放后复位单调基准
         progress.resetMonotonicBaseline()
     }
 
@@ -701,7 +654,7 @@ class MusicPlaybackState(
             pendingSavedUri = track.audioUri
             pendingResumePosition = persistablePositionMs
         }
-        // 清掉未消费的续播锚点，避免释放后残留锚点被后续非续播的过渡回调误用
+        // 清掉未消费的续播锚点
         resumeAnchorPosition = -1L
         resumeAnchorTrackId = -1L
         mediaController?.let { controller ->
@@ -714,7 +667,7 @@ class MusicPlaybackState(
 
         mediaController = null
         player = null
-        // 进度归零：歌词时间轴一并作废，避免下次重建时按释放前的旧进度起步
+        // 进度归零并作废歌词时间轴
         progress.reset()
         lyricTimeline.invalidate()
         isPlaying = false
@@ -723,22 +676,19 @@ class MusicPlaybackState(
         stopTimer()
     }
 
-    // 定时关闭到点收尾：停止播放并请求结束应用。
-    // songFinished 表示当前曲目已完整播完，此时「当前曲目」要落到它的下一首——
-    // 播完的这一首已不属于待播内容，留作当前曲目会让下次启动点击播放时重播它
+    // 定时关闭收尾：播完落到下一首，退出前先落盘
     private fun onSleepTimerCountdownFinished(songFinished: Boolean) {
         if (songFinished) adoptNextTrackAfterFinish()
         release()
         playbackScope.launch {
-            // 退出会终止进程：先把续播目标落盘，再请求退出
+            // 退出会终止进程，先把续播目标落盘
             playbackStateStore.inFlightWrite?.join()
             bootMirrorStore.inFlightWrite?.join()
             onSleepTimerFinished?.invoke()
         }
     }
 
-    // 当前曲目播毕：当前曲目落到下一首（进度归零），下次启动即从这首接着播。
-    // 与自然切歌同口径——此刻播放器已走到下一首，状态随之对齐；列表仅此一首时无下一首可落
+    // 当前曲目落到下一首，列表仅一首时不动
     private fun adoptNextTrackAfterFinish() {
         val next = nextIndex()
         val track = playlist.getOrNull(next) ?: return
@@ -752,7 +702,7 @@ class MusicPlaybackState(
         isPrepared = false
     }
 
-    // 启动定时关闭（分钟）：到点后播完当前整曲即停止播放并退出应用
+    // 启动定时关闭（分钟）：播完当前整曲即停并退出
     fun startTimer(minutes: Int) {
         sleepTimer.start(minutes)
     }
@@ -761,7 +711,7 @@ class MusicPlaybackState(
         sleepTimer.stop()
     }
 
-    // 排序、收藏、重排、元数据替换与 ID 迁移由 PlaylistEditor 承担；此处按原方法名转发
+    // 编辑操作由 PlaylistEditor 承担
     fun sortPlaylistForDefaultOrder(tracks: List<MusicTrack>): List<MusicTrack> =
         playlistEditor.sortForDefaultOrder(tracks)
 
@@ -784,17 +734,12 @@ class MusicPlaybackState(
         playlistEditor.reorder(ordered)
     }
 
-    /**
-     * 替换曲目的元数据，并把专辑身份与专辑名保持一致。
-     *
-     * 专辑分组与专辑曲目页都按 albumId 认专辑，专辑改名后不重绑就会让曲目留在旧专辑下
-     * （列表不刷新）。这条联动收在这里，各编辑入口只给出改后的曲目即可，不必各自记住它
-     */
+    /** 替换曲目元数据并重绑专辑身份，避免曲目留在旧专辑 */
     fun updateTrack(updated: MusicTrack) {
         playlistEditor.updateTrack(withAlbumIdentity(updated))
     }
 
-    // 专辑名变过才重绑：改前名字取自库内当前值——调用方传入的曲目已带新名字，不能自比
+    // 专辑名变过才重绑，改前名字取自库内当前值
     private fun withAlbumIdentity(updated: MusicTrack): MusicTrack {
         val current = libraryTracks.firstOrNull { it.id == updated.id } ?: return updated
         if (current.albumName.trim() == updated.albumName.trim()) return updated
@@ -809,8 +754,7 @@ class MusicPlaybackState(
         playlistEditor.batchUpdate(updates, persist)
     }
 
-    // 按需补全单曲封面/歌词（懒加载）：幂等，由 UI 可见项触发，
-    // 已具备缓存、已标记失败或在全量补全排期中的曲目自动跳过
+    // 按需补全单曲封面/歌词，幂等且可见项触发
     fun requestMetadata(track: MusicTrack?) {
         if (track == null) return
         playbackScope.launch {
@@ -822,7 +766,7 @@ class MusicPlaybackState(
         updateTrack(renamed)
     }
 
-    // 微调歌词时间：stepMs 正值延后，负值提前（同时作用于逐字时间轴）
+    // 微调歌词时间，正值延后
     fun adjustLyricsOffset(stepMs: Long) {
         val track = currentTrack ?: return
         if (track.lyricLines.isEmpty()) return
@@ -842,14 +786,13 @@ class MusicPlaybackState(
         }
         replayGainVolume.onTrackChanged()
         progress.syncFromController(isActive)
-        // 播放意图只由播放器事件与同步入口维护：进度轮询不重复写回
+        // 播放意图只由播放器事件维护，轮询不回写
         isPlaying = controller.isPlaying
     }
 
     internal fun calculateIndex(direction: Int, repeatOne: Boolean, from: Int = currentIndex): Int {
         if (playlist.isEmpty()) return -1
-        // 当前曲目不在队列内（如切换过滤来源后正在播放的曲目已不属于过滤结果）：
-        // 下一首取过滤结果首曲、上一首取末曲，而非把缺失下标当作首曲再顺延一首
+        // 当前曲目不在队列内时，下一首取首曲、上一首取末曲
         if (from !in playlist.indices) {
             return if (direction < 0) playlist.lastIndex else 0
         }
@@ -870,21 +813,15 @@ class MusicPlaybackState(
 
     fun previousIndex(): Int = calculateIndex(direction = -1, repeatOne = false)
 
-    /**
-     * 当前是否有 USB 输出开关处于启用。
-     *
-     * 直出与独占都属沉浸式输出（整曲保真聆听），与「把每首裁成 30–45 秒片段」的心动模式取向相斥，
-     * 故任一开关启用即不接受心动模式。
-     */
+    /** 是否有任一 USB 输出开关启用；与心动片段模式相斥 */
     val immersiveOutputActive: Boolean
         get() = isImmersiveOutput(usbDirectOutputEnabled, usbExclusiveEnabled)
 
-    // ===== UI 层状态写入口：悬浮窗 UI 统一通过这些方法写入状态，避免直接对 public var 赋值 =====
-    // 方法与属性 setter 同名会冲突，故用 @JvmName 指定不同 JVM 名
+    // UI 状态写入口，@JvmName 避开 setter
     @JvmName("updatePlayMode")
     fun setPlayMode(mode: PlayMode) {
         if (playMode == mode) return
-        // 沉浸式输出期间不接受心动模式：界面据此说明缘由而不是静默不响应
+        // 沉浸式输出期间拒绝心动模式
         if (mode == PlayMode.Highlight && immersiveOutputActive) {
             highlightPolicy.notifyImmersiveBlocked()
             return
@@ -892,18 +829,15 @@ class MusicPlaybackState(
         val previous = playMode
         playMode = mode
         highlightPolicy.onModeChanged()
-        // 只有跨越心动模式边界的切换才改变队列项：进入时整队列补上裁剪区间，退出时整队列去掉。
-        // 非心动各模式互切不动队列（repeatMode/shuffleMode 由调用方同步），此时不得重建 ——
-        // 重建会被判成「队列已变」而重载整条时间线，表现为切模式时当前曲目卡顿
+        // 仅跨越心动模式边界时重建队列，避免切模式卡顿
         if (previous != PlayMode.Highlight && mode != PlayMode.Highlight) return
-        // 退出片段播放即刻撤下音量斜坡：淡出末尾的低音量会随整曲播放一直延续到下一次轮询
+        // 退出片段即刻撤下音量斜坡
         if (mode != PlayMode.Highlight) highlightFade.syncFadeVolume()
-        // 队列项随模式变化，缓存作废；下面重建后会写回
+        // 队列项随模式变化，缓存作废
         cachedMediaItems = null
-        // 片段取自持久化表，切换只做查表与重建队列、不含任何解析；
-        // 当前曲目一并生效：进入自片段起点起播，退出还原到整曲的绝对位置
+        // 片段取自持久化表，只查表重建；当前曲目同步生效
         applyHighlightModeChange(appContext, this)
-        // 表可能尚未扫完（首次启用、曲库刚变化）：后台补齐，已扫到的先按现有结果播放
+        // 表可能未扫完，后台补齐
         if (mode == PlayMode.Highlight) highlightScan.ensureScan()
     }
     @JvmName("updateSearchMode")
@@ -916,7 +850,7 @@ class MusicPlaybackState(
     fun setSearchSource(source: MusicSearchSource) {
         if (searchSource == source) return
         searchSource = source
-        // 用户的选择要跨进程留存：下次进入搜索或重启后仍停在这个平台
+        // 选择跨进程留存
         searchSourceStore.persist(source)
     }
     @JvmName("updateLyricsVisible")
@@ -941,41 +875,26 @@ class MusicPlaybackState(
     }
     @JvmName("updateCurrentPosition")
     fun setCurrentPosition(position: Long) {
-        // 拖动是真实跳变：复位单调基准并改写位置，歌词时间轴一并作废
+        // 拖动是真实跳变，复位基准并作废歌词时间轴
         progress.seekTo(position)
         lyricTimeline.invalidate()
     }
 
-    // 本地曲库变化后的补扫策略由 HighlightScanCoordinator 承担
+    // 补扫策略由扫描协调器承担
     internal fun onLibraryChanged() {
         highlightScan.onLibraryChanged()
     }
 }
 
-/**
- * 心动模式自行退出的原因：界面据此说明模式为何自己变了，而非让用户以为失灵。
- *
- * 与「用户主动切换」区分开 —— 只有自行退出才需要解释缘由。
- */
+/** 心动模式自行退出的原因，供界面说明 */
 enum class HighlightExitReason {
-    /** 整队列都定位不到副歌，继续跳过只会回绕空转 */
+    /** 整队列都定不到副歌，继续跳过只是空转 */
     NoChorus,
 
-    /**
-     * USB 输出开关启用：取向与片段播放相斥，片段模式随之退出。
-     *
-     * 直出与独占共用一个缘由：两者的取向完全一致（整曲保真、不裁片段），差别只在实现——一个走平台的
-     * 专用输出流，一个自己接管接口——提示语里一并说明即可，不必分成两条。
-     */
+    /** USB 输出启用与片段模式相斥，故退出 */
     ImmersiveOutput,
 }
 
-/**
- * 两个 USB 输出开关中是否有任一启用。
- *
- * 判据取开关而不是输出成色：成色要等设备接入、属性与格式被受理之后才成立，而用户的取向在拨动开关那一刻
- * 就定了；等成色成立才挡，中间那段时间里心动模式仍能进入。开关互斥（见 `PlaybackPrefs`），但此处不依赖
- * 那一点——两个都传进来，任一为真即算。
- */
+/** 两个 USB 输出开关是否有任一启用；按开关判，不等成色 */
 internal fun isImmersiveOutput(usbDirectOutputEnabled: Boolean, usbExclusiveEnabled: Boolean): Boolean =
     usbDirectOutputEnabled || usbExclusiveEnabled

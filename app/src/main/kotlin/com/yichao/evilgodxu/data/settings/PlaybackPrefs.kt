@@ -12,47 +12,44 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
-// 本文件的键与读写规则即播放设置的唯一事实源。
-// 界面侧经 SettingsRepository 读写（见 DataStoreSettingsRepository），播放引擎与启动编排没有
-// ViewModel 上下文，直接订阅下面的流；两条路径读的是同一组键，不要再引入第三种。
+// 播放设置的唯一事实源；界面与引擎共用这组键
 
 private val miniPlayerEnabledKey = booleanPreferencesKey("mini_player_enabled")
 private val wordByWordRenderingKey = booleanPreferencesKey("word_by_word_rendering")
 private val swipeToChangeTrackKey = booleanPreferencesKey("swipe_to_change_track")
 private val backgroundFlowEnabledKey = booleanPreferencesKey("background_flow_enabled")
-// 键名沿用 usb_exclusive_mode：已落盘的持久化键，改名会让既有用户的该开关复位
+// 键名沿用旧值，改名会让用户开关复位
 private val usbDirectOutputModeKey = booleanPreferencesKey("usb_exclusive_mode")
 
 fun Context.miniPlayerEnabledFlow(): Flow<Boolean> =
     settingsDataStore.data.map { it[miniPlayerEnabledKey] ?: false }
 
-// 逐字渲染默认开启：关闭后歌词退化为整行高亮
+// 默认开启，关闭后退化为整行高亮
 fun Context.wordByWordRenderingFlow(): Flow<Boolean> =
     settingsDataStore.data.map { it[wordByWordRenderingKey] ?: true }
 
-// 滑动切歌默认开启：关闭后首页上下滑动不再切换歌曲
+// 默认开启，关闭后滑动不切歌
 fun Context.swipeToChangeTrackFlow(): Flow<Boolean> =
     settingsDataStore.data.map { it[swipeToChangeTrackKey] ?: true }
 
-// 背景流动默认关闭：关闭时首页背景只渲染一帧静态的封面衍生背景，开启后按固定默认值缓慢流动
+// 默认关闭，开启后背景缓慢流动
 fun Context.backgroundFlowEnabledFlow(): Flow<Boolean> =
     settingsDataStore.data.map { it[backgroundFlowEnabledKey] ?: false }
 
-// USB 直出默认关闭：开启后按设备声明的条目为播放申请止步于源格式的专用输出流，由播放服务读取生效
+// 默认关闭，开启后申请源格式专用输出流
 fun Context.usbDirectOutputModeFlow(): Flow<Boolean> =
     settingsDataStore.data.map { it[usbDirectOutputModeKey] ?: false }
 
-// USB 独占默认关闭：开启后接管 USB 音频接口自行写出，期间该解码器从系统音频中消失
+// 默认关闭，开启后接管 USB 接口写出
 private val usbExclusiveOutputModeKey = booleanPreferencesKey("usb_raw_exclusive_mode")
 
 fun Context.usbExclusiveOutputModeFlow(): Flow<Boolean> =
     settingsDataStore.data.map { it[usbExclusiveOutputModeKey] ?: false }
 
-// 独占音量的档位（0..160，每级 0.5 dB）。与独占开关同放一份设置：它是独占的从属状态，开关被带走时
-// 音量没有单独留存的意义。空值表示从未写过（首次安装或从旧版本升级），由播放服务落到默认档
+// 音量 0..160，每级 0.5 dB，空即未写
 private val exclusiveVolumeStepKey = intPreferencesKey("usb_exclusive_volume_step")
 
-// 音量增益默认关闭：开启后按曲目内嵌的 ReplayGain 标签施加增益，没有标签的曲目直通
+// 默认关闭，开启后按 ReplayGain 增益
 private val volumeGainEnabledKey = booleanPreferencesKey("volume_gain_enabled")
 
 fun Context.volumeGainEnabledFlow(): Flow<Boolean> =
@@ -65,9 +62,9 @@ suspend fun Context.saveExclusiveVolumeStep(step: Int) = withContext(Dispatchers
     settingsDataStore.edit { it[exclusiveVolumeStepKey] = step }
 }
 
-/** 两路互斥的 USB 输出。命名对应各自的机制，而非开关在界面上的位置。 */
+/** 两路互斥的 USB 输出，按机制命名 */
 internal enum class UsbOutputKind {
-    /** 平台音频路径：申请按源格式打开的专用输出流 */
+    /** 平台路径：申请源格式专用输出流 */
     FORMAT_LOCKED,
 
     /** 接管 USB 接口自行写出 */
@@ -78,12 +75,8 @@ internal enum class UsbOutputKind {
 }
 
 /**
- * [kind] 被设为 [enabled] 后，两个开关各自应写入的取值。
- *
- * 互斥只落在"开启"一侧：两路同时开启在设备层面不成立——USB 音频接口同一时刻只能有一个持有者，
- * 而独占的成立条件正是内核驱动被解绑，平台路径随之不存在。故开启一路必然关闭另一路。
- *
- * 关闭一侧不牵动另一路：关掉一个本就关着的开关不应波及另一路，否则用户关掉 A 会顺带关掉正在用的 B。
+ * kind 设为 enabled 后两个开关的取值
+ * 仅开启时互斥，关闭不牵动另一路
  */
 internal fun usbOutputSwitchesAfter(
     kind: UsbOutputKind,
@@ -99,12 +92,7 @@ suspend fun Context.saveUsbExclusiveOutputMode(enabled: Boolean) = withContext(D
     settingsDataStore.edit { applyUsbOutputSwitch(it, UsbOutputKind.EXCLUSIVE, enabled) }
 }
 
-/**
- * 播放相关设置的快照。
- *
- * 默认值即各键缺失时的取值（首次安装、从旧版本升级）：逐字渲染、滑动切歌默认开启，
- * 其余默认关闭。
- */
+/** 播放设置快照；默认值为键缺失时的取值 */
 data class PlaybackSettings(
     val miniPlayerEnabled: Boolean = false,
     val wordByWordRendering: Boolean = true,
@@ -115,7 +103,7 @@ data class PlaybackSettings(
     val volumeGain: Boolean = false,
 )
 
-// 键缺失时取默认值的规则集中在这一处，界面与仓库读的是同一份判定
+// 默认值规则集中在此，界面与仓库共用
 internal fun playbackSettingsOf(
     miniPlayerEnabled: Boolean?,
     wordByWordRendering: Boolean?,
@@ -144,7 +132,7 @@ internal fun Preferences.toPlaybackSettings(): PlaybackSettings = playbackSettin
     volumeGain = this[volumeGainEnabledKey],
 )
 
-// 整组字段在同一次编辑里落盘：调用方改一项也只写这一项，其余按键取回快照原值
+// 整组同次落盘，未改项写回原值
 internal fun MutablePreferences.applyPlaybackSettings(transform: (PlaybackSettings) -> PlaybackSettings) {
     val next = transform(toPlaybackSettings())
     this[miniPlayerEnabledKey] = next.miniPlayerEnabled
@@ -157,12 +145,7 @@ internal fun MutablePreferences.applyPlaybackSettings(transform: (PlaybackSettin
 }
 
 
-/**
- * 两个键在同一次编辑里落盘，互斥因此是原子的。
- *
- * 拆成两次编辑会留下"两路同时为开"的中间态，而播放服务与设置页各自独立订阅这两个流，
- * 中间态一旦被读到，服务会先去接管接口又立刻回退——独占的接管代价（解绑内核驱动）不该被这样白付一次。
- */
+/** 两个键同次编辑，互斥为原子；避免中间态误触发接管 */
 private fun applyUsbOutputSwitch(
     preferences: MutablePreferences,
     kind: UsbOutputKind,

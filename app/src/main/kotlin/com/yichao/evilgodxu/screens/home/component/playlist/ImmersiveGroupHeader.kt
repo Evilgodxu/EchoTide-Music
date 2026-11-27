@@ -29,17 +29,13 @@ import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 import com.yichao.evilgodxu.screens.home.component.player.HomeImmersiveCover
 
-// 头图高度占本页高度的比例与其上限：构图取播放页沉浸封面的「上重下轻」，尺寸随窗口计算，
-// 各高宽比下都与下方列表分得住；上限挡住超长窗口（大屏、折叠展开）把列表挤成一条
+// 头高 40%，上限 320dp，避免大屏挤压列表
 internal const val IMMERSIVE_HEADER_HEIGHT_RATIO = 0.4f
 internal val ImmersiveHeaderMaxHeight = 320.dp
 
 /**
- * 分组详情页的沉浸头图：封面全宽置顶、下缘渐隐融入同源背景（与播放页同一处理），
- * 上端铺到状态栏后方；标题与副标题叠在头图下缘，页内不含任何按钮，整幅头图保持干净。
- *
- * 歌手页与专辑页共用这一份：两页的头图只在文案口径上不同，构图与尺寸随窗口走的规则必须一致，
- * 否则在两页之间下钻时头图会跳一个高度。
+ * 分组详情页沉浸头图：封面全宽置顶、下缘渐隐，标题叠在下缘。
+ * 歌手页与专辑页共用，保证两页头图高度一致。
  */
 @Composable
 internal fun ImmersiveGroupHeader(
@@ -51,8 +47,7 @@ internal fun ImmersiveGroupHeader(
     Box(modifier = Modifier.fillMaxWidth().height(height)) {
         HomeImmersiveCover(
             track = track,
-            // 换分组是整页跳转，不是沿播放队列的前后位移，换图没有可读的方向；
-            // 同一分组内曲目变化只影响背景取色，头图本身按标识判定同图而不会重播过渡
+            // 换分组是整页跳转，无方向；同图不重播过渡
             kind = TrackSwitchKind.Select,
             modifier = Modifier.fillMaxSize(),
         )
@@ -81,11 +76,8 @@ internal fun ImmersiveGroupHeader(
 }
 
 /**
- * 沉浸页的标签栏：选中项以高亮文字与下划线标示。
- *
- * 下划线取标签文字宽度，故标签须以最大固有宽度定宽——直接让下划线 fillMaxWidth
- * 会撑满整行（列宽本由最宽子项决定，而它就是那条下划线）。
- * 标签切换的跟手拖动与吸附交给各页自己的分页结算，本组件只负责显示与点击。
+ * 沉浸页标签栏：选中项高亮加下划线。
+ * 标签须按最大固有宽度定宽，下划线才不会撑满整行。
  */
 @Composable
 internal fun ImmersiveTabBar(
@@ -110,7 +102,7 @@ internal fun ImmersiveTabBar(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    // 字重两种状态一致：选中态改字重会让标签宽度随之变化，下划线跟着一收一放
+                    // 字重不变，避免标签宽度与下划线抖动
                     text = label,
                     color = if (isSelected) Color.White else Color.White.copy(alpha = 0.6f),
                     fontSize = 14.sp,

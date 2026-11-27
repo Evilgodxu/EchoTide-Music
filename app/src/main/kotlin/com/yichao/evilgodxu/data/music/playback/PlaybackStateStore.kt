@@ -16,13 +16,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-/**
- * 播放状态快照的落盘与读回：当前曲目 URI、进度与播放模式。
- *
- * 调用时刻立即采集快照，异步写入不再回读内存态 —— release/softRelease 随后会清空播放状态，
- * 回读会让落盘结果变成空值。写入在途时新调用只覆盖快照，由在途循环以最新快照收尾，
- * 避免取消旧任务产生「旧任务已取消、新任务未启动」的写入间隙。
- */
+/** 播放状态快照落盘：调用时取快照，异步写入不回读 */
 internal class PlaybackStateStore(
     private val scope: () -> CoroutineScope,
     private val context: () -> Context?,
@@ -48,7 +42,7 @@ internal class PlaybackStateStore(
     private var writeJob: Job? = null
     private val persistenceMutex = Mutex()
 
-    /** 在途写入任务：定时关闭的退出要等它落盘后再终止进程。 */
+    /** 在途写入任务，定时关闭退出前等它 */
     val inFlightWrite: Job? get() = writeJob
 
     fun persist(audioUri: String, position: Long, modeOrdinal: Int) {
@@ -78,7 +72,7 @@ internal class PlaybackStateStore(
         modeOrdinal = preferences[modeKey] ?: PlayMode.RepeatAll.ordinal,
     )
 
-    /** 当前曲目已不可用时清掉续播目标，避免下次启动定位到一首无法播放的曲目。 */
+    /** 曲目不可用时清掉续播目标 */
     suspend fun clear(context: Context) {
         withContext(Dispatchers.IO) {
             context.settingsDataStore.edit { preferences ->

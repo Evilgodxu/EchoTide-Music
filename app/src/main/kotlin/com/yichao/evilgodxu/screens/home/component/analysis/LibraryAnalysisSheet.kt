@@ -57,11 +57,11 @@ import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-// 格式导航行高与可见行数：列表项超出可见行数时固定该高度滚动，避免对话框随格式数量拉伸
+// 导航行高 30dp，可见 3 行，超出才滚动
 private val FormatListRowHeight = 30.dp
 private const val FormatListVisibleRows = 3
 
-// 曲库分析对话框：长按首页播放列表按钮弹出，圆环统计格式占比，下方按格式定位歌单
+// 曲库分析：圆环统计格式占比，可按格式定位
 @Composable
 internal fun LibraryAnalysisSheet(
     visible: Boolean,
@@ -72,7 +72,7 @@ internal fun LibraryAnalysisSheet(
     if (!visible) return
     val context = LocalContext.current
     val metadataEnricher = LocalMetadataEnricher.current
-    // 全量库统计：切换过滤来源时曲库范围不变，仅依赖默认队列数据
+    // 全量统计，切过滤来源时范围不变
     val stats = remember(playbackState.libraryTracks) {
         analyzeLibraryFormats(context, playbackState.libraryTracks)
     }
@@ -129,7 +129,7 @@ internal fun LibraryAnalysisSheet(
                 }
             } else {
                 val total = stats.sumOf { it.count }
-                // 圆环 + 图例：图例行点击切换到对应格式歌单
+                // 圆环 + 图例：图例行点击切到格式歌单
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -194,8 +194,7 @@ internal fun LibraryAnalysisSheet(
                     )
                 }
                 Spacer(Modifier.height(6.dp))
-                // 格式列表不超过可见行数时按内容完整展示（不滚动），超出才固定高度滚动，
-                // 避免仅有 3 条时仍出现滚动条
+                // 不超 3 行按内容展示，超出才固定高度滚动
                 if (stats.size <= FormatListVisibleRows) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         stats.forEachIndexed { index, stat ->
@@ -234,8 +233,7 @@ internal fun LibraryAnalysisSheet(
     }
 }
 
-// 把指定格式设为默认队列的过滤条件（加载首曲不自动播放 + 补全元数据）。
-// 在播放器全局作用域执行，弹层关闭不取消切换
+// 把格式设为队列过滤；全局作用域执行，关闭不取消
 private fun switchToFormat(
     context: Context,
     playbackState: MusicPlaybackState,
@@ -257,7 +255,7 @@ private fun switchToFormat(
 // 格式歌单来源 key：刷新后据此重建歌单
 private fun formatSourceKey(key: String): String = "smart:FORMAT:$key"
 
-// 单个格式的占比统计；key 为稳定标识（格式名），name 为展示名
+// 单格式统计；key 为标识，name 为展示名
 private data class FormatStat(
     val key: String,
     val name: String,
@@ -265,7 +263,7 @@ private data class FormatStat(
     val percent: Float,
 )
 
-// 统计曲库格式占比：按文件扩展名归类，取数量前 5 种，其余合并为「其他」
+// 按扩展名归类，取前 5 种，其余并入「其他」
 private fun analyzeLibraryFormats(context: Context, tracks: List<MusicTrack>): List<FormatStat> {
     val counts = linkedMapOf<String, Int>()
     tracks.forEach { track ->
@@ -287,7 +285,7 @@ private fun analyzeLibraryFormats(context: Context, tracks: List<MusicTrack>): L
     }
 }
 
-// 分段圆环配色：前 5 档为可区分的色相，末档灰用于「其他」等兜底
+// 前 5 档可区分色相，末档灰作兜底
 private val FORMAT_COLOR_PALETTE = listOf(
     Color(0xFF4A6CF7),
     Color(0xFF12B5A5),
@@ -297,7 +295,7 @@ private val FORMAT_COLOR_PALETTE = listOf(
     Color(0xFF9AA4B2),
 )
 
-// 分段圆环：按占比绘制带间距与圆角端点的圆弧，小占比段自动收紧间距
+// 按占比绘制圆角圆弧，小段收紧间距
 @Composable
 private fun SegmentedFormatRing(
     stats: List<FormatStat>,
@@ -308,7 +306,7 @@ private fun SegmentedFormatRing(
         val ringSize = Size(size.minDimension, size.minDimension)
         var startAngle = -90f
         stats.forEachIndexed { index, stat ->
-            // 末段按剩余角度补齐，规避占比保留一位小数造成的累计偏差
+            // 末段按剩余角度补齐，规避小数累计偏差
             val isLast = index == stats.lastIndex
             val sweep = if (isLast) {
                 360f - (startAngle + 90f)
@@ -334,7 +332,7 @@ private fun SegmentedFormatRing(
     }
 }
 
-// 图例行：色点 + 格式名 + 数量，点击切换到对应格式歌单
+// 图例行：色点 + 名称 + 数量，点击切换
 @Composable
 private fun FormatStatRow(
     stat: FormatStat,
@@ -379,7 +377,7 @@ private fun FormatStatRow(
     }
 }
 
-// 格式导航项：统一配色规则，供普通 Column 与滚动 LazyColumn 两处复用
+// 导航项：统一配色，两处复用
 @Composable
 private fun FormatNavRowItem(
     index: Int,
@@ -395,7 +393,7 @@ private fun FormatNavRowItem(
     )
 }
 
-// 格式导航行：色点 + 格式名 + 占比 + 进入箭头，占比在箭头左侧，点击切换到该格式歌单
+// 导航行：色点 + 名称 + 占比 + 箭头，点击切换
 @Composable
 private fun FormatNavRow(
     stat: FormatStat,
@@ -444,7 +442,7 @@ private fun FormatNavRow(
     }
 }
 
-// 百分比显示：整数不带小数，否则保留一位小数
+// 整数不带小数，否则保留一位
 private fun formatPercent(percent: Float): String =
     if (percent == percent.toInt().toFloat()) {
         String.format(Locale.US, "%.0f%%", percent)
@@ -452,7 +450,7 @@ private fun formatPercent(percent: Float): String =
         String.format(Locale.US, "%.1f%%", percent)
     }
 
-// 曲库分析对话框显隐：由首页层持有，跨形态保持
+// 显隐由首页层持有，跨形态保持
 internal class LibraryAnalysisController {
     var visible by mutableStateOf(false)
         private set

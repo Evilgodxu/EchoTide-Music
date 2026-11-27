@@ -42,7 +42,7 @@ import com.yichao.evilgodxu.ui.component.DialogCard
 import com.yichao.evilgodxu.ui.component.coverThumbnailSize
 import com.yichao.evilgodxu.ui.component.RemoteCover
 
-// 换封面预览的封面显示边长
+// 换封面预览显示边长
 private val COVER_PREVIEW_DP = 96.dp
 
 @Composable
@@ -81,8 +81,7 @@ internal fun CoverRefreshDialog(
     )
 }
 
-// 封面候选条目：封面图 + 标题 + 歌手（内容形态与歌词条目不同，故注入）。
-// 元数据补全复用同一形态：候选的两处入口看的是同一批搜索结果，条目长得不一样反而要重新认
+// 封面候选：图 + 标题 + 歌手，元数据补全复用
 @Composable
 internal fun CoverCandidateItem(
     candidate: NeteaseSongSearchResult,
@@ -167,7 +166,7 @@ private fun CoverReplaceContent(
             AlbumArt(
                 track = track,
                 modifier = Modifier.size(COVER_PREVIEW_DP).clip(RoundedCornerShape(10.dp)),
-                // 预览封面不大，按控件实际渲染尺寸换算请求档位，不沿用轮播的 512 大档
+                // 预览按控件尺寸换算请求档位
                 thumbnailSize = coverThumbnailSize(LocalDensity.current, COVER_PREVIEW_DP),
             )
             RemoteCover(

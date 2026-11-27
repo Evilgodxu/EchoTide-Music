@@ -10,10 +10,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * 实测探针：用真实 WAV 样本核对容器内 "ID3 " 块的读取与写回。
- * 样本不在仓库内（Temporary Test Resources），缺失时跳过；结论写入 build/wav-probe-report.txt
- */
+/** 真实 WAV 样本核对 ID3 块读写，缺失则跳过 */
 class WavRealFileProbeTest {
 
     private val report = StringBuilder()
@@ -38,7 +35,7 @@ class WavRealFileProbeTest {
         }
         report.appendLine("样本: ${sample.name} 大小=$size 头窗=${header.size} 尾窗=${tail.size}@$tailOffset")
 
-        // ---- 读：对齐 App 的两段窗口 + 窗口外定点读取 ----
+        // 读：两段窗口与定点读取
         val headerCover = LosslessContainerTags.readCover(header, null, 0L, null)
         val lyrics = LosslessContainerTags.readLyrics(header, tail, tailOffset, ::readRange)
         val cover = LosslessContainerTags.readCover(header, tail, tailOffset, ::readRange)
@@ -56,7 +53,7 @@ class WavRealFileProbeTest {
         assertEquals("艺术家未读回", "徐誉滕", text.artist)
         assertEquals("专辑未读回", "滕.爱", text.album)
 
-        // 小窗口（与 App 侧 MusicEmbeddedTagReader 的窗口一致）：块头与块体落在窗口外时按绝对偏移定点读取
+        // 块在窗口外时按绝对偏移定点读
         val smallHeader = sample.inputStream().use { LocalAudioSource.readUpTo(it, SMALL_HEADER_CAP) }
         val smallTailOffset = (size - SMALL_TAIL_CAP).coerceAtLeast(0)
         val smallTail = readRange(smallTailOffset, (size - smallTailOffset).toInt())!!
@@ -66,7 +63,7 @@ class WavRealFileProbeTest {
         assertEquals("小窗口下艺术家未读回", "徐誉滕", smallText?.artist)
         assertEquals("小窗口下专辑未读回", "滕.爱", smallText?.album)
 
-        // ---- 写：整文件重写，音频体按区间流式复制 ----
+        // 写：整文件重写，音频流式复制
         val source = sample.readBytes()
         val target = File("build/wav-probe-rewritten.wav")
         try {
@@ -94,7 +91,7 @@ class WavRealFileProbeTest {
             assertEquals("data 载荷长度变化", dataBefore.size, dataAfter.size)
             assertArrayEquals("data 载荷被改写", sha256(dataBefore), sha256(dataAfter))
 
-            // 读回：新值可读、旧值不留存、既有帧与 INFO 项保留
+            // 新值可读，旧值不存，既有项保留
             val readBackLyrics = LosslessContainerTags.readLyrics(rewritten, rewritten, 0L, null)
             val readBackCover = LosslessContainerTags.readCover(rewritten, rewritten, 0L, null)
             val readBackText = LosslessContainerTags.readText(rewritten, rewritten, 0L, null)
@@ -129,7 +126,7 @@ class WavRealFileProbeTest {
         }
     }
 
-    // 直接按 ID3 标签结构取 APIC 载荷，作为自实现读取结果的独立对照
+    // 按 ID3 结构取 APIC 作独立对照
     private fun apicOf(file: File): ByteArray {
         val bytes = file.readBytes()
         val chunk = wavChunks(bytes).first { it.first == "ID3 " }
@@ -188,7 +185,7 @@ class WavRealFileProbeTest {
     private companion object {
         const val HEADER_CAP = 512 * 1024
         const val TAIL_CAP = 2 * 1024 * 1024
-        // 文本标签读取的窗口：与 MusicEmbeddedTagReader 一致
+        // 读取窗口与读取器一致
         const val SMALL_HEADER_CAP = 64 * 1024
         const val SMALL_TAIL_CAP = 512 * 1024
     }

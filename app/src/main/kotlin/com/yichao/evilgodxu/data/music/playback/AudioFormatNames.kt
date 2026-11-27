@@ -3,12 +3,7 @@ package com.yichao.evilgodxu.data.music.playback
 import android.media.AudioFormat
 import android.media.AudioMixerAttributes
 
-/**
- * 音频格式、声道掩码与混音器行为的展示名。
- *
- * 直出档位、诊断报告与面板都要给出同一套说法：各写一份时，同一台设备在不同位置会显示成
- * 不同措辞（「24位整型」与「编码20」），对照现场时反而多一层歧义。
- */
+/** 音频格式与混音器行为的展示名，全局统一措辞 */
 internal fun audioEncodingName(encoding: Int): String = when (encoding) {
     AudioFormat.ENCODING_PCM_8BIT -> "8位整型"
     AudioFormat.ENCODING_PCM_16BIT -> "16位整型"
@@ -34,7 +29,7 @@ internal fun audioMixerBehaviorName(behavior: Int): String = when (behavior) {
     else -> "行为$behavior"
 }
 
-/** 混音器属性的一行描述：行为、采样率、声道、编码，四项即直出匹配所用的全部字段 */
+/** 混音器属性描述：行为、采样率、声道、编码 */
 internal fun describeMixerAttributes(attributes: AudioMixerAttributes): String =
     "${audioMixerBehaviorName(attributes.mixerBehavior)} " +
         "${attributes.format.sampleRate}Hz/${attributes.format.channelCount}ch/" +

@@ -3,29 +3,23 @@ package com.yichao.evilgodxu.data.music.metadata
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 
-// Ogg 页序列重排上限：标签页数变化后需逐页重编号与重算 CRC，故须持有整条包流；
-// 超过该上限即跳过本次重写并记日志
+// Ogg 重排上限，超限跳过并记日志
 private const val OGG_PARSE_LIMIT_BYTES = 32L * 1024 * 1024
 
-// Ogg 单页段数上限：段表为单字节长度数组，一个页面最多承载 255 段
+// 单页最多 255 段
 private const val MAX_SEGMENTS = 255
 
-// Ogg 页头中 CRC 字段的偏移（页头 27 字节内）
+// 页头 CRC 偏移
 private const val CRC_FIELD_OFFSET = 22
 
-// 注释包的两种包头：Opus 为包标识 "OpusTags"，Vorbis 为包类型 3 + "vorbis"。
-// 两者载荷结构一致（LE 长度的 vendor + 字段数 + 「KEY=value」字段），差别只在包头与结尾
+// 注释包头：OpusTags 或类型3+vorbis
 private const val OPUS_COMMENT_HEADER = "OpusTags"
 private const val VORBIS_COMMENT_HEADER = "\u0003vorbis"
 
-// Vorbis 的注释头包以框架位（1 位，恒为 1）结束，占末尾一个字节；缺它解码器判流损坏
+// Vorbis 头包末尾框架位，缺则判流损坏
 private const val VORBIS_FRAMING_BYTE = 1
 
-/**
- * Ogg（Opus 与 Vorbis）标签重写：标签包与音频包同处一条页序列，标签长度变化会改变标签页数，
- * 其后每页的序号与 CRC 都要随之重排，故需要整条包流才能定位。
- * 超过 [OGG_PARSE_LIMIT_BYTES] 即跳过本次重写，不把大文件读进堆。
- */
+/** Ogg 标签重写：需整条包流重排页序号与 CRC，超上限跳过 */
 internal object OggTagPlan {
 
     fun plan(
@@ -78,7 +72,7 @@ internal object OggTagPlan {
             p += 4 + vendorLength
             if (p + 4 <= original.size) {
                 val count = intLE(original, p); p += 4
-                // 同上：字段数不得越过剩余字节能承载的上限
+                // 字段数不得越过剩余字节能承载的上限
                 repeat(count.coerceAtLeast(0).coerceAtMost((original.size - p).coerceAtLeast(0) / 4)) {
                     if (p + 4 > original.size) return@repeat
                     val length = intLE(original, p); p += 4
@@ -101,7 +95,7 @@ internal object OggTagPlan {
         return out.toByteArray()
     }
 
-    // endPage 为包结束所在的原页面序号：改写只动标签包的内容，页面归属须原样保留
+    // endPage 为包结束页，改写只动内容
     private data class OggPacket(var data: ByteArray, val granulePosition: Long, val endPage: Int)
 
     private data class OggPage(
@@ -147,8 +141,7 @@ internal object OggTagPlan {
                         val length = bytes[p + 27 + index].toInt() and 0xff
                         packet.write(bytes, bodyOffset, length)
                         bodyOffset += length
-                        // granule 记录的是「包结束所在页面」的位置：Ogg 把页的 granule 归于
-                        // 该页内最后一个完整包，标签包的 granule 因而是 0
+                        // granule 归页内最后一个完整包，标签包为 0
                         if (length < 255) {
                             packets += OggPacket(packet.toByteArray(), granule, pages.lastIndex)
                             packet.reset()
@@ -165,8 +158,7 @@ internal object OggTagPlan {
                 var granule = 0L
                 var continued = false
                 var packetIndex = 0
-                // 按「包 → 原页面」归属成页：标签包长度变化只改变该页的段数，
-                // 不会把后续音频包吸到头包所在的页上——Ogg Opus 要求头两页 granule 为 0
+                // 按包→原页面归属成页，音频包不吸到头包页
                 while (packetIndex < file.packets.size) {
                     val endPage = file.packets[packetIndex].endPage
                     val group = mutableListOf<OggPacket>()
@@ -184,7 +176,7 @@ internal object OggTagPlan {
                         val headerType = (if (continued) 1 else 0) or
                             (if (pages.isEmpty() && file.firstHeaderType and 2 != 0) 2 else 0)
                         pages += buildPage(headerType, pageGranule, file.serial, file.firstSequence + pages.size, lacing)
-                        // 末段不是包末即包跨页，下一页须标记续包
+                        // 末段非包末即跨页，下一页标记续包
                         continued = lacing.last().packet < 0
                         granule = pageGranule
                         offset += count
@@ -198,7 +190,7 @@ internal object OggTagPlan {
                 return pages.fold(ByteArrayOutputStream()) { out, page -> out.apply { write(page) } }.toByteArray()
             }
 
-            // 段表：每 255 字节一段；包长度为 255 的整数倍（含 0）时补一个空段标记包结束
+            // 段表每 255 字节一段；整倍数时补空段
             private fun lacingOf(packets: List<OggPacket>): List<LacingUnit> {
                 val units = mutableListOf<LacingUnit>()
                 packets.forEachIndexed { index, packet ->
@@ -238,14 +230,12 @@ internal object OggTagPlan {
                 page[24] = (crc shr 16).toByte(); page[25] = (crc shr 24).toByte()
             }
 
-            // 段与其所属包在成页分组内的序号；-1 表示该段不是包末段
+            // 段与所属包序号；-1 表示非包末段
             private data class LacingUnit(val bytes: ByteArray, val packet: Int)
         }
     }
 
-    // Ogg 页面校验和：多项式 0x04C11DB7，起始值 0、不反转、不异或。
-    // 计算时 CRC 字段按零参与——跳过这 4 字节等于少做 32 次移位，算出的校验和必然无效，
-    // 而 Ogg 解码器会校验每页 CRC，无效页会让整个流无法打开
+    // CRC 多项式 0x04C11DB7，CRC 字段置零
     private fun oggCrc(bytes: ByteArray): Int {
         var crc = 0
         bytes.forEachIndexed { index, value ->

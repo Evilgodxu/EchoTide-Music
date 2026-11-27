@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <!-- 主主题：系统栏透明，内容沉入状态栏/导航栏，图标颜色由 Compose 按主题控制 -->
+    <!-- 系统栏透明，图标色由 Compose 控制 -->
     <style name="Theme.MyApplication" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:statusBarColor">@android:color/transparent</item>

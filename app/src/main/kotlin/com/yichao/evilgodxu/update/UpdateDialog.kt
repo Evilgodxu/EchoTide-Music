@@ -83,7 +83,7 @@ fun UpdateDialog(
                     )
                 }
 
-                // 非下载/失败状态才显示更新日志，让下载进度更聚焦
+                // 仅非下载/失败时显示更新日志
                 if (!isDownloading && !isFailed && updateInfo.changelog.isNotBlank()) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(

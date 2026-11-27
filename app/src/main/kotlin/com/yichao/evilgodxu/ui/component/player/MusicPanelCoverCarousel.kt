@@ -44,9 +44,8 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-// 横屏沉浸式 3D 封面轮播：中心封面 + 左右各 3 首共 7 首同屏。
-// 所有封面基于连续的"中心索引"推导位置/倾斜/缩放/透明度，滑动与点击共用同一弹簧，
-// 切换时封面平滑移动并淡入淡出；点击居中封面播放，点击空白处收起。
+// 横屏 3D 封面轮播：中心加左右各 3 首，共 7 首同屏。
+// 位置、倾斜、缩放与透明度都由连续中心索引推导
 private const val VISIBLE_PER_SIDE = 3
 
 @Composable
@@ -62,34 +61,33 @@ internal fun CoverCarouselOverlay(
     val startIndex = currentIndex.coerceIn(0, playlist.size - 1)
     val lastIndex = playlist.size - 1
     var selectedIndex by remember { mutableIntStateOf(startIndex) }
-    // 连续的"中心索引"：滑动时叠加临时偏移，吸附/点击时弹簧过渡到整数位
+    // 连续中心索引：滑动叠加临时偏移，吸附时弹簧回整数位
     val centerIndex = remember { Animatable(startIndex.toFloat()) }
     var dragShift by remember { mutableFloatStateOf(0f) }
 
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize()
     ) {
-        // 中心封面尺寸与横屏播放器封面一致：左栏宽度 × 封面占比，高度受限于时按高度收缩
+        // 中心封面与横屏播放器同宽，高度受限时收缩
         val landscapeCoverWidth = maxWidth.value * 0.5f * 0.68f * 0.7f
         val coverSize = minOf(landscapeCoverWidth, maxHeight.value * 0.55f).dp
-        // 相邻封面中心距小于封面尺寸，让左右两侧封面在视觉上部分重叠，形成前后交错
+        // 间距小于封面尺寸，两侧部分重叠形成前后交错
         val spacingPx = with(density) { (coverSize * 0.72f).toPx() }
-        // 吸附动效：低刚度弹簧，滑动释放与点击选取共用同一自然过渡
+        // 低刚度弹簧，滑动与点击共用自然过渡
         val settleSpec = spring<Float>(
             dampingRatio = Spring.DampingRatioNoBouncy,
             stiffness = Spring.StiffnessLow,
         )
 
-        // 受动画驱动的连续中心位：拖动增量实时叠加，动画期间由 centerIndex 平滑推进
+        // 受动画驱动的连续中心位：拖动实时叠加
         val rendered = centerIndex.value + dragShift
 
-        // 背景：沿用首页的封面衍生沉浸背景，实时渲染为当前居中的歌曲。
-        // 不传变更类型：轮播的换色没有方向可言，按默认交叠淡出
+        // 背景沿用首页沉浸背景；无方向，按默认交叠淡出
         SongImmersiveBackground(
             track = playlist[rendered.roundToInt().coerceIn(0, lastIndex)],
         )
 
-        // 交互层：左右滑动切换、点击封面选取，点击空白处收起
+        // 交互层：滑动切换、点封面选取、点空白收起
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -99,7 +97,7 @@ internal fun CoverCarouselOverlay(
                         onDrag = { change, dragAmount ->
                             change.consume()
                             dragShift -= dragAmount.x / spacingPx
-                            // 限制在播放列表范围内，边缘不越界
+                            // 限制在播放列表范围内
                             val clamped = (centerIndex.value + dragShift).coerceIn(0f, lastIndex.toFloat())
                             dragShift = clamped - centerIndex.value
                         },
@@ -107,7 +105,7 @@ internal fun CoverCarouselOverlay(
                             scope.launch {
                                 val now = (centerIndex.value + dragShift).coerceIn(0f, lastIndex.toFloat())
                                 val target = now.roundToInt()
-                                // 将临时偏移并入中心索引，再弹簧过渡到整数位，实现自然淡入淡出
+                                // 并入临时偏移后弹簧过渡到整数位
                                 centerIndex.snapTo(now)
                                 dragShift = 0f
                                 centerIndex.animateTo(target.toFloat(), animationSpec = settleSpec)
@@ -121,22 +119,22 @@ internal fun CoverCarouselOverlay(
                 },
             contentAlignment = Alignment.Center
         ) {
-            // 渲染中心附近封面（含动画过渡进入的一首余量）
+            // 渲染中心附近封面，含过渡余量
             val windowCenter = rendered.roundToInt().coerceIn(0, lastIndex)
             val windowStart = (windowCenter - VISIBLE_PER_SIDE - 1).coerceAtLeast(0)
             val windowEnd = (windowCenter + VISIBLE_PER_SIDE + 1).coerceAtMost(lastIndex)
             for (i in windowStart..windowEnd) {
-                // 以歌曲 id 作为稳定 key，避免拖动/点击切换时窗口偏移导致封面重建而闪烁
+                // 以歌曲 id 为稳定 key，窗口偏移不重建
                 key(playlist[i].id) {
                     val dist = i - rendered
                     Box(
                         modifier = Modifier
                             .offset { IntOffset((dist * spacingPx).roundToInt(), 0) }
                             .size(coverSize)
-                            // 越靠近中心的封面层级越高，左右的封面被居中封面压住
+                            // 越近中心层级越高
                             .zIndex(-abs(dist))
                             .graphicsLayer {
-                                // 前端封面几乎平放，远端封面旋转适度收敛，避免视角过陡
+                                // 远端旋转收敛，避免视角过陡
                                 rotationY = (-dist * 10f).coerceIn(-50f, 50f)
                                 scaleX = (1f - abs(dist) * 0.12f).coerceAtLeast(0.7f)
                                 scaleY = scaleX
@@ -150,7 +148,7 @@ internal fun CoverCarouselOverlay(
                                     if (i == selectedIndex) {
                                         onTrackSelected(i)
                                     } else {
-                                        // 点击侧边封面：弹簧过渡到其中，封面平滑移动并淡入淡出
+                                        // 点击侧边封面：弹簧过渡到中心
                                         scope.launch {
                                             centerIndex.stop()
                                             centerIndex.animateTo(i.toFloat(), animationSpec = settleSpec)
@@ -161,8 +159,7 @@ internal fun CoverCarouselOverlay(
                                 }
                             )
                     ) {
-                        // 3D 轮播统一取 512 档：居中封面约占面板高度一半且同屏 7 张，
-                        // 尺寸换算带来的省量有限，固定档位可让 7 张封面共用同一份缓存
+                        // 统一 512 档，7 张共用同一份缓存
                         AlbumArt(
                             track = playlist[i],
                             modifier = Modifier.fillMaxSize(),
@@ -173,7 +170,7 @@ internal fun CoverCarouselOverlay(
             }
         }
 
-        // 居中封面的正下方居中显示歌曲标题与艺术家
+        // 底部居中显示标题与艺术家
         val track = playlist[rendered.roundToInt().coerceIn(0, lastIndex)]
         Column(
             modifier = Modifier

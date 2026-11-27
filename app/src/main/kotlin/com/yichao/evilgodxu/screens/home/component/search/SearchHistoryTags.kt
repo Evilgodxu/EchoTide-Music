@@ -48,11 +48,11 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.launch
 
-// 单个历史标签的最大宽度：超长关键词截断，避免一枚标签独占整行、把其余历史挤出视野
+// 标签最大宽 180dp，超长关键词截断
 private val TagMaxWidth = 180.dp
 
-// 标签外形：10dp 微圆角 + 12% 白填充 + 18% 白描边。
-// 半透明取白而非取底色：首页底色是随封面变化的沉浸渐变，只有半透明白能在任意底色上成立
+// 标签 10dp 圆角，12% 白填充、18% 白描边。
+// 用半透明白而非底色，任意渐变底色都成立。
 private val TagShape = RoundedCornerShape(10.dp)
 private val TagHeight = 32.dp
 private val TagFill = Color.White.copy(alpha = 0.12f)
@@ -60,13 +60,10 @@ private val TagBorder = Color.White.copy(alpha = 0.18f)
 private val TagTextColor = Color.White.copy(alpha = 0.92f)
 private val TagCloseColor = Color.White.copy(alpha = 0.6f)
 
-// 两侧渐隐宽度：作为「还能往该方向横滑」的提示，仅在对应方向确有余量时绘制
+// 渐隐 40dp，仅在有横滑余量时绘制
 private val TagFadeWidth = 40.dp
 
-// 标签行横滑与翻页互斥。
-// 标签行自身滚到尽头后，剩余位移与剩余速度默认会顺着嵌套滚动上交给父级 Pager，于是拖着标签
-// 会翻页。这里把余量与余速全部认领，标签行上的横滑就只滚标签、绝不动页面。
-// 只认领横向分量：纵向位移与本行无关，拦下来只会挡住上层的纵向手势
+// 认领标签行的横向余量与余速，避免拖标签时翻页；纵向放行
 private val TagScrollBlocker = object : NestedScrollConnection {
     override fun onPostScroll(
         consumed: Offset,
@@ -78,8 +75,7 @@ private val TagScrollBlocker = object : NestedScrollConnection {
         Velocity(available.x, 0f)
 }
 
-// 搜索历史：单行横向滚动的半透明标签流。
-// 历史条数只改变横向内容长度、不改变本区块高度，结果区的位置不随历史增减而跳动
+// 搜索历史：单行横滑标签，历史增减不影响区块高度
 @Composable
 internal fun SearchHistoryTags(
     playbackState: MusicPlaybackState,
@@ -91,7 +87,7 @@ internal fun SearchHistoryTags(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                // 上边距即搜索条与本区块的间距，取面板统一的区块间距（下边距 4dp 是标签紧跟标题的距离，不属区块间距）
+                // 上边距取区块间距；下 4dp 是标签贴标题
                 .padding(start = 12.dp, end = 12.dp, top = SearchPanelSectionGap, bottom = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
@@ -99,7 +95,7 @@ internal fun SearchHistoryTags(
             SearchSectionLabel(
                 text = stringResource(R.string.music_panel_search_history_recent),
             )
-            // 此处与单条删除同处一个面板，仅凭图标无法区分清空与删除
+            // 与单条删除同面板，图标需配文字
             SearchPanelAction(
                 icon = AppIcons.Delete,
                 label = stringResource(R.string.music_panel_search_history_clear_action),
@@ -108,7 +104,7 @@ internal fun SearchHistoryTags(
         }
         val listState = rememberLazyListState()
         val fadeWidthPx = with(LocalDensity.current) { TagFadeWidth.toPx() }
-        // 已滑到尽头的一侧不再渐隐：那一侧没有内容可提示，渐隐只会凭空压暗边上的标签
+        // 到尽头的一侧不渐隐，否则白压暗边上的标签
         val fadeLeading = listState.canScrollBackward
         val fadeTrailing = listState.canScrollForward
         Box(
@@ -123,8 +119,7 @@ internal fun SearchHistoryTags(
                     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                     .drawWithContent {
                         drawContent()
-                        // 用 DstOut 直接抹掉内容自身的透明度，而不是叠一层底色渐变：
-                        // 面板底色是沉浸渐变，任何固定颜色的渐变都会在标签下方留下一条色带
+                        // DstOut 抹透明度，不叠底色渐变，避免留色带
                         if (fadeLeading) {
                             drawRect(
                                 brush = Brush.horizontalGradient(
@@ -164,7 +159,7 @@ internal fun SearchHistoryTags(
     }
 }
 
-// 单枚历史标签：点正文发起检索，点右侧关闭图标只删除该条
+// 点正文检索，点右侧关闭只删除该条
 @Composable
 private fun SearchHistoryTag(
     query: String,
@@ -187,12 +182,12 @@ private fun SearchHistoryTag(
             fontSize = 12.5.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            // fill = false：短关键词按内容收窄，标签宽度贴合文字而不是撑到上限
+            // fill=false 让短词按内容收窄
             modifier = Modifier
                 .weight(1f, fill = false)
                 .padding(start = 12.dp),
         )
-        // 关闭用 Box 而非 IconButton：IconButton 会强制 48dp 最小交互尺寸，把标签整体撑高
+        // 用 Box 避免 IconButton 撑高标签
         Box(
             modifier = Modifier
                 .padding(start = 2.dp, end = 4.dp)

@@ -38,10 +38,8 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.launch
 
 /**
- * 曲目歌单归属弹窗：列出全部自定义歌单，勾选即加入、取消勾选即移出。
- *
- * 只列自定义歌单 —— 常听/收藏/专辑/艺术家由播放、收藏或元数据派生，不能手动增删曲目。
- * 归属变更即时落盘，弹窗不随单次勾选关闭，便于一次调整多个歌单。
+ * 歌单归属弹窗：勾选加入、取消移出，即时落盘
+ * 只列自定义歌单，派生歌单不可手动增删
  */
 @Composable
 internal fun TrackPlaylistDialog(
@@ -53,12 +51,12 @@ internal fun TrackPlaylistDialog(
     val playlistStore = LocalPlaylistStore.current
     val scope = rememberCoroutineScope()
     val playlists = playlistStore.playlists
-    // 行内取封面按 id 查表，避免每行线性扫描全库
+    // 按 id 查表取封面，避免逐行扫全库
     val libraryById = remember(libraryTracks) { libraryTracks.associateBy { it.id } }
     AppDialog(
         onDismiss = onDismiss,
         title = stringResource(R.string.playlist_membership_title),
-        // 列表自带 LazyColumn 滚动，不能与外壳滚动嵌套
+        // 列表自带滚动，不能与外壳嵌套
         scrollable = false,
         contentHeightFraction = DIALOG_LIST_HEIGHT_FRACTION,
     ) {
@@ -115,7 +113,7 @@ internal fun TrackPlaylistDialog(
     }
 }
 
-// 歌单归属行：首曲封面 + 名称 + 曲目数 + 归属状态图标；勾选态用主色，未勾选用浅色加号提示可加入
+// 归属行：封面 + 名称 + 数量 + 状态图标
 @Composable
 private fun PlaylistMembershipRow(
     name: String,

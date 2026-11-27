@@ -48,7 +48,7 @@ internal fun TimerDialog(
     }
 }
 
-// 定时面板主体：标题 + 加减分钟 + 确认/取消
+// 定时面板：标题 + 加减分钟 + 双按钮
 @Composable
 private fun TimerPanelContent(
     minutes: Int,

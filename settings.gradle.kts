@@ -1,24 +1,21 @@
 pluginManagement {
-    // 版本巡检插件由本机仓库（~/.m2）消费：源码分支改完执行一次 publishToMavenLocal 即可生效，
-    // 不再 includeBuild 源码工程，避免每次构建都为它配置并编译插件
+    // 巡检插件从 ~/.m2 消费，改动后重新发布
     repositories {
         mavenLocal()
-        // 依赖与插件统一走腾讯云镜像：maven-public 聚合了 Google Maven 与 Maven Central
+        // 腾讯云镜像聚合 Google 与 Maven 仓库
         maven { url = uri("https://mirrors.cloud.tencent.com/nexus/repository/maven-public/") }
-        // Gradle 插件门户，插件标记与插件实现均由该仓库提供
+        // Gradle 插件门户
         maven { url = uri("https://mirrors.cloud.tencent.com/nexus/repository/gradle-plugins/") }
     }
 }
 
 plugins {
-    // 依赖版本巡检：在 libs.versions.toml 中标注可用更新，是否升级仍由人工决定。
-    // 版本号须与 ../refreshVersions/plugins/version.txt 一致
+    // 版本巡检，版本号须与 version.txt 一致
     id("de.fayard.refreshVersions") version "1.0.1"
 }
 
 refreshVersions {
-    // 只接受正式版本：预发布标签与 JetBrains IDE 内部构建号（-ij262-、-KBA-）都带连字符，
-    // 而插件对无法识别的后缀会兜底判为 Stable，故按连字符特征统一滤除
+    // 只接受正式版：带连字符的后缀一律滤除
     rejectVersionIf {
         candidate.value.contains('-')
     }
@@ -33,5 +30,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "EchoTideMusic"
 include(":app")
-// 基准配置与启动配置的生成模块，不参与应用打包
+// 基准与启动配置生成模块，不参与打包
 include(":baselineprofile")

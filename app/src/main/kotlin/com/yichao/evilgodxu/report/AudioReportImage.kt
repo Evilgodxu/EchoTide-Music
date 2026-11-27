@@ -12,7 +12,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.math.max
 
-// 固定宽度便于接收端缩放阅读；高度完全由排版后的内容决定，避免长报告末尾被裁掉
+// 固定宽度；高度由内容决定，不裁尾
 private const val IMAGE_WIDTH = 1440
 private const val PAGE_PADDING = 56f
 private const val CONTENT_WIDTH = IMAGE_WIDTH - PAGE_PADDING * 2
@@ -33,7 +33,7 @@ internal object AudioReportImage {
         file.writeBytes(renderPng(report))
     }
 
-    /** 生成报告排版后的 PNG 字节：相册存档与分享文件共用同一份渲染结果 */
+    /** 生成报告 PNG 字节 */
     fun renderPng(report: String): ByteArray {
         val bitmap = render(report)
         return try {

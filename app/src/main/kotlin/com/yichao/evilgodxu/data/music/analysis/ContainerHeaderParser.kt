@@ -1,35 +1,26 @@
 package com.yichao.evilgodxu.data.music.analysis
 
-// 容器头规格：采样率、位深与声道数。
-// 位深可空——有损编码的采样描述 msamplesize 只是名义值，容器未声明真实位深时留空，
-// 调用方据此跳过位深相关判定，不用 0 或推测值顶替
+// 容器头规格：采样率、位深与声道数
+// 有损编码的位深只是名义值，故可空
 internal data class ContainerFormat(
     val sampleRate: Int,
     val bitDepth: Int?,
     val channels: Int,
     /**
-     * 容器头能**正面认定**的码流名；认定不出一律留空。
-     *
-     * 能认定的是 MP4 里以 alac 幻数盒为采样描述的轨道——正是「扩展名只说得出容器」的那种情形，
-     * 容器名说不出码流，只能由容器头认定。
-     * 其余码流（含 mp4a：可能是 AAC，也可能不是）无法从容器正面认定，故不在此给出推断值；
-     * 调用方在它为空时按扩展名与 mime 另定，不用这里顶替。
+     * 容器头能认定的码流名，认定不出留空
      */
     val codecName: String? = null,
 )
 
-// 音频容器头部规格解析：只读文件头的元数据块，不依赖平台解码器。
-// 覆盖 FLAC、WAV/RF64、ALAC（MP4 音轨）。解析器全部是纯函数（字节数组 + 窗口在文件中的
-// 绝对偏移 → 规格），与文件 IO 解耦，既便于单测，也让「读多少字节」由调用方按格式决定。
-//
-// 解析一律先校验魔数与块结构，再读字段：容器头被 ID3v2 标签或私有块顶偏时宁可返回 null，
-// 也不在错误的位置上取出一组看似合理的采样率/位深
+// 只读文件头元数据，不依赖平台解码器
+// 覆盖 FLAC、WAV/RF64、ALAC
+// 先校验魔数与块结构，宁可返回 null
 internal object ContainerHeaderParser {
 
     // 采样率上限：PCM 容器最高到 DXD 量级
     private const val PCM_MAX_SAMPLE_RATE = 768_000
 
-    // MP4 采样描述中代表线性 PCM 的条目类型：只有这些类型的 msamplesize 是真实位深
+    // MP4 线性 PCM 条目，其 msamplesize 为真
     private val LINEAR_PCM_ENTRY_TYPES = setOf(
         "lpcm", "sowt", "twos", "in24", "in32", "fl32", "fl64", "raw ", "alaw", "ulaw", "ima4",
     )
@@ -37,11 +28,10 @@ internal object ContainerHeaderParser {
     // alac 幻数盒成立时，采样描述就是 ALAC
     private const val ALAC_CODEC_NAME = "ALAC"
 
-    // MP4 顶层盒类型：用于判别文件是否为 ISO-BMFF 容器
+    // MP4 顶层盒类型，用于判别 ISO-BMFF
     private val MP4_TOP_LEVEL_BOXES = setOf("ftyp", "moov", "free", "mdat", "wide", "skip", "styp")
 
-    // 入口：按魔数识别容器并解析规格。windowStart 为 buf[0] 在文件中的绝对偏移，
-    // fileLength 用于解析尺寸外延到文件末的顶层盒子（如 mdat）。无法识别返回 null
+    // 按魔数解析，windowStart 为 buf 偏移
     fun parse(buf: ByteArray, windowStart: Long, fileLength: Long): ContainerFormat? {
         if (buf.size < 12) return null
         return when {
@@ -52,13 +42,11 @@ internal object ContainerHeaderParser {
         }
     }
 
-    // ID3v2 前置标签的总字节数（10 字节头 + 同步安全长度字段）；无标签返回 0。
-    // 部分下载源会在 FLAC 前写入 ID3v2，此时容器魔数不在文件首字节，
-    // 调用方据本偏移重新定位容器头。长度字段异常偏大时按无标签处理，
-    // 避免畸形标签把读取位置推到文件之外
+    // ID3v2 总字节数，无标签返回 0
+    // FLAC 可能被顶偏，调用方据此重定位
     fun id3v2TagSize(buf: ByteArray): Int {
         if (buf.size < ID3V2_HEADER_BYTES || !buf.matches(0, "ID3")) return 0
-        // 版本字节为 0xFF 属非法值，可用于排除正文中偶然出现的 "ID3" 三字节
+        // 版本字节 0xFF 非法，排除正文偶然的 ID3
         if (buf[3].toInt() and 0xFF == 0xFF) return 0
         val size = ((buf[6].toInt() and 0x7F) shl 21) or
             ((buf[7].toInt() and 0x7F) shl 14) or
@@ -68,16 +56,14 @@ internal object ContainerHeaderParser {
         return if (total in ID3V2_HEADER_BYTES..MAX_ID3V2_BYTES) total else 0
     }
 
-    // 探测 MP4 顶层盒子的绝对偏移，用于 moov 后置（未 faststart）的文件：
-    // 头窗遍历会被超出窗口的 mdat 截断，此时其终点即下一个顶层盒子的起点，
-    // 调用方在该偏移重读窗口后再调 parseMp4 校验。盒子越界且无后续空间时返回 null
+    // 探测 MP4 顶层盒偏移，供 moov 后置重读
     fun mp4BoxOffset(buf: ByteArray, windowStart: Long, fileLength: Long, type: String): Long? {
         var p = 0
         while (p + BOX_HEADER_BYTES <= buf.size) {
             val total = topLevelBoxLength(buf, p, windowStart, fileLength) ?: return null
             if (buf.matches(p + 4, type)) return windowStart + p
             val next = p + total
-            // 盒子越过窗口：终点即下一个顶层盒子起点，可能仍是待解析的盒子
+            // 盒子越过窗口，终点即下一顶层盒起点
             if (next > buf.size) return (windowStart + next).takeIf { it < fileLength }
             p = next.toInt()
         }
@@ -88,11 +74,8 @@ internal object ContainerHeaderParser {
     fun isMp4Like(buf: ByteArray): Boolean =
         buf.size >= 12 && ascii(buf, 4, 4) in MP4_TOP_LEVEL_BOXES
 
-    // ---- FLAC ----
-
-    // STREAMINFO（类型 0，块长固定 34）紧随 fLaC 魔数与 4 字节块头之后，
-    // 采样率 20 位 + 声道数-1 共 3 位 + 位深-1 共 5 位，打包在其后第 10 字节起的 64 位字段中。
-    // 块类型或块长不符说明头部结构不成立（STREAMINFO 按规范必须是首块）
+    // 采样率 20 位、声道-1 3 位、位深-1 5 位
+    // 块类型或块长不符即结构不成立
     private fun parseFlac(buf: ByteArray, from: Int): ContainerFormat? {
         if (from + 22 > buf.size || !buf.matches(from, "fLaC")) return null
         val blockType = buf[from + 4].toInt() and 0x7F
@@ -102,17 +85,13 @@ internal object ContainerHeaderParser {
             ((buf[p + 1].toInt() and 0xFF) shl 4) or
             ((buf[p + 2].toInt() and 0xF0) ushr 4)
         val channels = ((buf[p + 2].toInt() and 0x0E) ushr 1) + 1
-        // 位深 5 位域先拼合再加 1：加 1 须作用于整个 5 位值，
-        // 否则 32bit（域值 31）会被低 4 位进位吞掉高位而误读为 16bit
+        // 5 位先拼合再加 1，否则 32bit 被进位吞高位
         val bitDepth = (((buf[p + 2].toInt() and 0x01) shl 4) or
             ((buf[p + 3].toInt() and 0xF0) ushr 4)) + 1
         return containerFormatOf(sampleRate.toLong(), bitDepth, channels)
     }
 
-    // ---- WAV / RF64 ----
-
-    // 逐块遍历找 fmt 块。fmt 恒为首块、块长恒 16 的固定偏移假设，在带 bext/JUNK 等
-    // 前置块或 WAVE_FORMAT_EXTENSIBLE 的文件上不成立，故按块结构推进
+    // 逐块找 fmt，不假定为首块且长 16
     private fun parseRiff(buf: ByteArray, from: Int): ContainerFormat? {
         if (!buf.matches(from, "RIFF") && !buf.matches(from, "RF64")) return null
         if (!buf.matches(from + 8, "WAVE")) return null
@@ -123,13 +102,13 @@ internal object ContainerHeaderParser {
             val bodyEnd = body + size
             if (size <= 0 || bodyEnd > buf.size) return null
             if (buf.matches(p, "fmt ")) {
-                // WAVEFORMATEX 有效字段到块体偏移 16 为止
+                // WAVEFORMATEX 有效字段到偏移 16 止
                 if (size < 16) return null
                 val formatTag = u16le(buf, body)
                 val channels = u16le(buf, body + 2)
                 val sampleRate = u32le(buf, body + 4)
                 var bitDepth = u16le(buf, body + 14)
-                // WAVE_FORMAT_EXTENSIBLE 的容器位深可大于有效位深，以后者为准
+                // EXTENSIBLE 容器位深可大于有效位深，取后者
                 if (formatTag == WAVE_FORMAT_EXTENSIBLE && size >= 40) {
                     val validBits = u16le(buf, body + 18)
                     if (validBits in 1 until bitDepth) bitDepth = validBits
@@ -142,13 +121,10 @@ internal object ContainerHeaderParser {
         return null
     }
 
-    // ---- MP4 / M4A（ALAC） ----
-
-    // 逐层下钻 moov→trak→mdia→minf→stbl→stsd，取首个可解析的音频采样描述。
-    // 采样描述才是音轨规格来源：mdia 下的其他盒子不含采样率/位深
+    // 逐层下钻至 stsd
+    // 取首个可解析的音频采样描述
     fun parseMp4(buf: ByteArray, windowStart: Long, fileLength: Long): ContainerFormat? {
-        // 顶层遍历上界取窗口末与文件末的较小者：moov 为末盒且尺寸字段为 0 时才能换算真实长度；
-        // 文件长度不可得时退化为窗口内遍历
+        // 上界取窗口末与文件末较小者
         val remaining = if (fileLength > windowStart) fileLength - windowStart else Long.MAX_VALUE
         val topEnd = minOf(buf.size.toLong(), remaining).toInt()
         if (topEnd < BOX_HEADER_BYTES) return null
@@ -163,13 +139,13 @@ internal object ContainerHeaderParser {
         return null
     }
 
-    // 音轨：mdia→minf→stbl→stsd 四层顺序下钻，任一层缺失即返回 null
+    // 下钻 mdia→minf→stbl→stsd
     private fun parseAudioTrack(buf: ByteArray, from: Int, to: Int): ContainerFormat? {
         val mdia = descend(buf, from, to, "mdia") ?: return null
         val minf = descend(buf, mdia.first, mdia.last, "minf") ?: return null
         val stbl = descend(buf, minf.first, minf.last, "stbl") ?: return null
         val stsd = descend(buf, stbl.first, stbl.last, "stsd") ?: return null
-        // stsd 载荷：版本/标志 4 字节 + 条目数 4 字节，其后逐个为采样描述
+        // stsd 载荷：版本标志 4 + 条目数 4
         var p = stsd.first + 8
         while (p + BOX_HEADER_BYTES <= stsd.last) {
             val range = boxRange(buf, p, stsd.last) ?: return null
@@ -185,9 +161,8 @@ internal object ContainerHeaderParser {
         return boxRange(buf, box, to)
     }
 
-    // 音频采样描述：data_reference_index 之后的字段定长，
-    // 声道数/名义位深/16.16 定点采样率位于载荷偏移 16/18/24。entryType 为采样描述类型，
-    // 用于判定名义位深是否可信
+    // 声道/名义位深/采样率在载荷 16/18/24
+    // entryType 判定名义位深是否可信
     private fun parseAudioSampleEntry(
         buf: ByteArray,
         from: Int,
@@ -196,22 +171,21 @@ internal object ContainerHeaderParser {
     ): ContainerFormat? {
         if (to - from < AUDIO_SAMPLE_ENTRY_BYTES) return null
         val version = u16be(buf, from + 8)
-        // 版本 2 改写了字段布局（64 位浮点采样率、显式位深），本解析不覆盖，交由平台提取器兜底
+        // 版本 2 布局不同，不覆盖，交平台兜底
         if (version == 2) return null
         val sampleRate = u32be(buf, from + 24) ushr 16
         val channels = u16be(buf, from + 16)
-        // 版本 1 在固定字段后另有 16 字节，其后的子盒子才是 alac 幻数盒
+        // 版本 1 固定字段后另有 16 字节
         val childAt = from + AUDIO_SAMPLE_ENTRY_BYTES + if (version == 1) 16 else 0
         if (childAt + BOX_HEADER_BYTES <= to && buf.matches(childAt + 4, "alac")) {
             parseAlacCookie(buf, childAt, to)?.let { return it.copy(codecName = ALAC_CODEC_NAME) }
         }
-        // 仅线性 PCM 采样描述的 msamplesize 是真实位深：有损编码该字段恒为名义值（常见 16）
+        // 仅线性 PCM 的 msamplesize 为真，有损无效
         val bitDepth = if (entryType in LINEAR_PCM_ENTRY_TYPES) u16be(buf, from + 18) else null
         return containerFormatOf(sampleRate, bitDepth, channels)
     }
 
-    // alac 幻数盒：4 字节版本/标志后为 ALACSpecificConfig，
-    // 位深/声道数/采样率位于盒起偏移 17/21/32；配置段长度不足时视为结构不成立
+    // alac 盒：位深/声道/采样率在 17/21/32
     private fun parseAlacCookie(buf: ByteArray, at: Int, to: Int): ContainerFormat? {
         val range = boxRange(buf, at, to) ?: return null
         if (range.last - range.first < ALAC_CONFIG_BYTES || at + ALAC_CONFIG_BYTES + 8 > buf.size) {
@@ -224,9 +198,7 @@ internal object ContainerHeaderParser {
         )
     }
 
-    // ---- 盒子遍历 ----
-
-    // 窗口内按顺序查找指定类型的盒子，返回其相对偏移；盒子结构不成立即终止
+    // 窗口内按序查找盒子，返回相对偏移
     private fun findBox(buf: ByteArray, from: Int, to: Int, type: String): Int? {
         var p = from
         while (p + BOX_HEADER_BYTES <= to) {
@@ -250,7 +222,7 @@ internal object ContainerHeaderParser {
     private fun boxHeaderLength(buf: ByteArray, at: Int): Int =
         if (at + 16 <= buf.size && u32be(buf, at) == 1L) LARGE_BOX_HEADER_BYTES else BOX_HEADER_BYTES
 
-    // 盒子总长（含头）：尺寸字段为 1 时读 64 位大尺寸，为 0 时表示延伸到 to
+    // 盒子总长含头：1 读 64 位，0 延伸到 to
     private fun boxLength(buf: ByteArray, at: Int, to: Int): Long? {
         if (at + BOX_HEADER_BYTES > buf.size) return null
         val size32 = u32be(buf, at)
@@ -263,16 +235,14 @@ internal object ContainerHeaderParser {
         return total.takeIf { it >= header }
     }
 
-    // 顶层盒子总长：尺寸为 0 时表示延伸到文件末，由窗口偏移与文件长度换算
+    // 顶层盒总长：0 延伸到文件末，按窗口换算
     private fun topLevelBoxLength(buf: ByteArray, at: Int, windowStart: Long, fileLength: Long): Long? {
         if (u32be(buf, at) != 0L) return boxLength(buf, at, buf.size)
         val total = fileLength - windowStart - at
         return total.takeIf { it >= BOX_HEADER_BYTES }
     }
 
-    // ---- 规格校验 ----
-
-    // 统一校验后构造：越界说明头部解析落在了错误的位置，宁可返回 null 也不给出错误规格
+    // 统一校验后构造：越界说明位置解析错了，宁可返回 null
     private fun containerFormatOf(sampleRate: Long, bitDepth: Int?, channels: Int): ContainerFormat? {
         if (sampleRate !in 1..PCM_MAX_SAMPLE_RATE.toLong()) return null
         if (channels !in 1..MAX_CHANNELS) return null
@@ -280,7 +250,7 @@ internal object ContainerHeaderParser {
         return ContainerFormat(sampleRate.toInt(), bitDepth, channels)
     }
 
-    // ---- 字节与编码工具 ----
+    // 字节与编码工具
 
     private fun ByteArray.matches(at: Int, text: String): Boolean {
         if (at < 0 || at + text.length > size) return false
@@ -303,7 +273,7 @@ internal object ContainerHeaderParser {
             ((buf[at + 1].toInt() and 0xFF) shl 8) or
             (buf[at + 2].toInt() and 0xFF)
 
-    // 32/64 位无符号值一律以 Long 承载；64 位最高位为 1 时超出音频文件可能范围，按非法返回 -1
+    // 无符号以 Long 承载，64 位高位为 1 视为非法
     private fun u32be(buf: ByteArray, at: Int): Long =
         ((buf[at].toLong() and 0xFF) shl 24) or
             ((buf[at + 1].toLong() and 0xFF) shl 16) or
@@ -332,9 +302,9 @@ internal object ContainerHeaderParser {
     private const val WAVE_FORMAT_EXTENSIBLE = 0xFFFE
     private const val BOX_HEADER_BYTES = 8
     private const val LARGE_BOX_HEADER_BYTES = 16
-    // AudioSampleEntry 固定字段长度：6 保留 + 2 数据引用索引 + 20 版本/声道/位深/采样率
+    // AudioSampleEntry 定长 28
     private const val AUDIO_SAMPLE_ENTRY_BYTES = 28
-    // alac 幻数盒配置段长度：4 版本标志 + 24 ALACSpecificConfig
+    // alac 配置段 28 字节
     private const val ALAC_CONFIG_BYTES = 28
     private const val MAX_CHANNELS = 64
     private const val MAX_BIT_DEPTH = 64

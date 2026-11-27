@@ -12,62 +12,47 @@ import com.yichao.evilgodxu.data.music.playback.UsbExclusiveDeviceInfo
 import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.Closeable
 
-// 类名前缀：接管与归还的每次决策都记在此名下
+// 日志类名：接管与归还的每次决策都记在此名下
 private const val LOG_TAG = "UsbExclusiveOutput"
 
-/** 授权结果的动作名：由本应用自建 `PendingIntent` 携带，系统在弹窗作答后回送 */
+/** 授权结果动作名，由自建 PendingIntent 携带回送 */
 private const val ACTION_USB_PERMISSION = "com.yichao.evilgodxu.USB_PERMISSION"
 
-/** 接入入口作答完成的动作名：系统在选择框里授予的权限不另发通知，只能由入口补一声 */
+/** 接入入口完成选中即授权后的动作名 */
 private const val ACTION_USB_ATTACH_CONFIRMED = "com.yichao.evilgodxu.USB_ATTACH_CONFIRMED"
 
-/** 授权请求的 `PendingIntent` 请求码：同一时刻只会有一次未决请求，固定值即可 */
+/** 授权请求码，同一时刻只有一次未决请求 */
 private const val PERMISSION_REQUEST_CODE = 1
 
-/** 独占路径的成色：界面据此区分"开关开着"与"真的接管到了" */
+/** 独占成色：区分开关开着与真的接管到 */
 internal sealed interface UsbExclusiveState {
 
     /** 开关关闭 */
     object Disabled : UsbExclusiveState
 
-    /** 开关开启但没有可接管的解码器（未接入、或接管失败） */
+    /** 开关开启但无可接管解码器 */
     object AwaitingDevice : UsbExclusiveState
 
     /** 已弹出系统授权框，等待作答 */
     object AwaitingPermission : UsbExclusiveState
 
-    /** 已接管：接口归本应用，该设备已从系统音频中消失 */
+    /** 已接管，该设备已从系统音频中消失 */
     data class Active(val deviceName: String) : UsbExclusiveState
 }
 
 /**
- * USB 独占的接入与归还：申请授权、接管设备、把会话交给写出侧，并在开关关闭或设备拔出时归还。
+ * USB 独占的接入与归还。
  *
- * 与 [UsbDirectOutput] 是并列且互斥的两条路：那条走平台的专用输出流（设备仍归内核驱动，只是由本应用
- * 指定输出属性），这条把接口直接收归本应用（内核驱动被解绑，平台链路随之不存在）。**两者的成立条件
- * 互相否定**，故从开关到路由都按二选一处理。
- *
- * 授权的取得是交互，本类只负责发起与接收：系统的授权弹窗由 `UsbManager.requestPermission` 拉起，
- * 作答经本应用自建广播的 `PendingIntent` 回送。接管本身不申请权限（见 [UsbExclusiveDac.open]），
- * 故这里必须先把"有授权"这一步走完再谈接管。
- *
- * 授权只有一个入口：接入入口开启时，系统的「用哪个应用打开」选择框就是那次授权，本类收到接入广播时
- * 不去申请，等入口作答完成的通知（见 [notifyUsbAttachConfirmed]）；选择框未参与（开关关着、或入口
- * 拉起后仍无权限）时才由 `requestPermission` 自己弹。
- *
- * 接管与写出侧的交接也在此定规矩：取设备之前先经 [beforeClaim] 让写出侧放开平台输出（接管会让那条
- * 输出失效，且它的收尾会把流接口的备用设置抹掉），取到之后由写出侧在同一趟里把数据改到独占上。
+ * 与 UsbDirectOutput 互斥，接口收归本应用。
+ * 接管前先经 beforeClaim 让写出侧放开平台。
  */
 internal class UsbExclusiveOutput(
     private val context: Context,
     /** 成色回调：接管与归还都经此处对外发布 */
     private val onStateChanged: (UsbExclusiveState) -> Unit,
     /**
-     * 接管前的交棒：把"此刻正在用的输出先放手"交给写出侧，由它放完之后回身接管。
-     *
-     * 顺序是硬要求而非偏好：接管的手段是解绑内核音频驱动，平台那条输出从此写不出去，而它的收尾
-     * （HAL 关声卡、驱动解绑）是异步的——落在接管之后就会把刚设好的流接口备用设置一并抹掉，刚建好的
-     * 等时流因此一个 URB 也投不出去。故先让写出侧放开平台输出，再接管。
+     * 接管前交棒：先放开平台输出。
+     * 接管解绑驱动，平台异步收尾会抹掉备用设置。
      */
     private val beforeClaim: (proceed: () -> Unit) -> Unit = { it() },
 ) : Closeable {
@@ -78,10 +63,8 @@ internal class UsbExclusiveOutput(
     private var registered = false
 
     /**
-     * 当前持有的独占会话，null 表示未接管。
-     *
-     * 写出侧在播放线程上读取它，而接管与归还在主线程（广播接收）与播放线程（链路失效）两处发生，
-     * 故按易变发布，避免写出侧读到尚未发布的新会话。
+     * 当前会话，null 表示未接管。
+     * 写出侧在播放线程读，故按易变发布。
      */
     @Volatile
     private var claim: UsbExclusiveDac? = null
@@ -90,10 +73,8 @@ internal class UsbExclusiveOutput(
     private var awaiting: UsbDevice? = null
 
     /**
-     * 是否因失焦主动让出过设备。
-     *
-     * 只让「自己让出去的」由重获焦点时收回：链路失效（[onStreamFailed]）与拔出都不置此标志，
-     * 那两种情形下立刻重接管多半还是同样的结果，按原有口径等重新插拔或用户重开开关。
+     * 是否因失焦让出过设备。
+     * 只收回自己让出的，链路失效不置此位。
      */
     private var suspendedForFocus = false
 
@@ -110,23 +91,19 @@ internal class UsbExclusiveOutput(
         }
     }
 
-    /** 供写出侧取用的会话；取出后即可立即用于配置，为空则本次独占不成立 */
+    /** 供写出侧取用的会话，为空表示本次独占不成立 */
     fun currentSession(): UsbExclusiveDac? = claim
 
     /**
-     * 当前接管到的解码器信息；未接管时为 null。
-     *
-     * 独占期间它已从系统音频里消失（内核驱动被解绑），平台侧一次也查不到，故音频信息面板的设备那几行
-     * 只能由此取——否则面板会落到"扬声器"上，与实际发声的设备完全对不上。
+     * 当前接管的解码器，未接管时为 null。
+     * 设备已从系统消失，面板只能由此取。
      */
     fun deviceInfo(): UsbExclusiveDeviceInfo? =
         claim?.let { active -> runCatching { active.declaredCapabilities() }.getOrNull() }
 
     /**
-     * 开关。开启即尝试接管，关闭即归还。
-     *
-     * 关闭时归还这一步是硬要求而非清理：接口不还，内核驱动就一直处于解绑状态，该解码器在系统音频里
-     * 始终不出现，通话与别的应用都用不到它。
+     * 开关，开启即尝试接管，关闭即归还。
+     * 不归还则驱动一直解绑，设备不出现。
      */
     @Synchronized
     fun setEnabled(enabled: Boolean) {
@@ -143,14 +120,10 @@ internal class UsbExclusiveOutput(
     }
 
     /**
-     * 失焦时让出设备：被别的客户端抢走焦点（来电、别的播放器）即归还接口。
+     * 失焦时归还接口，让出设备。
      *
-     * 接管期间内核音频驱动处于解绑状态，该解码器已从系统音频里消失——继续持有，来电与其它应用就都用不到
-     * 这台设备，而平台在尝试取回同一台设备时会卡在音频栈里，此后本应用的每一次输出操作都排在它后面，
-     * 表现为通话结束后再也起不来（开关、拔插都无效，因为已经不是本应用这一层能解开的状态）。
-     * 故焦点一失即归还：设备回到系统手里，通话按用户预期走耳机。
-     *
-     * 开关与授权都不动，重获焦点时由 [reclaimAfterFocusLoss] 按原样收回。
+     * 继续持有会让来电与其他应用用不到它。
+     * 开关与授权不动，重获焦点再收回。
      */
     @Synchronized
     fun releaseForFocusLoss() {
@@ -161,9 +134,8 @@ internal class UsbExclusiveOutput(
     }
 
     /**
-     * 重获焦点：收回此前因失焦让出的设备。
-     *
-     * 只收回 [releaseForFocusLoss] 让出去的那一次——链路失效与拔出都不该在这里被自动重试。
+     * 重获焦点，收回此前让出的设备。
+     * 链路失效与拔出不在此重试。
      */
     @Synchronized
     fun reclaimAfterFocusLoss() {
@@ -188,11 +160,8 @@ internal class UsbExclusiveOutput(
     }
 
     /**
-     * 订阅 USB 事件。
-     *
-     * 只用**非导出**注册：三条动作都来自系统，而投递判定对 system uid 一律放行（见 AOSP 的
-     * `BroadcastSkipPolicy`，非导出只挡其他应用）。非导出因此白得一层防护——别的应用无法伪造
-     * 接入/拔出事件，把本应用从设备上赶下来。
+     * 订阅 USB 事件，只用非导出注册。
+     * 非导出可挡其他应用伪造接入或拔出。
      */
     private fun ensureRegistered() {
         if (registered) return
@@ -207,11 +176,8 @@ internal class UsbExclusiveOutput(
     }
 
     /**
-     * 尝试接管当前接入的解码器；没有设备或没有授权都如实发布对应成色。
-     *
-     * @param prompt 授权缺失时是否发起系统授权框。接入入口开启时，系统正在弹「用哪个应用打开」的
-     * 选择框，作答本身就授予权限；那一刻再申请会叠出第二个框，用户要连答两次。故由接入广播触发的
-     * 这一次传入 false，等入口作答完成、界面拉起后由 [notifyUsbAttachConfirmed] 的那一次补上。
+     * 尝试接管；无设备或无授权都如实发布。
+     * 接入广播触发时不弹框，避免重复授权框。
      */
     private fun acquire(prompt: Boolean) {
         val manager = usbManager ?: run {
@@ -233,22 +199,19 @@ internal class UsbExclusiveOutput(
 
     private fun openClaim(manager: UsbManager, device: UsbDevice) {
         releaseClaim()
-        // 接管本身交给写出侧完成：只有它能让平台那条输出当场放手，也只有它能在同一趟里把写出改到
-        // 独占上（见 [beforeClaim] 与 UsbOutputSink.runTakeover）。故这里只交出"取设备"这件事
+        // 接管交给写出侧，只有它能同一趟改道
         beforeClaim { claimNow(manager, device) }
     }
 
     /**
-     * 真正取设备。跑在写出侧那条线程上，故交棒期间状态可能已变（开关被关掉、另一次接管已成立），
-     * 一律在此复核；取不到即如实发布"等待设备"，不重试（见 [openClaim] 的失败口径）。
+     * 真正取设备，跑在写出侧线程，故复核状态。
      */
     @Synchronized
     private fun claimNow(manager: UsbManager, device: UsbDevice) {
         if (!enabled || claim != null) return
         val opened = UsbExclusiveDac.open(manager, device)
         if (opened == null) {
-            // 接管失败不重试：同一原因反复接管只会反复解开又挂回内核驱动，比不接管更糟。
-            // 等下一次开关或拔插再试；失败原因由 UsbExclusiveDac 在异常日志里给出
+            // 失败不重试，反复解挂比不接管更糟
             publish(UsbExclusiveState.AwaitingDevice)
             return
         }
@@ -258,8 +221,7 @@ internal class UsbExclusiveOutput(
 
     private fun requestPermission(manager: UsbManager, device: UsbDevice) {
         awaiting = device
-        // 必须显式指定包名：系统回送的意图本身不带包名，而 Android 14 起不允许可变的 PendingIntent
-        // 包裹隐式意图（直接抛 IllegalArgumentException）
+        // 须显式指定包名，可变 PendingIntent 不收隐式
         val intent = Intent(ACTION_USB_PERMISSION).setPackage(context.packageName)
         val pending = PendingIntent.getBroadcast(
             context,
@@ -292,10 +254,8 @@ internal class UsbExclusiveOutput(
     }
 
     /**
-     * 接入入口已完成一次「选中即授权」：系统在选择框里授予的权限不发广播，只能由入口在拉起界面后补一声。
-     *
-     * 这里允许补发授权框：正常路径下权限已随选择框落定，不会再弹；万一系统未授予，这一次就是用户
-     * 该看到的那个框，而不是在选择框还开着的时候叠一个出来。
+     * 接入入口完成「选中即授权」，补一声。
+     * 万一未授予，这次就补发授权框。
      */
     @Synchronized
     private fun onAttachConfirmed() {
@@ -307,7 +267,7 @@ internal class UsbExclusiveOutput(
     private fun onDeviceDetached(intent: Intent) {
         val device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java) ?: return
         val current = claim ?: return
-        // 拔出的可能是另一台设备，只有手里的那台走了才作废会话
+        // 只有手里那台拔出才作废会话
         if (current.device.deviceName != device.deviceName) return
         suspendedForFocus = false
         releaseClaim()
@@ -315,15 +275,13 @@ internal class UsbExclusiveOutput(
     }
 
     /**
-     * 写出侧报告链路已失效（等时流终止或设备失联）。
-     *
-     * 归还设备并回到"等待设备"，**不立即重接管**：同一台设备在故障之后立刻再接管一次多半还是同样的
-     * 结果，而每一次接管都要把内核驱动解开再挂回，比干脆不接管更糟。等重新插拔或用户重开开关再试。
+     * 写出侧报告链路失效，归还并回到等待设备。
+     * 故障后立刻重接管多半同样失败。
      */
     @Synchronized
     fun onStreamFailed() {
         if (claim == null) return
-        // 链路已坏，不再算「因失焦让出」：重获焦点时不该把一条刚失败的链路又接管回来
+        // 链路已坏，不因失焦收回
         suspendedForFocus = false
         releaseClaim()
         publish(UsbExclusiveState.AwaitingDevice)
@@ -342,11 +300,8 @@ internal class UsbExclusiveOutput(
 }
 
 /**
- * 告知独占路径：接入入口刚完成一次「选中即授权」，可以接管了。
- *
- * 这条通知只在入口拉起界面之后发出，即用户已经答过系统的选择框——权限那一刻已经落定，补一次尝试
- * 不会再多出弹窗。独占路径未运行（开关关着或服务未起）时这声没有听众，那种情况下接管由开关自己的
- * 首次尝试完成。
+ * 告知独占路径：入口刚完成「选中即授权」。
+ * 权限已落定，补一次不会多弹窗。
  */
 internal fun Context.notifyUsbAttachConfirmed() {
     sendBroadcast(Intent(ACTION_USB_ATTACH_CONFIRMED).setPackage(packageName))

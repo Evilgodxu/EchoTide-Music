@@ -6,7 +6,7 @@ import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.AppDialog
 import com.yichao.evilgodxu.ui.component.DialogOption
 
-// 代理音源导入方式选择对话框：本地/链接/文本
+// 导入方式：本地/链接/文本
 @Composable
 fun ProxySourceImportDialog(
     onDismiss: () -> Unit,

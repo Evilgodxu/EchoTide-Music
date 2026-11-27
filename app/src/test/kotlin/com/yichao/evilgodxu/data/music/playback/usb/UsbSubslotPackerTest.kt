@@ -11,16 +11,11 @@ import org.junit.Test
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/**
- * 子槽打包。
- *
- * 判据是**逐字节**的：这类变换写错一位不会报错，只会让声音轻一点、噪一点，听感上很难判定对错。
- * 故这里直接把左对齐 32 位的给定值打进各档子槽核对输出字节，而不是只验证"长度对得上"。
- */
+/** 逐字节核对各档子槽的打包结果 */
 @OptIn(UnstableApi::class)
 class UsbSubslotPackerTest {
 
-    // 左对齐 32 位下子槽取的是高字节：子槽 3 丢掉最低字节 0x78，子槽 2 再丢 0x56
+    // 左对齐取高字节：子槽 3 丢 0x78
     @Test
     fun `子槽保留最高有效字节`() {
         assertArrayEquals(bytes(0x78, 0x56, 0x34, 0x12), subslot(0x12345678, 4))
@@ -33,12 +28,11 @@ class UsbSubslotPackerTest {
     @Test
     fun `负样本保持补码`() {
         assertArrayEquals(bytes(0x00, 0x00, 0x00, 0x80), subslot(Int.MIN_VALUE, 4))
-        // -0x1000 正好落在 24 位 LSB 的整数倍上，取整不动它
+        // -0x1000 为 LSB 整数倍，取整不动
         assertArrayEquals(bytes(0xF0, 0xFF, 0xFF), subslot(-0x1000, 3))
     }
 
-    // 丢低位是四舍五入而不是向下取整：半个 LSB 进位，不足半个不进位。
-    // 24 位子槽的半个 LSB 在左对齐 32 位下是 0x80——右移会把它抹掉，误差整体偏向负侧
+    // 丢低位用四舍五入，半个 LSB 在 0x80
     @Test
     fun `丢低位按目标子槽四舍五入`() {
         assertArrayEquals(bytes(0x00, 0x00, 0x00), subslot(0x7F, 3))
@@ -47,9 +41,7 @@ class UsbSubslotPackerTest {
         assertArrayEquals(bytes(0xFF, 0xFF, 0xFF), subslot(-0x81, 3))
     }
 
-    // 窄源在宽槽里才留得住深衰减的细节：16 位源的最低位经 1/4 幅度衰减后只剩 0.25 个 LSB16，
-    // 24 位槽里它仍是 64（256 个量化级取得到），16 位槽里只能整段量化成 0。
-    // 这正是 planUsbOutput 给窄源留 8 位余量的理由
+    // 窄源进宽槽才留得住深衰减细节
     @Test
     fun `深衰减的细节在更宽的子槽中保留`() {
         assertArrayEquals(
@@ -62,7 +54,7 @@ class UsbSubslotPackerTest {
         )
     }
 
-    // 16 位源放进 16 位槽：一位不动。左移补零成 32 位后再取高两字节，恰好还原原值
+    // 16 位进 16 位槽，逐位不动
     @Test
     fun `16 位源在 16 位子槽中原样通过`() {
         val output = pack(byteBuffer(0x00, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 2)
@@ -70,7 +62,7 @@ class UsbSubslotPackerTest {
         assertArrayEquals(bytes(0x00, 0x40), output)
     }
 
-    // 同一个 16 位源放进更宽的槽：有效位仍在高位、低位补零，依旧逐位无损
+    // 进更宽槽仍逐位无损
     @Test
     fun `16 位源在更宽子槽中零填充`() {
         assertArrayEquals(
@@ -83,7 +75,7 @@ class UsbSubslotPackerTest {
         )
     }
 
-    // 24 位源放进 24 位槽是最常见的搭配：值必须原样保留
+    // 24 位进 24 位槽须原样保留
     @Test
     fun `24 位源在三字节子槽中原样通过`() {
         val output = pack(byteBuffer(0x44, 0xAC, 0x00), C.ENCODING_PCM_24BIT, subslotBytes = 3)
@@ -91,7 +83,7 @@ class UsbSubslotPackerTest {
         assertArrayEquals(bytes(0x44, 0xAC, 0x00), output)
     }
 
-    // 缓冲长度不是样本整数倍时余数须被消费掉，否则同一缓冲会反复读出同样的余数而卡住
+    // 余数须消费，否则卡住
     @Test
     fun `剩余字节被消费并上报`() {
         val source = byteBuffer(0x00, 0x40, 0x7F)
@@ -104,7 +96,7 @@ class UsbSubslotPackerTest {
         assertEquals(2, output.position())
     }
 
-    // 样本按交错顺序逐个处理，不按帧整体搬：多声道下每个样本各自落到自己的槽里
+    // 逐样本交错处理，各入其槽
     @Test
     fun `交错顺序逐样本保持`() {
         val output = pack(byteBuffer(0x10, 0x20, 0x30, 0x40), C.ENCODING_PCM_16BIT, subslotBytes = 2)
@@ -112,7 +104,7 @@ class UsbSubslotPackerTest {
         assertArrayEquals(bytes(0x10, 0x20, 0x30, 0x40), output)
     }
 
-    // 与 media3 自身的读写约定对齐：源样本先经它读成左对齐 32 位，再取高字节
+    // 经 media3 读成左对齐 32 位
     @Test
     fun `打包与 media3 的左对齐约定一致`() {
         val source = byteBuffer(0xFF, 0x7F)
@@ -121,7 +113,7 @@ class UsbSubslotPackerTest {
         assertArrayEquals(bytes(0xFF, 0x7F), subslot(asInt, 2))
     }
 
-    // 满幅音量不得动到任何一个字节：独占直出的价值就在于原样送出
+    // 满幅不动任何字节
     @Test
     fun `增益为 1 时位精确`() {
         assertArrayEquals(
@@ -130,7 +122,7 @@ class UsbSubslotPackerTest {
         )
     }
 
-    // 半幅：左对齐 32 位下的取值恰好减半，取高字节后也跟着减半
+    // 半幅取值减半
     @Test
     fun `音量把样本减半`() {
         assertArrayEquals(
@@ -139,7 +131,7 @@ class UsbSubslotPackerTest {
         )
     }
 
-    // 零音量即静音：整段输出全零，不留残值
+    // 零音量整段全零
     @Test
     fun `音量为零时样本静音`() {
         assertArrayEquals(
@@ -148,7 +140,7 @@ class UsbSubslotPackerTest {
         )
     }
 
-    // 超过满幅的音量一律按满幅处理：放大没有意义，而越过整型边界会变成削顶失真
+    // 超满幅按满幅，防削顶
     @Test
     fun `超过 1 的增益钳制而非削波`() {
         assertArrayEquals(
@@ -157,8 +149,7 @@ class UsbSubslotPackerTest {
         )
     }
 
-    // 满幅负值在任何音量下都不该翻正：移位必须保持补码语义
-    // 源 0xC000（16 位补码 -16384）半幅即 -8192，落在 16 位槽里是 0xE000
+    // 满幅负值不翻正，移位保持补码
     @Test
     fun `负样本在音量下仍为负`() {
         assertArrayEquals(
@@ -167,7 +158,7 @@ class UsbSubslotPackerTest {
         )
     }
 
-    // 定点增益的边界取值：满幅及以上一律满幅，负音量按零处理
+    // 满幅及以上取满幅，负音量取零
     @Test
     fun `增益编码覆盖边界值`() {
         assertEquals(UNITY_GAIN_Q15, volumeToGainQ15(1f))
@@ -177,7 +168,7 @@ class UsbSubslotPackerTest {
         assertEquals(UNITY_GAIN_Q15 / 2, volumeToGainQ15(0.5f))
     }
 
-    // 起止增益相同即整段等增益：音量没变时斜坡不该掺进来，逐字节与单增益的写法一致
+    // 起止相同即整段等增益
     @Test
     fun `增益相等时不产生渐变`() {
         assertArrayEquals(
@@ -191,8 +182,7 @@ class UsbSubslotPackerTest {
         )
     }
 
-    // 斜坡的两端：首样本正在起始增益上，末样本正好落在目标增益上——末样本差一点，下一块缓冲就会
-    // 重新起一个台阶，那正是斜坡要消掉的东西
+    // 首样本在起始增益，末样本恰在目标
     @Test
     fun `渐变从起点开始且精确落在目标`() {
         val samples = 5
@@ -208,13 +198,13 @@ class UsbSubslotPackerTest {
             gainToQ15 = UNITY_GAIN_Q15,
         )
 
-        // 首样本：0x7FFF 半幅即 16383.5，落到 16 位 LSB 上是半个 LSB，四舍五入进位为 16384
+        // 半幅 16383.5 进位 16384
         assertEquals(16384, shortAt(output, 0))
-        // 末样本：目标增益是满幅，样本一位不动
+        // 末样本满幅，一位不动
         assertEquals(32767, shortAt(output, samples - 1))
     }
 
-    // 斜坡逐样本单调不减：中途回头会听成一次抖动
+    // 逐样本单调不减
     @Test
     fun `渐变单调`() {
         val samples = 16
@@ -234,7 +224,7 @@ class UsbSubslotPackerTest {
         assertEquals(values.sorted(), values)
     }
 
-    // 坡度是逐样本插值而不是首样本就用目标值：第二个样本必须仍在起始与目标之间
+    // 逐样本插值，第二个仍在中间
     @Test
     fun `渐变逐样本插值`() {
         val samples = 3
@@ -251,12 +241,12 @@ class UsbSubslotPackerTest {
         )
 
         assertEquals(0, shortAt(output, 0))
-        // 半幅：16383.5 落在半个 LSB 上，四舍五入进位
+        // 16383.5 进位
         assertEquals(16384, shortAt(output, 1))
         assertEquals(32767, shortAt(output, samples - 1))
     }
 
-    // 斜坡下负样本仍不翻正：缩放一律按补码语义
+    // 负样本不翻正，按补码缩放
     @Test
     fun `渐变保持负样本为负`() {
         val samples = 4
@@ -275,8 +265,7 @@ class UsbSubslotPackerTest {
         assertTrue((0 until samples).all { shortAt(output, it) < 0 })
     }
 
-    // 定长斜坡只在前 N 个样本内走完：第 N 个样本已在目标增益上，其后一律目标增益。
-    // 起播渐入靠的正是这一条——按整块均分会把 5ms 的渐入摊到几十毫秒，听感从"起音"变成"淡入"
+    // 定长斜坡只在前 N 个样本走完
     @Test
     fun `定长斜坡在指定样本数内走完`() {
         val samples = 8
@@ -295,13 +284,13 @@ class UsbSubslotPackerTest {
 
         val values = (0 until samples).map { shortAt(output, it) }
         assertEquals(0, values[0])
-        // 半幅：0x7FFF 的 32 位左对齐值乘 0.5 是 16383.5，四舍五入进位为 16384
+        // 乘 0.5 得 16383.5 进位
         assertEquals(16384, values[1])
-        // 第 3 个样本（下标 2）即落在目标上，此后不再变化
+        // 下标 2 即到目标
         assertTrue(values.drop(2).all { it == 32767 })
     }
 
-    // 定长斜坡给 0 即不渐变：直接以目标增益写出，对应"跳转之后硬起"那一路
+    // 给 0 即不渐变
     @Test
     fun `定长斜坡为零时直接取目标增益`() {
         val samples = 4
@@ -345,7 +334,7 @@ class UsbSubslotPackerTest {
         gainToQ15: Int = gainFromQ15,
         rampSamples: Int = RAMP_WHOLE_BLOCK,
     ): ByteArray {
-        // 容量按最坏情况给足：每个源字节最多产出一个输出字节
+        // 按最坏情况每个源字节一字节
         val output = ByteBuffer.allocate(source.remaining() * subslotBytes).order(ByteOrder.nativeOrder())
         packToSubslot(source, output, encoding, subslotBytes, gainFromQ15, gainToQ15, rampSamples)
         val written = ByteArray(output.position())

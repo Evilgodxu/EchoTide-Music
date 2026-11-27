@@ -21,8 +21,7 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// 本地音乐扫描器（基于 MediaStore）：无共享可变状态。
-// 封面不在扫描期产出：显示端按需取系统略缩图或文件内嵌封面（仅当前曲目的一张缩略图落盘，见 CurrentCoverCache）
+// 本地音乐扫描器，无共享状态；封面按需取，不在扫描期产出
 object MusicScanner {
 
     suspend fun fromUri(context: Context, uri: Uri): MusicTrack? = withContext(Dispatchers.IO) {
@@ -35,7 +34,7 @@ object MusicScanner {
                 ?.takeIf { it.isNotBlank() } ?: segment.ifBlank { context.getString(R.string.music_scanner_external_music) }
             var artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
                 ?.takeIf { it.isNotBlank() } ?: unknownArtist
-            // 外部音频同样可能是平台读不到标签的容器（WAV 等），此时标题取自路径末段，改读文件内嵌标签
+            // 平台读不到标签时改读文件内嵌标签
             if (EmbeddedTagBackfill.isPlatformTagMissing(title, artist, segment.substringBeforeLast('.'), unknownArtist)) {
                 MusicEmbeddedTagReader.read(context, "", uri.toString())?.let { embedded ->
                     title = embedded.title?.takeIf { it.isNotBlank() } ?: title
@@ -44,7 +43,7 @@ object MusicScanner {
             }
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
-            // 用 64 位稳定哈希生成外部音频 id，降低不同 URI 的碰撞概率
+            // 64 位稳定哈希生成 id，降低碰撞
             val hash = stableIdFromString(uri.toString())
             val id = if (hash == Long.MIN_VALUE) Long.MAX_VALUE else -kotlin.math.abs(hash)
             val trackId = if (id == 0L) -1L else id
@@ -69,14 +68,11 @@ object MusicScanner {
         }
     }
 
-    // 从 MediaStore 游标读基础元数据；封面延迟加载，不在扫描期打开文件——
-    // 逐曲读文件会让耗时随曲库规模线性增长，标签补全改由刷新编排按需执行（见 EmbeddedTagBackfill）
+    // 从 MediaStore 读基础元数据；不逐曲打开文件
     suspend fun scan(context: Context): List<MusicTrack> = withContext(Dispatchers.IO) {
         val tracks = mutableListOf<MusicTrack>()
         val contentResolver = context.contentResolver
-        // 空库的成因有两条完全不同的路：授权没到位（查询静默返回空游标，不抛异常）与
-        // 库内确实没有符合口径的条目。两者在结果上都是空列表，故在此统计一轮剔除量，
-        // 为空时留一条可判读的记录——否则这条链路上再没有别的痕迹
+        // 空库可能是缺授权或确无条目，统计剔除量留痕
         var rawRows = 0
         var droppedByPath = 0
         var droppedByExtension = 0
@@ -118,7 +114,7 @@ object MusicScanner {
                         droppedByPath++
                         continue
                     }
-                    // 装载不了就播不出声，留着只在曲库里添乱
+                    // 无法装载即无法播放，直接排除
                     if (!hasSupportedAudioExtension(path)) {
                         droppedByExtension++
                         continue
@@ -136,7 +132,7 @@ object MusicScanner {
                     val duration = if (durationIdx >= 0) cursor.getLong(durationIdx) else 0L
                     val albumId = if (albumIdIdx >= 0) cursor.getLong(albumIdIdx) else 0L
                     val albumName = if (albumNameIdx >= 0) cursor.getString(albumNameIdx).orEmpty() else ""
-                    // DATE_MODIFIED 以秒为单位，统一转为毫秒供排序使用
+                    // DATE_MODIFIED 为秒，转毫秒供排序
                     val modifiedMs = if (modifiedIdx >= 0) cursor.getLong(modifiedIdx) * 1000L else 0L
                     tracks.add(
                         MusicTrack(
@@ -157,7 +153,7 @@ object MusicScanner {
             queryFailed = true
             CrashLogManager.logException("MusicScanner", "扫描本地音乐失败", e)
         }
-        // 仅在查询本身没出错时记：查询已失败的情况上面那条记录即现场，不复述第二遍
+        // 仅查询未失败时记录，避免重复
         if (!queryFailed && tracks.isEmpty()) {
             CrashLogManager.logException(
                 "MusicScanner",
@@ -171,11 +167,8 @@ object MusicScanner {
     }
 
     /**
-     * 曲库签名：实际会入库的曲目数 + MediaStore 代次。
-     *
-     * 代次由平台维护，任何条目新增、修改或删除都会推进；只看数量与最大修改时间会漏掉
-     * 「数量不变、中间某首被改」的情况。计数按与 [scan] 相同的过滤口径统计，
-     * 否则签名与入库数量天然对不上，冷启动会次次判定需要全扫。
+     * 曲库签名：入库曲目数 + MediaStore 代次
+     * 计数须与 scan 同口径，否则冷启动反复全扫
      */
     suspend fun signature(context: Context): String? = withContext(Dispatchers.IO) {
         runCatching {
@@ -195,7 +188,7 @@ object MusicScanner {
                 }
                 accepted
             } ?: return@runCatching null
-            // 所有外部卷的代次之和：曲目可能位于 SD 卡，单看主卷会漏掉那边的增删改
+            // 所有外部卷代次之和，含 SD 卡
             val generation = MediaStore.getExternalVolumeNames(context)
                 .sumOf { volume -> MediaStore.getGeneration(context, volume) }
             "$count:$generation"
@@ -203,39 +196,35 @@ object MusicScanner {
     }
 }
 
-// 曲库口径：扫描与签名同源，两者判定不一致会让冷启动反复重扫或漏扫
+// 扫描与签名同源，避免反复重扫
 private val MUSIC_SELECTION =
     "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DURATION} >= 30000"
 
-// 音频文件路径片段标记：命中即视为应用程序资源/解压包音频（如游戏资源包音效）
+// 命中即视为应用资源或解压包音频
 private val NON_MUSIC_PATH_MARKERS = listOf(
-    "/resource_packs/", // 游戏资源包（材质/声音包）
-    "/apks/",           // APK 反编译/解压目录
+    "/resource_packs/", // 游戏资源包
+    "/apks/",           // APK 解压目录
 )
 
 private fun isNonMusicPath(path: String): Boolean =
     path.isNotBlank() && NON_MUSIC_PATH_MARKERS.any { marker -> path.contains(marker, ignoreCase = true) }
 
-// 曲库白名单：判据是 media3 的提取器表——没有提取器的容器（APE、DSD 的 .dsf/.dff、WMA 等）
-// 连媒体项都装载不了，故在扫描期即排除。扩展名取自 MediaStore 的 DATA 路径，无扩展名者一并排除
+// 白名单外的容器无提取器，扫描期即排除
 private val SUPPORTED_AUDIO_EXTENSIONS = setOf(
     "mp3", "mpeg", "flac", "wav", "wave",
     "m4a", "m4b", "mp4", "aac", "alac", "3gp",
     "ogg", "oga", "opus", "mka", "webm", "amr",
 )
 
-// 路径扩展名是否属于曲库白名单。先取最后一段路径再取扩展名：目录名里可能带点号，
-// 直接对整条路径做 substringAfterLast('.') 会把目录误当扩展名
+// 先取路径末段再取扩展名，避免目录名误判
 private fun hasSupportedAudioExtension(path: String): Boolean =
     path.substringAfterLast('/').substringAfterLast('.', "").lowercase() in SUPPORTED_AUDIO_EXTENSIONS
 
-// 授权态只用于为空库留痕时区分成因：缺授权时平台返回空游标而不抛异常，
-// 与「库内确实没有曲目」在结果上无从分辨
+// 缺授权时返回空游标，需据此区分成因
 private fun isAudioReadGranted(context: Context): Boolean =
     context.checkSelfPermission(Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
 
-// 不带口径的条目数：区分「系统索引里就没有音频」与「有音频但被 IS_MUSIC/时长口径全挡掉」，
-// 两者对排查指向的方向完全不同，而扫描本身只看得见后者之后的结果
+// 不带口径的条目数，用于区分空库成因
 private fun countAudioRows(context: Context): Int = runCatching {
     context.contentResolver.query(
         MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
@@ -246,8 +235,7 @@ private fun countAudioRows(context: Context): Int = runCatching {
     )?.use { it.count } ?: 0
 }.getOrDefault(0)
 
-// 解析音频 URI 对应的本地文件真实路径，用于跨 URI 形态识别同一文件：
-// 同一文件可能以 MediaStore 行、SAF 文档 URI、直路文件路径等多种形态出现
+// 解析真实文件路径，跨 URI 形态识别同一文件
 internal fun resolveLocalPath(context: Context, audioUri: String): String? {
     if (audioUri.isBlank()) return null
     val uri = audioUri.toUri()
@@ -280,7 +268,7 @@ internal fun resolveLocalPath(context: Context, audioUri: String): String? {
     }.getOrNull()
 }
 
-// 归一化音频 URI：统一 scheme 大小写并去除查询参数/片段，作为兜底去重键
+// 归一化 URI 作兜底去重键
 internal fun normalizedAudioUri(audioUri: String): String =
     audioUri.toUri()
         .normalizeScheme()
@@ -290,8 +278,7 @@ internal fun normalizedAudioUri(audioUri: String): String =
         .build()
         .toString()
 
-// 曲目去重键：优先真实文件路径，跨 SAF/MediaStore/直路路径等 URI 形态识别同一文件；
-// 无本地路径时回退归一化 URI
+// 去重键：优先真实路径，无路径回退归一化 URI
 internal fun trackIdentityKey(context: Context, track: MusicTrack): String {
     val realPath = track.path.takeIf { it.isNotBlank() }
         ?: resolveLocalPath(context, track.audioUri)

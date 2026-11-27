@@ -41,27 +41,20 @@ import com.yichao.evilgodxu.theme.SystemBarAppearance
 import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 import kotlinx.coroutines.delay
 
-/**
- * 应用根容器：播放页是常驻底层，设置/频谱/元数据作为覆盖层从右侧滑入、滑出。
- *
- * 不做「整页替换」是有意为之：替换式转场在退场时要把播放页重新组合出来，
- * 首帧开销会把退出动画整段吃掉，观感就是页面瞬间关闭；分层式里播放页始终是画好的，
- * 退场只是把上层滑走。
- */
+/** 应用根容器：播放页常驻底层，覆盖层自右滑入滑出 */
 @Composable
 fun AppRoot(
     modifier: Modifier = Modifier,
     onExit: () -> Unit,
 ) {
-    // 覆盖层的入口都在播放页内，同一时刻只会有一个
+    // 同一时刻只有一个覆盖层
     var overlay by rememberSaveable { mutableStateOf<AppDestination?>(null) }
     val context = LocalContext.current
     val playbackState = LocalPlaybackState.current
-    // 覆盖层关闭即为播放页回到顶层。系统栏沉浸由它驱动：若等到播放页组合重建才撤销，
-    // 沉浸状态会在切换动画期间残留，使目标页标题栏先按零内边距嵌入状态栏区域、再整体下移
+    // 关闭即回顶层；沉浸须即时撤销，否则标题栏先嵌入再下移
     val isHomeOnTop = overlay == null
     val isPortrait = !rememberWindowLandscape()
-    // 冷启动首帧直接落到位，不参与下面的延后逻辑
+    // 首帧直接落位，不延后
     var systemBarsSettled by remember { mutableStateOf(false) }
     LaunchedEffect(isHomeOnTop, isPortrait) {
         val immersive = isHomeOnTop && isPortrait
@@ -70,22 +63,17 @@ fun AppRoot(
             systemBarsSettled = true
             return@LaunchedEffect
         }
-        // 覆盖层退出期间若收系统栏，滑出的上层与底下的播放页会同时经历一次
-        // 内边距突变（状态栏/导航栏高度瞬间归零），观感像画面撕裂；故把「回到播放页」
-        // 的沉浸切换延后到转场结束。打开覆盖层仍立即显示系统栏，避免目标页标题栏
-        // 先按零内边距布局再整体下移。
+        // 回播放页的沉浸切换延后到转场结束，避免内边距突变撕裂
         if (immersive) delay(AppMotion.Standard.toLong())
         SystemBarAppearance.isHomePortraitImmersive = immersive
     }
-    // LocalContext 已被本地化包装，宿主 Activity 需从注册表所有者获取
+    // Context 已本地化，Activity 从注册表所有者取
     val activity = LocalActivityResultRegistryOwner.current as? Activity
-    // 预取提示文案，配置变化时由 Compose 自动更新，避免在回调中读取过期资源
+    // 预取文案，避免回调读过期资源
     val goHomeHint = stringResource(R.string.back_again_go_home)
     val exitHint = stringResource(R.string.back_again_exit)
 
-    // 返回优先级由注册顺序自然决定：本回调在页面内容之前注册，故优先级最低。
-    // 覆盖层打开时页面自身的返回处理都让出，这里直接关覆盖层；回到播放页后，
-    // 页内层级（搜索、歌单）各自的 BackHandler 会先接管，都没接管才轮到双击退出
+    // 本回调最早注册故优先级最低；页面未处理才轮到这里
     var lastHomeBackTime by remember { mutableLongStateOf(0L) }
     BackHandler {
         if (overlay != null) {
@@ -95,7 +83,7 @@ fun AppRoot(
         val now = System.currentTimeMillis()
         if (now - lastHomeBackTime < DOUBLE_BACK_EXIT_MS) {
             if (playbackState.isPlayerActive) {
-                // 播放中：返回桌面，保留后台播放与迷你播放器
+                // 播放中则退到桌面，保留后台播放
                 activity?.moveTaskToBack(true)
             } else {
                 playbackState.releaseIfIdle()
@@ -109,7 +97,7 @@ fun AppRoot(
         }
     }
 
-    // 与页内层级（设置页、播放列表下钻）同速整宽位移，避免两处观感不一
+    // 与页内层级同速整宽位移
     val pageTransitionSpec = tween<IntOffset>(AppMotion.Standard)
     Box(modifier = modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalIsTopLayer provides (overlay == null)) {
@@ -122,8 +110,7 @@ fun AppRoot(
         AnimatedContent(
             targetState = overlay,
             modifier = Modifier.fillMaxSize(),
-            // 进入：覆盖层自右整宽滑入，底层播放页保持不动；
-            // 退出：只把覆盖层向右滑走，播放页始终是已经画好的
+            // 进入自右滑入；退场只滑走覆盖层
             transitionSpec = {
                 if (targetState != null) {
                     slideInHorizontally(animationSpec = pageTransitionSpec) { it } togetherWith
@@ -138,15 +125,14 @@ fun AppRoot(
             if (destination != null) {
                 OverlayPage(destination = destination, onBack = { overlay = null })
             } else {
-                // 无覆盖层时留空：底下的播放页自己显示
+                // 留空，底层播放页自显
                 Box(Modifier.fillMaxSize())
             }
         }
     }
 }
 
-// 覆盖层页面：每次打开给一份独立的 ViewModelStore，关闭即清空，
-// 与原「页面级 ViewModel 随导航条目回收」的生命周期一致，重进总是新实例
+// 每次打开一份独立 ViewModelStore，关闭即清空
 @Composable
 private fun OverlayPage(
     destination: AppDestination,

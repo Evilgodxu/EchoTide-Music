@@ -49,12 +49,7 @@ import com.yichao.evilgodxu.ui.component.scrollPlaylistTo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/**
- * 展开后的播放列表。
- *
- * 迷你播放器窗口只有紧凑条的宽度，故行内只留封面、歌名与歌手，不挂收藏/稍后再听这类次级操作——
- * 那些属于应用内的歌单页。点击即切歌，列表自行跟随当前曲目。
- */
+/** 展开后的播放列表：窄列只留封面、歌名与歌手；点击即切歌 */
 @Composable
 internal fun MiniPlayerPlaylist(
     playbackState: MusicPlaybackState,
@@ -63,10 +58,10 @@ internal fun MiniPlayerPlaylist(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    // 展开即定位一次：本列表仅在展开时进入组合，故首次组合等同于展开
+    // 首次组合即展开，仅居中一次
     val pendingCenter = remember { mutableStateOf(true) }
 
-    // 展开时当前曲目滚至列表中央；切歌后仅当当前项不在可视区才滚动过去，避免反复滚动
+    // 展开居中当前曲目；切歌仅在不可见时滚动
     LaunchedEffect(playbackState.currentTrack?.id) {
         val index = playbackState.currentIndex
         if (index < 0 || playbackState.playlist.isEmpty()) return@LaunchedEffect
@@ -76,11 +71,11 @@ internal fun MiniPlayerPlaylist(
             return@LaunchedEffect
         }
         pendingCenter.value = false
-        // 窗口高度正在补间，视口未定；等动画结束后再居中，否则偏移按中途视口算出会偏位
+        // 等高度补间结束再居中，否则偏移偏位
         delay(MINI_PLAYLIST_ANIM_MS)
         listState.scrollPlaylistTo(target, forceCenter = true)
     }
-    // 封面提前取图：窄列里一屏也有十余行，滚动进入视口时不再先闪占位符
+    // 提前取图，避免滚动时闪占位符
     CoverPrefetch(listState) { index -> playbackState.playlist.getOrNull(index) }
 
     LazyColumn(
@@ -105,11 +100,10 @@ internal fun MiniPlayerPlaylist(
     }
 }
 
-// 列表顶边渐隐蒙层：列表视口紧贴控制栏，行在顶边被硬裁会像被切断，故按平滑曲线把顶边淡出。
-// 蒙层由 saveLayer 限定在本节点内，DstIn 只作用于列表内容，不波及控制栏与卡片底色
+// 顶边渐隐；saveLayer 限定只作用于列表内容
 private fun Modifier.topFadeMask(): Modifier = drawWithCache {
     val band = MINI_PLAYLIST_TOP_FADE_DP.dp.toPx()
-    // DstIn 只取蒙层的透明度，RGB 不参与合成，实色段用黑色即可
+    // DstIn 只取透明度，实色用黑
     val brush = edgeFadeInBrush(
         color = Color.Black,
         end = if (size.height > 0f) (band / size.height).coerceIn(0f, 1f) else 0f,
@@ -122,7 +116,7 @@ private fun Modifier.topFadeMask(): Modifier = drawWithCache {
     }
 }
 
-// 列表行：当前曲目以强调色与底色标出，其余行沿用常规文本色
+// 当前曲目以强调色与底色标出
 @Composable
 private fun MiniPlayerPlaylistRow(
     track: MusicTrack,

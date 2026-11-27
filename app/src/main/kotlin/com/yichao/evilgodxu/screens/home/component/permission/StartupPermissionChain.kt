@@ -19,13 +19,7 @@ private const val REQUEST_AUDIO = "startup_audio"
 private const val REQUEST_NOTIFICATION = "startup_notification"
 private const val REQUEST_ALL_FILES = "startup_all_files"
 
-/**
- * 启动期的三段授权，按「音频 → 通知 → 全部文件」串行推进。
- *
- * 每一项只在缺它时才弹，且每轮启动最多问一次：用户拒绝后不追问，下次冷启动重走一条链，
- * 期间各写操作触发点会就地再申请。音频是唯一的前提——没有它读不到曲目；通知服务于「能正常听」；
- * 全部文件排在最后，写回音频标签与封面才需要它，不该挡在能听歌之前。
- */
+/** 三段授权串行：音频→通知→全部文件，每轮至多一次 */
 @Composable
 internal fun StartupPermissionChain(
     mediaAudioGranted: Boolean,
@@ -47,18 +41,18 @@ internal fun StartupPermissionChain(
     ) {
         stage = STAGE_ALL_FILES
     }
-    // 授权页返回即收束本链：无论用户是否拨开开关，都不再追问同一次启动
+    // 从授权页返回即结束本链，不再追问
     val requestAllFilesAccess = rememberAllFilesAccessRequest { stage = STAGE_DONE }
 
     LaunchedEffect(stage, mediaAudioGranted) {
         when (stage) {
             STAGE_AUDIO -> stage = when {
-                // 状态流可能落后于系统实况，故两处都认：已授权就不必再弹一次系统窗
+                // 状态流可能滞后，已授权就不再弹窗
                 mediaAudioGranted || permissionMonitor.isMediaAudioGranted() -> {
                     onAudioGranted()
                     STAGE_NOTIFICATION
                 }
-                // 本轮已问过仍缺：不再重复弹系统窗，直接推进，交由首页空态承担
+                // 本轮已问过仍缺：跳过弹窗，交首页空态
                 !markRequested(REQUEST_AUDIO) -> STAGE_NOTIFICATION
                 else -> {
                     audioLauncher.launch(mediaAudioPermission())

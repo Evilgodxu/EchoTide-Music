@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.AppDialog
 
-// 代理音源导入输入对话框：链接单行、文本多行；底部取消/确认按钮经 buttons 槽传入
+// 导入输入框：链接单行、文本多行
 @Composable
 fun ProxySourceInputDialog(
     title: String,

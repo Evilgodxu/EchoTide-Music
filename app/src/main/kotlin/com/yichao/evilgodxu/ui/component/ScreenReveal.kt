@@ -25,18 +25,13 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.drawToBitmap
 import com.yichao.evilgodxu.log.CrashLogManager
 
-// 揭示时长：圆从圆心铺满整幅画布的用时。铺满全幅的位移量远大于元素级过渡，
-// 按常规时长（200–300ms）推进会读不出「从某点展开」的先后，故取 1500ms
+// 揭示时长 1500ms，整幅位移需可辨先后
 private const val SCREEN_REVEAL_MS = 1500
 
 private const val TAG = "ScreenReveal"
 
 /**
- * 整屏揭示：以某一圆心展开新画面，圆外仍留旧画面，换画面因此有可辨的先后次序。
- *
- * 用于主题模式切换——点击入口在对话框弹出前就知道切换会波及哪些区域，
- * 由圆心的位置把这层范围关系读出来。宿主随后取一份整屏快照，按圆形差集铺在内容之上。
- * 快照必须在内容变更前取：变更后再取到的已是新画面，就没有可对照的旧画面。
+ * 整屏揭示：以圆心展开新画面，圆外留旧快照
  */
 @Stable
 class ScreenRevealController {
@@ -48,8 +43,7 @@ class ScreenRevealController {
 }
 
 /**
- * 整屏揭示宿主：内容之上按圆形差集绘制旧画面快照——圆内露出新内容，圆外仍是旧画面。
- * 圆心与半径都在本宿主的坐标系内，[ScreenRevealController.revealAt] 传入的圆心须与之一致。
+ * 揭示宿主：圆内新内容，圆外旧快照
  */
 @Composable
 fun ScreenRevealHost(
@@ -63,9 +57,7 @@ fun ScreenRevealHost(
     val view = LocalView.current
 
     controller.request = { requested ->
-        // 视图尚未完成首次布局时无从取图，跳过本次：揭示是锦上添花，不因此中断内容变更。
-        // 快照以软件画布重绘整棵视图，层级里一旦混入硬件位图就会抛异常（显示端已收口为软件位图，
-        // 见 MusicCoverLoader.toSoftware），此处仍兜住：快照失败只是没有揭示，绝不能连累内容变更
+        // 未布局或取图失败则跳过，不影响内容变更
         if (view.width > 0 && view.height > 0) {
             val drawn = runCatching { view.drawToBitmap() }
                 .onFailure { CrashLogManager.logException(TAG, "整屏揭示取快照失败", it) }
@@ -95,8 +87,7 @@ fun ScreenRevealHost(
     }
 }
 
-// 旧画面按圆形差集绘制：只画圆外部分，圆内交给下方已就位的新内容。
-// 圆随进度以 [origin] 为圆心向外扩张，圆心到四角的最远距离即铺满整幅的终态半径
+// 只画圆外旧画面，圆内交给新内容
 private fun DrawScope.drawOldScreenOutsideReveal(bitmap: Bitmap, origin: Offset, progress: Float) {
     val radius = maxRevealRadius(origin, size.width, size.height) * progress
     val path = Path().apply {
@@ -114,7 +105,7 @@ private fun DrawScope.drawOldScreenOutsideReveal(bitmap: Bitmap, origin: Offset,
     }
 }
 
-// 圆心到画布四角的最远距离：半径取到该值时圆至少覆盖整幅画布
+// 圆心到四角最远距离，即铺满半径
 private fun maxRevealRadius(origin: Offset, width: Float, height: Float): Float = maxOf(
     origin.getDistance(),
     Offset(width, 0f).minus(origin).getDistance(),

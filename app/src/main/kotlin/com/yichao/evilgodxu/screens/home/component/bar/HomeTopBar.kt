@@ -23,7 +23,7 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 顶部标题栏：定时/收藏/横屏/设置操作；横屏悬浮时不吃系统栏内边距
+// 标题栏：定时/收藏/横屏/设置；悬浮时不吃系统栏
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun HomeTopBar(
@@ -35,9 +35,9 @@ internal fun HomeTopBar(
     onToggleLandscape: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
-    // 居中标题自定义内容：用于承载需自行排版的内容（如横屏曲名与艺术家两行）
+    // 居中标题自定义内容，如横屏两行曲名
     centerContent: (@Composable () -> Unit)? = null,
-    // 收起动画期间置为 false：控件不可见时不响应点击，避免误触
+    // 收起动画期间置 false，避免误触
     interactive: Boolean = true,
     windowInsets: WindowInsets = TopAppBarDefaults.windowInsets,
 ) {
@@ -59,7 +59,7 @@ internal fun HomeTopBar(
                             tint = Color.White,
                         )
                     }
-                    // 剩余时间叠加在按钮下方，不占布局空间，避免顶高按钮
+                    // 剩余时间叠在按钮下方，不占布局空间
                     if (playbackState.timerRemaining > 0) {
                         Text(
                             text = "${playbackState.timerRemaining}m",

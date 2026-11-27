@@ -13,22 +13,20 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * 酷狗音乐在线源：官方 song_search_v2 搜索 + trackercdn 取播放地址 + 歌词接口。
- * 歌曲标识为文件 hash 字符串，转成稳定数字 id 存入搜索结果。
- */
+// 酷狗在线源：搜索、播放地址与歌词
+// 歌曲标识为文件 hash，入库转稳定数字 id
 internal object KugouMusicApi : OnlineMusicSource {
 
-    // 列表缩略图尺寸段：封面 CDN 的 {size} 占位符支持 64/120/400/480
+    // 缩略图尺寸 120，占位符支持 64/120/400/480
     private const val COVER_THUMB_SIZE = "120"
 
-    // 歌词下载格式：krc 为逐字歌词，lrc 为逐行歌词
+    // 歌词格式：krc 逐字，lrc 逐行
     private const val KRC_FORMAT = "krc"
     private const val LRC_FORMAT = "lrc"
 
     private val KRC_MAGIC = "krc1".toByteArray(Charsets.US_ASCII)
 
-    // KRC 密文的 16 字节异或密钥，按字节循环使用
+    // KRC 16 字节异或密钥，循环使用
     private val KRC_KEY = byteArrayOf(
         0x40, 0x47, 0x61, 0x77, 0x5E, 0x32, 0x74, 0x47,
         0x51, 0x36, 0x31, 0x2D, 0xCE.toByte(), 0xD2.toByte(), 0x6E, 0x69,
@@ -47,7 +45,7 @@ internal object KugouMusicApi : OnlineMusicSource {
         }
     }
 
-    // 搜索条目字段名在不同接口间有差异，统一映射为搜索结果模型
+    // 各接口字段名有差异，统一映射为结果模型
     private fun songResult(item: JSONObject): NeteaseSongSearchResult {
         val hash = item.optString("hash").ifBlank { item.optString("FileHash") }
         val filename = item.optString("filename").ifBlank { item.optString("FileName") }
@@ -57,7 +55,7 @@ internal object KugouMusicApi : OnlineMusicSource {
             ?.takeIf { it.isNotBlank() }
             ?: item.optString("cover_url").takeIf { it.isNotBlank() }
             ?: item.optString("Image").takeIf { it.isNotBlank() }
-        // duration 为秒，timelen 为毫秒，二者取其一
+        // duration 秒、timelen 毫秒，取其一
         val durationSec = item.optString("duration").toLongOrNull()
             ?: item.optLong("Duration", 0L)
         val timelen = item.optLong("timelen", 0L)
@@ -70,7 +68,7 @@ internal object KugouMusicApi : OnlineMusicSource {
             duration = if (durationSec > 0) durationSec * 1000L else timelen,
             source = MusicSearchSource.KUGOU,
             sourceId = hash,
-            // 酷狗搜索直接给专辑名与发行日期（yyyy-MM-dd），无需再请求详情
+            // 搜索直接给专辑名与发行日期，无需详情
             album = item.optString("AlbumName").ifBlank { item.optString("album_name") }
                 .takeIf { it.isNotBlank() },
             releaseDate = item.optString("PublishDate").ifBlank { item.optString("publish_date") }
@@ -95,12 +93,8 @@ internal object KugouMusicApi : OnlineMusicSource {
         }
     }
 
-    /**
-     * 获取歌词：先按关键词/hash 搜候选，再做格式下载。
-     *
-     * 同一候选有两种下载格式：`fmt=krc` 带逐字时间轴，`fmt=lrc` 只有逐行时间轴。
-     * 酷狗对多数歌曲都备有 krc，故优先取 krc，其缺失或解密失败时回退 lrc。
-     */
+    // 获取歌词：先搜候选再按格式下载
+    // krc 带逐字，缺失或解密失败回退 lrc
     suspend fun lyricLines(result: NeteaseSongSearchResult): List<LyricLine>? = withContext(Dispatchers.IO) {
         val hash = result.sourceId ?: return@withContext null
         try {
@@ -121,12 +115,12 @@ internal object KugouMusicApi : OnlineMusicSource {
         }
     }
 
-    // 返回 null 时由调用方决定是否回退到其它格式
+    // null 时由调用方决定是否回退格式
     private fun downloadLyrics(id: String, accesskey: String, format: String): List<LyricLine>? = try {
         val url = "https://lyrics.kugou.com/download?ver=1&client=pc&id=$id&accesskey=$accesskey&fmt=$format&charset=utf8"
         val content = JSONObject(get(url)).optString("content")
         val raw = content.takeIf { it.isNotBlank() }?.let { Base64.getDecoder().decode(it) }
-        // LRC 载荷是明文，KRC 载荷是「krc1」头 + 异或 + zlib 的密文
+        // LRC 为明文；KRC 为 krc1 头+异或+zlib
         val text = when {
             raw == null -> null
             format == KRC_FORMAT -> decodeKrc(raw)
@@ -143,7 +137,7 @@ internal object KugouMusicApi : OnlineMusicSource {
         null
     }
 
-    // KRC 解密：丢弃「krc1」头后按 16 字节密钥循环异或，再 zlib 解压
+    // KRC 解密：去 krc1 头，循环异或后 zlib 解压
     private fun decodeKrc(raw: ByteArray): String? {
         if (raw.size <= KRC_MAGIC.size || !raw.copyOf(KRC_MAGIC.size).contentEquals(KRC_MAGIC)) return null
         val body = raw.copyOfRange(KRC_MAGIC.size, raw.size)
@@ -153,14 +147,14 @@ internal object KugouMusicApi : OnlineMusicSource {
         return inflateBytes(body)?.let { String(it, Charsets.UTF_8) }
     }
 
-    // 酷狗搜索结果文件名形如 "歌手 - 歌名.mp3"，无 songname 字段时从中提取歌名
+    // 无 songname 时从「歌手 - 歌名.mp3」提取歌名
     private fun titleFromFilename(filename: String): String {
         val base = filename.removeSuffix(".mp3")
         val idx = base.indexOf(" - ")
         return if (idx >= 0) base.substring(idx + 3) else base
     }
 
-    // url 字段可能是字符串也可能是数组，统一取出第一个非空值
+    // url 可能是字符串或数组，取第一个非空值
     private fun optStringOrFirst(obj: JSONObject, key: String): String? {
         val value = obj.opt(key) ?: return null
         return when (value) {
@@ -169,8 +163,8 @@ internal object KugouMusicApi : OnlineMusicSource {
         }
     }
 
-    // 封面 CDN 地址形如 http://imge.kugou.com/stdmusic/{size}/{path}：{size} 是尺寸段，
-    // 替换为具体值得到对应尺寸的缩略图，去除该段则返回原图；CDN 只发 http，统一升级为 https
+    // 封面 {size} 为尺寸段，去掉或替换得原图/缩略
+    // CDN 只发 http，统一升级为 https
     private fun originalCover(raw: String?): String? = normalizeCoverUrl(raw?.replace("/{size}/", "/"))
 
     private fun sizedCover(raw: String?, size: String): String? =

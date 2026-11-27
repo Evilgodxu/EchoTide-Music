@@ -4,31 +4,22 @@ import android.media.AudioDeviceInfo
 import androidx.media3.common.Player
 
 /**
- * 播放引擎边界。
- *
- * 服务侧只依赖本接口：传输控制、状态事件、音频轨信息与输出路由钉定；具体引擎如何把源、解码与
- * 输出装配起来不外露。当前的 [ExoPlayerEngine] 只是把媒体3 的播放器收在一处，替换引擎时不必
- * 再动服务与输出层之外的代码。
- *
- * 线程约束与媒体3 播放器一致：全部调用只在主线程发起，回调也落在主线程。
+ * 播放引擎边界：服务侧只依赖本接口，装配细节不外露。
+ * 线程约束同 media3：只在主线程发起与回调
  */
 internal interface PlaybackEngine {
-    /**
-     * 供媒体会话使用的播放器视图。
-     *
-     * 会话与音量包装都建立在它之上，故当前实现必须给出一个可用的 [Player]；会话替换后该出口随之删除。
-     */
+    /** 供媒体会话使用的播放器视图；会话与音量包装建立在它之上 */
     val sessionPlayer: Player
 
-    /** 起播意图：暂停后仍为真表示会话尚未结束，后台服务须保留等待续播 */
+    /** 起播意图：暂停后仍为真，服务须留着等续播 */
     val playWhenReady: Boolean
 
-    /** 当前是否真的在出声：起播意图成立且输出已就绪 */
+    /** 是否真的在出声：意图成立且输出就绪 */
     val isPlaying: Boolean
 
     val playbackState: EnginePlaybackState
 
-    /** 播放的原生音频属性：直出据此对齐混音器属性与输出路由 */
+    /** 原生音频属性，直出据此对齐混音器与路由 */
     val platformAudioAttributes: android.media.AudioAttributes
 
     fun setPlayWhenReady(playWhenReady: Boolean)
@@ -39,21 +30,19 @@ internal interface PlaybackEngine {
 
     fun release()
 
-    /** 把输出路由钉定到指定设备；null 解除钉定 */
+    /** 钉定输出路由；null 解除 */
     fun setPreferredAudioDevice(device: AudioDeviceInfo?)
 
     /**
-     * 曲末暂停开关。
-     *
-     * 打开后自然播完当前曲目即停在曲末、不迈入时间线上的下一项，由调用方决定接下来放什么。
-     * 插队队列非空时打开：否则引擎会先按顺序/随机迈入下一首，出声后才能被插队曲目顶掉。
+     * 曲末暂停：播完当前曲目停在曲末，不迈入下一项。
+     * 插队队列非空时打开，否则会先迈入下一首才被顶掉。
      */
     fun setHoldAtItemEnd(hold: Boolean)
 
     fun addListener(listener: EngineListener)
 }
 
-/** 引擎的播放状态，语义与媒体3 的同名状态一一对应 */
+/** 引擎播放状态，与媒体3 同名状态对应 */
 internal enum class EnginePlaybackState {
     IDLE,
     BUFFERING,
@@ -62,23 +51,21 @@ internal enum class EnginePlaybackState {
 }
 
 /**
- * 当前音频轨的只读快照。
- *
- * 只描述「这一条音频轨是否会被解码、以什么格式解码」，不含视频/字幕等组：本应用是纯音频播放，
- * 视频轨在引擎构造时就已禁用。
+ * 当前音频轨只读快照：只谈音频轨能否解码、以何格式解码。
+ * 视频轨已在引擎构造时禁用。
  */
 internal data class EngineAudioTrackInfo(
-    /** 取快照时播放器所在的项（mediaId），用于把格式记到正确的曲目名下 */
+    /** 取快照时的项 mediaId，用于把格式记到正确曲目下 */
     val currentToken: String?,
     /** 音频组内的轨道数 */
     val trackCount: Int,
-    /** 组内被选中（会被解码）的那一条的格式；null 表示整组没有选中项 */
+    /** 被选中轨的格式；null 为整组无选中项 */
     val selectedFormat: EngineAudioFormat?,
-    /** 组内 0 号轨的编码：无选中项时用来告诉用户是哪种格式没有解码器 */
+    /** 0 号轨编码：无选中时告知是哪种格式无解码器 */
     val firstTrackMimeType: String?,
 )
 
-/** 解码输入的格式取值；缺失项按媒体3 的约定为 0/NO_VALUE，由展示层跳过 */
+/** 解码输入格式；缺失项为 0/NO_VALUE，展示层跳过 */
 internal data class EngineAudioFormat(
     val mimeType: String?,
     val sampleRate: Int,
@@ -87,11 +74,7 @@ internal data class EngineAudioFormat(
     val averageBitrate: Int,
 )
 
-/**
- * 引擎事件。
- *
- * 全部带默认空实现：调用方只覆写自己关心的事件，不必为空实现留样板。
- */
+/** 引擎事件，全部带默认空实现，调用方只覆写关心的 */
 internal interface EngineListener {
     fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: PlayWhenReadyChangeReason) {}
 
@@ -99,13 +82,13 @@ internal interface EngineListener {
 
     fun onError(errorCodeName: String, message: String?, cause: Throwable?) {}
 
-    /** 音频轨组变化；null 表示播放器里已没有音频组 */
+    /** 音频轨组变化；null 表示已无音频组 */
     fun onTracksChanged(info: EngineAudioTrackInfo?) {}
 
     fun onAudioDecoderInitialized(decoderName: String) {}
 }
 
-/** 起播意图变化的原因：曲末暂停据此区别于用户主动暂停 */
+/** 起播意图变化原因：曲末暂停据此区别于用户暂停 */
 internal enum class PlayWhenReadyChangeReason {
     USER,
     END_OF_MEDIA_ITEM,

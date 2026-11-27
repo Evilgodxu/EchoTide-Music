@@ -13,7 +13,7 @@ import com.yichao.evilgodxu.data.music.analysis.isLosslessFormatName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// 蓝牙音频输出：A2DP 承载媒体音频，SCO 为通话通路，BLE 系列与助听器为低功耗音频设备
+// 蓝牙输出：A2DP、SCO、BLE 与助听器
 private val BLUETOOTH_OUTPUT_TYPES = setOf(
     AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
     AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
@@ -29,32 +29,22 @@ private val SPEAKER_OUTPUT_TYPES = setOf(
     AudioDeviceInfo.TYPE_BUILTIN_SPEAKER_SAFE,
 )
 
-// 有线通路：耳机与耳麦同为线缆接入
+// 有线通路：耳机与耳麦
 private val WIRED_OUTPUT_TYPES = setOf(
     AudioDeviceInfo.TYPE_WIRED_HEADSET,
     AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
 )
 
-// 媒体属性：路由由系统按属性判定，此处与播放器自身的属性（USAGE_MEDIA / CONTENT_TYPE_MUSIC）取同一口径
+// 媒体属性：USAGE_MEDIA + MUSIC
 private val PLAYBACK_ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
     .setUsage(AudioAttributes.USAGE_MEDIA)
     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
     .build()
 
-/**
- * 当前播放链路的信息采集。
- *
- * 只读取平台与播放器实际给出的值，读不到的项一律留空交由展示层跳过对应行，
- * 不用默认值或推测值顶替，避免把未知项展示成真实信息。
- */
+/** 当前播放链路信息采集：读不到的值留空，不用默认值顶替 */
 internal object AudioInfoCollector {
 
-    /**
-     * 采集信息快照。
-     *
-     * 播放器接口只能在创建它的线程调用（MediaController 有线程归属），故先在主线程取完
-     * 会话 ID 与传输状态，再进入 IO 采集设备信息、蓝牙设备信息与源文件大小。
-     */
+    /** 采集快照：播放器项须主线程取，设备项放 IO */
     suspend fun collect(context: Context, state: MusicPlaybackState): AudioInfoSnapshot {
         val playback = playbackSnapshot(state.player)
         return withContext(Dispatchers.IO) {
@@ -62,7 +52,7 @@ internal object AudioInfoCollector {
             val outputs = runCatching {
                 audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
             }.getOrNull().orEmpty().toList()
-            // 先定出输出设备：设备侧速率按路由取值（蓝牙走编码速率），故它要先于快照求得
+            // 先定出输出设备，设备侧速率按路由取
             val device = currentOutputDevice(context, audioManager, state, outputs)
             AudioInfoSnapshot(
                 sourcePath = sourcePath(state),
@@ -101,12 +91,7 @@ internal object AudioInfoCollector {
         }
     }
 
-    /**
-     * 只能从播放器读取的链路项。
-     *
-     * MediaController 有线程归属，取值必须在其所属线程完成，故统一切到主线程读取；
-     * 已在主线程时不会额外派发，避免与调用方互相等待。
-     */
+    /** 只能从播放器读的项，统一切主线程取 */
     @OptIn(UnstableApi::class)
     private suspend fun playbackSnapshot(player: Player?): PlaybackSnapshot =
         withContext(Dispatchers.Main.immediate) {
@@ -121,21 +106,20 @@ internal object AudioInfoCollector {
         val transportState: AudioTransportState?,
     )
 
-    // 音频文件路径：本地文件优先取真实路径，在线音源回退到其 URI，均无值时不展示该行
+    // 音频路径：本地路径优先，在线回退 URI
     private fun sourcePath(state: MusicPlaybackState): String? {
         val track = state.currentTrack ?: return null
         return track.path.takeIf { it.isNotBlank() }
             ?: track.audioUri.takeIf { it.isNotBlank() }
     }
 
-    // 源文件字节数：复用格式读取的大小入口，本地文件与 content URI 都能取得，
-    // 在线音源读不到即留空，与其余字段同口径由展示层跳过该行
+    // 源文件字节数，读不到留空
     private fun fileSizeBytes(context: Context, state: MusicPlaybackState): Long? =
         state.currentTrack
             ?.let { TrackAudioInfoReader.readFileSize(context, it) }
             ?.takeIf { it > 0 }
 
-    // 源采样率：取自当前曲目解码所得的格式信息
+    // 源采样率取自解码格式
     private fun MusicPlaybackState.sourceSampleRate(): Int? =
         audioSignalPathFormat
             ?.takeIf { isAudioSignalPathCurrent }
@@ -148,8 +132,7 @@ internal object AudioInfoCollector {
             ?.channels
             ?.takeIf { it > 0 }
 
-    // 本机无解码器的音频格式展示名：仅在轨道回调判定当前音频轨不被选中（无可用解码器）时给出。
-    // 未装载曲目（判定未知）与可解码时都不产出，与其余字段同口径由展示层跳过该行
+    // 无解码器时的格式名，仅在被判定不可解码时给出
     private fun MusicPlaybackState.decoderUnavailableFormat(): String? {
         if (audioTrackDecodable != false) return null
         return audioTrackMimeType
@@ -157,38 +140,22 @@ internal object AudioInfoCollector {
             ?.let { TrackAudioInfoReader.mimeToFormatName(it) ?: it }
     }
 
-    /**
-     * 生效的输出模式。
-     *
-     * 独占与直出是两条互斥的路，判定方也各在一处：直出的成色由 [UsbDirectOutput] 按平台是否受理那条专用
-     * 输出流判定，独占的有无则由输出路由本次实际选中了哪条路。合在一处取用，免得各栏各判一套而彼此矛盾。
-     */
+    /** 生效的输出模式：独占优先，否则取直出成色 */
     private fun MusicPlaybackState.effectiveOutputMode(): AudioOutputMode =
         if (usbExclusiveRoute) AudioOutputMode.EXCLUSIVE else directOutputMode
 
-    // 音频输出模式：有独占用独占，否则取直出自行判定的成色；未装载曲目时输出链路的取向无意义，不展示
+    // 有独占用独占，否则取直出成色
     private fun MusicPlaybackState.outputMode(): AudioOutputMode? =
         if (currentTrack == null) null else effectiveOutputMode()
 
-    /**
-     * 解码输出格式。
-     *
-     * 取解码头在重配那一刻上报的格式，不按源格式推算：解码器按需求改采样率与声道，编码更是要到
-     * 解码头出格式才知道。未装载曲目时无从谈起，与 [outputMode] 同口径不展示；
-     * 位深归不到线性 PCM（直通输出）时该行无位深可言，同样不产出条目。
-     */
+    /** 解码输出格式，取解码头上报值；非 PCM 无位深 */
     private fun decodedOutput(state: MusicPlaybackState): DecodedOutputFormat? {
         if (state.currentTrack == null) return null
         val format = state.audioSinkDecodedFormat ?: return null
         return format.takeIf { outputEncodingOf(it.pcmEncoding) != null }
     }
 
-    /**
-     * 浮点写出状态。
-     *
-     * 未装载曲目时输出链路的取向无意义，与 [outputMode] 同口径不展示；已装载而输出未建立时保留为
-     * 独立状态，交由展示层与「未启用」分开表述。
-     */
+    /** 浮点写出状态；未装载不展示 */
     private fun floatOutputState(state: MusicPlaybackState): FloatOutputState? {
         if (state.currentTrack == null) return null
         return when (state.audioSinkFloatOutput) {
@@ -198,30 +165,14 @@ internal object AudioInfoCollector {
         }
     }
 
-    /**
-     * 输出编码。
-     *
-     * 取音频轨被创建时的实际写出编码，解码格式与直出混音器属性都可能改写它，故不按源格式推算。
-     * 未装载曲目时无从谈起，与 [outputMode] 同口径不展示；直通压缩格式等非 PCM 编码无位深可言，
-     * 同样不产出条目。
-     */
+    /** 输出编码取音频轨实际写出值；非 PCM 无位深 */
     private fun outputEncoding(state: MusicPlaybackState): OutputEncoding? {
         if (state.currentTrack == null) return null
         val raw = state.audioSinkOutputEncoding ?: return OutputEncoding.NOT_ESTABLISHED
         return outputEncodingOf(raw)
     }
 
-    /**
-     * 输出侧的流速率：**设备链路实际跑着的速率**，不是本应用写进音频轨的请求速率。
-     *
-     * 三条路各有一个真值来源：
-     * - 直出：按已受理的动态混音端口条目建轨（同率档即源速率，倍率档即 88.2 这类倍率），
-     *   专用输出流使设备跟着这个速率跑，故轨道自报值就是设备侧的值；
-     * - 独占：按源速率直接写等时端点，取源速率；
-     * - 混音：见 [mixerOutputSampleRateHz]，音频轨速率在这条路上不是答案。
-     *
-     * 取不到时留空：那正是「未知」与「平台默认值」的区别。
-     */
+    /** 输出侧实际速率：直出取轨道自报，独占取源速率 */
     private fun outputSampleRate(
         state: MusicPlaybackState,
         audioManager: AudioManager?,
@@ -232,15 +183,14 @@ internal object AudioInfoCollector {
         AudioOutputMode.EXCLUSIVE -> state.sourceSampleRate()
     }
 
-    // 主输出那条流的速率（`AudioFlinger::getPrimaryOutputSamplingRate` → 主播放线程的 HAL 速率）。
-    // 厂商未实现该属性时读不到，按未知处理
+    // 主输出 HAL 速率，读不到按未知
     private fun platformOutputSampleRate(audioManager: AudioManager?): Int? =
         runCatching { audioManager?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE) }
             .getOrNull()
             ?.toIntOrNull()
             ?.takeIf { it > 0 }
 
-    // 传输状态：缓冲与结束属播放器的推进态，优先于起播意愿；空闲态说明输出尚未建立
+    // 传输状态：缓冲/结束优先，空闲说明输出未建立
     private fun transportState(player: Player?): AudioTransportState? = when {
         player == null -> null
         player.playbackState == Player.STATE_BUFFERING -> AudioTransportState.BUFFERING
@@ -250,31 +200,21 @@ internal object AudioInfoCollector {
         else -> AudioTransportState.PAUSED
     }
 
-    /**
-     * 当前输出设备。
-     *
-     * 设备名与蓝牙链路信息分别取自音频栈与蓝牙栈：音频栈给出设备自报名与支持格式，
-     * 蓝牙栈才是远端设备名的可靠来源，故蓝牙设备一律以蓝牙栈的名称为准；编解码器参数同属蓝牙栈，
-     * 但那项另受系统接口的权限限制，取不到时留空不影响设备本身的信息。
-     * 判定不出当前输出目标时不产出条目，由展示层跳过对应行。
-     */
+    /** 当前输出设备；蓝牙名称与编解码参数取自蓝牙栈 */
     private suspend fun currentOutputDevice(
         context: Context,
         audioManager: AudioManager?,
         state: MusicPlaybackState,
         outputs: List<AudioDeviceInfo>,
     ): OutputDeviceInfo? {
-        // 独占期间设备已从系统音频里消失（接口被本应用接管、内核驱动解绑），平台一次也查不到它，
-        // 照旧走策略查询只会落到扬声器上——那正是"信息与听感对不上"的来源。故改由接管方给出。
-        // 判据取实际路由而非"是否已接管"：开关开着但本曲格式设备声明不了时会退回平台路径，
-        // 那时真正发声的是系统那条链路，此时报解码器同样是与听感对不上
+        // 独占期间设备已离开系统音频，由接管方给出
         state.usbExclusiveDevice?.takeIf { state.usbExclusiveRoute }?.let { device ->
             return OutputDeviceInfo(
                 kind = OutputDeviceKind.USB,
                 name = device.name,
                 address = null,
                 supportedSampleRates = device.supportedSampleRates,
-                // 独占期间设备已从系统音频里消失，这份档位只可能来自设备描述符与时钟查询
+                // 独占期间档位来自设备描述符与时钟查询
                 sampleRateSource = SampleRateSource.DEVICE,
                 channelCount = device.channelCount,
                 supportedEncodings = device.supportedEncodings,
@@ -308,24 +248,14 @@ internal object AudioInfoCollector {
         )
     }
 
-    /**
-     * 设备的动态混音端口条目。
-     *
-     * 直出的专用输出流只能挂在该端口上，故它声明的采样率与编码即设备可直出的档位；设备未开放该端口
-     * （非 USB 通路、厂商未声明）时为空——接口读不到不是异常，按空处理，由展示层跳过对应行。
-     */
+    /** 设备动态混音端口条目，读不到按空 */
     private fun supportedMixerAttributes(
         audioManager: AudioManager?,
         device: AudioDeviceInfo,
     ): List<AudioMixerAttributes> =
         runCatching { audioManager?.getSupportedMixerAttributes(device) }.getOrNull().orEmpty()
 
-    /**
-     * 设备支持的全部采样率，升序。
-     *
-     * 取设备自报档位与动态混音端口声明档位的并集：前者是设备广告的能力，后者是直出实际可用的档位，
-     * 只看其一都会漏掉对方独有的取值，展示出来也就短于实际支持范围。
-     */
+    /** 设备支持采样率，取自报与混音端口声明的并集 */
     private fun supportedSampleRates(
         device: AudioDeviceInfo,
         mixerAttributes: List<AudioMixerAttributes>,
@@ -335,13 +265,7 @@ internal object AudioInfoCollector {
             .distinct()
             .sorted()
 
-    /**
-     * 系统策略判定的当前播放输出设备。
-     *
-     * 媒体路由由系统按音频属性选出，属性路由查询的首项即实际输出目标（仅在多路重复时才有第二项）。
-     * 直出是应用把播放直接钉定到 USB 解码器，该钉定未必反映在策略查询结果中，
-     * 故此状态下按 USB 类型取用——直出成立时输出必然是被钉定的那台 USB 解码器。
-     */
+    /** 系统策略选出的输出设备；直出时按 USB 类型取 */
     private fun routedOutputDevice(
         audioManager: AudioManager?,
         state: MusicPlaybackState,
@@ -355,7 +279,7 @@ internal object AudioInfoCollector {
         }.getOrNull().orEmpty().firstOrNull { it.isSink }
     }
 
-    // 设备类别：按类型归类，未归类的通路一律作为其它设备（如 HDMI、线路输出）
+    // 设备类别，未归类归入其它
     private fun outputDeviceKind(type: Int): OutputDeviceKind = when {
         type in USB_OUTPUT_TYPES -> OutputDeviceKind.USB
         type in BLUETOOTH_OUTPUT_TYPES -> OutputDeviceKind.BLUETOOTH
@@ -364,8 +288,7 @@ internal object AudioInfoCollector {
         else -> OutputDeviceKind.OTHER
     }
 
-    // 平台对无地址的设备以上报 0 表示；Android 13 起未授权 BLUETOOTH_CONNECT 时蓝牙地址被匿名化，
-    // 两者都不是真实地址，同为「无地址」
+    // 0 与匿名地址都不算真实地址
     private fun usableAddress(raw: String): String? = raw.takeIf {
         it.isNotBlank() && it != ZERO_ADDRESS && it != ANONYMOUS_ADDRESS
     }

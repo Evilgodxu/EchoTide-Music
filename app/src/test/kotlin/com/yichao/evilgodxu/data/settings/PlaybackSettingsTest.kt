@@ -3,7 +3,7 @@ package com.yichao.evilgodxu.data.settings
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-// 播放设置的默认值与缺失键回落规则：默认值一旦被改动，用户首次安装看到的开关状态就会变
+// 默认值即首次安装的开关状态
 class PlaybackSettingsTest {
 
     @Test

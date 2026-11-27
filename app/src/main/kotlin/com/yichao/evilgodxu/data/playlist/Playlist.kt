@@ -1,7 +1,7 @@
 package com.yichao.evilgodxu.data.playlist
 
 
-// 自定义歌单实体，trackIds 引用 MusicTrack.id
+// 自定义歌单
 data class Playlist(
     val id: Long,
     val name: String,

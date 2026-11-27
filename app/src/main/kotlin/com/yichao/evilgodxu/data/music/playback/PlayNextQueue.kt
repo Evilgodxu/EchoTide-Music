@@ -5,19 +5,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 
-/**
- * 「下一首播放」插队队列。
- *
- * 自然播完后依次播放队列曲目，队列播完后接续原播放位置：
- * 建立队列时记下当时的当前曲目，队列清空或消费到接续点时取回，由播放侧按列表顺序接续其后一首。
- */
+/** 下一首播放插队队列：播完接续原位置 */
 internal class PlayNextQueue(
     private val currentTrackId: () -> Long?,
 ) {
 
     var tracks by mutableStateOf<List<MusicTrack>>(emptyList())
 
-    // 建立队列时记录的当前曲目 ID，队列播完后据此接续原播放位置
+    // 建立队列时的当前曲目，播完据此接续
     private var resumeTrackId: Long? = null
 
     fun isIn(trackId: Long): Boolean = tracks.any { it.id == trackId }
@@ -26,7 +21,7 @@ internal class PlayNextQueue(
     fun toggle(track: MusicTrack) {
         if (isIn(track.id)) {
             tracks = tracks.filterNot { it.id == track.id }
-            // 队列清空后无需再接续原播放位置
+            // 队列清空后无需再接续
             if (tracks.isEmpty()) resumeTrackId = null
         } else {
             if (tracks.isEmpty() && resumeTrackId == null) {
@@ -47,14 +42,14 @@ internal class PlayNextQueue(
         if (resumeTrackId == trackId) resumeTrackId = null
     }
 
-    /** 取出队首并在队列中移除。 */
+    /** 取出队首并移除 */
     fun consumeFirst(): MusicTrack? {
         val first = tracks.firstOrNull() ?: return null
         tracks = tracks.drop(1)
         return first
     }
 
-    /** 队列已空且存在待接续位置时返回并消费它。 */
+    /** 队列已空时取出并消费待接续 ID */
     fun takeResumeTrackId(): Long? {
         val id = resumeTrackId
         resumeTrackId = null

@@ -7,12 +7,7 @@ import androidx.media3.common.util.UnstableApi
 import java.nio.ByteBuffer
 import kotlin.math.roundToLong
 
-/**
- * 线性 PCM 的读写与换算。
- *
- * 读写约定：样本统一按**左对齐 32 位整型**中转，目标编码取它的高位字节。
- * 该约定是既有打包整型输出与设备子槽排布的共同基准，改动须同时核对 [packIntPcm] 与 `writeSubslot`。
- */
+/** 线性 PCM 读写：样本统一按左对齐 32 位整型中转 */
 @OptIn(UnstableApi::class)
 internal object PcmConversion {
 
@@ -70,7 +65,7 @@ internal object PcmConversion {
         else -> false
     }
 
-    /** 声道数对应的 AudioTrack 声道掩码；超出可映射范围时为 `CHANNEL_INVALID` */
+    /** 声道掩码；不可映射时为 CHANNEL_INVALID */
     fun audioTrackChannelConfig(channelCount: Int): Int = when (channelCount) {
         1 -> AudioFormat.CHANNEL_OUT_MONO
         2 -> AudioFormat.CHANNEL_OUT_STEREO
@@ -115,12 +110,7 @@ internal object PcmConversion {
         else -> AudioFormat.CHANNEL_INVALID
     }
 
-    /**
-     * 读一个样本并返回左对齐的 32 位整型。
-     *
-     * 浮点与双精度先钳到 [-1, 1]，再按 32 位满幅换算；整型一律按高位对齐，因而 16 位源放进 24/32 位目标
-     * 时是左移补零，逐位无损。
-     */
+    /** 读一个样本为左对齐 32 位；浮点先钳到 [-1,1] */
     fun readAs32BitIntPcm(buffer: ByteBuffer, pcmEncoding: Int): Int = when (pcmEncoding) {
         C.ENCODING_PCM_8BIT ->
             ((buffer.get().toInt() and 0xFF) - 128) shl 24

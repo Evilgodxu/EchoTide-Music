@@ -3,15 +3,13 @@ package com.yichao.evilgodxu.data.music.playback.alac
 import java.nio.ByteBuffer
 
 /**
- * 解码样本的落盘编码。
- *
- * 这里不直接用平台的 `AudioFormat` 编码常量：那些常量在单元测试的 JVM 上是桩值，
- * 而本枚举表达的是「字节怎么排」这件事本身，与平台取值无关，映射由调用方（渲染器）在一处完成。
+ * 写出编码：与平台 AudioFormat 解耦
+ * 只表达字节排布，映射由渲染器统一完成。
  */
 internal enum class AlacOutputEncoding(
     val bytesPerSample: Int,
 ) {
-    /** 32 位浮点：直出与系统混音都接受，且不丢解码精度，是本应用的首选 */
+    /** 32 位浮点：直出与混音都接受，不丢精度，首选 */
     FLOAT(4),
     INT16(2),
     INT24(3),
@@ -19,10 +17,8 @@ internal enum class AlacOutputEncoding(
 }
 
 /**
- * 把逐声道的整数样本按输出编码交错写出。
- *
- * 解码结果按源码字宽表示（见 [AlacFrameDecoder]），位深与输出编码不必相同：写 24 位输出时 16 位源
- * 左移补齐、写 16 位输出时 24 位源右移截断——各档之间是同一批样本的不同字长表示，不是重采样。
+ * 逐声道整数样本按输出编码交错写出。
+ * 位深与编码可不同：宽转窄截断、窄转宽补齐
  */
 internal object AlacPcmEncoder {
 
@@ -33,7 +29,7 @@ internal object AlacPcmEncoder {
         encoding: AlacOutputEncoding,
     ): Int = sampleCount * channelCount * encoding.bytesPerSample
 
-    /** 把 [sampleCount] 个样本按声道交错写入 [out]；样本按 [bitDepth] 位表示 */
+    /** 按声道交错写入 out；样本按 bitDepth 位表示 */
     fun encode(
         channels: Array<IntArray>,
         sampleCount: Int,
@@ -77,7 +73,7 @@ internal object AlacPcmEncoder {
         }
     }
 
-    /** 同一批样本在两种字长之间的平移；源更宽时截断，更窄时补齐 */
+    /** 两种字长间平移：源更宽截断，更窄补齐 */
     private fun rescale(value: Int, fromBits: Int, toBits: Int): Int =
         if (fromBits > toBits) value shr (fromBits - toBits) else value shl (toBits - fromBits)
 

@@ -68,17 +68,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// 音频信息下拉收起的累计距离阈值：内容已到顶部后继续下拉超过该距离即收起
+// 到顶后下拉 64dp 累计即收起
 private val DISMISS_OVERSCROLL_DP = 64.dp
 
-// 文件名时间戳与图片内的生成时间分两种写法：前者避开冒号，后者便于阅读
+// 文件名时间避开冒号，图片内时间便于阅读
 private val IMAGE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
 private val REPORT_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
-/**
- * 首页竖屏的音频信息弹窗：交互与视觉沿用播放列表弹窗
- * （遮罩点击、顶部圆角面板自底部滑入、关闭按钮、内容到顶后继续下拉收起）。
- */
+/** 音频信息弹窗：交互与视觉同播放列表弹窗 */
 @Composable
 internal fun AudioInfoSheet(
     visible: Boolean,
@@ -97,10 +94,10 @@ internal fun AudioInfoSheet(
     val snapshot = info.snapshot
     val latency = info.latency
     val groups = snapshot?.let { audioInfoGroups(it, latency) }.orEmpty()
-    // 竖屏面板半高，横屏铺满：与播放列表弹窗一致
+    // 竖屏半高、横屏铺满
     val sheetHeightFraction = if (rememberWindowLandscape()) 1f else 0.5f
 
-    // 保存成图：复用音频报告的排版，把当前全部分组写成图片后存档到相册
+    // 保存成图：复用报告排版，存档到相册
     fun saveImage() {
         if (saving) return
         saving = true
@@ -144,7 +141,7 @@ internal fun AudioInfoSheet(
             val dismissOverscrollPx = with(LocalDensity.current) {
                 DISMISS_OVERSCROLL_DP.toPx()
             }
-            // 内容已到顶部时继续下拉：累计位移超过阈值即收起面板
+            // 到顶后继续下拉，累计过阈值即收起
             val dismissNestedScroll = remember(scrollState, dismissOverscrollPx) {
                 object : NestedScrollConnection {
                     private var overscrollAccum = 0f
@@ -174,8 +171,7 @@ internal fun AudioInfoSheet(
                         color = MaterialTheme.colorScheme.surface,
                         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                     )
-                    // 内边距只给左右与顶部：面板底色铺到屏幕底缘，底部再留内边距就会在末行下方
-                    // 空出一条与底色同色、不随内容滚动的色带
+                    // 内边距只给左右与顶部，底部留白会露出色带
                     .padding(start = 12.dp, end = 12.dp, top = 10.dp),
             ) {
                 Row(
@@ -229,19 +225,15 @@ internal fun AudioInfoSheet(
     }
 }
 
-/**
- * 面板要展示、也要用于成图的两份采集结果。
- */
+/** 展示与成图共用的两份采集结果 */
 private data class AudioInfoData(
     val snapshot: AudioInfoSnapshot?,
     val latency: OutputLatencyReading?,
 )
 
 /**
- * 只在 [enabled] 时采集，收起动画期间沿用最近一次结果，内容不会先消失再滑出。
- *
- * 采集值必须在组合期读出：只写在副作用里读，组合就不会订阅这两份状态，
- * 数据采集到了也不会引发重绘（面板停在空态、后续读数全不刷新）。
+ * 仅 enabled 时采集，收起动画沿用上次结果。
+ * 必须在组合期读取，否则订阅不到、面板不重绘。
  */
 @Composable
 private fun rememberAudioInfoData(
@@ -261,12 +253,7 @@ private fun rememberAudioInfoData(
     return current
 }
 
-/**
- * 把当前音频信息写成与设备音频报告同款的排版图片并存档到相册。
- *
- * 文本按报告的层级语法组织（标题、分区、字段），复用 [AudioReportImage] 的渲染管线，
- * 因此字体、表格边框、留白与报告完全一致；排版与编码放后台，落盘走相册原语。
- */
+/** 生成报告同款图片，后台编码后存入相册 */
 private suspend fun saveAudioInfoImage(
     context: Context,
     title: String,

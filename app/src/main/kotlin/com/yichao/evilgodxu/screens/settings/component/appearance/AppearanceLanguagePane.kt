@@ -14,12 +14,7 @@ import com.yichao.evilgodxu.screens.settings.component.entry.SettingsSwitchRow
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-/**
- * 语言外观页内容：主题、语言、渲染三组。
- *
- * 三组都只读写设置页已有的状态，故不另立 ViewModel；分区标题已写明这一组是什么，
- * 行内只留当前取值，不重复同一句话。
- */
+/** 语言外观页：主题、语言、渲染三组 */
 @Composable
 internal fun AppearanceLanguagePane(
     themeMode: ThemeMode,

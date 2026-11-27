@@ -6,8 +6,7 @@ import com.yichao.evilgodxu.data.music.playback.PlaylistSource
 import com.yichao.evilgodxu.data.music.playback.parseTrackArtists
 import kotlin.math.abs
 
-// 按 id 集合从全量曲目中解析曲目，保持集合顺序。
-// 先建 id 索引再查表：逐个线性扫描全库会让调用点退化为 O(曲目数 × 集合长度)
+// 按 id 集合解析曲目，先建索引避免 O(n×m)
 internal fun resolveTracks(all: List<MusicTrack>, ids: Collection<Long>): List<MusicTrack> {
     if (ids.isEmpty() || all.isEmpty()) return emptyList()
     val byId = all.associateBy { it.id }
@@ -27,10 +26,7 @@ internal fun smartTrackCount(all: List<MusicTrack>, ids: Collection<Long>): Int 
     return ids.count { it in existingIds }
 }
 
-// 按歌单来源 key 从全量库解析曲目，供播放列表面板按来源展示。
-// 分支与生成来源 key 的分组逻辑保持一致：专辑/艺术家按各自分组 key 反查并套用存档曲序，
-// 收藏套用收藏曲序，自定义歌单按 trackIds 查表，故全量库变化后重新解析即为最新内容与用户顺序。
-// 常听不套任何存档：它的顺序就是播放时间线，随播放事件自动更新
+// 按来源 key 解析曲目，套用各自存档曲序
 internal fun resolveSourceTracks(
     all: List<MusicTrack>,
     playlists: List<Playlist>,
@@ -65,8 +61,7 @@ internal fun resolveSourceTracks(
     else -> emptyList()
 }
 
-// 浏览的来源歌单是否仍然有效。常听/收藏等系统歌单允许为空（无播放记录、无收藏都属正常），
-// 自定义歌单须仍存在（空歌单也是有效状态），专辑/艺术家分组则以其是否还能解析出曲目为准
+// 来源是否有效：系统歌单可为空，分组须有曲目
 internal fun isViewSourceValid(
     playlists: List<Playlist>,
     resolved: List<MusicTrack>,
@@ -86,15 +81,8 @@ internal fun distinctArtistCount(all: List<MusicTrack>): Int =
     all.flatMap { parseTrackArtists(it.artist) }.distinct().size
 
 /**
- * 专辑改名后该曲目的专辑身份（albumId）。
- *
- * 专辑分组与专辑曲目页都以 albumId 认专辑，只改专辑名会让曲目留在旧专辑下，
- * 故改名时按新名字重新绑定：库里已有同名专辑即并入它（把曲目归到那张专辑下）；
- * 名字在库内首次出现则取名字的稳定哈希作负 id 独立成组 —— MediaStore 分配的专辑 id 恒为正，
- * 负值不会与之相撞，且同一名字总得到同一个 id，先后改到同一新名字的多首曲目仍聚成一组。
- * 名字清空即归入无专辑组（id 0）。
- *
- * 下次曲库扫描由 MediaStore 按文件标签重新解析 id，分组随之收敛到平台值
+ * 专辑改名后的 albumId：同名并入，否则取哈希负值
+ * MediaStore id 恒为正，负值不冲突；空名归 0
  */
 internal fun albumIdentity(all: List<MusicTrack>, album: String): Long {
     val name = album.trim()
@@ -103,7 +91,7 @@ internal fun albumIdentity(all: List<MusicTrack>, album: String): Long {
     return -abs(stableIdFromString(name.lowercase()))
 }
 
-// 按专辑分组，组名回退为未知专辑文案
+// 按专辑分组，组名回退未知专辑
 internal fun albumGroups(all: List<MusicTrack>, unknownAlbum: String): List<PlaylistGroup> =
     all.groupBy { it.albumId }
         .map { (albumId, list) ->
@@ -115,8 +103,7 @@ internal fun albumGroups(all: List<MusicTrack>, unknownAlbum: String): List<Play
         }
         .sortedBy { it.name }
 
-// 按艺术家分组，组名回退为未知艺术家文案。
-// 多歌手曲目（如 "A / B"）解析后同时归属到每位歌手名下，不把多个歌手当作单一歌手
+// 按艺术家分组；多歌手各自归属
 internal fun artistGroups(all: List<MusicTrack>, unknownArtist: String): List<PlaylistGroup> =
     buildMap<String, MutableList<Long>> {
         all.forEach { track ->
@@ -135,8 +122,7 @@ internal fun artistGroups(all: List<MusicTrack>, unknownArtist: String): List<Pl
         }
         .sortedBy { it.name }
 
-// 单个艺术家分组：与 artistGroups 同口径按多歌手分隔符归属，供点击歌手信息直达该歌手歌单，
-// 避免为取一个分组而构建全库分组表
+// 单个艺术家分组，避免构建全库分组表
 internal fun artistGroup(all: List<MusicTrack>, artist: String): PlaylistGroup =
     PlaylistGroup(
         key = "artist:$artist",
@@ -144,19 +130,15 @@ internal fun artistGroup(all: List<MusicTrack>, artist: String): PlaylistGroup =
         trackIds = all.filter { artist in parseTrackArtists(it.artist) }.map { it.id },
     )
 
-// 按存档的曲序重排一组曲目。存档只记次序不记成员（见 ArtistOrderStore），三类情形都在此收口：
-// 存档内的曲目按存档次序排在前；存档里没有的曲目（新入库、从未参与过排序）保持原相对次序附在其后——
-// 丢弃会让新曲目凭空消失，插回原位又读不出排序意图；存档里已不存在的 id 自然落空。
-// 落空的死 id 无需另行清理：下次拖拽会把该歌手的存档整条覆盖成当时的实际顺序
+// 按存档曲序重排；未收录的曲目保持原序附后
 internal fun applySavedTrackOrder(tracks: List<MusicTrack>, savedIds: List<Long>): List<MusicTrack> {
     if (savedIds.isEmpty()) return tracks
     val rank = savedIds.withIndex().associate { (index, id) -> id to index }
-    // sortedBy 稳定：未在存档内的曲目按原相对次序排在存档曲目之后
+    // sortedBy 稳定，未收录曲目排在后面
     return tracks.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
 }
 
-// 歌单行封面：解析成员并套上存档曲序后取第一首仍存在的曲目。
-// 自定义歌单的 trackIds 本身即次序，传空存档即可；专辑/歌手列表则由各自曲序表补齐同一口径
+// 歌单封面：套存档曲序后取第一首
 internal fun playlistCoverTrack(
     tracksById: Map<Long, MusicTrack>,
     trackIds: List<Long>,

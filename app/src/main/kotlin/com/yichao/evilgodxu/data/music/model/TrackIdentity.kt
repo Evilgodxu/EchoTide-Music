@@ -1,19 +1,11 @@
 package com.yichao.evilgodxu.data.music.model
 
-/**
- * 音轨身份：把「同一首歌在不同平台的两种写法」判为同一首。
- *
- * 各平台对同一首歌的写法不一致，精确文本键在每一类差异上都会把一首歌裂成两条：
- * - 歌手本地化译名：`VALORANT` 与 `无畏契约`；
- * - 合作歌手的连接符与增删：`郑浩/冰洁`、`郑浩&冰洁`，以及 `黄静美` 与 `黄静美&亦瑶`；
- * - 标题的版本后缀（`(feat. …)`、`(日文版)`）—— 由 [normalize] 剥离括号内容处理。
- *
- * 判同规则是「标题归一化后相同 **且** 歌手集合有交集」。只按标题判同会把同名不同曲误并 ——
- * 各平台同名翻唱很多（实测 16 组同名中，6 首《祝福祖国》是六个不同歌手的版本）。
- */
+// 音轨身份：把同一首歌在不同平台的写法判为同一首
+// 平台差异在歌手译名、合作连接符与标题版本后缀
+// 判同规则：标题归一化相同且歌手集合有交集
 internal object TrackIdentity {
 
-    // 合作歌手的连接符：各平台各用各的，须在归一化前切开
+    // 合作歌手连接符，归一化前切开
     private val ARTIST_SEPARATORS = Regex(
         "[/&、,，;；|]+|\\s+(?:feat\\.?|ft\\.?|with)\\s+",
         RegexOption.IGNORE_CASE,
@@ -22,23 +14,23 @@ internal object TrackIdentity {
     private val BRACKETS = Regex("\\([^)]*\\)|（[^）]*）|\\[[^]]*]|【[^】]*】")
     private val PUNCTUATION = Regex("[\\s\\p{Punct}、，。！？·—～]+")
 
-    /** 单条文本的比对形：小写、去括号内容、去标点与空白 */
+    // 比对形：小写、去括号、去标点空白
     fun normalize(value: String): String = value.lowercase()
         .replace(BRACKETS, "")
         .replace(PUNCTUATION, "")
         .trim()
 
-    /** 标题键：归一化后的标题，空串表示无有效标题，此时不参与判同 */
+    // 标题键；空串表示无有效标题，不参与判同
     fun titleKey(title: String): String = normalize(title)
 
-    /** 歌手集合：按连接符切开后逐个归一化，剔除空项 */
+    // 歌手集合：切开归一化，剔除空项
     fun artistSet(artist: String): Set<String> = artist.split(ARTIST_SEPARATORS)
         .asSequence()
         .map { normalize(it) }
         .filter { it.isNotEmpty() }
         .toSet()
 
-    /** 是否同一首歌：标题相同且歌手有交集。歌手缺失时一律判为不同曲，宁漏不误并 */
+    // 标题相同且歌手有交集；歌手缺失判不同，宁漏勿并
     fun matches(title: String, artist: String, otherTitle: String, otherArtist: String): Boolean {
         val self = titleKey(title)
         if (self.isEmpty() || self != titleKey(otherTitle)) return false
@@ -49,12 +41,8 @@ internal object TrackIdentity {
     }
 }
 
-/**
- * 按音轨身份去重：同标题桶内歌手有交集即视为同曲，只保留先出现的条目。
- *
- * 保留哪一条由调用方的列表顺序决定 —— 平台顺序靠前的元数据更完整，故由调用方排列。
- * 歌手缺失的条目不参与判同（既不被合并，也不与后续条目合并），宁漏不误并。
- */
+// 按音轨身份去重，同标题桶内歌手有交集即同曲
+// 保留先出现条目，顺序由调用方决定；缺歌手不判同
 internal fun <T> List<T>.distinctByTrack(title: (T) -> String, artist: (T) -> String): List<T> {
     val kept = mutableListOf<T>()
     val byTitle = HashMap<String, MutableList<Pair<String, String>>>()
@@ -75,11 +63,8 @@ internal fun <T> List<T>.distinctByTrack(title: (T) -> String, artist: (T) -> St
     return kept
 }
 
-/**
- * 曲库索引：按标题键分桶，判同只需与同标题的条目比较，避免每首候选遍历整个曲库。
- *
- * [exactKeys] 是「标题|歌手」精确键，作为 O(1) 快路径 —— 绝大多数命中都在这一层结束。
- */
+// 曲库索引：按标题键分桶，只与同标题条目比较
+// exactKeys 精确键作 O(1) 快路径
 internal class OwnedTrackIndex(tracks: List<MusicTrack>) {
 
     private val exactKeys: Set<String>
@@ -99,7 +84,7 @@ internal class OwnedTrackIndex(tracks: List<MusicTrack>) {
         byTitle = buckets
     }
 
-    /** 该曲目是否已存在于曲库 */
+    // 该曲目是否已存在于曲库
     fun contains(title: String, artist: String): Boolean {
         val titleKey = TrackIdentity.titleKey(title)
         if (titleKey.isEmpty()) return false

@@ -72,25 +72,25 @@ import com.yichao.evilgodxu.ui.component.smartTypeLabel
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import com.yichao.evilgodxu.windowsize.rememberExpandedForm
 
-// 首页左滑呼出的歌单面板：按形态分派——窄屏逐级下钻，宽屏左栏导航 + 右栏内容。
-// 共享部分（歌单存储预读、新建/重命名/删除弹窗）收在此处，两形态各自组装自己的布局
+// 歌单面板：窄屏逐级下钻，宽屏左右分栏
+// 共享的存储与增删改弹窗收在此处。
 @Composable
 internal fun PlaylistPanel(
     visible: Boolean,
     playbackState: MusicPlaybackState,
     menuBackgroundColor: Color,
-    // 标题栏高度：非歌手页的内容都从标题栏下方开始
+    // 标题栏高度，非歌手页内容下移
     topInset: Dp,
-    // 当前页是否需要标题栏让位（歌手页自带整屏骨架）：由本面板随页面栈同步上报
+    // 标题栏是否让位，随页面栈上报
     onImmersivePageChange: (Boolean) -> Unit,
-    // 当前页是否接管横向滑动（下钻层级以右滑回退）：同样随页面栈上报，首页翻页据此让位
+    // 是否接管横滑，随页面栈上报
     onSwipeBackChange: (Boolean) -> Unit,
-    // 关闭面板回到播放器页：歌手页由播放器直达时，回退直接回播放器而不落在总览页
+    // 关闭面板回播放器；歌手页直达时直接回
     onClose: () -> Unit,
-    // 歌单总览页继续左滑进入设置页：与首页翻页同方向的「进入下一层」
+    // 总览页继续左滑进入设置页
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
-    // 点击播放器歌手信息后请求打开的歌手名：非空时跳转到该歌手的曲目列表
+    // 待打开的歌手名，非空时跳转
     pendingArtist: String? = null,
     onPendingArtistHandled: () -> Unit = {},
 ) {
@@ -99,7 +99,7 @@ internal fun PlaylistPanel(
     var showCreate by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<Playlist?>(null) }
     var deleteTarget by remember { mutableStateOf<Playlist?>(null) }
-    // 新建成功后待进入的歌单：窄屏推进页面栈，宽屏切换左栏选中项，两形态各自消费后置空
+    // 新建后待进入的歌单，两形态各自消费
     var createdPlaylist by remember { mutableStateOf<Playlist?>(null) }
 
     Box(modifier = modifier) {
@@ -144,7 +144,7 @@ internal fun PlaylistPanel(
     }
     CreatePlaylistDialog(
         visible = showCreate,
-        // 创建后直接进入新歌单，便于立即添加歌曲；进入方式随形态不同，交由两个面板消费
+        // 创建后直接进入，便于添加歌曲
         onCreated = { playlist ->
             showCreate = false
             createdPlaylist = playlist
@@ -155,8 +155,8 @@ internal fun PlaylistPanel(
     DeletePlaylistDialog(playlist = deleteTarget, onDismiss = { deleteTarget = null })
 }
 
-// 窄屏歌单面板：标题栏 + 页面栈逐级下钻（总览 → 分组/曲目列表）。
-// 歌手与专辑分组页自带整屏骨架，整页铺满，标题栏在这两页让位
+// 窄屏歌单面板：标题栏 + 页面栈逐级下钻。
+// 歌手与专辑页自带整屏骨架，标题栏让位。
 @Composable
 private fun PlaylistStackedPanel(
     visible: Boolean,
@@ -177,16 +177,14 @@ private fun PlaylistStackedPanel(
     onDelete: (Playlist) -> Unit,
 ) {
     var backStack by remember { mutableStateOf(listOf<PlaylistPage>(PlaylistPage.Overview)) }
-    // 页面栈的唯一写入口：栈变化、标题栏让位与横向滑动接管必须同一次写入。
-    // 沉浸页的标题栏始终隐藏，而标题栏归首页组装器管——挪到组合之后的副作用上报，
-    // 进入该页的首帧会先亮出标题栏再淡出
+    // 页面栈唯一入口：栈、标题栏与横滑须同次写入
     fun go(stack: List<PlaylistPage>) {
         backStack = stack
         onImmersivePageChange(stack.last().immersiveGroupPage != null)
         onSwipeBackChange(stack.size > 1)
     }
     LaunchedEffect(visible) { if (!visible) go(listOf(PlaylistPage.Overview)) }
-    // 点击歌手信息直达该歌手的曲目列表：与艺术家分组页同构，但回退直接回播放器
+    // 歌手直达该歌手曲目列表，回退直接回播放器
     LaunchedEffect(pendingArtist) {
         val artist = pendingArtist?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         go(
@@ -203,9 +201,7 @@ private fun PlaylistStackedPanel(
         go(backStack + PlaylistPage.Tracks(created))
         onPendingCreatedHandled()
     }
-    // 逐级回退的统一出口：系统返回键、内容列右滑、沉浸页「歌曲」标签上的右滑都走这里。
-    // 歌手页由播放器「歌手信息」直达时，栈里只有总览与歌手页（没有分组页），
-    // 这时的「上一级」就是播放器，回退直接关闭面板而不是落在总览页
+    // 回退统一出口；播放器直达歌手页时上一级就是播放器，直接关面板
     fun goBack() {
         val last = backStack.lastOrNull()
         val openedFromPlayer = backStack.size == 2 &&
@@ -217,21 +213,19 @@ private fun PlaylistStackedPanel(
         }
         if (backStack.size > 1) go(backStack.dropLast(1))
     }
-    // 二级/三级详情页系统返回键逐级回退；顶层页面由首页 BackHandler 关闭面板。
-    // 被覆盖层压住时让出，返回键交给覆盖层
+    // 返回键逐级回退；被压住时让出
     BackHandler(enabled = LocalIsTopLayer.current && visible && backStack.size > 1) {
         goBack()
     }
-    // 下钻层级的右滑回退：与返回键同一出口，两者都只在有上一级可退时生效
+    // 右滑回退与返回键同出口，有上级才生效
     val backSwipe = Modifier.swipeBack(enabled = { visible && backStack.size > 1 }, onBack = { goBack() })
-    // 总览页继续左滑进入设置页：只在这一层生效，下钻层级的左向位移留给标签页与列表本身
+    // 只在总览层生效，下钻层的左滑归内容
     val forwardSwipe = Modifier.swipeForward(
         enabled = { visible && backStack.size == 1 },
         onForward = onOpenSettings,
     )
 
-    // 页面栈按方向滑动：下钻时新页自右滑入、旧页向左让位，回退时旧页向右滑出、上一级自左侧补位，
-    // 与首页翻页同一观感。两页同速整宽位移，故透明页面在过渡中始终相邻而不叠放
+    // 下钻右入左让，回退右出左补；两页同速整宽，不叠放
     AnimatedContent(
         targetState = backStack,
         transitionSpec = {
@@ -249,11 +243,10 @@ private fun PlaylistStackedPanel(
         label = "playlist_page",
     ) { stack ->
         val page = stack.last()
-        // 当前页即歌手/专辑页时的页面自身：非空即该页在场，标题栏须让位、内容也不再套标题栏内边距
+        // 歌手/专辑页：非空即在场，标题栏让位、不套内边距
         val immersiveGroup = page.immersiveGroupPage
         if (immersiveGroup != null) {
-            // 歌手页与专辑页都自带整页骨架（沉浸头图 + 标签页，见 ArtistPlaylistPage 与 AlbumPlaylistPage）：
-            // 头图与沉浸背景要铺到标题栏后方，故不套下方内容列的顶部内边距
+            // 自带整屏骨架，头图铺到标题栏后方，不套顶部内边距
             if (immersiveGroup.type == SmartPlaylistType.ARTIST) {
                 ArtistPlaylistPage(
                     group = immersiveGroup.group,
@@ -261,19 +254,19 @@ private fun PlaylistStackedPanel(
                     onOpenAlbum = { album ->
                         go(backStack + PlaylistPage.GroupTracks(SmartPlaylistType.ALBUM, album))
                     },
-                    // 该页「歌曲」标签上的右滑：与内容列右滑、返回键同一出口
+                    // 「歌曲」标签右滑与返回键同出口
                     onSwipeBack = { goBack() },
                 )
             } else {
                 AlbumPlaylistPage(
                     group = immersiveGroup.group,
                     playbackState = playbackState,
-                    // 同上：专辑页的「歌曲」标签已无分页去向，右滑转为回退一级
+                    // 歌曲标签已无分页去向，右滑回退
                     onSwipeBack = { goBack() },
                 )
             }
         } else {
-            // 透明全屏布局，与在线搜索面板一致，透出首页沉浸渐变背景
+            // 透明全屏，透出首页沉浸背景
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -314,7 +307,7 @@ private fun PlaylistStackedPanel(
                         playlist = page.playlist,
                         playbackState = playbackState,
                     )
-                    // 分组页在上方分支已由沉浸页接管，此处只为穷举页面类型
+                    // 分组页已由上方分支接管，此处仅穷举
                     is PlaylistPage.GroupTracks -> Unit
                 }
             }
@@ -322,8 +315,8 @@ private fun PlaylistStackedPanel(
     }
 }
 
-// 面板页面：总览 / 智能分组列表 / 智能曲目 / 自定义歌单曲目 / 分组曲目。
-// 分组曲目里的歌手与专辑分组都走整屏骨架（见 ArtistPlaylistPage、AlbumPlaylistPage）
+// 面板页面：总览、分组、智能曲目、歌单与分组曲目
+// 歌手与专辑分组走整屏骨架。
 private sealed interface PlaylistPage {
     data object Overview : PlaylistPage
     data class Groups(val type: SmartPlaylistType) : PlaylistPage
@@ -332,8 +325,7 @@ private sealed interface PlaylistPage {
     data class GroupTracks(val type: SmartPlaylistType, val group: PlaylistGroup) : PlaylistPage
 }
 
-// 页面为歌手/专辑分组页时的页面自身：两者都自带整屏骨架（沉浸头图 + 标签页），
-// 整页铺满到状态栏后方，标题栏在这些页始终隐藏。为空即当前页不是它们
+// 歌手/专辑分组页自带整屏骨架，标题栏恒隐藏；为空即不是
 private val PlaylistPage.immersiveGroupPage: PlaylistPage.GroupTracks?
     get() = (this as? PlaylistPage.GroupTracks)?.takeIf {
         it.type == SmartPlaylistType.ARTIST || it.type == SmartPlaylistType.ALBUM
@@ -348,8 +340,7 @@ private fun PlaylistPage.title(): String = when (this) {
     is PlaylistPage.GroupTracks -> group.name
 }
 
-// 面板顶部栏：仅承载当前页标题。下钻页的返回交给右滑与系统返回键（见 [swipeBack]），
-// 页内不再设返回入口
+// 面板顶部栏只显示标题，返回交给右滑与返回键
 @Composable
 private fun PanelHeader(title: String) {
     Row(
@@ -370,7 +361,7 @@ private fun PanelHeader(title: String) {
     }
 }
 
-// 系统歌单计数：常听/收藏按可播放曲目数，专辑/歌手按去重分组数
+// 计数：常听/收藏按曲目，专辑/歌手按分组
 internal data class SmartPlaylistCounts(
     val recent: Int,
     val favorite: Int,
@@ -378,7 +369,7 @@ internal data class SmartPlaylistCounts(
     val artist: Int,
 )
 
-// 全库扫描计数：总览卡片与宽屏左栏读同一份口径，且都缓存到曲库或相应 id 表变化为止
+// 总览与宽屏左栏共用，缓存到曲库或 id 表变化
 @Composable
 internal fun rememberSmartPlaylistCounts(playbackState: MusicPlaybackState): SmartPlaylistCounts {
     val library = playbackState.libraryTracks
@@ -394,7 +385,7 @@ internal fun rememberSmartPlaylistCounts(playbackState: MusicPlaybackState): Sma
     }
 }
 
-// 总览页：系统歌单卡片 + 我的歌单列表 + 新建歌单入口
+// 总览页：系统卡片 + 我的歌单 + 新建入口
 @Composable
 private fun PlaylistOverview(
     playlistStore: PlaylistStore,
@@ -408,12 +399,11 @@ private fun PlaylistOverview(
 ) {
     val allTracks = playbackState.libraryTracks
     val counts = rememberSmartPlaylistCounts(playbackState)
-    // 本面板常驻合成树（仅靠位移移出屏幕，不做可见性短路），全库分组与计数必须缓存：
-    // 否则每次重组都要重扫全库，扫描期的封面批量回写会把它放大成持续卡顿
+    // 面板常驻合成树，分组与计数必须缓存，否则重扫全库会持续卡顿
     val unknownAlbum = stringResource(R.string.playlist_unknown_album)
     val unknownArtist = stringResource(R.string.music_scanner_unknown_artist)
     val libraryById = remember(allTracks) { allTracks.associateBy { it.id } }
-    // 专辑/艺术家入口封面取各自类目内第一首歌，避免显示全部库（播放队列）首曲
+    // 入口封面取类目首曲，不用播放队列首曲
     val firstAlbumCover = remember(allTracks, unknownAlbum) {
         albumGroups(allTracks, unknownAlbum).firstOrNull()?.trackIds?.firstOrNull()
     }?.let { id -> libraryById[id] }
@@ -421,8 +411,7 @@ private fun PlaylistOverview(
         artistGroups(allTracks, unknownArtist).firstOrNull()?.trackIds?.firstOrNull()
     }?.let { id -> libraryById[id] }
     val listState = rememberLazyListState()
-    // 歌单行封面取歌单首曲：可视区邻域提前取图，滚动/曲库回填后不再先闪占位符。
-    // 歌单行由 [OVERVIEW_HEADER_ITEM_COUNT] 之后开始，故列表下标需先扣除头部项
+    // 封面取首曲并预取；下标须扣掉头部项
     CoverPrefetch(listState) { index ->
         playlistStore.playlists.getOrNull(index - OVERVIEW_HEADER_ITEM_COUNT)
             ?.trackIds
@@ -482,7 +471,7 @@ private fun PlaylistOverview(
             Spacer(modifier = Modifier.height(8.dp))
         }
         items(playlistStore.playlists, key = { it.id }) { playlist ->
-            // 逐行缓存解析结果：自定义歌单数量与库大小无关地重复查表会形成 O(歌单数 × 库大小)
+            // 逐行缓存，避免 O(歌单数 × 库大小) 查表
             val playlistTracks = remember(playlist.trackIds, libraryById) {
                 playlist.trackIds.mapNotNull { libraryById[it] }
             }
@@ -502,7 +491,7 @@ private fun PlaylistOverview(
     }
 }
 
-// 分节标题：窄屏总览与宽屏左栏共用，两处的分节口径与字号一致
+// 分节标题，窄屏与宽屏左栏共用
 @Composable
 internal fun SectionLabel(text: String) {
     Text(
@@ -513,7 +502,7 @@ internal fun SectionLabel(text: String) {
     )
 }
 
-// 系统歌单卡片：白色描边圆角卡片 + 白色图标与文字，与在线搜索输入框风格一致
+// 系统卡片：白色描边圆角 + 白色图标文字
 @Composable
 private fun SmartPlaylistCard(
     type: SmartPlaylistType,
@@ -572,8 +561,7 @@ internal enum class PlaylistRowAction(val labelRes: Int) {
     Delete(R.string.playlist_delete),
 }
 
-// 自定义歌单行：无背景 + 小圆角 + 封面或图标与主次文字，对齐在线搜索结果行。
-// 窄屏总览列表与宽屏左栏导航共用一份实现，两处的行高、封面档位与菜单口径因此一致
+// 歌单行：封面/图标 + 主次文字；窄屏与宽屏共用
 @Composable
 internal fun PlaylistListRow(
     playlist: Playlist,
@@ -614,7 +602,7 @@ internal fun PlaylistListRow(
             }
         }
         Column(modifier = Modifier.weight(1f)) {
-            // 行高须显式给出：只改字号会沿用主题正文的 24sp 行高，把标题与数量之间撑出空档
+            // 行高须显式给出，否则沿用 24sp 撑出空档
             Text(
                 text = playlist.name,
                 color = Color.White,
@@ -669,7 +657,7 @@ internal fun PlaylistListRow(
     }
 }
 
-// 新建歌单入口：白色描边圆角卡片，与系统歌单卡片一致。窄屏总览与宽屏左栏共用
+// 新建入口：白色描边圆角卡片，两处共用
 @Composable
 internal fun CreatePlaylistRow(
     onClick: () -> Unit,
@@ -698,7 +686,7 @@ internal fun CreatePlaylistRow(
     }
 }
 
-// 系统歌单类型的图标：窄屏总览卡片与宽屏左栏导航共用
+// 歌单类型图标，窄屏与宽屏共用
 internal fun smartTypeIcon(type: SmartPlaylistType): ImageVector = when (type) {
     SmartPlaylistType.RECENT -> AppIcons.History
     SmartPlaylistType.FAVORITE -> AppIcons.Favorite
@@ -706,6 +694,5 @@ internal fun smartTypeIcon(type: SmartPlaylistType): ImageVector = when (type) {
     SmartPlaylistType.ARTIST -> AppIcons.Person
 }
 
-// 总览列表里歌单行之前的头部项数：系统歌单卡片、我的歌单分节标题、新建入口各占一项。
-// 预取按列表下标解析歌单时须按此回退，新增头部项时同步调整
+// 歌单行前头部项数（3 项），新增头部项须同步
 private const val OVERVIEW_HEADER_ITEM_COUNT = 3

@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-// 播放页排版 ViewModel：汇总各场景排版参数，调节时本地即时更新并落盘
+// 排版 ViewModel：即时更新并落盘
 class TypographyViewModel(application: Application) : AndroidViewModel(application) {
 
     private val context get() = getApplication<Application>()
@@ -144,7 +144,7 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
         )
     }
 
-    // 竖屏各调节入口共用同一条落盘路径：整份排版参数一次性提交，避免某个字段取错当前值
+    // 竖屏整份提交，避免字段取错
     private fun applyHomePortrait(layout: LyricLayoutParams) {
         _uiState.update { it.copy(homePortrait = layout) }
         viewModelScope.launch {
@@ -159,7 +159,7 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    // 横屏同理：字号、行数、行间距、3D 强度与渐隐一起整份提交
+    // 横屏整份提交
     private fun applyLandscape(layout: LandscapeLyricLayoutParams) {
         _uiState.update { it.copy(homeLandscape = layout) }
         viewModelScope.launch {
@@ -189,7 +189,7 @@ class TypographyViewModel(application: Application) : AndroidViewModel(applicati
             LyricLayoutDefaults.LINE_SPACING_MAX_DP,
         )
 
-    // 半行档位步进：先折算成档数再加减，反复调节不会因浮点累加漂到档位之外
+    // 折算档数再加减，避免浮点漂移
     private fun stepHalfLines(current: Float, delta: Int, min: Float, max: Float): Float {
         val step = LyricLayoutDefaults.FADE_STEP_LINES
         return (((current / step).roundToInt() + delta) * step).coerceIn(min, max)

@@ -16,20 +16,13 @@ import com.yichao.evilgodxu.log.CrashLogManager
 import java.io.File
 import org.json.JSONArray
 
-// 歌词缓存读写工具：全部为无状态函数，按需传入 Context。
-// 封面不在此列：封面由显示端按需取系统略缩图或音频内嵌封面，仅当前曲目的一张缩略图另行落盘（见 CurrentCoverCache）
+// 歌词缓存，封面另存
 internal object MusicMetadataCache {
-    // 公共下载目录下的应用缓存根目录名，与在线音频缓存 Download/YiChao/Audio 保持同级。
-    // 下载器写入在线歌曲条目时按此拼装相对路径，目录名只在此处定义一次
+    // 缓存根目录名，Download/YiChao
     internal const val CACHE_DIR_NAME = "YiChao"
     private const val LYRIC_DIR = "Lyrics"
 
-    // 缓存根目录：系统公共下载目录 Download/YiChao。
-    // 具备全部文件访问权限时直写文件系统；权限缺失时经 MediaStore Downloads 集合写入自身条目
-    // （Android 11+ 对自身写入的文件保留路径读取能力），上层调用方统一按返回的绝对路径使用，
-    // 不受分区存储影响。
-    // getExternalStoragePublicDirectory 为获取公共下载目录路径的唯一接口，无新版等价实现
-    // 缓存台账统计同目录下的同级缓存（如在线音频）时也按此定位，避免路径出现第二份事实
+    // 公共下载目录，暂无等价 API
     @Suppress("DEPRECATION")
     internal fun mediaRoot(context: Context): File {
         val public = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
@@ -37,12 +30,10 @@ internal object MusicMetadataCache {
         return public ?: context.getExternalFilesDir(null) ?: context.filesDir
     }
 
-    // 供缓存台账统计歌词占用：与写入端共用同一路径解析，不另立一份
+    // 歌词目录，与写入端共用路径解析
     internal fun lyricRoot(context: Context): File = File(mediaRoot(context), LYRIC_DIR)
 
-    // 缓存索引名：按“标题 - 艺术家”命名，空字段自动忽略，两者皆空回退 unknown。
-    // 封面与歌词共用同一索引，于是文件名可由曲目元数据直接推出——不依赖曲目里记录的引用即可查回，
-    // 代价是标题与艺术家都相同的曲目（含超过 80 字符被截断后同名前缀的曲目）共享同一份缓存文件
+    // 索引名“标题 - 艺术家”；同名曲目共用缓存
     private fun metadataIndexName(title: String, artist: String): String = sanitizeFileName(
         listOf(title, artist)
             .filter { it.isNotBlank() }
@@ -58,14 +49,10 @@ internal object MusicMetadataCache {
     private fun lyricFile(context: Context, title: String, artist: String): File =
         File(lyricRoot(context), lyricFileName(title, artist))
 
-    // 是否具备直接读写公共下载目录的特殊权限（全部文件访问）
+    // 是否有全部文件访问权限
     private fun hasDirectDownloadAccess(): Boolean = Environment.isExternalStorageManager()
 
-    // 写入缓存文件，落点一律返回绝对路径：位置由 目录+文件名 唯一确定，不把 MediaStore 条目 ID
-    // 写进曲目——条目可能被重建或清理，ID 会失效，路径不会。
-    // 有全部文件访问时直写文件系统：可复用/覆盖目录中已有的同名文件，不会因同名冲突产生副本。
-    // 没有该权限时经 Downloads 集合写入：向公共下载目录贡献自身条目不需要任何存储权限（Android 10+），
-    // 与在线音频缓存的写入方式一致。两条路都失败才回退应用专属目录。
+    // 返回绝对路径；直写、MediaStore、私有
     private fun writeCacheFile(context: Context, dirName: String, name: String, bytes: ByteArray): String? {
         if (hasDirectDownloadAccess()) {
             writeToPublicDir(context, dirName, name, bytes)?.let { return it }
@@ -82,9 +69,7 @@ internal object MusicMetadataCache {
             .takeIf { runCatching { file.writeBytes(bytes) }.isSuccess && file.isFile }
     }
 
-    // MediaStore Downloads 写入：按 目录+文件名 复用既有条目覆盖写，避免同名重复文件。
-    // 不显式设置 MIME_TYPE：集合会按文件名推断类型；显式给 text/plain 时其默认扩展名是 .txt，
-    // 与 .lrc 不匹配，集合会把文件改名为 "<原名> (1).txt"
+    // Downloads 覆盖写；不设 MIME 免改名
     private fun writeViaMediaStore(context: Context, dirName: String, name: String, bytes: ByteArray): String? = try {
         val resolver = context.contentResolver
         val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
@@ -95,19 +80,18 @@ internal object MusicMetadataCache {
             ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, name)
                 put(MediaStore.Downloads.RELATIVE_PATH, downloadsRelativePath(dirName))
-                // 写入期间标记 pending，避免媒体扫描读到半截文件
+                // 标记 pending，避免读到半截文件
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             },
         ) ?: return null
         val written = resolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } != null
-        // 只对新建条目发布；既有条目不碰 IS_PENDING——它属于布局列，改它会触发集合按
-        // DISPLAY_NAME/MIME 重新推算落点，旧名称与 MIME 不匹配时会再改名甚至撞唯一约束
+        // 只为新条目发布，改既有会重算落点
         resolver.update(uri, ContentValues().apply {
             if (inserted) put(MediaStore.MediaColumns.IS_PENDING, 0)
             put(MediaStore.MediaColumns.DATE_MODIFIED, System.currentTimeMillis() / 1000)
         }, null, null)
         if (!written) return null
-        // 条目实际落点可能因同名冲突带序号，按 DATA 取回真实路径，避免把曲目指向不存在的文件
+        // 同名冲突会改落点，按 DATA 取真实路径
         queryDownloadsPath(context, uri) ?: File(File(mediaRoot(context), dirName), name).absolutePath
     } catch (e: Exception) {
         CrashLogManager.logException("MusicMetadataCache", "MediaStore 写入缓存失败: $dirName/$name", e)
@@ -119,7 +103,7 @@ internal object MusicMetadataCache {
             ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
     }.getOrNull()
 
-    // 按 目录+文件名 定位 Downloads 集合中的既有条目
+    // 按目录+文件名定位 Downloads 条目
     private fun queryDownloadsUri(context: Context, dirName: String, name: String): Uri? {
         val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
         val selection = "${MediaStore.Downloads.DISPLAY_NAME}=? AND ${MediaStore.Downloads.RELATIVE_PATH}=?"
@@ -132,8 +116,7 @@ internal object MusicMetadataCache {
         )?.use { cursor -> if (cursor.moveToFirst()) ContentUris.withAppendedId(collection, cursor.getLong(0)) else null }
     }
 
-    // 应用专属目录兜底：MediaStore 写入失败时保证缓存仍可落盘。
-    // 目录只在真正走到这一步时才创建，命中 MediaStore 时不会留下任何空目录
+    // 私有目录兜底，按需创建
     private fun writeToPrivateDir(context: Context, dirName: String, name: String, bytes: ByteArray): String? {
         val root = context.getExternalFilesDir(null) ?: return null
         val dir = File(root, dirName)
@@ -143,7 +126,7 @@ internal object MusicMetadataCache {
             .takeIf { runCatching { file.writeBytes(bytes) }.isSuccess && file.isFile }
     }
 
-    // Downloads 集合的目录相对路径：Download/YiChao/<子目录>/
+    // Download/YiChao/<子目录>/
     private fun downloadsRelativePath(dirName: String): String =
         "${Environment.DIRECTORY_DOWNLOADS}/$CACHE_DIR_NAME/$dirName/"
 
@@ -155,12 +138,11 @@ internal object MusicMetadataCache {
         null
     }
 
-    // 歌词按增强 LRC 文本序列化：标准 [mm:ss.xxx] 行 + 行内 <mm:ss.xxx> 逐字时间戳，翻译以 [tr][/tr] 追加
+    // 增强 LRC：行与逐字各带时间戳
     internal fun encodeLyrics(lines: List<LyricLine>): String =
         lines.joinToString("\n") { encodeLyricLine(it) }
 
-    // 单行序列化。includeTranslation=false 供「原文与翻译分属不同编辑入口」的场景使用：
-    // 只暴露时间戳/逐字/文本，翻译由独立入口维护，避免编辑原文时误改翻译
+    // 单行序列化；不带翻译时避免误改
     internal fun encodeLyricLine(line: LyricLine, includeTranslation: Boolean = true): String {
         val timestamp = lrcTimestamp(line.timeMs)
         val translation = if (includeTranslation) {
@@ -175,17 +157,14 @@ internal object MusicMetadataCache {
         }
     }
 
-    // 按“标题 - 艺术家”查找已存在的歌词缓存文件：在线播放/手动刷新保存的 .lrc 可直接复用。
-    // 返回绝对路径（目录+文件名唯一确定）；路径不可 stat 但集合中确认存在时同样返回该路径，
-    // 读取入口会改走集合（见 readLyricsText）
+    // 查找歌词缓存路径；不可 stat 但集合存在时同样返回
     fun findLyrics(context: Context, title: String, artist: String): String? {
         val file = lyricFile(context, title, artist)
         if (isValid(context, file.absolutePath)) return file.absolutePath
         return file.absolutePath.takeIf { downloadsUriForFile(context, file) != null }
     }
 
-    // 歌词缓存文件的最后修改时间（毫秒）：与音频内嵌歌词择新时用作比较基准，不可用时返回 0。
-    // 路径不可 stat 时同读取入口一样回到 Downloads 集合取条目修改时间
+    // 歌词修改时间毫秒，不可用返回 0；路径不可读时查集合
     fun lyricsModifiedMs(context: Context, location: String): Long {
         if (location.isBlank()) return 0L
         if (isContentLocation(location)) return queryModifiedSeconds(context, location.toUri()) * 1000L
@@ -204,14 +183,14 @@ internal object MusicMetadataCache {
         emptyList()
     }
 
-    // 兼容逐字增强标签；调用方为 LRC 导入与内嵌歌词读取
+    // 兼容逐字增强标签
     fun parseLyricsText(text: String): List<LyricLine> {
-        // 空/空白文本直接返回空列表，避免进入 JSON 兜底解析抛空值异常
+        // 空白文本直接返回空列表
         if (text.isBlank()) return emptyList()
         return parseEnhancedLrc(text).ifEmpty { parseJsonLyrics(text) }
     }
 
-    // 应用幂等；缓存文件保存的始终是原始时间戳
+    // 幂等；缓存始终存原始时间戳
     fun shiftLyrics(lines: List<LyricLine>, deltaMs: Long): List<LyricLine> =
         lines.map { line ->
             line.copy(
@@ -227,13 +206,11 @@ internal object MusicMetadataCache {
         return "%02d:%02d.%03d".format(minutes, seconds, millis)
     }
 
-    // 增强 LRC 解析交由共享实现，本地与在线歌词走同一份解析逻辑；此处只叠加旧版数据的修复
+    // 共享增强 LRC 解析，附加旧数据修复
     private fun parseEnhancedLrc(lrc: String): List<LyricLine> =
         repairLegacyWordStarts(parseWordTimedLrcText(lrc))
 
-    // 兼容修复：早期 YRC 解析把字标签的绝对时间又叠加了一次行首时间，使字的起点落在本行区间之外
-    // （甚至晚于下一行起点）——这类值不可能成立，回退减去行首时间还原为绝对时间。
-    // 数据正常（字起点落在本行区间内）时不改动任何内容。
+    // 旧 YRC 重复行首时间，越界时减去
     private fun repairLegacyWordStarts(lines: List<LyricLine>): List<LyricLine> =
         lines.mapIndexed { index, line ->
             val firstWordStart = line.words.firstOrNull()?.startMs
@@ -241,7 +218,7 @@ internal object MusicMetadataCache {
                 line
             } else {
                 val nextLineStart = lines.getOrNull(index + 1)?.timeMs
-                // 判据：字起点不得晚于下一行起点；无下一行（或下一行时间相同）时不得晚于行首的两倍
+                // 判据：字起点早于下一行；无下一行时早于行首两倍
                 val inconsistent = nextLineStart
                     ?.let { it > line.timeMs && firstWordStart >= it }
                     ?: (firstWordStart >= line.timeMs * 2)
@@ -253,14 +230,14 @@ internal object MusicMetadataCache {
             }
         }
 
-    // 旧版 JSON 缓存回退解析：命中 LRC 特征或强转失败时均返回空，不再抛异常
+    // 旧版 JSON 歌词回退解析
     private fun parseJsonLyrics(text: String): List<LyricLine> {
-        // 命中 LRC 特征（[mm:ss] 时间戳行或 → 逐字标记）时不视为 JSON，避免强转 JSONArray 抛异常
+        // 含 LRC 特征时不按 JSON 解析
         if (LRC_TIMESTAMP_PATTERN.containsMatchIn(text) || text.contains(LRC_WORD_ARROW)) return emptyList()
         return runCatching { parseJsonArray(text) }.getOrDefault(emptyList())
     }
 
-    // 标准 LRC 时间戳 [mm:ss] / [mm:ss.xxx]（含小时制 [hh:mm:ss.xxx]）；要求 [ 后紧跟数字，避免误判旧版 JSON 歌词（以 [{ 开头）
+    // LRC 时间戳；[ 后须紧跟数字，避开 JSON 歌词
     private val LRC_TIMESTAMP_PATTERN = Regex("""\[\d+:\d+(?::\d+)?(?:[.:]\d+)?]""")
     // 逐字增强 LRC 的区间箭头标记
     private const val LRC_WORD_ARROW = "→"
@@ -281,22 +258,18 @@ internal object MusicMetadataCache {
         }
     }
 
-    // 缓存位置：新写入的一律是绝对路径；旧版遗留的 content URI 仍按原样读取，供升级过渡
+    // 新写绝对路径，旧 URI 兼容读
     private fun isContentLocation(location: String): Boolean =
         location.startsWith(ContentResolver.SCHEME_CONTENT)
 
-    // 缓存是否可用。仅在路径形态下做存在性探测（stat 开销远低于逐首 query）；
-    // content URI 不做探测：条目即使已被外部删除，读取入口也只是按空文本回退重建，
-    // 逐首 query 反而会把冷启动拖成数百次 IPC
+    // 仅探测路径是否存在；content URI 视为可用
     fun isValid(context: Context, location: String): Boolean = when {
         location.isBlank() -> false
         isContentLocation(location) -> true
         else -> File(location).let { it.isFile && it.length() > 0 }
     }
 
-    // 读取缓存文本：路径可读时直读；无「全部文件访问」时公共下载目录下的自身文件不一定能按路径读，
-    // 按 目录+文件名 回到 Downloads 集合读同一份内容。位置已不存在（用户清理了下载目录等）
-    // 按空文本处理，交由调用方回退重建，不当作加载失败
+    // 读缓存文本：路径直读，失败按目录查
     internal fun readLyricsText(context: Context, location: String): String {
         if (isContentLocation(location)) return readContent(context, location.toUri()).orEmpty()
         val file = File(location)
@@ -308,15 +281,13 @@ internal object MusicMetadataCache {
         context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
     }.getOrNull()
 
-    // 由缓存文件路径回到 Downloads 集合中的条目：自身条目经集合始终可访问
+    // 由文件路径查 Downloads 条目
     private fun downloadsUriForFile(context: Context, file: File): Uri? {
         val dirName = file.parentFile?.name ?: return null
         return queryDownloadsUri(context, dirName, file.name)
     }
 
-    // 删除曲目的歌词缓存：只认本应用写的那两份落点（公共下载目录与权限缺失时的私有兜底），
-    // 公共目录里别的 .lrc 可能是用户自己放的，宁可留下也不误删。条目在集合里时经集合删除
-    // （文件与记账一起走），条目已不在（旧版遗留的纯路径缓存）才直删文件
+    // 只删本应用两处落点内的歌词，避免误删用户文件
     fun deleteLyrics(context: Context, location: String) {
         if (location.isBlank()) return
         if (isContentLocation(location)) {
@@ -330,7 +301,7 @@ internal object MusicMetadataCache {
         runCatching { file.delete() }
     }
 
-    // 歌词缓存的两处落点：公共目录，以及无写入权限时的应用专属目录
+    // 歌词两处落点：公共目录与私有目录
     private fun lyricRoots(context: Context): Set<String> = buildSet {
         add(lyricRoot(context).absolutePath)
         context.getExternalFilesDir(null)?.let { add(File(it, LYRIC_DIR).absolutePath) }

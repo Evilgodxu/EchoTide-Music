@@ -13,12 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/**
- * 设置页状态持有者。
- *
- * 不持有 Context：平台能力（代理音源存储、缓存采样、三条授权流程）经 [SettingsEnvironment] 注入，
- * 因此可在 JVM 单测里用假环境替换；状态与判定留在本类，写盘统一走 [SettingsRepository]。
- */
+/** 设置页状态：能力经环境注入，可单测 */
 class SettingsViewModel(
     private val settingsRepository: SettingsRepository,
     private val environment: SettingsEnvironment,
@@ -43,7 +38,7 @@ class SettingsViewModel(
                 _uiState.update { it.copy(playback = playback) }
             }
         }
-        // 音源列表由存储状态流驱动：页内增删与系统分享导入走同一条回流路径
+        // 音源列表由存储状态流驱动
         viewModelScope.launch {
             environment.proxySources.collect { sources ->
                 _uiState.update { it.copy(proxySources = sources) }
@@ -57,29 +52,27 @@ class SettingsViewModel(
         viewModelScope.launch {
             settingsRepository.updatePlaybackSettings { it.copy(miniPlayerEnabled = enabled) }
             if (enabled && !environment.canDrawOverlays()) {
-                // 置为待授权状态：界面通过 ActivityResultLauncher 打开系统悬浮窗设置页，
-                // 返回时（含 Activity 重建、进程回收后的结果重投递）统一由 onOverlaySettingsReturned 对账
+                // 置待授权状态，返回时统一对账
                 _uiState.update { it.copy(overlayPermissionPending = true) }
                 environment.startOverlayGrantMonitor()
             } else if (!enabled) {
-                // 主动关闭开关时结束监控，避免无意义轮询
+                // 关闭开关即停止监控
                 environment.stopOverlayGrantMonitor()
                 _uiState.update { it.copy(overlayPermissionPending = false) }
             }
         }
     }
 
-    // 用户从免打扰授权页返回（ActivityResultLauncher 回调）：授权与否都只需收尾置位，
-    // 直出本身不依赖它，缺权限只是「仅闹钟」这一效果不生效，故不回滚开关
+    // 免打扰返回：只收尾，不回滚开关
     fun onNotificationPolicySettingsReturned() {
         _uiState.update { it.copy(notificationPolicyPermissionPending = false) }
     }
 
-    // 用户从系统悬浮窗设置页返回（ActivityResultLauncher 回调）
+    // 悬浮窗设置页返回
     fun onOverlaySettingsReturned() {
         _uiState.update { it.copy(overlayPermissionPending = false) }
         if (!environment.canDrawOverlays()) {
-            // 未授予：停止监控并回滚开关，避免界面状态与真实权限不一致
+            // 未授予则停止监控并回滚开关
             environment.stopOverlayGrantMonitor()
             viewModelScope.launch {
                 settingsRepository.updatePlaybackSettings { it.copy(miniPlayerEnabled = false) }
@@ -109,7 +102,7 @@ class SettingsViewModel(
         }
     }
 
-    // 音量增益只落盘：施加点在场播放器音量上，由播放服务订阅同一份设置后生效
+    // 只落盘，由播放服务订阅生效
     fun setVolumeGain(enabled: Boolean) {
         _uiState.update { it.copy(playback = it.playback.copy(volumeGain = enabled)) }
         viewModelScope.launch {
@@ -120,9 +113,7 @@ class SettingsViewModel(
     fun setUsbDirectOutput(enabled: Boolean) {
         applyUsbOutputSwitch(UsbOutputKind.FORMAT_LOCKED, enabled)
         if (enabled) {
-            // 直出期间要把系统置为「仅闹钟」：免打扰访问权在这一刻申请。
-            // 与悬浮窗授权同一套——授权页由界面在同任务内打开，这里只负责置位与跟随：
-            // 该页在用户勾选后不会自己关闭，得靠跟随把应用带回前台
+            // 直出需免打扰权限，此处申请
             requestNotificationPolicyAccess()
         }
         viewModelScope.launch {
@@ -137,19 +128,14 @@ class SettingsViewModel(
         }
     }
 
-    // 申请免打扰访问权：已授予时什么都不做，未授予则置位由界面打开授权页
+    // 已授予则跳过，否则置位待界面打开
     private fun requestNotificationPolicyAccess() {
         if (environment.isNotificationPolicyGranted()) return
         environment.watchNotificationPolicyGrant()
         _uiState.update { it.copy(notificationPolicyPermissionPending = true) }
     }
 
-    /**
-     * 界面状态先行更新，落盘随后异步进行。
-     *
-     * 开关的取值与互斥关系都由 [usbOutputSwitchesAfter] 给出，与落盘走的是同一份判定：两处各写一遍
-     * 会让界面显示的与文件里存的不是同一件事，而这类分歧只在下次启动才显形。
-     */
+    /** 界面先行更新，落盘异步；互斥判定与落盘共用同一份 */
     private fun applyUsbOutputSwitch(kind: UsbOutputKind, enabled: Boolean) {
         val switches = usbOutputSwitchesAfter(kind, enabled)
         _uiState.update { state ->
@@ -162,7 +148,7 @@ class SettingsViewModel(
         }
     }
 
-    // 页内层级只记去向：语言外观与播放模式的读写都落在本类既有的设置状态上
+    // 层级只记去向
     fun openPage(page: SettingsPage) {
         _uiState.update { it.copy(page = page) }
     }
@@ -185,18 +171,18 @@ class SettingsViewModel(
         }
     }
 
-    // 导入代理音源：链接先拉取、文本直接解析；成功不显示提示，失败提示自动消失
+    // 链接先拉取，文本直接解析
     fun importProxySource(content: String) {
         viewModelScope.launch {
             val message = environment.importProxySource(content)
             _uiState.update {
                 it.copy(proxyImportMessage = message.text, proxyImportFailed = message.failed)
             }
-            // 列表刷新由存储变更监听统一驱动
+            // 列表由存储变更监听刷新
         }
     }
 
-    // 切换代理音源启用状态，停用的音源即时停止参与解析
+    // 停用即停止参与解析
     fun setProxySourceEnabled(name: String, enabled: Boolean) {
         viewModelScope.launch { environment.setProxySourceEnabled(name, enabled) }
     }
@@ -209,8 +195,7 @@ class SettingsViewModel(
         _uiState.update { it.copy(proxyImportMessage = null, proxyImportFailed = false) }
     }
 
-    // 采样缓存合计占用：目录遍历为阻塞 IO，由环境侧切到 IO 线程。
-    // 明细与清理在缓存页进行，此处只需总量供入口展示
+    // 采样缓存合计，明细在缓存页
     private fun refreshCacheUsage() {
         viewModelScope.launch {
             val totalBytes = environment.sampleCacheBytes()

@@ -13,8 +13,7 @@ import com.yichao.evilgodxu.data.settings.ThemeMode
 import com.yichao.evilgodxu.ui.component.ScreenRevealController
 import com.yichao.evilgodxu.ui.component.ScreenRevealHost
 
-// 主题模式切换的整屏揭示入口（见 ScreenRevealHost）：
-// 切换入口交出的圆心是触发切换的那次点击位置
+// 主题切换整屏揭示入口；圆心为点击位置
 val LocalThemeTransitionController = androidx.compose.runtime.staticCompositionLocalOf<ScreenRevealController> {
     error("ThemeTransitionController is not provided")
 }
@@ -22,14 +21,13 @@ val LocalThemeTransitionController = androidx.compose.runtime.staticCompositionL
 // 成功态配色（随主题切换）
 val LocalSuccessColor = androidx.compose.runtime.staticCompositionLocalOf { md_theme_light_success }
 
-// 当前是否为深色主题，供子页面按需覆盖状态栏样式
+// 当前是否深色，供子页面覆盖状态栏
 val LocalIsDarkTheme = androidx.compose.runtime.staticCompositionLocalOf { false }
 
-// 状态栏是否采用浅色外观（深色图标）；默认跟随主题，深色背景页面（如首页）可覆盖为 false 固定白色图标
+// 状态栏是否浅色外观；首页可覆盖为 false
 val LocalStatusBarLight = androidx.compose.runtime.staticCompositionLocalOf { false }
 
-// 界面层声明的系统栏状态：图标外观与沉浸请求。窗口操作由 Activity 统一收敛下发，
-// 界面侧不直接调用 insetsController，避免多处写入互相覆盖、或被窗口切换过程吞掉
+// 系统栏声明，窗口操作统一由 Activity 下发
 object SystemBarAppearance {
     // 状态栏图标外观（浅色外观 = 深色图标）
     var isLightStatusBars: Boolean = false
@@ -46,7 +44,7 @@ object SystemBarAppearance {
             onChanged?.invoke()
         }
 
-    // 首页竖屏沉浸请求（隐藏全部系统栏）：由导航宿主按栈顶目的地声明，离开首页即撤销
+    // 首页竖屏沉浸请求，离开首页即撤销
     var isHomePortraitImmersive: Boolean = false
         set(value) {
             if (field == value) return
@@ -54,7 +52,7 @@ object SystemBarAppearance {
             onChanged?.invoke()
         }
 
-    // 声明变化时的即时下发回调，由 Activity 注册
+    // 声明变化回调，由 Activity 注册
     var onChanged: (() -> Unit)? = null
 }
 
@@ -160,14 +158,14 @@ fun MyApplicationTheme(
         else -> darkTheme
     }
 
-    // 主题切换的整屏揭示：切换入口在点击瞬间交出新旧主题的对照点（点击位置）
+    // 整屏揭示：点击瞬间交出新旧主题对照点
     val revealController = remember { ScreenRevealController() }
 
     CompositionLocalProvider(
         LocalThemeTransitionController provides revealController,
         LocalSuccessColor provides if (isDarkTheme) md_theme_dark_success else md_theme_light_success,
         LocalIsDarkTheme provides isDarkTheme,
-        // 状态栏默认跟随主题：浅色主题用深色图标，深色主题用白色图标
+        // 状态栏默认跟随主题
         LocalStatusBarLight provides !isDarkTheme,
     ) {
         MaterialTheme(

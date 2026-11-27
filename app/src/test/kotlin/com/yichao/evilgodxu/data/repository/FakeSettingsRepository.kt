@@ -9,8 +9,8 @@ import com.yichao.evilgodxu.data.settings.usbOutputSwitchesAfter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 
-// 内存版设置仓库：单测用它替代真实 DataStore，不经磁盘也不另引 mock 框架。
-// USB 互斥复用与实现相同的判定，避免 fake 与真实写入规则各写一遍
+// 内存版设置仓库，不触盘、不用 mock
+// USB 互斥复用实现判定，规则只写一遍
 class FakeSettingsRepository(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     language: AppLanguage = AppLanguage.SYSTEM,

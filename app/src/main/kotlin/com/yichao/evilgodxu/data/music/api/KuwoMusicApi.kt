@@ -13,16 +13,14 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * 酷我音乐在线源：官方 searchMusicBykeyWord 搜索 + mobi.s 加密链接 + newlyric 歌词。
- * 歌曲标识为 rid 数字串，播放与歌词接口均按 rid 请求。
- */
+// 酷我在线源：搜索、mobi.s 加密链接与歌词
+// 歌曲标识为 rid，播放与歌词均按 rid 请求
 internal object KuwoMusicApi : OnlineMusicSource {
 
     private const val SEARCH_ENDPOINT = "https://www.kuwo.cn/search/searchMusicBykeyWord"
     private const val MOBI_ENDPOINT = "https://mobi.kuwo.cn/mobi.s"
     private const val LYRIC_ENDPOINT = "https://newlyric.kuwo.cn/newlyric.lrc"
-    // 封面 CDN：直链形如 {COVER_CDN}/{size}/{path}，size 取 ori 为原图、数字为对应尺寸缩略图
+    // 封面直链 {size} 取 ori 为原图，数字为缩略
     private const val COVER_CDN = "https://img1.kuwo.cn/star/albumcover"
     private const val COVER_ORIGINAL_SIZE = "ori"
     private const val COVER_THUMB_SIZE = "120"
@@ -31,7 +29,7 @@ internal object KuwoMusicApi : OnlineMusicSource {
     private val LYRIC_KEY = "yeelion".toByteArray()
     private val LRC_PREFIX = "tp=content".toByteArray()
     private val LRC_SEPARATOR = "\r\n\r\n".toByteArray()
-    // 歌词正文按 GB18030 解码：该编码是 GBK 的超集，韩文等非 GBK 字符以四字节序列出现，用 GBK 会解成乱码
+    // 歌词按 GB18030 解码，GBK 会把韩文等解成乱码
     private val LYRIC_CHARSET: Charset = runCatching { Charset.forName("GB18030") }.getOrDefault(Charsets.UTF_8)
 
     override suspend fun search(keyword: String, page: Int, pageSize: Int): List<NeteaseSongSearchResult> = withContext(Dispatchers.IO) {
@@ -43,8 +41,8 @@ internal object KuwoMusicApi : OnlineMusicSource {
             List(lists.length()) { index ->
                 val item = lists.getJSONObject(index)
                 val rid = item.optString("MUSICRID").ifBlank { item.optString("musicrid") }.removePrefix("MUSIC_")
-                // 专辑封面优先取 web_albumpic_short（形如 120/xx/xx.jpg），按路径拼接原图与缩略图；
-                // 无专辑封面时回退 hts_MVPIC（MV 图）等兜底字段
+                // 封面优先 web_albumpic_short，再拼尺寸
+                // 缺失时回退 hts_MVPIC 等字段
                 val albumShort = item.optString("web_albumpic_short")
                 val coverPath = albumShort.takeIf { it.isNotBlank() }?.removePrefix("120/")
                 val fallback = item.optString("hts_MVPIC").ifBlank { item.optString("albumpic") }
@@ -63,7 +61,7 @@ internal object KuwoMusicApi : OnlineMusicSource {
                     duration = durationSec * 1000L,
                     source = MusicSearchSource.KUWO,
                     sourceId = rid.ifBlank { null },
-                    // 酷我搜索只给专辑名，不提供发行日期与编号
+                    // 搜索只给专辑名，无发行日期与编号
                     album = item.optString("ALBUM").ifBlank { item.optString("album") }
                         .takeIf { it.isNotBlank() },
                 )
@@ -79,7 +77,7 @@ internal object KuwoMusicApi : OnlineMusicSource {
     suspend fun songUrl(rid: String, quality: MusicQuality = MusicQuality.LOSSLESS): String? = withContext(Dispatchers.IO) {
         if (rid.isBlank()) return@withContext null
         try {
-            // 酷我仅提供 flac 与 mp3 两种格式：无损及以上取 flac，其余取 mp3；跨档降级由调用方逐档驱动
+            // 仅 flac/mp3：无损及以上取 flac，其余 mp3
             val formats = when (quality) {
                 MusicQuality.HI_RES, MusicQuality.LOSSLESS, MusicQuality.HIGH -> arrayOf("flac")
                 MusicQuality.STANDARD -> arrayOf("mp3")
@@ -98,12 +96,8 @@ internal object KuwoMusicApi : OnlineMusicSource {
         }
     }
 
-    /**
-     * 获取歌词：解密 newlyric 响应后解析，翻译按时间戳并入主行。
-     *
-     * `lrcx=1` 索取带逐字时间轴的歌词文件（有则解析出逐字，没有时同一文件里就是普通歌词）；
-     * 该请求落空时再按普通歌词重取一次，保证逐字不可用不影响歌词本身。
-     */
+    // 获取歌词：解密 newlyric 后解析，译文按时间并入
+    // lrcx=1 索取逐字，落空再按普通歌词重取
     suspend fun lyricLines(result: NeteaseSongSearchResult): List<LyricLine>? = withContext(Dispatchers.IO) {
         val rid = result.sourceId ?: return@withContext null
         try {
@@ -153,7 +147,7 @@ internal object KuwoMusicApi : OnlineMusicSource {
         return null
     }
 
-    // 酷我私有 DES 变体：mobi.s 参数用 SONG_KEY 加密（mode 0 加密 / 1 解密）
+    // 酷我 DES 变体，SONG_KEY 加密，mode 0/1
     private fun kuwoCrypt(msg: ByteArray, key: ByteArray, mode: Int): ByteArray {
         var keyBits = 0L
         for (i in 0 until 8) keyBits = keyBits or ((key[i].toLong() and 0xFF) shl (i * 8))

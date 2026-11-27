@@ -18,17 +18,16 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// 面板动作按钮的图标尺寸：与按钮文字同处一行，取 15dp 使其不高于 12sp 文字的视觉重量
+// 图标 15dp：不高于同行 12sp 文字
 private val ActionIconSize = 15.dp
-// 图标与文字共用的圆角：只作点按反馈的范围提示，不需要贴合文字外形的精确形状
+// 圆角 8dp，仅作点按反馈范围
 private val ActionShape = RoundedCornerShape(8.dp)
-// 常态配色：不用纯白，与标签文字同档，避免动作按钮抢过搜索内容本身
+// 常态 85% 白，避免抢过搜索内容
 private val ActionColor = Color.White.copy(alpha = 0.85f)
-// 不可用态（如刷新进行中）：整体降透明度而非换色，保持同一色系
+// 不可用态降透明度，不换色
 private val ActionDisabledColor = Color.White.copy(alpha = 0.4f)
 
-// 搜索面板内的动作按钮：历史的「清空」与结果的「刷新」共用。
-// 图标尺寸、配色与内边距只在此定义一处 —— 两处各写一遍，随后必然走形
+// 动作按钮：清空与刷新共用，样式只此处定义
 @Composable
 internal fun SearchPanelAction(
     icon: ImageVector,
@@ -47,7 +46,7 @@ internal fun SearchPanelAction(
     ) {
         Icon(
             imageVector = icon,
-            // 动作含义由右侧文字承担，图标对无障碍不重复发音
+            // 含义由右侧文字承担，图标不重复发音
             contentDescription = null,
             tint = color,
             modifier = Modifier.size(ActionIconSize),

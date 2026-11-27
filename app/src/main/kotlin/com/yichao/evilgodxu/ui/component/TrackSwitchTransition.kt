@@ -19,35 +19,24 @@ import androidx.compose.ui.unit.IntOffset
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import com.yichao.evilgodxu.data.music.playback.TrackSwitchKind
 
-// 横移时长：入场与退场必须同长同速，两层才能始终首尾相接拼满容器。
-// 时长不等会让先到的一层提前离场，容器上留下透出底色的空档。
-//
-// 取 600ms 而非常规元素过渡的 200–300ms：这里的位移是整幅一屏宽，按元素级时长走会显得「一闪而过」，
-// 与切歌应有的从容感不符。整屏底色的横移复用同一常量（见 SongImmersiveBackground），
-// 封面、歌曲信息与底色因此同节拍推进、同时落位
+// 横移 600ms，入场退场同长同速，两层拼满容器
 internal const val TRACK_SLIDE_MS = 600
 
-// 交叠淡入淡出时长：入场略长于退场，新内容先立住，旧内容在其后收干净
+// 交叠淡入 320ms、淡出 220ms
 private const val TRACK_FADE_ENTER_MS = 320
 private const val TRACK_FADE_EXIT_MS = 220
 
 // 元素级切歌过渡方式
 internal enum class TrackSwitchStyle {
-    // 横移：新旧内容各整幅移出/移入，过渡期间两层拼满容器，全程不透明。
-    // 交叠淡出期间两层各半透明，会透出容器底色形成一次亮度塌陷，铺满容器者一律走横移
+    // 横移：两层拼满容器，亮度不塌陷
     Slide,
 
-    // 交叠淡入淡出：用于迷你播放器这类独立窗口——元素都嵌在固定的小格子里，
-    // 整幅横移会越出格位
+    // 交叠淡入淡出，用于固定小格子的迷你播放器
     Crossfade,
 }
 
 /**
- * 切歌过渡锚点：一个过渡层要显示的全部内容——曲目本身与触发本次变更的类型。
- *
- * 曲目以整份实例承载而非仅存标识：退场的那一层要显示上一首的封面与文案，
- * 只持标识就无从取图。过渡是否发生由曲目标识判定（见 [TrackSwitchTransition] 的 contentKey），
- * 与实例无关，歌词补全等元数据更新替换实例时不会误触发一次过渡。
+ * 过渡锚点：曲目实例与变更类型；过渡按 id 判定
  */
 @Immutable
 internal data class TrackSwitchAnchor(
@@ -61,22 +50,15 @@ internal data class TrackSwitchAnchor(
     val artist: String get() = track?.artist.orEmpty()
 }
 
-/** 由当前曲目与触发本次变更的类型构造锚点；曲目为 null 时得到空锚点，用于呈现空态。 */
+/** 由曲目与变更类型构造锚点 */
 @Composable
 internal fun rememberTrackSwitchAnchor(track: MusicTrack?, kind: TrackSwitchKind): TrackSwitchAnchor =
     remember(track, kind) { TrackSwitchAnchor(track = track, kind = kind) }
 
 /**
- * 切歌过渡：新旧内容交叠，交叠方式由 [style] 决定。
- *
- * 横移方向取自锚点里的类型：上一曲自左侧移入（向右侧移出）、下一曲自右侧移入（向左侧移出）。
- * 方向不取播放列表下标差——随机播放下标差读不出前后，而类型本身始终可读。
- * 无方向可读的类型（选曲播放、内容同源的变更）不做元素级过渡，直接替换：
- * 前者移入的一侧取不出来，后者内容一致、位移只会添乱。
- *
- * 回前台不补播过渡：应用不可见期间的切歌谁也没看见，重新可见时才被应用的那一次变更若按横移
- * 补播，返回前台就成了「先看到上一首，再看着它切走」。以可见会话为键重建过渡状态，
- * 这类变更直接落位当前曲目。
+ * 切歌过渡：新旧内容交叠，方式由 style 决定。
+ * 横移方向取自变更类型，无方向者直接替换。
+ * 回前台不补播，以可见会话为键重建。
  */
 @Composable
 internal fun TrackSwitchTransition(
@@ -85,14 +67,14 @@ internal fun TrackSwitchTransition(
     style: TrackSwitchStyle = TrackSwitchStyle.Slide,
     content: @Composable (TrackSwitchAnchor) -> Unit,
 ) {
-    // 入场方向在过渡规格之外定下：规格里要读的入场方类型，就是本次锚点的类型
+    // 入场方向取自本次锚点的类型
     val kind = anchor.kind
     val visibleSession = rememberVisibleSession()
     key(visibleSession) {
         AnimatedContent(
             targetState = anchor,
             modifier = modifier,
-            // 以曲目标识为过渡键：锚点里的曲目实例会随元数据补全被替换，用实例作键会误触发过渡
+            // 以曲目标识为键，元数据更新不误触发
             contentKey = { it.id },
             transitionSpec = {
                 when (style) {
@@ -102,8 +84,7 @@ internal fun TrackSwitchTransition(
                     TrackSwitchStyle.Slide -> when (kind) {
                         TrackSwitchKind.Previous -> trackSlideTransform(enterFromLeft = true)
                         TrackSwitchKind.Next -> trackSlideTransform(enterFromLeft = false)
-                        // 选曲播放没有可读的方向，移入的一侧无从取；内容同源的变更本就看不出变化，
-                        // 两者都不做元素级过渡，直接替换
+                        // 无方向可读，直接替换
                         TrackSwitchKind.Select, TrackSwitchKind.SameContent -> noElementTransition
                     }
                 }
@@ -114,20 +95,17 @@ internal fun TrackSwitchTransition(
     }
 }
 
-/** 不做元素级过渡：新旧内容直接替换，用于无方向可读的变更、或新旧内容同源的场景。 */
+/** 不做元素级过渡，直接替换 */
 internal val noElementTransition: ContentTransform =
     EnterTransition.None togetherWith ExitTransition.None
 
 /**
- * 整幅横移过渡：新内容自一侧整幅移入，旧内容向另一侧等速移出。
- *
- * [enterFromLeft] 决定新内容自哪一侧进入，也就是切歌的方向；
- * 两侧位移幅度同为容器宽度，两层在过渡全程首尾相接，容器不会露出底色。
+ * 整幅横移：新内容自一侧移入，旧内容等速移出
  */
 internal fun trackSlideTransform(enterFromLeft: Boolean): ContentTransform {
     val enter: (Int) -> Int = if (enterFromLeft) { width -> -width } else { width -> width }
     val exit: (Int) -> Int = if (enterFromLeft) { width -> width } else { width -> -width }
-    // 缓动取默认的减速曲线：起手跟得住手势，末段自行收慢，落位不显生硬
+    // 默认减速曲线，落位不生硬
     val spec = tween<IntOffset>(TRACK_SLIDE_MS)
     return slideInHorizontally(spec, enter)
         .togetherWith(slideOutHorizontally(spec, exit))

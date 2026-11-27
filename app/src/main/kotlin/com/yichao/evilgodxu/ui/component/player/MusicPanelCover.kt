@@ -34,13 +34,7 @@ import com.yichao.evilgodxu.ui.component.menuEdgePositionProvider
 import com.yichao.evilgodxu.ui.component.rememberSystemThumbnail
 import com.yichao.evilgodxu.LocalPlaybackState
 
-// 封面显示：索引曲目取系统略缩图，非索引曲目取音频文件的内嵌封面（见 rememberSystemThumbnail）。
-// 取不到即占位块——当前曲目的一张缩略图会落盘供冷启动复用（见 CurrentCoverCache），但不回退在线封面地址：
-// 在线曲目落盘入库后由系统的媒体扫描生成略缩图，此前的最终刷新会驱动本组件重新取图。
-// [thumbnailSize] 由调用方按所处场景给定（见 ui/component 的封面请求尺寸策略）：
-// 光碟、刷新预览按控件实际渲染尺寸换算，3D 轮播固定 512
-// [animated] 为真时换图（换曲、占位块出场）经「底层常驻 + 上层淡入」过渡（见 CoverTransition），
-// 全程不塌陷亮度；轮播格位与对比图的封面不随播放变更，传假以省掉两层与动画的开销
+// 索引取系统缩略图，否则内嵌封面
 @Composable
 private fun SystemCoverArt(
     track: MusicTrack?,
@@ -51,7 +45,7 @@ private fun SystemCoverArt(
 ) {
     val playbackState = LocalPlaybackState.current
     val thumb = rememberSystemThumbnail(track, thumbnailSize)
-    // 列表滚入视口时按需补全元数据（幂等，已具备则直接返回）：可见项优先于全量扫描
+    // 滚入视口时按需补全元数据
     LaunchedEffect(track?.id) {
         track?.let { playbackState.requestMetadata(it) }
     }
@@ -65,8 +59,7 @@ private fun SystemCoverArt(
     )
 }
 
-// 迷你播放器光碟与封面刷新预览共用的封面取图：两者显示尺寸都远小于轮播，
-// 请求档位由调用方按控件实际渲染尺寸换算（见 coverThumbnailSize），不沿用 512 大档
+// 迷你光碟与刷新预览共用取图，档位按显示尺寸
 @Composable
 internal fun AlbumArt(
     track: MusicTrack?,
@@ -138,11 +131,11 @@ internal fun MiniContextMenu(
     onCopy: () -> Unit,
     onRename: () -> Unit,
     onDismiss: () -> Unit,
-    // 在线搜索目标：仅一位时直接以其为关键词，多位时先下钻为横向候选列表
+    // 单目标直接搜索，多目标下钻候选
     searchTargets: List<String> = emptyList(),
     onSearchTarget: (String) -> Unit = {},
 ) {
-    // 每次唤起都从一级菜单开始；搜索目标多于一位时下钻候选列表
+    // 每次唤起从一级菜单开始
     var showSearchTargets by remember(visible) { mutableStateOf(false) }
 
     if (visible) {
@@ -162,7 +155,7 @@ internal fun MiniContextMenu(
                 modifier = Modifier.padding(top = 2.dp)
             ) {
                 if (showSearchTargets) {
-                    // 二级菜单：横向排列的搜索目标，逐项可点
+                    // 二级菜单：横向排列搜索目标
                     Row(
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically

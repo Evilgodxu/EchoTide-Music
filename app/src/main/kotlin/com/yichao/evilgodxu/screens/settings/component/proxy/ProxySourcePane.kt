@@ -38,12 +38,7 @@ import com.yichao.evilgodxu.ui.component.section.GroupCard
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.delay
 
-/**
- * 代理音源层级：导入、管理第三方音源并展示导入结果。
- *
- * 音源列表与导入提示都在设置页的状态里，故不另设 ViewModel；本地导入的授权回调与两个弹层
- * 随本层级一起组合，离开层级即丢弃，不留悬挂的 launcher。
- */
+/** 代理音源层级：导入、管理与结果提示 */
 @Composable
 internal fun ProxySourcePane(
     sources: List<ProxySourceSpec>,
@@ -59,7 +54,7 @@ internal fun ProxySourcePane(
     var showImportDialog by remember { mutableStateOf(false) }
     var inputMode by remember { mutableStateOf<ImportMode?>(null) }
 
-    // 本地导入：读取所选文本文件的完整内容后交由导入流程解析
+    // 读取所选文件内容交给导入流程
     val filePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -126,7 +121,7 @@ internal fun ProxySourcePane(
     }
 }
 
-// 已导入音源列表：固定单行高度，默认展示前三个音源，超出后列表内滚动
+// 音源列表：最多显示三行，超出滚动
 @Composable
 private fun ImportedSourceList(
     sources: List<ProxySourceSpec>,
@@ -142,7 +137,7 @@ private fun ImportedSourceList(
         )
         return
     }
-    // 三行以内按实际行数占位，超过三行固定三行高度并进入滚动
+    // 三行内按实高，超出固定三行
     val listHeight = PROXY_SOURCE_LIST_ROW_HEIGHT * minOf(sources.size, PROXY_SOURCE_LIST_VISIBLE_ROWS)
     LazyColumn(modifier = Modifier
         .fillMaxWidth()
@@ -158,7 +153,7 @@ private fun ImportedSourceList(
     }
 }
 
-// 单个已导入音源行：信息列 + 启停开关 + 删除按钮
+// 音源行：信息 + 开关 + 删除
 @Composable
 private fun ProxySourceRow(
     source: ProxySourceSpec,
@@ -186,7 +181,7 @@ private fun ProxySourceRow(
             Text(
                 text = stringResource(
                     R.string.settings_proxy_source_platforms,
-                    // 自定义平台展示其声明的名称，内置平台无名称则直接展示平台键
+                    // 有名称用名称，否则用平台键
                     source.platforms.entries.joinToString(" / ") { (key, platform) -> platform.name ?: key }
                 ),
                 fontSize = 12.sp,
@@ -209,11 +204,11 @@ private fun ProxySourceRow(
     }
 }
 
-// 音源列表单行高度与列表可见行数
+// 行高 56dp，可见 3 行
 private val PROXY_SOURCE_LIST_ROW_HEIGHT = 56.dp
 private const val PROXY_SOURCE_LIST_VISIBLE_ROWS = 3
 
-// 最近一次导入结果提示：成功/失败着色不同；点击关闭或超时自动消失
+// 导入提示：失败红字，超时自动消失
 @Composable
 private fun ImportMessage(
     message: String?,
@@ -221,7 +216,7 @@ private fun ImportMessage(
     onClick: () -> Unit,
 ) {
     if (message == null) return
-    // 与成功提示一样不常驻，展示一段时间后自动关闭
+    // 展示 3 秒后自动关闭
     LaunchedEffect(message) {
         delay(PROXY_IMPORT_MESSAGE_DISMISS_MS)
         onClick()

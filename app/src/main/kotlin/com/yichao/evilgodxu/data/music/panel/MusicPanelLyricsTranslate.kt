@@ -13,26 +13,25 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-// 批次之间的间隔：公开接口按 IP 限流，连续提交容易被判为突发流量
+// 批次间隔，公开接口按 IP 限流
 private const val BATCH_INTERVAL_MS = 1_200L
 
-// 单批提交的字符总量上限：接口上限约 1000 字符，留出余量后按此切批
+// 单批字符上限，接口上限约 1000
 private const val MAX_BATCH_CHARS = 600
 
-// 单批因规模超限失败时的拆分次数上限，避免接口异常时把一次请求放大成大量请求
+// 超限拆分次数上限，避免放大请求
 private const val MAX_SPLIT_DEPTH = 1
 
 // 中文判定：汉字区间
 private val CHINESE_PATTERN = Regex("[\\u4e00-\\u9fff]")
 
-// 日文假名与韩文谚文区间：出现即说明该行的汉字是日文汉字或韩文汉字的借字，不算中文
+// 出现假名或谚文即不算中文
 private val KANA_HANGUL_PATTERN = Regex("[\\u3040-\\u30ff\\uac00-\\ud7af]")
 
-// 曲目标题行的判定窗口：LRC 习惯把「歌手 - 歌名」放在曲首，其时间戳绑定的是整段前奏
+// 曲首标题行窗口，其时间戳对应前奏
 private const val TITLE_LINE_WINDOW_MS = 2_000L
 
-// 制作信息行：以署名键开头。这些行的时间戳标注的是前奏/间奏的长度，补译会产出「制作人：xxx」这类无意义的译文。
-// 键名后允许跟随「/xxx」，用于「词/曲：xxx」这类合并写法
+// 制作信息行：署名键开头，补译无意义
 private val CREDIT_LINE = Regex(
     "^\\s*(?:作词|作曲|编曲|填词|词曲|词|曲|制作人|监制|出品人|出品|录音师|录音|混音师|混音|" +
         "母带师|母带|吉他|贝斯|鼓|键盘|弦乐|和声|统筹|企划|发行|版权|混音|翻译|校对|策划|" +
@@ -40,52 +39,44 @@ private val CREDIT_LINE = Regex(
     RegexOption.IGNORE_CASE,
 )
 
-// 无唱词的占位行：整行只由括号与这些词构成，才视为占位
+// 纯音乐占位行
 private val PLACEHOLDER_LINE = Regex(
     "^\\s*[\\[（(【]?\\s*(?:此歌曲为没有填词的纯音乐|没有填词|纯音乐|请欣赏|间奏|前奏|尾奏|music)" +
         "\\s*[\\]）)】]?\\s*[，,。.、！!~～]*\\s*$",
     RegexOption.IGNORE_CASE,
 )
 
-/** 自动补译的结局：三种「没做」的原因给用户的提示不同，故分开返回 */
+/** 补译结局，未做的原因各不相同 */
 internal sealed interface TranslateOutcome {
-    /** 补译完成，[translated] 为本次写入译文的歌词行数 */
+    /** 补译完成，translated 为写入行数 */
     data class Applied(val translated: Int) : TranslateOutcome
 
-    /** 没有待补译的歌词行：或已有译文，或全部是署名等非歌词行 */
+    /** 无待补译行：已有译文或非歌词行 */
     data object NothingToDo : TranslateOutcome
 
-    /** 原文主体已是中文，再译一遍只会得到与原文相同的文本 */
+    /** 原文已是中文，译文会相同 */
     data object SameLanguage : TranslateOutcome
 
     /** 所有批次都失败（限流未恢复或网络异常） */
     data object Failed : TranslateOutcome
 }
 
-/** 单行补译的结局：沿用整篇补译的分类，使「没做」的原因在界面上仍有准确提示 */
+/** 单行补译结局，沿用整篇分类 */
 internal sealed interface TranslateLineOutcome {
-    /** 补译完成，[translation] 为该行译文 */
+    /** 补译完成，translation 为该行译文 */
     data class Applied(val translation: String) : TranslateLineOutcome
 
-    /** 该行没有可补译的内容：原文为空，或译文与原文相同（专有名词、感叹词等） */
+    /** 无可补译内容：为空或与原文相同 */
     data object NothingToDo : TranslateLineOutcome
 
-    /** 原文主体已是中文，再译一遍只会得到与原文相同的文本 */
+    /** 原文已是中文，译文会相同 */
     data object SameLanguage : TranslateLineOutcome
 
     /** 请求失败（限流未恢复或网络异常） */
     data object Failed : TranslateLineOutcome
 }
 
-/**
- * 补译单行歌词：为用户显式指定的一行请求译文。
- *
- * 与整篇补译不同，此处不按「是否歌词正文行」过滤 —— 目标行由用户长按指定，意图已经明确，
- * 即便该行是署名或曲首标题也按其选择翻译。
- *
- * 只返回译文，既不写歌词缓存也不改动内存态：调用方把译文并入该行的翻译后照常落盘，
- * 写入的是音频文件的内嵌歌词，与播放端的整篇补译互不干扰。
- */
+/** 翻译指定的一行；不过滤行类型，也不落盘 */
 internal suspend fun autoTranslateLyricLine(text: String): TranslateLineOutcome {
     val source = text.trim()
     if (source.isEmpty()) return TranslateLineOutcome.NothingToDo
@@ -103,15 +94,7 @@ internal suspend fun autoTranslateLyricLine(text: String): TranslateLineOutcome 
     }
 }
 
-/**
- * 为尚无译文块的歌词行自动补译。
- *
- * 只处理歌词正文行：署名与曲首标题行的时间戳标注的是伴奏长度，译文对用户没有意义，
- * 「制作人：xxx」这类文本还会被译成莫名其妙的人名。
- *
- * 按字符总量切批提交，批次之间留间隔；单批失败不影响已完成的批次，用户可再次发起把剩下的补齐。
- * 结果写入歌词缓存并刷新内存态，但不内嵌进音频文件标签，因此不会改动用户的音频文件。
- */
+/** 自动补译歌词正文，写缓存不内嵌音频文件 */
 internal suspend fun autoTranslateLyrics(
     context: Context,
     playbackState: MusicPlaybackState,
@@ -133,12 +116,11 @@ internal suspend fun autoTranslateLyrics(
     return try {
         val result = withContext(Dispatchers.IO) { runTranslation(lines, targets, onProgress) }
             ?: return TranslateOutcome.Failed
-        // 各批都成功但译文与原文完全相同（专有名词、感叹词等）时无内容可写，不落盘
+        // 译文与原文相同则无内容可写
         if (result.added == 0) return TranslateOutcome.NothingToDo
 
         val updated = withContext(Dispatchers.IO) {
-            // 内存态歌词已应用手动偏移（与播放时间轴一致），缓存文件保存的始终是原始时间戳，
-            // 故落盘前先还原偏移，避免偏移被叠加两次
+            // 落盘前还原手动偏移，避免叠加两次
             val stored = if (track.lyricOffsetMs != 0L) {
                 MusicMetadataCache.shiftLyrics(result.lines, -track.lyricOffsetMs)
             } else {
@@ -152,7 +134,7 @@ internal suspend fun autoTranslateLyrics(
         withContext(Dispatchers.Main) { playbackState.updateTrack(updated) }
         TranslateOutcome.Applied(result.added)
     } catch (e: CancellationException) {
-        // 协程取消属正常流程（离开页面等）：不记日志，向上传递取消
+        // 离开页面导致的取消，不记日志
         throw e
     } catch (e: Exception) {
         CrashLogManager.logException("MusicPanelLyricsTranslate", "自动补译失败: 歌曲=${track.title}", e)
@@ -160,7 +142,7 @@ internal suspend fun autoTranslateLyrics(
     }
 }
 
-/** 逐批翻译并写入译文；全部批次失败返回 null，其余情况返回补译后的完整歌词 */
+/** 逐批翻译；全部失败返回 null */
 private suspend fun runTranslation(
     lines: List<LyricLine>,
     targets: List<Int>,
@@ -177,7 +159,7 @@ private suspend fun runTranslation(
         if (translations.any { it != null }) succeeded = true
         batch.forEachIndexed { index, lineIndex ->
             val text = translations[index]
-            // 译文与原文完全相同（专有名词、感叹词等）时不写入，避免出现和原文一样的译文行
+            // 译文与原文相同时不写入
             if (text != null && text.isNotBlank() && text != lines[lineIndex].text) {
                 result[lineIndex] = lines[lineIndex].copy(translation = text)
                 added++
@@ -190,7 +172,7 @@ private suspend fun runTranslation(
     return if (succeeded) TranslationResult(result, added) else null
 }
 
-// 按行数与字符总量双阈值切批：行数受接口的条数上限约束，字符总量受接口的文本长度上限约束
+// 按行数与字符双阈值切批
 private fun batchTargets(lines: List<LyricLine>, targets: List<Int>): List<List<Int>> {
     val batches = mutableListOf<List<Int>>()
     var current = mutableListOf<Int>()
@@ -211,7 +193,7 @@ private fun batchTargets(lines: List<LyricLine>, targets: List<Int>): List<List<
     return batches
 }
 
-// 请求一批译文，返回与入参等长的列表，失败项为 null；规模超限时二分重试
+// 请求一批译文，失败项为 null，超限二分重试
 private suspend fun requestTranslations(texts: List<String>, splitDepth: Int): List<String?> =
     when (val result = TranslationApi.translate(texts)) {
         is TranslateResult.Success -> result.texts
@@ -226,7 +208,7 @@ private suspend fun requestTranslations(texts: List<String>, splitDepth: Int): L
         }
     }
 
-// 原文主体是否为中文：日文含汉字但另有假名、韩文另有谚文，故除汉字外出现假名或谚文即不算中文
+// 汉字占多数且无假名/谚文才算中文
 private fun isMostlyChinese(texts: List<String>): Boolean {
     val counted = texts.filter { it.isNotBlank() }
     if (counted.isEmpty()) return false
@@ -234,12 +216,7 @@ private fun isMostlyChinese(texts: List<String>): Boolean {
     return chinese * 2 >= counted.size
 }
 
-/**
- * 判断该行是否是歌词正文（而非署名、占位或曲目标题）。
- *
- * 纯标点或空白的行没有可处理的内容；制作信息行与曲首的标题行虽然有字，但其时间戳标注的是
- * 伴奏长度而非演唱 —— 补译会产出「制作人：xxx」这类无意义的译文，故一并排除。
- */
+/** 是否为歌词正文：排除署名、占位与曲首标题 */
 internal fun isLyricBodyLine(line: LyricLine, isFirst: Boolean): Boolean {
     val text = line.text.trim()
     if (text.isBlank()) return false

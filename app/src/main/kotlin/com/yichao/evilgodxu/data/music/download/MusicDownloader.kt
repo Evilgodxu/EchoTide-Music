@@ -41,10 +41,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Request
 
-// 在线歌曲缓存下载：流式下载到公共下载目录的媒体集合条目，完成后重定向播放源。
-// coverDeferred 为在线封面下载任务：内嵌元数据前先等待其就绪，并取回下载到的原图字节用于内嵌；
-// lyricDeferred 为在线歌词任务：返回增强 LRC 文本，与标题/艺术家/封面在同一次重写中写入，
-// 使歌词不再只存在于歌词缓存文件（该文件丢失后无法从网络自动恢复）
+// 在线缓存下载：流式写入公共下载目录，完成后重定向播放源
+// 封面与歌词任务入参，供同次内嵌
 internal suspend fun cacheToDownloads(
     context: Context,
     result: NeteaseSongSearchResult,
@@ -56,10 +54,9 @@ internal suspend fun cacheToDownloads(
     coverDeferred: Deferred<ByteArray?>? = null,
     lyricDeferred: Deferred<String?>? = null,
 ) {
-    // 缓存进行中的曲目切歌后仍保留在播放列表，等待下载完成将索引指向本地文件。
-    // 去重由调用方在启动前完成：同一曲目只允许一个缓存任务占用该标记
+    // 切歌后缓存仍继续，完成后把索引指向本地文件
     try {
-        // 按实际 URL 后缀推断格式，避免高音质文件误存为 mp3
+        // 按 URL 后缀推断格式，避免误存为 mp3
         val extension = url.substringBefore('?')
             .substringAfterLast('.', "")
             .lowercase()
@@ -69,20 +66,19 @@ internal suspend fun cacheToDownloads(
         val existingUri = findExistingDownload(context, fileName)
         if (existingUri != null) {
             withContext(Dispatchers.Main) {
-                // 复用已有缓存：仅把播放列表索引指向本地文件，当前播放仍保持在线流
+                // 复用缓存，仅指向本地文件，播放仍在线
                 updateTrackAudioUri(playbackState, trackId, existingUri)
             }
-            // 等待在线封面下载就绪后再内嵌：让下载到的封面原图与标题/艺术家一并写入缓存文件，
-            // 写入触发的媒体扫描会为该文件生成系统封面略缩图
+            // 等封面就绪再内嵌，扫描时生成系统缩略图
             embedCachedMetadata(context, playbackState, trackId, result, coverDeferred?.await(), lyricDeferred.awaitLyrics())
-            // 补全歌词并回收无引用的歌词缓存
+            // 补全歌词并回收无引用缓存
             metadataEnricher.enrichAndCleanup(context, playbackState)
-            // 复用旧缓存同样登记本地音频库并刷新，避免旧缓存文件从未入库
+            // 旧缓存也要入库刷新，避免从未入库
             registerCachedFileAsLocal(context, playbackState, trackId, existingUri, playlistRefresher)
             return
         }
 
-        // 流式下载到应用缓存临时文件，再写入 MediaStore，避免整曲驻留内存
+        // 先落临时文件再写入 MediaStore，不驻留内存
         cleanupStaleTempFiles(context)
         val tempFile = File.createTempFile("download", ".$extension", context.cacheDir)
         var audioUri: String? = null
@@ -95,11 +91,10 @@ internal suspend fun cacheToDownloads(
                 }
             }
 
-            // 试听片段（≤30 秒）不缓存，保持在线播放
+            // ≤30s 试听片段不缓存，保持在线播放
             if (isTrialAudioFile(tempFile)) return
 
-            // 下载集合用 Downloads + RELATIVE_PATH 写入公共下载目录，无写权限时 insert 直接失败，维持在线播放。
-            // 写入期间标为 pending：复制中断留下的半截条目不会被后续请求当作可用缓存命中
+            // 写入期间标 pending，半截条目不会被命中
             val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
             val contentValues = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, fileName)
@@ -113,7 +108,7 @@ internal suspend fun cacheToDownloads(
                     context.contentResolver.openOutputStream(uri)?.use { os ->
                         tempFile.inputStream().use { input -> input.copyTo(os, STREAM_BUFFER_SIZE) }
                     } ?: throw IllegalStateException("无法打开下载条目输出流: $uri")
-                    // 完整写入后才发布：发布前的条目对查询不可见，失败回收也不会留下空缓存
+                    // 完整写入后才发布，失败不留空缓存
                     context.contentResolver.update(
                         uri,
                         ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) },
@@ -134,8 +129,7 @@ internal suspend fun cacheToDownloads(
         withContext(Dispatchers.Main) {
             updateTrackAudioUri(playbackState, trackId, audioUri)
         }
-        // 等封面任务结束再内嵌：封面未就绪即写入会让元数据整体丢失；
-        // 此时播放源仍是在线流，文件未被占用，可安全整文件重写
+        // 等封面再内嵌；此时源仍在线，可整文件重写
         embedCachedMetadata(context, playbackState, trackId, result, coverDeferred?.await(), lyricDeferred.awaitLyrics())
         metadataEnricher.enrichAndCleanup(context, playbackState)
         registerCachedFileAsLocal(context, playbackState, trackId, audioUri, playlistRefresher)
@@ -144,8 +138,7 @@ internal suspend fun cacheToDownloads(
     }
 }
 
-// 缓存完成后把文件登记进本地音频库并刷新播放列表，建立本地索引；
-// 当前播放的缓存曲目刷新后按真实路径重新定位到迁移条目，避免换 ID 后与播放列表脱节
+// 入库并刷新列表；按真实路径重新定位迁移条目
 private suspend fun registerCachedFileAsLocal(
     context: Context,
     playbackState: MusicPlaybackState,
@@ -161,16 +154,15 @@ private suspend fun registerCachedFileAsLocal(
         if (current.id != trackId) return@withContext
         val migratedIndex = playbackState.playlist.indexOfFirst { it.path == path }
         if (migratedIndex >= 0 && playbackState.playlist[migratedIndex].id != trackId) {
-            // 迁移到本地曲目后标识变了，但画面同源：类型按内容同源记下，直接替换封面与文案，
-            // 不做横移——两张同源的封面错位反而会显出一道接缝
+            // 内容同源，直接替换不做横移，避免接缝
             playbackState.beginTrackSwitch(TrackSwitchKind.SameContent)
             playbackState.currentIndex = migratedIndex
             playbackState.currentTrack = playbackState.playlist[migratedIndex]
         }
-        // 缓存完成后以本地文件补齐当前曲目信息条，避免在线播放期间空白
+        // 用本地文件补齐信息条，避免空白
         playbackState.refreshTrackFormatInfoFromLocal(context)
     }
-    // 曲库新增了这首歌：通知状态层补扫新曲目的副歌片段（纯本地，不联网）
+    // 曲库新增该曲，通知补扫副歌片段
     withContext(Dispatchers.Main) {
         playbackState.onLibraryChanged()
     }
@@ -182,18 +174,16 @@ internal fun sanitizeFileName(name: String): String {
         .trim()
 }
 
-// 缓存落点带平台与稳定曲目 ID：同名/同歌手的 A/B 与 A:B 清洗后会得到同一文件名，
-// 仅凭标题与歌手无法区分实际曲目，复用到的可能完全是另一首
+// 文件名带平台与曲目 ID，避免同名不同曲复用
 private fun audioFileName(result: NeteaseSongSearchResult, extension: String): String =
     "${sanitizeFileName(result.title)} - ${sanitizeFileName(result.artist)}" +
         " [${result.source.key}_${result.id}].$extension"
 
-// 在线歌曲缓存的下载集合相对路径：目录名取自缓存元数据与台账，与统计端共用同一份事实
+// 缓存相对路径，与统计端共用同一份事实
 private fun audioCachedRelativePath(): String =
     "${Environment.DIRECTORY_DOWNLOADS}/${MusicMetadataCache.CACHE_DIR_NAME}/${StoragePaths.AUDIO_DIR_NAME}"
 
-// 触发媒体扫描并等待完成：扫描经回调异步返回，不等待就刷新曲库，MusicScanner 读不到新条目
-// （IS_MUSIC/DURATION 由扫描写入，缺失时会被媒体库查询过滤），调用方会因此少歌
+// 扫描后等完成，否则 IS_MUSIC 缺失会少歌
 private suspend fun scanAndAwait(context: Context, path: String) {
     withTimeoutOrNull(SCAN_TIMEOUT_MS) {
         suspendCancellableCoroutine { cont ->
@@ -204,27 +194,26 @@ private suspend fun scanAndAwait(context: Context, path: String) {
     }
 }
 
-// 查询已写入媒体库条目的真实文件路径
+// 查询媒体库条目的真实路径
 private fun queryMediaPath(context: Context, uri: Uri): String? = runCatching {
     context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)?.use { cursor ->
         if (cursor.moveToFirst()) cursor.getString(0).takeIf { it.isNotBlank() } else null
     }
 }.getOrNull()
 
-// 支持的音频扩展名，用于按实际 URL 推断缓存格式
+// 支持的扩展名，按 URL 推断格式
 private val AUDIO_EXTENSIONS = setOf("mp3", "flac", "ogg", "m4a", "wav", "aac", "opus")
 
-// 流式复制音频数据的读缓冲大小
+// 流式复制缓冲大小
 private const val STREAM_BUFFER_SIZE = 64 * 1024
 
-// 等待媒体扫描完成的上限：超时后仍继续刷新，新条目由后续媒体变更刷新兜底
+// 扫描等待上限，超时由后续刷新兜底
 private const val SCAN_TIMEOUT_MS = 10_000L
 
-// 下载临时文件前缀由共享路径事实统一登记（StoragePaths.TEMP_FILE_PREFIXES）：
-// 冷启动回收按同前缀整批清理，本文件只负责清理本次进程内的异常残留
-// 视为遗留的临时文件存在时长：进程被杀时 finally 不一定执行，超时未删即判定为异常中断残留
+// 临时文件前缀统一登记；冷启动按前缀回收
+// 超 30 分钟未删即视为异常残留
 private const val TEMP_STALE_MS = 30 * 60 * 1000L
-// 临时文件清理节流：下载密集场景避免每次下载都遍历缓存目录
+// 清理节流 60s，避免频繁遍历目录
 private const val TEMP_CLEANUP_INTERVAL_MS = 60 * 1000L
 
 @Volatile
@@ -254,7 +243,7 @@ private fun isTrialAudioFile(file: File): Boolean {
     }
 }
 
-// 读不到格式或非无损一律视为升级失败
+// 读不到格式或非无损即升级失败
 private fun isLosslessAudioFile(file: File): Boolean {
     val retriever = MediaMetadataRetriever()
     return try {
@@ -286,7 +275,7 @@ internal suspend fun findExistingDownload(
     try {
         val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
         val projection = arrayOf(MediaStore.Downloads._ID)
-        // 只认已发布的条目：写入中断留下的 pending 条目内容不完整，不能当作缓存
+        // 只认已发布条目，pending 内容不完整
         val selection = "${MediaStore.Downloads.DISPLAY_NAME} = ? AND " +
                 "${MediaStore.Downloads.RELATIVE_PATH} = ? AND " +
                 "${MediaStore.Downloads.IS_PENDING} = 0"
@@ -317,8 +306,7 @@ internal suspend fun updateTrackAudioUri(
     if (playbackState.currentTrack?.id == trackId) {
         playbackState.currentTrack = updated
     }
-    // 有过滤时播放结果只是默认队列的子集，换源须同时回写默认队列，
-    // 否则切换过滤来源会退回旧 URI
+    // 有过滤时回写默认队列，否则退回旧 URI
     if (playbackState.queueFilter != null) {
         playbackState.defaultPlaylist = playbackState.defaultPlaylist.map { item ->
             if (item.id == trackId) updated else item
@@ -327,19 +315,14 @@ internal suspend fun updateTrackAudioUri(
     playbackState.persistPlaylist()
 }
 
-// 把在线播放时的标题/艺术家与封面原图写入本地文件。封面用本次下载到的原图字节：
-// 写入触发的媒体扫描会为该文件生成系统略缩图，显示端与系统媒体面板都读那一份
-// 在线歌词内嵌的等待上界：超过即放弃本次内嵌，避免拖慢音频文件的元数据写入
+// 写入标题/艺术家与封面原图，扫描生成系统缩略图
+// 歌词内嵌等待上限 8s，避免拖慢写入
 private const val LYRIC_EMBED_WAIT_MS = 8_000L
 
-// 详情补全的等待上界：标签属于附加项，接口慢就直接用搜索结果已给的字段落盘
+// 详情补全等待上限，超时用搜索字段
 private const val DETAIL_WAIT_MS = 5_000L
 
-/**
- * 等待在线歌词任务并取回增强 LRC 文本。歌词是内嵌的附加项：等待设上界，
- * 超时或失败都只放弃本次内嵌 —— 歌词自身的缓存落盘由该任务独立完成，不受影响；
- * 绝不能让音频文件的标题/封面写入被歌词请求无限期拖住。
- */
+/** 等待歌词并取增强 LRC；超时或失败只放弃内嵌 */
 private suspend fun Deferred<String?>?.awaitLyrics(): String? =
     this?.let { runCatching { withTimeoutOrNull(LYRIC_EMBED_WAIT_MS) { it.await() } }.getOrNull() }
 
@@ -352,8 +335,7 @@ private suspend fun embedCachedMetadata(
     lyrics: String?,
 ) {
     val track = playbackState.playlist.firstOrNull { it.id == trackId } ?: return
-    // 标签字段在搜索响应里往往不全（音轨号、碟号、发行日期只在详情接口），落地前补一次；
-    // 补全失败不影响缓存本身，按搜索结果已给的字段照写
+    // 详情接口补全缺少字段，失败则按搜索字段写
     val detailed = withTimeoutOrNull(DETAIL_WAIT_MS) { enrichTrackDetail(result) } ?: result
     val fields = cachedTagFields(track, detailed, lyrics)
     val coverUpdate = coverOriginal?.let { CoverUpdate.Set(it) } ?: CoverUpdate.Keep
@@ -366,8 +348,7 @@ private suspend fun embedCachedMetadata(
     }
 }
 
-// 本地曲目按用户确认的在线候选升级为无损：解析无损直链并下载，新文件替换旧文件后按原进度直接续播。
-// 流程刻意保持线性：下载 → 索引转向新文件 → 写元数据 → 起播 → 删旧文件，不再做播放状态接替与延迟删除
+// 升级无损：下载→改索引→写标签→续播→删旧文件
 internal suspend fun upgradeTrackToLossless(
     context: Context,
     playbackState: MusicPlaybackState,
@@ -375,8 +356,7 @@ internal suspend fun upgradeTrackToLossless(
     candidate: NeteaseSongSearchResult,
 ): Boolean {
     if (!track.isLocalAudioSource) return false
-    // 无损档内先试 Hi-Res，其次普通无损：回退必须覆盖「下载并验证出有效无损文件」，
-    // 只判断 URL 是否解析成功时，Hi-Res 返回坏直链会让本可用的普通无损也轮不到
+    // 先 Hi-Res 后普通无损，按下载验证结果回退
     var newUri: String? = null
     for (tier in LOSSLESS_TIERS) {
         val candidateUrl = resolvePlayUrlByQuality(playbackState.proxySourceStore, candidate, tier) ?: continue
@@ -384,16 +364,15 @@ internal suspend fun upgradeTrackToLossless(
         if (newUri != null) break
     }
     val downloadedUri = newUri ?: return false
-    // 无损升级只换音频文件、封面不变：先承接旧文件的系统略缩图与背景取色结果到新 URI，
-    // 避免 audioUri 切换后封面闪占位符、背景回落默认色（新文件系统略缩图需等媒体扫描就绪）
+    // 承接旧缩略图与背景色到新 URI，避免闪占位符
     SystemThumbnailCache.remap(track.audioUri, downloadedUri)
     playbackState.backgroundColors.remapUri(track.audioUri, downloadedUri)
     val newPath = queryMediaPath(context, downloadedUri.toUri()).orEmpty()
-    // 升级前的播放进度：新文件起播时还原到同一位置
+    // 记录进度，新文件起播时还原
     val resumePosition = withContext(Dispatchers.Main) {
         playbackState.mediaController?.currentPosition?.coerceAtLeast(0L) ?: 0L
     }
-    // 索引转向新文件：同时更新本地路径，使曲目身份指向新的无损文件
+    // 索引指向新文件，同时更新本地路径
     val upgradedIndex = withContext(Dispatchers.Main) {
         val idx = playbackState.playlist.indexOfFirst { it.id == track.id }
         if (idx < 0) return@withContext -1
@@ -404,7 +383,7 @@ internal suspend fun upgradeTrackToLossless(
         if (playbackState.currentTrack?.id == track.id) {
             playbackState.currentTrack = updated
         }
-        // 有过滤时默认队列不在播放结果内，无损换源须一并回写
+            // 有过滤时一并回写默认队列
         if (playbackState.queueFilter != null) {
             playbackState.defaultPlaylist = playbackState.defaultPlaylist.map { item ->
                 if (item.id == track.id) updated else item
@@ -413,11 +392,9 @@ internal suspend fun upgradeTrackToLossless(
         playbackState.persistPlaylist()
         idx
     }
-    // 写入标题/艺术家；封面沿用旧文件内嵌原图。
-    // 先写元数据再起播：避免新文件在播放中被重写导致无声与进度回退
+    // 先写元数据再起播，避免播放中被重写
     embedUpgradeMetadata(context, playbackState, track, candidate)
-    // 替换后按原进度直接续播。用户已切到别的曲目时，目标项仍可能留在播放器队列里，
-    // 也必须把那一项的 URI 一并换掉，否则后续自然播放仍指向即将删除的旧文件
+    // 换源续播；队列残留项也须换成新 URI
     val updatedTrack = withContext(Dispatchers.Main) {
         playbackState.playlist.firstOrNull { it.id == track.id }
     }
@@ -427,26 +404,22 @@ internal suspend fun upgradeTrackToLossless(
         when {
             upgradedIndex >= 0 && currentMediaId == track.id.toString() ->
                 swapCurrentSourceToUri(playbackState, upgradedIndex, resumePosition)
-            // 状态层已没有该曲目时，播放器队列里仍可能留着它：交给同一替换入口处理，
-            // 当前项若仍指向旧源会返回 false，随后保留旧文件
+            // 状态层无此曲时仍替换队列项，失败则保留旧文件
             else -> replaceLoadedTrackSource(playbackState, target)
         }
     }
-    // 立即持久化新 URI 与续播位置：换源不经过切歌回调，若等周期性存储（3 秒节流）写入，
-    // 用户在窗口内退出会把旧 URI 落盘，重启后旧文件已删除导致曲目不可用、进度丢失
+    // 立即持久化新 URI，否则窗口内退出会落盘旧值
     playbackState.persistState()
-    // 换源后重读新文件的源格式刷新音频信息条：换源是同一曲目换 URI，不触发切歌回调，
-    // 且 ExoPlayer 复用同 mediaId 的已选轨道时未必派发 onTracksChanged，需主动补齐
+    // 主动刷新格式信息条，换源不触发切歌回调
     withContext(Dispatchers.Main) {
         playbackState.refreshIdleTrackFormatInfo(context)
     }
-    // 只有播放器里的相关引用都换成新文件后才删旧文件；换源失败时旧源仍被引用，删掉就会让队列指向空地址
+    // 引用全换新后才删旧文件，失败则保留
     if (sourceReplaced) {
         deleteOldAudioFile(context, track, downloadedUri)
-        // 触发媒体扫描：新文件入库，旧文件条目同步移除
+        // 扫描入库新文件，移除旧条目
         if (newPath.isNotBlank()) scanAndAwait(context, newPath)
-        // 新文件的 MediaStore ID 与旧 ID 不同：把收藏、自定义歌单等用户关联迁到新 ID，
-        // 否则删旧条目后这些关联会随旧 ID 一起失忆
+        // 迁移收藏与歌单关联到新 ID，否则随旧 ID 丢失
         if (newPath.isNotBlank()) {
             findAudioMediaId(context, newPath)?.takeIf { it != track.id }?.let { newId ->
                 playbackState.migrateTrackId(track.id, newId)
@@ -461,7 +434,7 @@ internal suspend fun upgradeTrackToLossless(
     return true
 }
 
-// 按真实路径查 MediaStore 音频条目 ID：升级写入下载集合后，扫描会另建一条音频库记录
+// 按真实路径查音频条目 ID，扫描会另建记录
 private fun findAudioMediaId(context: Context, path: String): Long? =
     runCatching {
         context.contentResolver.query(
@@ -473,9 +446,7 @@ private fun findAudioMediaId(context: Context, path: String): Long? =
         )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else null }
     }.getOrNull()
 
-// 写入升级后新文件的标签：以旧文件既有标签为底，仅用在线候选覆盖标题与艺术家；
-// 专辑、日期、音轨号、碟号、版权只填空位（旧文件没有才写），用户手填的歌词与 ReplayGain 等随新文件保留；
-// 封面沿用旧文件内嵌原图，旧文件无内嵌封面时不主动下载，交由占位符显示
+// 以旧标签为底，仅标题与艺术家用候选覆盖，其余只补空
 private suspend fun embedUpgradeMetadata(
     context: Context,
     playbackState: MusicPlaybackState,
@@ -490,7 +461,7 @@ private suspend fun embedUpgradeMetadata(
             put(TagField.TITLE, candidate.title)
             put(TagField.ARTIST, candidate.artist)
             oldTags.lyrics?.takeIf { it.isNotBlank() }?.let { put(TagField.LYRICS, it) }
-            // 专辑类字段只填空位：用户手填或旧文件已有的值优先，平台值不覆盖
+            // 只填空位，已有值优先
             fun fillAbsent(field: TagField, value: String?) {
                 if (oldTags.fields[field].isNullOrBlank()) put(field, value)
             }
@@ -507,14 +478,14 @@ private suspend fun embedUpgradeMetadata(
     }
 }
 
-// 下载无损文件到公共下载目录并返回内容 Uri；试听片段或写入失败返回 null
+// 下载无损到公共目录；试听或失败返回 null
 private suspend fun downloadLosslessToDownloads(
     context: Context,
     result: NeteaseSongSearchResult,
     url: String,
 ): String? = withContext(Dispatchers.IO) {
     try {
-        // 按实际 URL 后缀推断格式，无损直链通常为 flac
+        // 按 URL 后缀推断格式，默认 flac
         val extension = url.substringBefore('?')
             .substringAfterLast('.', "")
             .lowercase()
@@ -530,9 +501,9 @@ private suspend fun downloadLosslessToDownloads(
                     tempFile.outputStream().use { output -> input.copyTo(output, STREAM_BUFFER_SIZE) }
                 }
             }
-            // 无损直链可能返回试听片段（≤30 秒），不入库不升级
+            // 试听片段不入库不升级
             if (isTrialAudioFile(tempFile)) return@withContext null
-            // 校验确为无损格式，避免平台未提供无损时以有损文件顶替
+            // 校验确为无损，避免有损顶替
             if (!isLosslessAudioFile(tempFile)) return@withContext null
             val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
             val contentValues = ContentValues().apply {
@@ -547,7 +518,7 @@ private suspend fun downloadLosslessToDownloads(
                 context.contentResolver.openOutputStream(uri)?.use { os ->
                     tempFile.inputStream().use { input -> input.copyTo(os, STREAM_BUFFER_SIZE) }
                 } ?: throw IllegalStateException("无法打开无损下载条目输出流: $uri")
-                // 完整写入后才发布；失败时回收新条目，绝不把半截文件当作升级结果
+                // 完整写入才发布，失败回收新条目
                 context.contentResolver.update(
                     uri,
                     ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) },
@@ -568,8 +539,7 @@ private suspend fun downloadLosslessToDownloads(
     }
 }
 
-// 删除升级前的旧本地文件：经 MediaStore 删除并清理媒体条目，失败时直删路径并触发媒体扫描。
-// 起播后再删：播放源已切到新文件，旧文件即使仍被播放器持有句柄也不影响新文件播放
+// 删除旧文件并清理媒体条目；起播后再删
 private suspend fun deleteOldAudioFile(context: Context, track: MusicTrack, newUri: String) {
     if (track.audioUri == newUri) return
     val scheme = runCatching { track.audioUri.toUri().scheme }.getOrNull()

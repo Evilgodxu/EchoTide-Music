@@ -8,11 +8,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * 中转残留回收复核：这条规则两头都可能出错，且两头都不报错 ——
- * 判据放宽一点会删掉此刻正在写入的那份（写入方随后的改名静默失败），
- * 收紧一点残留就永远留在盘上（本次回收白做）。故在此把边界钉死。
- */
+/** 宽了删在写文件，严了残留不删 */
 class TempResidueTest {
 
     private companion object {
@@ -37,7 +33,7 @@ class TempResidueTest {
 
     @Test
     fun `宽限期内的残留保留`() {
-        // 可能正是此刻在写的那个：删掉会让写入方的改名静默失败
+        // 可能正在写，删掉致改名失败
         val writing = residue("cover_2c3d.jpg$SUFFIX", ageMs = 0L)
         assertEquals(0, reclaimTempResidueIn(dir, SUFFIX, GRACE_MS))
         assertTrue(writing.exists())

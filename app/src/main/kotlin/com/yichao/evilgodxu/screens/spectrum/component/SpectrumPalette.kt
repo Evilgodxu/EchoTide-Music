@@ -1,7 +1,6 @@
 package com.yichao.evilgodxu.screens.spectrum.component
 
-// 强度色板自低到高：深蓝 → 蓝 → 青 → 绿 → 黄 → 橙 → 红。
-// 频谱图取色与色标条共用同一组颜色，使条上任意高度取到的颜色即图中同一强度的颜色
+// 强度色板：深蓝到红，图与色标共用
 internal val SPECTRUM_COLOR_STOPS = intArrayOf(
     0xFF060621.toInt(),
     0xFF14275E.toInt(),
@@ -14,10 +13,10 @@ internal val SPECTRUM_COLOR_STOPS = intArrayOf(
     0xFFE02818.toInt(),
 )
 
-// 色板档数：强度到颜色的映射逐像素发生，展开为查找表避免重复插值
+// 查找表 256 档，避免重复插值
 private const val LUT_SIZE = 256
 
-// 强度取色查找表：首档为最低强度、末档为满强度
+// 取色查找表：首低末满
 private val COLOR_LUT = IntArray(LUT_SIZE) { index ->
     val position = index.toFloat() / (LUT_SIZE - 1) * (SPECTRUM_COLOR_STOPS.size - 1)
     val segment = position.toInt().coerceAtMost(SPECTRUM_COLOR_STOPS.size - 2)
@@ -28,11 +27,11 @@ private val COLOR_LUT = IntArray(LUT_SIZE) { index ->
     )
 }
 
-// 按强度（0..1）取色，越界值收敛到色板两端
+// 0..1 取色，越界收敛
 internal fun spectrumColor(intensity: Float): Int =
     COLOR_LUT[(intensity * (LUT_SIZE - 1)).toInt().coerceIn(0, LUT_SIZE - 1)]
 
-// 按比例混合两个不透明色，结果保持不透明
+// 混合两色，保持不透明
 private fun blendColor(from: Int, to: Int, fraction: Float): Int {
     val red = channelOf(from, 16) + ((channelOf(to, 16) - channelOf(from, 16)) * fraction).toInt()
     val green = channelOf(from, 8) + ((channelOf(to, 8) - channelOf(from, 8)) * fraction).toInt()

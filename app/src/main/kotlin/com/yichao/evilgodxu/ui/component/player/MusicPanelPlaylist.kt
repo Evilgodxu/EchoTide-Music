@@ -51,12 +51,12 @@ internal fun PlaylistRow(
     onLongClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     onPlayNextClick: () -> Unit,
-    // 副标题默认显示歌手；搜索命中歌词时改传匹配到的歌词片段
+    // 副标题默认歌手，搜索时传歌词片段
     subtitle: String = track.artist,
-    // 副标题内需强调的关键词（不区分大小写）：歌词片段据此标出命中位置，为空即整段同色
+    // 需强调的关键词，空即整段同色
     subtitleHighlight: String? = null,
 ) {
-    // 命中部分以强调色加粗，未命中的部分沿用行内暗色
+    // 命中加粗强调，其余沿用暗色
     val subtitleColor = MaterialTheme.colorScheme.onSurfaceVariant
     val subtitleHighlightColor = MaterialTheme.colorScheme.primary
     val subtitleText = remember(subtitle, subtitleHighlight, subtitleHighlightColor) {
@@ -158,8 +158,7 @@ internal fun PlaylistRow(
     }
 }
 
-// 把文本中每一处关键词（不区分大小写）标为强调色加粗；关键词为空即返回原文本。
-// 逐段追加而非替换整串：强调样式只落在命中区间，其余区间沿用行内颜色
+// 关键词分段标强调色；无关键词原样返回
 private fun highlightedText(text: String, keyword: String?, highlightColor: Color): AnnotatedString {
     if (keyword.isNullOrEmpty()) return AnnotatedString(text)
     return buildAnnotatedString {

@@ -74,14 +74,11 @@ import com.yichao.evilgodxu.utils.formatSampleRateKHz
 import kotlinx.coroutines.delay
 import com.yichao.evilgodxu.R
 
-// 行内文本最大行数：超出以省略号截断，避免个别超长设备描述撑开整块面板
+// 取值最多 3 行，超出省略
 private const val VALUE_MAX_LINES = 3
 
 /**
- * 音频信息内容：按分组渲染当前播放链路实际可获取的字段行。
- *
- * 采集不到的字段不产出对应行；滚动容器由宿主提供（[scrollState] 供宿主绑定下拉收起等手势），
- * 内容区自身只负责分组排版。快照与延迟由宿主采集后传入：保存成图要复用同一份数据。
+ * 音频信息内容：按分组渲染可获取的字段；滚动容器由宿主提供
  */
 @Composable
 internal fun AudioInfoContent(
@@ -90,13 +87,13 @@ internal fun AudioInfoContent(
     modifier: Modifier = Modifier,
     scrollState: ScrollState = rememberScrollState(),
 ) {
-    // 蓝牙设备名、真实地址与编解码器都受授权限制：面板打开即就地申请，不等到接上蓝牙设备
+    // 面板打开即申请蓝牙权限
     BluetoothConnectPermissionRequest()
     Column(
         modifier = modifier.verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // 快照未就绪（首次采集尚未返回）时不渲染任何内容，避免空态提示一闪而过
+        // 快照未就绪时不渲染，避免闪现空态
         val collected = snapshot ?: return@Column
         val groups = audioInfoGroups(collected, latency)
         if (groups.isEmpty()) {
@@ -124,17 +121,16 @@ private fun AudioInfoGroupView(group: AudioInfoGroup) {
     }
 }
 
-// 字段行：左侧字段名受主题弱化，右侧为取值
+// 字段行：左标签弱化，右取值
 @Composable
 private fun AudioInfoRowView(row: AudioInfoRow) {
-    // 换行才改为起始对齐：多行文本整行尾对齐阅读成本高，而单行值一律尾对齐——
-    // 按文本长度判定会让未换行的长值（如解码器名）右侧空出一块
+    // 换行才改起始对齐，单行仍尾对齐
     var wrapped by remember(row.value) { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                // 与播放列表「当前曲目」行同款底色：主题色淡染，全应用选中态统一
+                // 与播放列表当前行同款淡染底
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
                 shape = RoundedCornerShape(10.dp),
             )
@@ -168,7 +164,7 @@ internal data class AudioInfoRow(val label: String, val value: String)
 
 internal data class AudioInfoGroup(val title: String, val rows: List<AudioInfoRow>)
 
-// 组装四个分组的字段行；不可获取的字段不产出对应行
+// 组装四个分组，缺失字段不产出行
 @Composable
 internal fun audioInfoGroups(
     snapshot: AudioInfoSnapshot,
@@ -196,7 +192,7 @@ internal fun audioInfoGroups(
             snapshot.decoder?.let {
                 AudioInfoRow(stringResource(R.string.audio_info_decoder), it)
             },
-            // 无可用解码器时解码器名必然缺失，此行是「为什么没有解码器」的唯一交代，与上一行互斥
+            // 无解码器时此行代理解释缺失原因
             snapshot.decoderUnavailableFormat?.let {
                 AudioInfoRow(
                     stringResource(R.string.audio_info_decoder),
@@ -244,7 +240,7 @@ internal fun audioInfoGroups(
                     when (state) {
                         ResampleState.NONE -> booleanLabel(false)
                         ResampleState.SYSTEM -> booleanLabel(true)
-                        // 同族插值不是「重采样」：原样本逐位保留，只是多了插出来的样本，两者不能混说
+                        // 同族插值不算重采样，原样本逐位保留
                         ResampleState.SAME_FAMILY -> stringResource(R.string.audio_info_resample_same_family)
                     },
                 )
@@ -325,7 +321,7 @@ internal fun audioInfoGroups(
     ),
 ).filter { it.rows.isNotEmpty() }
 
-// 输出设备行：类型、名称、地址、支持格式与蓝牙链路各自成条，读不到的项不产出
+// 输出设备行，读不到的项不产出
 @Composable
 private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
     if (device == null) return emptyList()
@@ -403,11 +399,10 @@ private fun outputDeviceRows(device: OutputDeviceInfo?): List<AudioInfoRow> {
     )
 }
 
-// 设备名称：剥掉 USB 声卡自报名里不含设备信息的声卡名前缀，只留设备自称。
-// 归一函数与描述符那侧的设备匹配共用（见 usbCardNameOf），两处认的是同一台设备的同一个名字
+// 剥掉 USB 声卡前缀，保留设备自称
 private fun deviceNameLabel(name: String): String = usbCardNameOf(name).ifEmpty { name }
 
-// 设备类型名：便于一眼区分当前出口通路的类别
+// 设备类型名
 @Composable
 private fun outputDeviceKindLabel(kind: OutputDeviceKind): String = stringResource(
     when (kind) {
@@ -419,7 +414,7 @@ private fun outputDeviceKindLabel(kind: OutputDeviceKind): String = stringResour
     }
 )
 
-// 蓝牙链路类型：经典蓝牙承载 A2DP，低功耗蓝牙承载 LE Audio，双模两者兼有
+// 链路类型：经典、LE 或双模
 @Composable
 private fun bluetoothLinkTypeLabel(linkType: BluetoothLinkType): String = stringResource(
     when (linkType) {
@@ -429,7 +424,7 @@ private fun bluetoothLinkTypeLabel(linkType: BluetoothLinkType): String = string
     }
 )
 
-// 蓝牙编解码器声道模式：与音频参数的声道布局同义，复用同一组文案
+// 编解码器声道模式，复用声道文案
 @Composable
 private fun bluetoothChannelModeLabel(mode: BluetoothChannelMode): String = stringResource(
     when (mode) {
@@ -439,9 +434,7 @@ private fun bluetoothChannelModeLabel(mode: BluetoothChannelMode): String = stri
 )
 
 /**
- * 蓝牙设备类别：设备类字段由厂商声明，只译常见类别，其余留空。
- *
- * 未归类音视频设备与音视频大类共用同一编码，故前者一条即可覆盖大类。
+ * 只译常见设备类别，其余留空
  */
 @Composable
 private fun bluetoothDeviceClassLabel(deviceClass: Int): String? {
@@ -463,7 +456,7 @@ private fun bluetoothDeviceClassLabel(deviceClass: Int): String? {
     return stringResource(labelRes)
 }
 
-// 品质：以格式判定有无损失，位深可得时一并展示（位深属源文件规格，与有无损失相互独立）
+// 按格式判有无损失，位深可得时一并展示
 @Composable
 private fun qualityLabel(snapshot: AudioInfoSnapshot): String? = when {
     snapshot.lossless == null -> null
@@ -473,7 +466,7 @@ private fun qualityLabel(snapshot: AudioInfoSnapshot): String? = when {
     else -> stringResource(R.string.audio_info_quality_lossy)
 }
 
-// 声道布局：单声道与立体声按名称展示，其余按通道数展示
+// 单声道、立体声按名，其余按通道数
 @Composable
 private fun channelLayoutLabel(channelCount: Int): String = when (channelCount) {
     1 -> stringResource(R.string.audio_info_value_mono)
@@ -486,12 +479,12 @@ private fun booleanLabel(value: Boolean): String = stringResource(
     if (value) R.string.audio_info_value_yes else R.string.audio_info_value_no
 )
 
-// 缓冲的目标与容量同格式：帧数与时长并列，两行才能直接对照
+// 帧数与时长并列，便于对照
 @Composable
 private fun bufferSizeLabel(frames: Int, millis: Float): String =
     pluralStringResource(R.plurals.audio_info_value_frames_ms, frames, frames, millis)
 
-// 浮点写出状态：直述链路当前取向；输出未建立与未启用分开表述，前者说明尚未起播而非能力欠缺
+// 浮点写出状态；未建立与未启用分开表述
 @Composable
 private fun floatOutputLabel(state: FloatOutputState): String = stringResource(
     when (state) {
@@ -502,10 +495,7 @@ private fun floatOutputLabel(state: FloatOutputState): String = stringResource(
 )
 
 /**
- * 解码输出行：采样率 / 声道 / 位深三合一。
- *
- * 取解码头在重配那一刻上报的格式，与源格式可能不同；位深归不到线性 PCM（直通输出）时该行无位深可言，
- * 整行不产出。
+ * 解码输出三合一：采样率、声道、位深；直通时无位深不产出
  */
 @Composable
 private fun decodedOutputRow(format: DecodedOutputFormat?): AudioInfoRow? {
@@ -521,7 +511,7 @@ private fun decodedOutputRow(format: DecodedOutputFormat?): AudioInfoRow? {
     )
 }
 
-// 输出编码：音频轨实际写出的 PCM 编码，位深与整型/浮点一并给出，与链路的浮点取向相互独立
+// 实际写出的 PCM 编码，含位深与整型/浮点
 @Composable
 private fun outputEncodingLabel(encoding: OutputEncoding): String = stringResource(
     when (encoding) {
@@ -535,17 +525,14 @@ private fun outputEncodingLabel(encoding: OutputEncoding): String = stringResour
 )
 
 /**
- * 采集音频信息快照。
- *
- * 曲目、格式与输出链路状态均为 Compose 状态，变化即重算；传输状态、音频会话 ID 与输出设备
- * 不在 Compose 状态中，改由播放器、音频设备回调与回到前台三类事件驱动版本号重算。
+ * 采集音频快照，非状态项由事件版本号驱动
  */
 @OptIn(UnstableApi::class)
 @Composable
 internal fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State<AudioInfoSnapshot?> {
     val context = LocalContext.current
 
-    // 传输状态与音频会话 ID 由播放器回调驱动
+    // 传输状态与会话 ID 由播放器回调驱动
     val player = playbackState.player
     var playerEventVersion by remember { mutableIntStateOf(0) }
     DisposableEffect(player) {
@@ -566,7 +553,7 @@ internal fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State
         onDispose { player?.removeListener(listener) }
     }
 
-    // 输出设备插拔由音频设备回调驱动
+    // 设备插拔由音频设备回调驱动
     val audioManager = remember(context) { context.getSystemService(AudioManager::class.java) }
     var deviceEventVersion by remember { mutableIntStateOf(0) }
     DisposableEffect(audioManager) {
@@ -583,7 +570,7 @@ internal fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State
         onDispose { audioManager?.unregisterAudioDeviceCallback(callback) }
     }
 
-    // 授权变更不在设备回调覆盖范围内：回到前台后重新采集，使刚授予的权限立即反映到设备信息
+    // 回前台重采，反映刚授予的权限
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -601,11 +588,11 @@ internal fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State
         playbackState.audioDecoderName,
         playbackState.audioSinkFloatOutput,
         playbackState.audioSinkOutputEncoding,
-        // 同族倍率档换档时写出编码可能不变（24 位仍是 24 位），速率却是另一个值，故速率单独作键
+        // 同族换档编码可能不变，速率单独作键
         playbackState.audioSinkOutputSampleRate,
         playbackState.audioSinkDecodedFormat,
         playbackState.directOutputMode,
-        // 独占那条路上设备与写出编码都不由平台给出，这两项各自变化时面板都得重算
+        // 独占路由与设备不由平台给出，变化即重算
         playbackState.usbExclusiveRoute,
         playbackState.usbExclusiveDevice,
         playerEventVersion,
@@ -616,14 +603,8 @@ internal fun rememberAudioInfoSnapshot(playbackState: MusicPlaybackState): State
 }
 
 /**
- * 采样当前输出延迟。
- *
- * 延迟随链路持续波动，与本文件其余「随关键项变化才重算」的字段节奏不同，故独立按固定间隔采样，
- * 由 [OutputLatencySampler] 取滑动平均。音频轨是跨线程的易变引用、不是 Compose 状态，读取不会引发
- * 重组，故每次采样都重新取一次，换轨由采样器按实例身份发现并重建窗口；面板关闭即离开组合，采样随之停止。
- *
- * 独占路径没有音频轨可读（数据直接交给等时端点），故那条路上的读数由写出侧直接给出；换了来源即换窗，
- * 两条路的样本不会混在一起。
+ * 按固定间隔采样输出延迟，取滑动平均。
+ * 换轨或换来源即重建窗口；面板关闭即停止。
  */
 @Composable
 internal fun rememberOutputLatencyReading(
@@ -645,24 +626,17 @@ internal fun rememberOutputLatencyReading(
         }
     }
 
-/** 采样来源的标记：独占路径没有音频轨可指，用它把「来源是独占」与「来源是某条音频轨」区分开 */
+/** 采样来源标记，区分独占与音频轨 */
 private object ExclusiveLatencySource
 
 /**
- * 蓝牙授权：音频信息面板打开时申请。
- *
- * 面板要展示的远端设备名、真实地址与编解码器都受 BLUETOOTH_CONNECT 保护，未授权时这几项只能是空。
- * 判据不绑定「当前输出是蓝牙」——那要等用户接上设备才会发现信息缺失；在面板打开的这一刻申请，
- * 授权一次之后换任意蓝牙设备都能直接读全。
- * 每次打开面板至多申请一次，避免反复打扰。
- *
- * 悬浮窗宿主没有 Activity（系统授权对话框会落在悬浮窗之下，用户无从操作），此处不申请，
- * 该场景下设备名与编解码器留空，用户可在主界面打开同一面板时授权。
+ * 面板打开时申请蓝牙授权，每次至多一次。
+ * 悬浮窗无 Activity 时不申请，留待主界面授权。
  */
 @Composable
 private fun BluetoothConnectPermissionRequest() {
     val context = LocalContext.current
-    // LocalContext 为本地化包装 context，宿主 Activity 需从注册表所有者获取
+    // Activity 需从注册表所有者取
     val activity = LocalActivityResultRegistryOwner.current as? Activity ?: return
     val permissionMonitor = remember(context) { PermissionMonitor(context) }
     if (permissionMonitor.isBluetoothConnectGranted()) return
@@ -670,7 +644,7 @@ private fun BluetoothConnectPermissionRequest() {
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) {
-        // 授权结果由回到前台后的重新采集体现，此处无需处理
+        // 结果由回前台重采体现，此处无需处理
     }
     var requested by remember { mutableStateOf(false) }
     LaunchedEffect(activity) {

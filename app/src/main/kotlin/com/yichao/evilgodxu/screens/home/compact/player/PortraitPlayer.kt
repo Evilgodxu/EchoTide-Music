@@ -75,40 +75,39 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.yichao.evilgodxu.LocalPlaybackState
 
-// 竖屏播放器主体：沉浸封面 + 歌词 + 标题与艺术家 + 底部控制栏
+// 竖屏播放器：封面 + 歌词 + 信息 + 控制栏
 @Composable
 internal fun PortraitPlayer(
     modifier: Modifier = Modifier,
-    // 音频访问授权：空态文案据此区分「未授权」与「暂无本地音乐」
+    // 授权状态，用于区分空态文案
     mediaAudioGranted: Boolean,
     // 标题栏区域高度：封面顶部渐隐区与错误横幅避让基准
     topBarInset: Dp = 0.dp,
     // 纵向切歌预览提示：滑动未松手时显示于专辑封面底部
     swipePreviewText: String? = null,
-    // 歌词区快速纵向滑动的切歌出口（true 为下一曲）：与整页上下滑动切歌同一套判定
+    // 快速滑动切歌出口，true 为下一曲
     onVerticalFling: ((next: Boolean) -> Unit)? = null,
-    // 歌词纵向拖拽接管手势的出口：宿主据此收回触摸瞬间顺带唤出的标题栏
+    // 拖拽接管出口，宿主据此收回标题栏
     onLyricVerticalDragClaim: (() -> Unit)? = null,
     // 曲库格式分析对话框显隐：常驻首页层
     libraryAnalysis: LibraryAnalysisController,
-    // 播放列表面板显隐：由首页层持有，显示期间禁用上下滑动切歌
+    // 播放列表显隐，显示时禁用纵向切歌
     playlistVisible: Boolean,
     onPlaylistVisibilityChange: (Boolean) -> Unit,
-    // 音频信息弹窗显隐：由首页层持有，显示期间禁用上下滑动切歌
+    // 音频信息显隐，显示时禁用纵向切歌
     audioInfoVisible: Boolean,
     onAudioInfoVisibilityChange: (Boolean) -> Unit,
     onOpenOnlineSearch: (String) -> Unit = {},
     // 点击歌手信息：跳转到该歌手的歌单页
     onOpenArtistPlaylist: (String) -> Unit = {},
-    // 播放列表高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
+    // 「查看频谱」：跳转频谱页
     onOpenSpectrum: (Long) -> Unit = {},
-    // 播放列表高级菜单的「编辑元数据」：跳转元数据编辑页，只传曲目标识
+    // 「编辑元数据」：跳转元数据页
     onOpenMetadata: (Long) -> Unit = {},
 ) {
     val playbackState = LocalPlaybackState.current
 
-    // 播放列表、音频信息与曲库格式分析弹层展开时，系统返回键收起弹层；
-    // 本页被覆盖层压住时让出，返回键交给覆盖层
+    // 弹层展开时返回键收起；被压住时让出
     BackHandler(
         enabled = LocalIsTopLayer.current &&
             (playlistVisible || audioInfoVisible || libraryAnalysis.visible)
@@ -120,14 +119,14 @@ internal fun PortraitPlayer(
         }
     }
 
-    // 播放进度由 MusicPlaybackState 全局 ticker 驱动，此处不再独立轮询
+    // 进度由全局 ticker 驱动
 
     val context = LocalContext.current
-    // 提示文案在协程中取用，需经 Configuration 感知的资源入口，避免语言/字体缩放切换后取到旧值
+    // 文案经 Configuration 感知入口，避免旧值
     val resources = LocalResources.current
     val requestAllFilesAccess = rememberAllFilesAccessRequest()
 
-    // 长按功能状态：复用播放器共享的歌词刷新能力
+    // 复用播放器的歌词刷新能力
     val scope = rememberCoroutineScope()
     val lyricsRefreshFailedMessage = stringResource(R.string.music_panel_lyrics_refresh_failed)
     var showLyricsRefresh by remember { mutableStateOf(false) }
@@ -136,17 +135,17 @@ internal fun PortraitPlayer(
     // 歌词长按菜单与本地歌词导入状态
     var showLyricsMenu by remember { mutableStateOf(false) }
     var lyricsImportFailed by remember { mutableStateOf(false) }
-    // 歌词原文编辑对话框状态：目标行为打开编辑时定位的当前演唱行
+    // 编辑对话框状态：目标为当前演唱行
     var showLyricsEdit by remember { mutableStateOf(false) }
     var lyricsEditIndex by remember { mutableIntStateOf(0) }
     var lyricsEditInitialText by remember { mutableStateOf("") }
     var lyricsEditFailed by remember { mutableStateOf(false) }
-    // 自动补译：任务在播放作用域执行，进度对话框收起后仍继续，故运行态与对话框显隐分开
+    // 补译在播放作用域继续，运行态与显隐分开
     var translating by remember { mutableStateOf(false) }
     var showTranslateDialog by remember { mutableStateOf(false) }
     var translateProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var translateFailed by remember { mutableStateOf(false) }
-    // 长按歌词时定格的播放位置，编辑落点据此定位，避免菜单操作期间播放推进导致错行
+    // 长按定格位置，避免播放推进导致错行
     var lyricsMenuPositionMs by remember { mutableLongStateOf(0L) }
     val lyricsImportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -161,25 +160,20 @@ internal fun PortraitPlayer(
         }
     }
     var showLosslessUpgrade by remember { mutableStateOf(false) }
-    // 播放模式选择展开态：展开时控制栏让位给四种播放模式，点击其他区域或选定模式后收起
+    // 模式展开态；点其它区域或选定后收起
     var playModeSelectorExpanded by remember { mutableStateOf(false) }
-    // 控制栏实测高度：展开遮罩据此剔出底部控制栏所占区域，保证四个模式按钮仍可点击
+    // 控制栏实测高度，遮罩据此剔除该区域
     var controlsHeightPx by remember { mutableIntStateOf(0) }
 
-    // 底部避让量：控制栏与屏幕底缘的间距，取固定留白与系统导航栏（三键/手势）高度中的较大者。
-    // 首页全沉浸隐藏了两条系统栏，正常路径下导航栏高度为 0，此时由固定留白决定，
-    // 使底部留白不随屏幕尺寸与高宽比变化；导航栏被外部原因显示出来时（独立窗口、切页过渡、
-    // ROM 不认隐藏请求）、或处于多窗口（自由窗口/分屏，小窗底部另有系统控制条）时，
-    // 导航栏高度覆盖固定留白，控制栏同样不被压住
+    // 底部避让取固定留白与导航栏高度的较大者。
+    // 系统栏通常已隐藏；多窗口下导航栏覆盖留白，避免控制栏被压住。
     val navigationBarBottom = with(LocalDensity.current) {
         WindowInsets.navigationBars.getBottom(this).toDp()
     }
     val bottomClearance = maxOf(BottomBarClearance, navigationBarBottom)
 
-    // 外层容器：沉浸封面置顶，下方依次为歌词组与歌曲信息/控制组。
-    // 三组之间由 SpaceBetween 分配高度：封面保持全宽正方形（窗口过矮时按可用高度收缩），
-    // 富余空间只落入封面↔歌词、歌词↔歌曲信息两处，把歌词组夹在中间均分，
-    // 既不拉伸封面，也不在屏幕底部堆成一条随屏幕尺寸忽高忽低的空带
+    // 三组由 SpaceBetween 分配余量
+    // 余量只落在两处间隙，不拉伸封面，也不在底部堆空带。
     BoxWithConstraints(modifier = modifier) {
         // 封面正方形边长：全宽
         val coverSquare = maxWidth
@@ -187,9 +181,7 @@ internal fun PortraitPlayer(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            // 沉浸式专辑封面：全宽置顶（含状态栏后方），仅下边缘渐隐融入封面衍生背景。
-            // 不强制填充：剩余高度留给外层 SpaceBetween 分给两侧留白；高度上限为全宽正方形，
-            // 窗口过矮时按可用高度收缩，优先保证下方内容完整
+            // 封面全宽置顶，仅下缘渐隐；不强制填充，高度上限为全宽正方形
             PortraitCoverSection(
                 playbackState = playbackState,
                 topBarInset = topBarInset,
@@ -205,8 +197,7 @@ internal fun PortraitPlayer(
                 onVerticalFling = onVerticalFling,
                 onVerticalDragClaim = onLyricVerticalDragClaim,
                 onLongPress = { positionMs ->
-                    // 歌词菜单里的编辑本行、在线刷新、本地导入、自动补译都要写回音频文件：
-                    // 无权限时就地申请，本次不展开菜单
+                    // 菜单各项都要写文件，无权限先申请再展开
                     val track = playbackState.currentTrack
                     if (track != null && ensureTrackFileWritable(requestAllFilesAccess)) {
                         lyricsMenuPositionMs = positionMs
@@ -216,20 +207,20 @@ internal fun PortraitPlayer(
                 menuContent = {
                     LyricsContextMenu(
                 visible = showLyricsMenu,
-                // 编辑本行与自动补译都以「有歌词行」为前提，无歌词时均不展示
+                // 编辑本行与补译需有歌词行，否则不显示
                 lyricsAvailable = playbackState.currentTrack?.lyricLines?.isNotEmpty() == true,
-                // 补译进行中（含后台执行）置灰，避免并发写回同一份歌词缓存
+                // 补译中置灰，避免并发写回缓存
                 lyricsTaskIdle = !translating,
                 onEditLine = {
                     showLyricsMenu = false
                     val track = playbackState.currentTrack
                     if (track?.lyricLines?.isNotEmpty() == true) {
-                        // 按长按定格位置定位歌词行，与长按瞬间屏幕显示的当前行一致
+                        // 按定格位置定位歌词行
                         val index = track.lyricLines
                             .indexOfLast { it.timeMs <= lyricsMenuPositionMs }
                             .coerceAtLeast(0)
                         lyricsEditIndex = index
-                        // 预填该行存储的完整原文：时间戳 + 歌词（含逐字标签） + 翻译行
+                        // 预填时间戳 + 歌词 + 翻译行
                         lyricsEditInitialText = MusicMetadataCache.encodeLyrics(listOf(track.lyricLines[index]))
                         showLyricsEdit = true
                     }
@@ -249,7 +240,7 @@ internal fun PortraitPlayer(
                                 translating = false
                                 showTranslateDialog = false
                                 translateProgress = null
-                                // 失败以外的结局都用轻量提示：没有可补译的内容属于正常结果
+                                // 其余结局用轻量提示，无内容属正常
                                 val message = when (outcome) {
                                     is TranslateOutcome.Applied -> resources.getQuantityString(
                                         R.plurals.music_panel_auto_translate_done,
@@ -285,7 +276,7 @@ internal fun PortraitPlayer(
                 },
             )
 
-            // 歌曲信息、进度条与控制栏：作为最后一组贴底排列，底部留出固定避让间距
+            // 信息 + 进度 + 控制栏贴底，底部留避让
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -299,7 +290,7 @@ internal fun PortraitPlayer(
                 )
                 // 艺术家与音频格式条间距
                 Spacer(Modifier.height(8.dp))
-                // 音频信息与进度条（左右各收窄 15%，与封面的羽化过渡带对齐）
+                // 收窄 15%，与封面羽化带对齐
                 Box(
                     modifier = Modifier.fillMaxWidth(0.85f),
                 ) {
@@ -329,8 +320,7 @@ internal fun PortraitPlayer(
             }
         }
 
-        // 播放模式选择展开期间的点击遮罩：盖住控制栏以上的区域，控制栏本身留出，
-        // 使四个模式按钮独占交互，其余位置点击即收起并复位控制按钮
+        // 模式遮罩盖住控制栏以上，其余点击即收起
         PlayModeSelectionScrim(
             visible = playModeSelectorExpanded,
             onDismiss = { playModeSelectorExpanded = false },
@@ -463,8 +453,7 @@ internal fun PortraitPlayer(
     }
 }
 
-// 歌词长按菜单：在线搜索、本地歌词导入、编辑本行与自动补译四个动作平铺一级；
-// 后两项以「有歌词行」为前提，补译进行中（含后台执行）置灰禁用，避免并发写回歌词缓存
+// 歌词长按菜单：四项平铺；后两项需歌词行，补译中置灰
 @Composable
 private fun LyricsContextMenu(
     visible: Boolean,
@@ -549,7 +538,5 @@ private fun LyricsMenuItem(
 // 歌词微调单次步长（毫秒）
 private const val LyricFineTuneStepMs = 100L
 
-// 控制栏与屏幕底缘的固定留白：即使导航栏被隐藏也保留的呼吸空间，兼作多窗口下
-// 小窗系统控制条的避让量。取控制栏高度（48dp）的一半，底部留白由此恒定，
-// 不再由「屏幕高宽差减去内容高度」的余量决定
+// 固定底部留白 24dp，兼作小窗控制条避让；留白恒定
 private val BottomBarClearance = 24.dp

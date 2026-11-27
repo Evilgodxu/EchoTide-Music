@@ -10,25 +10,16 @@ import com.yichao.evilgodxu.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-/**
- * 播放器事件到播放状态的迁移。
- *
- * 只做「事件该让状态发生什么」的编排：切曲落地、插队队列消费、定时关闭收尾、
- * 播放结束续播与错误复位；具体持久化、封面、进度、心动模式各自交给对应组件。
- */
+/** 播放器事件到状态的迁移：切曲、插队、定时关闭等 */
 internal fun handleMediaItemTransition(
     state: MusicPlaybackState,
     mediaItem: androidx.media3.common.MediaItem?,
     reason: Int,
 ) {
-    // 换曲（含单曲循环重播同一曲目）后上一曲的歌词进度不再适用
+    // 换曲后歌词进度不再适用
     state.lyricTimeline.invalidate()
-    // 曲目自然播完即计一次完整播放，作为常听收录依据：
-    // AUTO=自动续播/单曲结束切下一首；REPEAT=单曲循环重播当前曲目。
-    // 手动切歌(SEEK)、列表变更(PLAYLIST_CHANGED)非自然结束，不计入。
-    // 需在更新 currentTrack 前记录，此处 currentTrack 仍为刚播完的上一首。
-    // 心动模式播的是 30–45 秒的副歌片段，不是一次完整播放：计入会把每首都刷成「听过的」，
-    // 污染常听歌单
+    // 自然播完计一次完整播放；手动切歌与片段不计
+    // 须先记录，此刻 currentTrack 仍是上一首
     if (state.playMode != PlayMode.Highlight &&
         (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
             reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)
@@ -36,11 +27,11 @@ internal fun handleMediaItemTransition(
         state.currentTrack?.id?.let { state.recordPlayed(it) }
     }
     if (state.sleepTimer.stopAfterCurrentTrack && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
-        // 定时关闭：当前曲目自然结束 → 停止播放
+        // 定时关闭：本曲自然结束即停止
         state.sleepTimer.complete(songFinished = true)
         return
     }
-    // 插队队列：仅自然切换时消费队列；队列播完后接续原播放位置
+    // 自然切换时消费插队队列，播完接回原位
     if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
         if (state.playNext.tracks.isNotEmpty()) {
             val queued = state.playNext.consumeFirst() ?: return
@@ -78,8 +69,7 @@ internal fun handleMediaItemTransition(
             }
         }
     }
-    // 待接入队列（切换过滤来源时当前曲目仍在播放）：播放器自然接续的曲目仍属旧过滤结果，
-    // 改由新过滤结果的待接入位置接管，避免切换后继续播旧来源
+    // 待接入队列接管自然接续，避免续播旧来源
     val pendingStart = state.pendingQueueStartIndex
     if (pendingStart != null && state.playlist.isNotEmpty() &&
         reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
@@ -99,10 +89,7 @@ internal fun handleMediaItemTransition(
     val id = mediaItem?.mediaId?.toLongOrNull() ?: return
     val index = state.playlist.indexOfFirst { it.id == id }
     if (index >= 0) {
-        // 续播锚点：playTrackAt 以保存位置起播时已记录目标位置，本回调（异步派发）据此保留
-        // 已还原的进度，避免把进度清空到 0 再回填；真实切歌（无锚点）才复位到起点。
-        // 仅在锚点归属曲目上消费：无损升级就地换源时，旧源的过渡回调可能后到，
-        // 提前消费会使新文件丢失续播位置
+        // 续播锚点：仅归属曲目上消费，避免旧源回调抢先
         val resumePos = if (state.resumeAnchorTrackId == id) {
             state.resumeAnchorPosition.also {
                 state.resumeAnchorPosition = -1L
@@ -111,53 +98,38 @@ internal fun handleMediaItemTransition(
         } else {
             -1L
         }
-        // 播放器自行接续（自动下一首）不经切歌入口，此处补记类型：漏记则会沿用上一次的
-        // 类型，本次接续的横移方向随之失真。单曲循环重播同一曲目标识未变，不重记
+        // 播放器自行接续须补记切换类型
         if (state.currentTrack?.id != id) state.beginTrackSwitch(TrackSwitchKind.Next)
-        // 自动接续同样要在起播前落定源位深与声道（见 recordSourceBitDepthBeforePlayback）
+        // 自动接续也须起播前落定源位深
         state.recordSourceBitDepthBeforePlayback(state.playlist[index])
         state.currentIndex = index
         state.currentTrack = state.playlist[index]
         state.isPrepared = false
         state.currentPosition = if (resumePos > 0L) resumePos else 0L
         state.duration = if (resumePos > 0L) state.playlist[index].duration else 0L
-        // 切歌后进度回到起点：复位进度单调基准
+        // 复位进度单调基准
         state.progress.resetMonotonicBaseline()
-        // 切换曲目即持久化最新 URI，确保后台自动下一首也能被冷启动恢复
+        // 立即持久化 URI，供冷启动恢复
         state.persistState()
-        // 切歌即落盘该曲目封面与背景取色，冷启动首帧可直接出图出背景，不依赖退出时机
+        // 落盘封面与取色，冷启动首帧出图
         state.artworkCache.cacheCurrentCoverAndColor(state.playlist[index])
-        // 切歌后主动预读新曲源格式，避免信息条等待解码回填而长时间空白
+        // 预读新曲源格式，避免信息条空白
         state.refreshIdleTrackFormatInfo(state.appContext)
-        // 预读下一曲的容器头：自动接续时输出要在配置期就按新曲位深定档（见 UsbExclusiveAudioSink.configure），
-        // 而那一刻界面侧的当前曲目尚未推进，只能靠这份按 id 的记录。放在这里读，是因为此刻离下一曲
-        // 开始还有一整首的时间，读文件头的开销不落在任何播放路径上。
-        // **下一曲取播放器实际指向的那一项，不是列表里的下一项**：随机播放的顺序由播放器的 shuffle order
-        // 维护，按列表下标加一读到的常常是一首根本不会播的曲目，预读因此落空——而落空的代价是配置期只能
-        // 按上一曲的位深建流，位深落定后再经 UsbOutputSink.syncRouting 在曲中拆一次流重建（那次重建正是
-        // 起播瞬态颤音的来路）。取播放器的下一项，随机与顺序两种走法才都能预读命中
+        // 预读下一曲容器头：自动接续时配置期就要定档
         val nextIndex = state.player?.nextMediaItemIndex ?: (index + 1)
         state.playlist.getOrNull(nextIndex)?.let(state::preloadSourceFormat)
     }
-    // 切换曲目后清理未在播放的在线歌曲，避免在线播放曲目在播放列表中常驻；
-    // 元数据补全只在缓存完成时执行一次，切歌不再触发，避免重复写封面并触发系统级文件扫描
+    // 清理未播放的在线曲，避免常驻列表
     state.playlistRemoval.cleanupIdleOnlineTracks()
-    // 再次从控制器校正当前曲目，确保 UI 与真实音频一致（在线曲目切换时尤其关键）
+    // 从控制器校正当前曲目
     state.syncPlaybackState()
-    // 心动模式：当前曲目定位不到副歌就跳过，否则为下一首预备片段
+    // 心动模式：定不到副歌则跳过
     state.highlightPolicy.onTrackSettled()
 }
 
-/**
- * 曲末暂停后的接管。
- *
- * 插队队列非空时引擎打开曲末暂停（见 MusicPlaybackState.syncPlayNextHold），自然播完停在曲末、
- * 不迈入时间线上的下一项。这里记一次完整播放并消费队首，把播放器直接挪到插队曲目：
- * 少了这一步，随机/顺序的下一首会先出声再被顶掉。队列消费完或曲目已不在列表时恢复照常接续，
- * 不能把播放器留在暂停态。
- */
+/** 曲末暂停后的接管：记一次完整播放并消费插队队首 */
 internal fun handleEndOfMediaItem(state: MusicPlaybackState) {
-    // 与 AUTO 接续同口径：自然播完计一次完整播放，心动片段的副歌不算
+    // 自然播完计一次完整播放，心动不计
     if (state.playMode != PlayMode.Highlight) {
         state.currentTrack?.id?.let { state.recordPlayed(it) }
     }
@@ -166,7 +138,7 @@ internal fun handleEndOfMediaItem(state: MusicPlaybackState) {
         return
     }
     val queued = state.playNext.consumeFirst()
-    // 队首取出后队列可能已空：先撤下曲末暂停，下一首回到逐曲无缝接续
+    // 先撤下曲末暂停，下一首无缝接续
     state.syncPlayNextHold()
     if (queued == null) {
         state.mediaController?.play()
@@ -189,10 +161,9 @@ internal fun handleEndOfMediaItem(state: MusicPlaybackState) {
 }
 
 internal fun handlePositionDiscontinuity(state: MusicPlaybackState, reason: Int) {
-    // 位置不连续即真实跳变：作废歌词时间轴快照，改由新的播放位置重新起步
+    // 作废歌词时间轴快照
     state.lyricTimeline.invalidate()
-    // 手动拖动进度会触发 SEEK 类位置不连续：重置回卷检测基准，
-    // 避免把"拖回开头"误判为单曲循环完整播放
+    // 手动拖动进度：重置回卷检测基准
     if (reason == Player.DISCONTINUITY_REASON_SEEK) {
         state.progress.resetAfterSeek()
     }
@@ -210,9 +181,7 @@ internal fun handlePlaybackStateChanged(state: MusicPlaybackState, playbackState
         Player.STATE_ENDED -> {
             state.isPlaying = false
             state.currentPosition = state.duration
-            // REPEAT_MODE_OFF 播完整个时间线末尾（无切歌回调）时兜底计入完整播放；
-            // 常规自然播完/单曲循环已在 onMediaItemTransition 中记录，此处不会重复。
-            // 心动模式同理不计入：片段播完不构成完整播放
+            // 无切歌回调时兜底计入完整播放，不重复
             if (state.playMode != PlayMode.Highlight) {
                 state.currentTrack?.id?.let { state.recordPlayed(it) }
             }
@@ -238,18 +207,18 @@ internal fun handlePlaybackStateChanged(state: MusicPlaybackState, playbackState
                 }
             }
         }
-        // 缓冲中：状态流转由 READY/ENDED 驱动，此处无需额外处理
+        // 缓冲中无需处理，由 READY/ENDED 驱动
         Player.STATE_BUFFERING -> Unit
-        // 空闲态：错误/停止路径已各自复位，此处无需额外处理
+        // 空闲态无需处理
         Player.STATE_IDLE -> Unit
     }
 }
 
 internal fun handlePlayerError(state: MusicPlaybackState) {
-    // 音质试播失败：移除刚加入的试播曲目（不残留播放列表），保留对话框供用户换其它音质
+    // 试播失败：移除试播曲目并保留对话框
     state.searchPanel.onPlaybackFailed(state.appContext.getString(R.string.music_panel_quality_failed))
         ?.let(state::removeTrack)
-    // errorMsg 为可空类型，播放失败时写入可展示的文案
+    // 写入可展示的失败文案
     state.errorMsg = state.appContext.getString(R.string.music_panel_play_failed)
     state.isPlaying = false
     state.isPrepared = false
@@ -259,35 +228,21 @@ internal fun handlePlayerError(state: MusicPlaybackState) {
     state.mediaController?.stop()
 }
 
-/**
- * 音频轨信息迁移：解码格式、解码器归属与源格式统一在此落到播放状态。
- *
- * 快照由引擎给出，且只含音频组：渲染器按视频在前的顺序建组，组内含视频轨时取首个「有选中项」
- * 的组会先命中视频格式；组内优先取被选中的轨，多音轨时选中项未必在 0 号。
- * 整组没有选中项即该音频轨不会被解码（媒体3 对无解码器的格式正是如此处理），
- * 此时改取组内 0 号轨的编码用于说明原因；信号路径状态仍只认被解码的那条轨。
- */
+/** 音频轨信息迁移：解码格式、解码器归属与源格式落到播放状态 */
 internal fun handleTracksChanged(
     context: Context,
     audioTrack: EngineAudioTrackInfo?,
     state: MusicPlaybackState,
 ) {
     val selectedFormat = audioTrack?.selectedFormat
-    // 组内无选中项时取 0 号轨的编码：只用于说明「为什么不出声」
+    // 无选中项时取 0 号轨编码，说明不出声原因
     val audioMime = selectedFormat?.mimeType ?: audioTrack?.firstTrackMimeType
     val format = selectedFormat
-    // 轨道回调直接来自播放器，早于 MediaController 把曲目过渡转投到 state.currentTrack：
-    // 自动接续时按 state.currentTrack 取，会把新曲目的解码格式记到上一首名下，随后到达的
-    // 过渡回调又只按容器头补一份缺格式与采样率的预置记录，归属从此错位——信息条与音频参数
-    // 面板清空，且再无回填时机。故以引擎回报的当前项定位曲目，与稍后到达的过渡回调一致
+    // 用引擎回报的当前项定位曲目，避免归属错位
     val currentTrack = audioTrack?.currentToken?.toLongOrNull()
         ?.let { mediaId -> state.playlist.firstOrNull { it.id == mediaId } }
         ?: state.currentTrack
-    // 解码器名的归属校正：媒体3 的音频轨判为不可解码时不会有解码器初始化回调，
-    // 上一只解码器名会顶着当前曲目继续展示（ALAC 曲目显示成 flac 解码器即此来路），
-    // 故按「本轨未被选中」与「音频轨换了编码」两种情形清掉残留。
-    // 整组音频轨都不在（列表清空、播放器停止）时不动这些值：此刻无从判定当前曲目的编码，
-    // 清掉只会让信息面板在重新装载前一直空着
+    // 轨未被选中或换了编码时清掉残留解码器名；整组缺失时不动
     if (audioTrack != null) {
         if (selectedFormat == null ||
             (state.audioTrackMimeType != null && state.audioTrackMimeType != audioMime)
@@ -297,8 +252,7 @@ internal fun handleTracksChanged(
         state.audioTrackMimeType = audioMime
         state.audioTrackDecodable = if (audioTrack.trackCount == 0) null else selectedFormat != null
         if (selectedFormat == null && audioMime != null) {
-            // 无解码器时播放器不报错：整条音频轨不被选中，表现为静音走完。必须在面板上明确告知，
-            // 否则既没有解码器也没有原因，只能看到一首「不出声的歌」
+            // 无解码器时不报错，须在面板明确告知
             val formatName = TrackAudioInfoReader.mimeToFormatName(audioMime) ?: audioMime
             state.errorMsg = context.getString(
                 R.string.music_panel_decode_unsupported,
@@ -310,11 +264,9 @@ internal fun handleTracksChanged(
         formatDisplayName(currentTrack?.path, f.mimeType)
     }
     if (format != null) {
-        // 采样率/声道取解码格式的实际值，缺失项留空交由展示层跳过，不用固定值顶替
+        // 采样率/声道取解码实际值，缺失留空
         val decodedSampleRate = format.sampleRate.takeIf { it > 0 }
-        // 优先沿用源格式预读的位深/声道，保证播放前后展示一致不跳变；
-        // 位深是源文件属性，不以解码输出位深推算（高解析度曲目解码常以浮点输出）。
-        // 归属判定含音频源 URI：无损升级换源后曲目 ID 不变，沿用旧值会把有损位深/声道带过来
+        // 优先沿用源位深/声道，归属含音源 URI
         val sourceFormat = state.audioSignalPathFormat
             .takeIf {
                 state.audioSignalPathTrackId == currentTrack?.id &&
@@ -329,7 +281,7 @@ internal fun handleTracksChanged(
             outputRate = decodedSampleRate,
             bitDepth = bitDepth,
             channels = sourceFormat?.channels ?: format.channelCount.takeIf { it > 0 },
-            // Format.bitrate 单位为 bps，统一换算为 kbps；VBR 曲目 bitrate 未知时回退 averageBitrate
+            // bitrate 单位 bps；VBR 取均值
             bitrate = maxOf(format.bitrate, format.averageBitrate)
                 .takeIf { it > 0 }
                 ?.let { it / 1000 },
@@ -337,8 +289,7 @@ internal fun handleTracksChanged(
         state.audioSignalPathTrackId = currentTrack?.id
         state.audioSignalPathSourceUri = currentTrack?.audioUri
     }
-    // 解码头未给出比特率时（FLAC/VBR 常见），异步读取真实比特率并回填；
-    // 仅本地音频源读取文件元数据，在线曲目等缓存完成后由 refreshTrackFormatInfoFromLocal 补齐
+    // 未给出比特率时异步读取回填（FLAC/VBR 常见）
     if (state.audioSignalPathFormat?.bitrate == null) {
         val track = currentTrack
         state.playbackScope.launch(Dispatchers.IO) {

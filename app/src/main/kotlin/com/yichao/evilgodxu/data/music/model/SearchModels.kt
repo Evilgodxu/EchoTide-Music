@@ -1,6 +1,6 @@
 package com.yichao.evilgodxu.data.music.model
 
-// 在线音源匹配候选：元数据补全时按候选匹配当前曲目
+// 在线匹配候选，元数据补全时使用
 internal data class NeteaseSongMatch(
     val id: Long,
     val title: String,
@@ -8,15 +8,14 @@ internal data class NeteaseSongMatch(
     val coverUrl: String?
 )
 
-// 在线搜索结果的曲目标识在写入播放列表时统一加该偏移，与本地曲目 ID 分属不同空间避免碰撞
+// 在线曲目 ID 偏移，避免与本地 ID 碰撞
 private const val ONLINE_TRACK_ID_OFFSET = 1_000_000L
 
 internal val NeteaseSongSearchResult.playlistTrackId: Long
     get() = id + ONLINE_TRACK_ID_OFFSET
 
-// 在线音乐搜索来源：以平台键标识，键同时是搜索、代理解析与持久化的唯一身份。
-// 内置平台的键固定为 wy/qq/kg/kw；其余键由代理音源声明，应用内没有对应内置实现，
-// 这类平台的搜索、播放、歌词与封面全部由代理音源承担，无代理即不可用。
+// 在线搜索来源，平台键是搜索/代理/持久化唯一身份
+// 内置键 wy/qq/kg/kw，其余由代理音源承担
 @JvmInline
 value class MusicSearchSource(val key: String) {
 
@@ -26,7 +25,7 @@ value class MusicSearchSource(val key: String) {
         val KUGOU = MusicSearchSource("kg")
         val KUWO = MusicSearchSource("kw")
 
-        // 内置平台：顺序即平台切换菜单中的展示顺序
+        // 内置平台，顺序即菜单展示顺序
         val BUILT_IN: List<MusicSearchSource> = listOf(NETEASE, QQ, KUGOU, KUWO)
 
         val builtInKeys: Set<String> = BUILT_IN.map { it.key }.toSet()
@@ -38,35 +37,27 @@ data class NeteaseSongSearchResult(
     val title: String,
     val artist: String,
     val coverUrl: String?,
-    /** CDN 缩略图 URL（封面 + ?param=128y128），列表行使用以加快加载 */
+    // CDN 缩略图，列表行使用以加快加载
     val coverThumbUrl: String? = null,
     val duration: Long = 0L,
     val source: MusicSearchSource = MusicSearchSource.NETEASE,
-    /** 平台内歌曲标识（QQ 的 songmid、酷狗的 hash），取播放地址/歌词时使用 */
+    // 平台内标识，取播放地址/歌词时使用
     val sourceId: String? = null,
-    /** 封面 ID：代理音源搜索结果仅有封面 ID 时，播放时经 pic 动作换取真实地址 */
+    // 封面 ID，播放时经 pic 动作换取真实地址
     val coverId: String? = null,
-    /**
-     * 专辑名等标签字段：搜索响应能给出多少就填多少，缺的由详情补全或留空。
-     *
-     * 与 [title]/[artist] 不同，这些字段不参与列表展示与匹配，只在缓存落地时写进音频文件，
-     * 因此允许为空且不设兜底值 —— 拿不到就是拿不到，宁可文件里没有，也不写占位内容。
-     */
+    // 专辑名等标签字段，缺的由详情补全或留空
+    // 不参与展示与匹配，只在缓存落地时写入文件
     val album: String? = null,
-    /** 发行日期：能取到完整日期时写 yyyy-MM-dd，只有年份时写 yyyy */
+    // 发行日期：完整写 yyyy-MM-dd，仅年份写 yyyy
     val releaseDate: String? = null,
-    /** 专辑内音轨号（不含总数：各平台的分母口径不一致，拼出来的「3/11」反而会误导） */
+    // 音轨号不含总数，各平台分母口径不一致
     val trackNumber: Int? = null,
-    /** 碟号 */
+    // 碟号
     val discNumber: Int? = null,
-    /** 版权方 / 厂牌，仅网易专辑详情提供 */
+    // 版权方 / 厂牌，仅网易专辑详情提供
     val copyright: String? = null,
-    /**
-     * 平台自带的响度数据（QQ 详情接口的 volume），缓存落地时写成 ReplayGain 标签。
-     *
-     * 只收录单曲增益与峰值：平台没有专辑级响度，自行按专辑聚合会把同一张唱片里的
-     * 不同母带混在一起。缺失表示平台没给，由用户手动计算或保留文件原值。
-     */
+    // 平台响度，落地写成 ReplayGain
+    // 只收单曲增益与峰值，缺失表示平台未给
     val replayGainTrackGainDb: Double? = null,
     val replayGainTrackPeak: Double? = null,
 )
@@ -79,6 +70,6 @@ data class LyricLine(
     val timeMs: Long,
     val text: String,
     val words: List<LyricWord> = emptyList(),
-    /** 中文翻译（在线歌词接口的 tlyric/trans 字段按时间戳合并后写入） */
+    // 中文翻译，由 tlyric/trans 按时间合并
     val translation: String? = null
 )

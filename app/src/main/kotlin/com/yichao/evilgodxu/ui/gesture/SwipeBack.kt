@@ -14,20 +14,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 
-// 横滑切层的判定距离：横向拖过该距离松手即切一层
+// 横滑切层阈值 72dp
 private val SwipeDistance = 72.dp
 
 /**
- * 右滑返回：向右拖过阈值即回退一级，向左拖不动。
- *
- * 起手落在空白处或普通行内都算，落在自身消费横向位移的控件（开关、滑杆、分页）上则不接管；
- * 纵向主导时让出，列表照常滚动——一层滑动只对应一个去向。
- *
- * @param enabled 按需读而非由组合期传值：启用条件可能含实时状态（如分页是否正在滑动），
- *   读取须落在手势发生时
- * @param pass 判定所据的事件阶段。内容自身没有横向滑动时 Main 即可——此时子级已先看过事件，
- *   本手势只收无人认领的位移；子级占着横向滑动时须在 Initial 阶段抢先判定并消费，
- *   否则这段位移会被子级吃下，本手势再收到时就已是「已消费」
+ * 右滑返回：拖过阈值即回退，纵向与逆向不接管。
+ * enabled 在手势发生时读取，pass 决定判定阶段。
  */
 @Composable
 fun Modifier.swipeBack(
@@ -37,10 +29,7 @@ fun Modifier.swipeBack(
 ): Modifier = swipeHorizontal(direction = 1, enabled = enabled, pass = pass, onSwipe = onBack)
 
 /**
- * 左滑前进：向左拖过阈值即进入下一层（如歌单页总览继续左滑进入设置页），向右拖不动。
- *
- * 与 [swipeBack] 互为镜像：起手落点、纵向让位与消费规则完全一致。两者通常挂在同一容器上，
- * 用互斥的 [enabled] 条件区分当前层级能往哪边走。
+ * 左滑前进，与 swipeBack 镜像
  */
 @Composable
 fun Modifier.swipeForward(
@@ -49,7 +38,7 @@ fun Modifier.swipeForward(
     onForward: () -> Unit,
 ): Modifier = swipeHorizontal(direction = -1, enabled = enabled, pass = pass, onSwipe = onForward)
 
-/** @param direction 1 为向右切层，-1 为向左切层 */
+/** direction 1 向右，-1 向左 */
 @Composable
 private fun Modifier.swipeHorizontal(
     direction: Int,
@@ -67,7 +56,7 @@ private fun Modifier.swipeHorizontal(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = pass)
                     if (!currentEnabled()) return@awaitEachGesture
-                    // 方向锁定：累计位移直到任一轴越过触摸阈值，横向主导才由本手势接管
+                    // 方向锁定：任一轴越阈值后判定横向主导
                     var accX = 0f
                     var accY = 0f
                     var locked = false
@@ -81,12 +70,11 @@ private fun Modifier.swipeHorizontal(
                         if (abs(accX) >= slop || abs(accY) >= slop) {
                             horizontal = abs(accX) > abs(accY)
                             locked = true
-                            // 锁定这一帧即一并消费：Initial 阶段下子级尚未看过它，
-                            // 留给子级会被当作它自己的滑动起点
+                            // 锁定帧一并消费，避免子级当作起点
                             if (horizontal && accX * direction > 0f) change.consume()
                         }
                     }
-                    // 纵向主导让给列表滚动；逆向拖不切层
+                    // 纵向主导或逆向拖都不切层
                     if (!locked || !horizontal || accX * direction <= 0f) return@awaitEachGesture
                     var swipeX = accX
                     while (true) {

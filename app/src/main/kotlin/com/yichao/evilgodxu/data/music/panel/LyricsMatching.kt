@@ -36,15 +36,13 @@ internal suspend fun searchLyricsCandidates(
     }
 }
 
-// 把歌词同步内嵌进音频文件：歌词缓存文件是网络来源歌词的唯一副本，内嵌后即使缓存文件丢失，
-// 也能从音频文件本身恢复。失败只记录日志（写入器内部处理），不影响歌词缓存与显示
+// 歌词同步内嵌进音频文件，缓存丢失仍可恢复
 internal suspend fun embedLyricsText(context: Context, track: MusicTrack, lyricsText: String) {
     if (lyricsText.isBlank()) return
     MusicMetadataWriter.writeLyricsToSource(context, track, lyricsText)
 }
 
-// 应用歌词候选：代理音源优先，未配置或失败时回退各平台内置歌词接口。
-// 自定义平台没有内置歌词接口，代理不可用即视为该候选无歌词
+// 歌词候选：代理优先，失败回退平台内置接口
 internal suspend fun applyLyricsCandidate(
     context: Context,
     playbackState: MusicPlaybackState,
@@ -66,7 +64,7 @@ internal suspend fun applyLyricsCandidate(
                 lyricLines = lines,
                 neteaseId = candidate.id,
                 neteaseCoverUrl = candidate.coverUrl.orEmpty(),
-                // 已获取到歌词，清除此前的匹配失败标记，避免重启后缓存恢复被挡住
+                // 清掉匹配失败标记，避免挡住重启恢复
                 lyricFailed = false,
             )
         } ?: return false
@@ -125,7 +123,7 @@ internal suspend fun applyLyricsLineEdit(
             if (edited.isEmpty()) return@withContext null
             val lines = track.lyricLines.toMutableList()
             if (index !in lines.indices) return@withContext null
-            // 编辑结果可能拆分为多行，整体替换原位置并维持时间序
+            // 编辑结果可能多行，整段替换后按时间排序
             lines.removeAt(index)
             lines.addAll(index, edited)
             val sorted = lines.sortedBy { it.timeMs }

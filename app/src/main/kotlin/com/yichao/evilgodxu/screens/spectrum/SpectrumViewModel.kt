@@ -15,8 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// 频谱分析页状态持有者：进入页面即对目标曲目做完整频谱分析，
-// 离开页面时随作用域取消
+// 进入即全曲分析，随作用域取消
 class SpectrumViewModel(
     application: Application,
     playbackState: MusicPlaybackState,
@@ -30,7 +29,7 @@ class SpectrumViewModel(
         val track = playbackState.playlist.firstOrNull { it.id == trackId }
             ?: playbackState.libraryTracks.firstOrNull { it.id == trackId }
         if (track == null || !track.isLocalAudioSource) {
-            // 不可分析：结束加载态，页面据时频矩阵为空展示不可分析占位
+            // 不可分析：结束加载态
             _uiState.update { it.copy(analyzing = false) }
         } else {
             _uiState.update {
@@ -41,7 +40,7 @@ class SpectrumViewModel(
         }
     }
 
-    // 源文件格式参数与体积：读容器头与媒体元数据，与频谱分析并行，不阻塞主线程
+    // 读容器头与元数据，与分析并行
     private fun loadTrackInfo(track: MusicTrack) {
         viewModelScope.launch {
             val context = getApplication<Application>()
@@ -53,9 +52,7 @@ class SpectrumViewModel(
         }
     }
 
-    // 全曲分析：把整曲解码为可直接渲染的时频矩阵。
-    // 解码是 CPU 重活且为阻塞式循环，必须离开 viewModelScope 的主线程调度器；
-    // 时频矩阵为空说明音频不可解码，此时页面按不可分析处理
+    // 整曲解码成时频矩阵；空即不可分析
     private fun analyse(track: MusicTrack) {
         viewModelScope.launch {
             val spectrogram = withContext(Dispatchers.Default) {

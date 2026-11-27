@@ -40,12 +40,7 @@ private val Context.recentPlayedDataStore: DataStore<RecentPlayedArchive> by dat
     },
 )
 
-/**
- * 常听记录的持有与落盘。
- *
- * 「常听」= 近 3 天内完整播放不少于 2 次的歌曲，按最近一次播放时间倒序。
- * 记录随播放事件增长，故窗口内的旧记录在每次写入时顺带清理。
- */
+/** 常听：近 3 天完整播放 ≥2 次的曲目，倒序，写入时清理 */
 internal class RecentPlayedStore(context: Context, scope: CoroutineScope) {
 
     private companion object {
@@ -106,7 +101,7 @@ internal class RecentPlayedStore(context: Context, scope: CoroutineScope) {
         writeQueue.trySend(events)
     }
 
-    /** 无损升级换曲目 ID 后的关联迁移；返回是否确有记录被改写。 */
+    /** 换 ID 后迁移记录，返回是否改写 */
     fun migrateTrackId(oldId: Long, newId: Long): Boolean {
         if (events.none { it.trackId == oldId }) return false
         events = events.map { if (it.trackId == oldId) it.copy(trackId = newId) else it }

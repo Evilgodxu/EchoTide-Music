@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.DialogCard
 
-// 歌手选择对话框：曲目关联多位歌手时，供用户选定要查看歌单的目标歌手
+// 歌手选择：多位歌手时选定查看目标
 @Composable
 internal fun ArtistPickerDialog(
     artists: List<String>,
@@ -48,7 +48,7 @@ internal fun ArtistPickerDialog(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(modifier = Modifier.height(12.dp))
-            // 歌手数量由音频标签决定，条目过多时在卡片内滚动，避免撑出屏幕
+            // 条目过多时卡片内滚动，避免撑出屏幕
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

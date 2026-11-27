@@ -38,8 +38,7 @@ import com.yichao.evilgodxu.ui.component.rememberTrackSwitchAnchor
 import com.yichao.evilgodxu.ui.copyToClipboard
 import kotlinx.coroutines.launch
 
-// 竖屏歌曲信息：标题与艺术家随切歌方向整体横移，长按打开复制/重命名/在线搜索菜单。
-// 重命名与歌手选择在此闭环，避免把这些表单状态散落到播放器布局里
+// 竖屏歌曲信息：切歌横移，长按出菜单；表单状态在此闭环
 @Composable
 internal fun PortraitTrackInfoSection(
     playbackState: MusicPlaybackState,
@@ -50,12 +49,12 @@ internal fun PortraitTrackInfoSection(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val requestAllFilesAccess = rememberAllFilesAccessRequest()
-    // 对齐方式与歌词共用同一份排版设置：二者同为首页竖屏的文本块，切换后版面整体一致
+    // 对齐与歌词共用排版设置，版面保持一致
     val homePortraitLayout by context.homePortraitLyricLayoutFlow()
         .collectAsStateWithLifecycle(initialValue = LyricLayoutDefaults.HOME_PORTRAIT_LAYOUT)
     val infoAlignment = homePortraitLayout.alignment
     val infoTextAlign = infoAlignment.lineTextAlign
-    // 切歌过渡锚点：标题与艺术家随锚点整体横移，方向来自本次变更的类型
+    // 过渡锚点：标题与艺术家随锚点横移
     val trackAnchor = rememberTrackSwitchAnchor(playbackState.currentTrack, playbackState.lastSwitchKind)
 
     var showMetaMenu by remember { mutableStateOf(false) }
@@ -65,15 +64,14 @@ internal fun PortraitTrackInfoSection(
     var renameIsTitle by remember { mutableStateOf(true) }
     var renameInitValue by remember { mutableStateOf("") }
     var renameTargetId by remember { mutableStateOf<Long?>(null) }
-    // 点击歌手信息时待选择的歌手候选：多位歌手时弹出选择对话框
+    // 待选择的歌手候选，多位时弹窗
     var artistPicker by remember { mutableStateOf<List<String>>(emptyList()) }
 
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // 标题与艺术家：切歌时随封面与背景同一节拍整幅横移，方向一致。
-        // 文本取自锚点而非当前曲目：退场的那一层要显示上一首的文本，读实时状态会显示成新曲目
+        // 文本取自锚点，退场层才能显示上一首
         Column(horizontalAlignment = infoAlignment.columnAlignment, modifier = Modifier.fillMaxWidth()) {
             TrackSwitchTransition(
                 anchor = trackAnchor,
@@ -95,7 +93,7 @@ internal fun PortraitTrackInfoSection(
                             .combinedClickable(
                                 onClick = {},
                                 onLongClick = {
-                                    // 菜单里的重命名要写回音频文件：无权限时就地申请，本次不展开菜单
+                                    // 重命名要写文件，无权限先申请再展开
                                     val track = playbackState.currentTrack
                                     if (track != null && ensureTrackFileWritable(requestAllFilesAccess)) {
                                         menuText = track.title
@@ -117,7 +115,7 @@ internal fun PortraitTrackInfoSection(
                                 .padding(horizontal = 32.dp)
                                 .fillMaxWidth()
                                 .combinedClickable(
-                                    // 多位歌手先弹选择对话框，单一时直接进入该歌手的歌单页
+                                    // 多位先弹选择，单一直接进歌单
                                     onClick = {
                                         val artists = parseTrackArtists(playbackState.currentTrack?.artist.orEmpty())
                                             .filter { it.isNotBlank() }
@@ -157,7 +155,7 @@ internal fun PortraitTrackInfoSection(
                         showRename = true
                     }
                 },
-                // 标题整体作为唯一关键词；艺术家按多歌手分隔符解析，多位时由菜单下钻选择
+                // 标题作唯一关键词；艺术家按分隔符拆
                 searchTargets = if (menuIsTitle) listOf(menuText) else parseTrackArtists(menuText),
                 onSearchTarget = { target ->
                     showMetaMenu = false
@@ -179,7 +177,7 @@ internal fun PortraitTrackInfoSection(
                 val updated = if (renameIsTitle) track.copy(title = newValue)
                 else track.copy(artist = newValue)
                 playbackState.renameTrackMetadata(updated)
-                // 手动重命名标题/艺术家后写入音频文件元数据
+                // 重命名后写入音频文件元数据
                 scope.launch {
                     MusicMetadataWriter.writeTitleArtist(context, track, updated.title, updated.artist)
                 }
@@ -188,7 +186,7 @@ internal fun PortraitTrackInfoSection(
         onCancel = { showRename = false },
     )
 
-    // 多位歌手的曲目：点击歌手信息后弹出的歌手选择对话框
+    // 点击多位歌手后弹出的选择框
     ArtistPickerDialog(
         artists = artistPicker,
         onSelect = { artist ->

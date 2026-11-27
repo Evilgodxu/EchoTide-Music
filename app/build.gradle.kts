@@ -17,7 +17,7 @@ if (localPropertiesFile.exists()) {
 
 android {
     namespace = "com.yichao.evilgodxu"
-    // Compose 1.13 的 AAR 元数据要求 37.1 以上，按次版本号补齐到最新稳定 37.2
+    // Compose 1.13 需 37.1+，取 37.2
     compileSdk = 37
     compileSdkMinor = 2
     // 自写的 usbfs 等时层经 NDK 构建
@@ -39,7 +39,7 @@ android {
 
         externalNativeBuild {
             cmake {
-                // 静态链接 C++ 运行时：产物只依赖平台自身的 libc/liblog，不额外分发运行时库
+                // 静态链接 C++ 运行时，不额外分发库
                 arguments += "-DANDROID_STL=c++_static"
             }
         }
@@ -58,7 +58,7 @@ android {
             storePassword = localProperties.getProperty("KEYSTORE_PASSWORD", "")
             keyAlias = localProperties.getProperty("KEY_ALIAS", "jh")
             keyPassword = localProperties.getProperty("KEY_PASSWORD", "")
-            // minSdk 34 下 v2 已覆盖全部目标设备；显式关闭 v3，否则签名器会因 minSdk ≥ 28 判定 v3 更优而省略 v2
+            // 仅用 v2 签名：开 v3 会让签名器省略 v2
             enableV2Signing = true
             enableV3Signing = false
         }
@@ -67,7 +67,7 @@ android {
     androidResources {
         // 禁用按语言分包，支持应用内语言切换
         localeFilters += listOf("zh", "en")
-        // 由 AGP 依据资源目录生成 locale_config 并写入清单，避免手写文件与资源漂移
+        // AGP 生成 locale_config，避免手写漂移
         generateLocaleConfig = true
     }
 
@@ -81,24 +81,20 @@ android {
     buildTypes {
         release {
             optimization {
-                // 同时开启代码优化与优化型资源缩减
-                // 默认 Android keep 规则自动包含（includeDefault 默认 true）
-                // 自定义保留规则由 src/main/keepRules/*.keep 提供
+                // 优化与资源缩减；额外保留规则在 keepRules
                 enable = true
             }
             signingConfig = signingConfigs.getByName("release")
         }
         debug {
-            // 调试变体按标准语义可调试：可断点、可挂监视、可连 Profiler。
-            // 基线配置生成以 release 变体为被测对象（见 :baselineprofile 的 targetProjectPath），
-            // 且 debug 不走 R8 与资源缩减，故与本开关互不影响
+            // 调试变体可调试；基线配置以 release 为被测对象
             isDebuggable = true
         }
     }
 
     packaging {
         jniLibs {
-            // 不压缩原生库，确保可以 mmap 加载，安装后体积最小
+            // 原生库不压缩，可 mmap 加载
             useLegacyPackaging = false
         }
         dex {
@@ -107,7 +103,7 @@ android {
         }
         resources {
             excludes += setOf(
-                // Kotlin 模块元数据文件（每个 Kotlin 库都会生成，必然重复）
+                // Kotlin 模块元数据，各库必重复
                 "META-INF/*.kotlin_module",
                 // Kotlin 协程调试探针
                 "META-INF/DebugProbesKt.bin",
@@ -126,7 +122,7 @@ android {
                 "META-INF/*.SF",
                 "META-INF/*.DSA",
                 "META-INF/*.RSA",
-                // AndroidX 版本属性文件（各库独立包含，无需打包）
+                // AndroidX 版本属性，无需打包
                 "META-INF/*.version",
                 "META-INF/androidx/**",
             )
@@ -138,10 +134,9 @@ android {
     }
     testOptions {
         unitTests {
-            // Compose Preview 任务依赖编译后的 Android 资源解析 XML 与主题属性
+            // Preview 需要编译后的资源与主题
             isIncludeAndroidResources = true
-            // 失败分支的日志与扫描调用经 android.util 桩：桩默认抛异常会让「记录日志后跳过」的
-            // 分支无法在 JVM 上验证，改为按默认值返回，使这类分支可被测试覆盖
+            // android.util 桩返回默认值，日志分支可测
             isReturnDefaultValues = true
         }
     }
@@ -150,14 +145,11 @@ android {
     }
 
     lint {
-        // 仅打包 arm64 是有意为之（见 defaultConfig.ndk 注释），ChromeOS 不在目标设备内。
-        // 该检查无源码级抑制手段，只能在 lint 配置里关掉；关闭范围仅此一项
+        // 仅打包 arm64，ChromeOS 非目标设备，仅关闭此项
         disable += "ChromeOsAbiSupport"
-        // 定向抑制（如 media3 通知图标的覆盖资源）写在 lint.xml，避免整体关掉某项检查
+        // 定向抑制写在 lint.xml，不整体关闭检查
         lintConfig = file("lint.xml")
-        // 质量门禁：Lint Error 阻断构建。
-        // lint 不挂在 assembleRelease 上：冷构建时它独占约 1.5 分钟且不改变产物，
-        // 由 ./gradlew check / build / lintRelease 强制执行（check 已依赖 lint）
+        // Lint Error 阻断构建，由 check 执行
         abortOnError = true
         checkReleaseBuilds = false
     }
@@ -165,23 +157,21 @@ android {
 
 kotlin {
     compilerOptions {
-        // Kotlin 编译警告提级为 Error：弃用与冗余写法必须在当轮清理
+        // 警告视为错误，弃用写法须当轮清理
         allWarningsAsErrors.set(true)
     }
 }
 
-// 启动配置：R8 依此重排 DEX 布局，把启动路径的类集中到首个 DEX。
-// AGP 8.3 起默认开启，显式声明以免版本漂移改变行为。
+// 启动配置：R8 重排 DEX，显式声明防行为漂移
 baselineProfile {
     dexLayoutOptimization = true
 }
 
-// 构建产物统一命名为 EchoTideMusic-<versionName>-arm64-v8a.apk
+// 统一产物命名
 val apkVersionName = android.defaultConfig.versionName ?: "0.0.0"
 
 androidComponents {
-    // AGP 9.5 会为开启 compose 的每个变体注册 Compose Preview 任务，变体未启用单元测试时创建即失败，
-    // 使 tasks 与 IDE 同步中断；该开关在 VariantBuilder 上已隐藏，需经 HasUnitTestBuilder 设置
+    // Preview 任务须启用单测，开关已隐藏
     beforeVariants(selector().all()) { variant ->
         (variant as HasUnitTestBuilder).enableUnitTest = true
     }
@@ -211,7 +201,7 @@ dependencies {
     // Kotlin Serialization
     implementation(libs.kotlinx.serialization.json)
 
-    // 协程 Guava 桥接（MediaController buildAsync）
+    // 协程 Guava 桥接，供 buildAsync
     implementation(libs.kotlinx.coroutines.guava)
 
     // Media3 ExoPlayer
@@ -221,7 +211,7 @@ dependencies {
     // 在线音乐搜索网络请求
     implementation(libs.okhttp)
 
-    // 从 :baselineprofile 模块收集基准配置与启动配置
+    // 收集基准与启动配置
     baselineProfile(project(":baselineprofile"))
 
     testImplementation(libs.junit)

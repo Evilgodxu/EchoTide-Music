@@ -31,14 +31,11 @@ import kotlinx.coroutines.isActive
 
 private val MARQUEE_SPEED = 24.dp
 
-// 跑马灯两端停顿时长：滚动前/后短暂停留便于阅读
+// 两端停顿 1200ms，便于阅读
 private const val MARQUEE_EDGE_PAUSE_MS = 1200L
 
 /**
- * 单行文本跑马灯：宽度超出容器时来回滚动，未溢出时静态左对齐。
- *
- * 采用往返滚动而非单向循环：滚到末尾原路退回，两端各停一拍，长文本可以完整读完而不用重看开头。
- * 滚动不消费手势，放在可拖拽容器（如横向轮播）内不会与容器自身的滑动抢手势。
+ * 单行跑马灯：超宽时往返滚动，未溢出时静态左对齐
  */
 @Composable
 internal fun MarqueeText(
@@ -58,7 +55,7 @@ internal fun MarqueeText(
             offset.snapTo(0f)
             return@LaunchedEffect
         }
-        // 按固定速度折算滚动时长，保证不同长度标题速度一致
+        // 固定速度折算时长，不同长度速度一致
         val speedPxPerMs = with(density) { MARQUEE_SPEED.toPx() } / 1000f
         val scrollMs = (maxScroll / speedPxPerMs).toInt().coerceAtLeast(1)
         while (isActive) {

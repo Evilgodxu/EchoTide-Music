@@ -9,13 +9,7 @@ import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import com.yichao.evilgodxu.data.music.model.RecentCover
 import kotlinx.coroutines.Job
 
-/**
- * 首页在线搜索与在线资源匹配的界面状态。
- *
- * 覆盖搜索框、结果分页、音质试播、无损升级、封面与歌词匹配这几条互不相同的流程；
- * 它们只共享「一次在线匹配」的生命周期，不参与播放队列与播放器状态。
- * 协程句柄同样收在这里：新搜索发起时取消旧任务，取消关系由同一处维护。
- */
+/** 首页搜索与在线匹配的界面状态，含协程句柄 */
 internal class SearchPanelState {
 
     var isSearchMode by mutableStateOf(false)
@@ -23,34 +17,34 @@ internal class SearchPanelState {
     var searchSource by mutableStateOf(MusicSearchSource.NETEASE)
     var searchResults by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
     var isSearching by mutableStateOf(false)
-    // 当前搜索协程句柄：新搜索发起时取消上一次，避免过期响应覆盖新查询结果
+    // 搜索协程句柄，新搜索取消旧任务
     var searchJob: Job? = null
-    // 搜索结果分页：已加载页数、是否正在加载更多、是否还有更多
+    // 分页：已加载页数、加载中、是否还有更多
     var searchPage by mutableIntStateOf(0)
     var isLoadingMore by mutableStateOf(false)
     var hasMoreSearchResults by mutableStateOf(true)
-    // 代理音源一次拉取的全量结果缓冲：本地按页切分展示，避免不支持分页的代理重复请求
+    // 代理音源全量缓冲，本地按页切分
     var searchPending by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
-    // 代理音源首次请求是否拉满（可能支持分页，缓冲耗尽后继续请求下一页）
+    // 首次请求是否拉满，缓冲耗尽后继续请求
     var searchPendingFull by mutableStateOf(false)
-    // 加载更多分页的协程句柄：新搜索发起时取消，避免过期分页混入新结果
+    // 加载更多句柄，新搜索取消
     var searchLoadJob: Job? = null
     var showSearchResults by mutableStateOf(false)
     var pendingSearchResults by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
     var closeSearchResultsOnReady by mutableStateOf(false)
-    // 首页音质选择对话框：非空时显示，目标为待播在线歌曲
+    // 音质选择对话框状态，非空即显示
     var qualityPickTrack by mutableStateOf<NeteaseSongSearchResult?>(null)
-    // 音质尝试中：解析地址与等待播放结果期间置 true，阻止重复点击/误关对话框
+    // 音质尝试中，阻止重复点击
     var qualityBusy by mutableStateOf(false)
-    // 最近一次音质尝试失败提示（失败时保留对话框展示，供用户换其它音质）
+    // 最近一次音质失败提示，保留对话框
     var qualityError by mutableStateOf<String?>(null)
-    // 音质试播曲目 ID：播放就绪(READY)后清空；播放失败时据此移除试播曲目并保留对话框
+    // 试播曲目 ID，READY 后清空
     var pendingQualityPlayTrackId by mutableStateOf<Long?>(null)
-    // 无损升级进行中：阻止重复触发与误关对话框
+    // 无损升级进行中，阻止重复触发
     var losslessUpgradeBusy by mutableStateOf(false)
-    // 最近一次无损升级失败提示：升级失败时保留对话框展示，供用户重试
+    // 最近一次无损升级失败提示
     var losslessUpgradeError by mutableStateOf<String?>(null)
-    // 无损升级候选：按来源搜索的在线原曲，用户确认选中后下载无损替换本地文件
+    // 无损升级候选（在线原曲）
     var losslessUpgradeCandidates by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
     var isLosslessUpgradeSearching by mutableStateOf(false)
     var losslessUpgradeSource by mutableStateOf(MusicSearchSource.NETEASE)
@@ -61,17 +55,15 @@ internal class SearchPanelState {
     var isLyricsSearching by mutableStateOf(false)
     var isLyricsRefreshing by mutableStateOf(false)
     var lyricsRefreshError by mutableStateOf<String?>(null)
-    // 歌词/封面刷新当前来源：按来源独立搜索，切换来源时轮换并重新搜索
+    // 歌词/封面刷新来源，切换即重搜
     var lyricsRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
     var coverRefreshSource by mutableStateOf(MusicSearchSource.NETEASE)
-    // 元数据补全的候选与来源：与封面刷新分开存放 —— 封面刷新会滤掉无封面的候选，
-    // 而补全恰恰要那些「没封面但有专辑/年份」的条目
+    // 元数据补全候选与来源，须与封面刷新分开
     var metadataFillCandidates by mutableStateOf<List<NeteaseSongSearchResult>>(emptyList())
     var isMetadataFillSearching by mutableStateOf(false)
     var metadataFillSource by mutableStateOf(MusicSearchSource.NETEASE)
 
-    // 搜索上下文的公共复位：退出结果、起播命中与播放就绪收尾共用同一份清理，
-    // 避免各入口各写一遍而遗漏某一项
+    // 搜索上下文复位，各收尾入口共用
     fun clearSearchResults() {
         searchQuery = ""
         searchResults = emptyList()
@@ -80,7 +72,7 @@ internal class SearchPanelState {
         showSearchResults = false
     }
 
-    // 播放就绪：搜索结果如需在起播后收起则收起；音质试播就绪即视为播放成功，关闭对话框
+    // 播放就绪：按需收起结果并关闭音质框
     fun onPlaybackReady() {
         if (closeSearchResultsOnReady) {
             closeSearchResultsOnReady = false
@@ -96,11 +88,7 @@ internal class SearchPanelState {
         }
     }
 
-    /**
-     * 播放失败：音质试播失败时移除刚加入的试播曲目并保留对话框，供用户换其它音质。
-     *
-     * 返回需要从播放列表移除的试播曲目 ID；非试播失败时为 null。
-     */
+    /** 试播失败：移除试播曲目并保留对话框，返回曲目 ID */
     fun onPlaybackFailed(qualityFailureMessage: String?): Long? {
         val pendingId = pendingQualityPlayTrackId
         if (pendingId == null || qualityPickTrack == null) return null
@@ -110,7 +98,7 @@ internal class SearchPanelState {
         return pendingId
     }
 
-    // 播放中断：待起播的搜索结果不再自动收起，清掉待生效结果，避免下次就绪时误收
+    // 播放中断：清掉待生效结果，避免误收
     fun onPlaybackAborted() {
         closeSearchResultsOnReady = false
         pendingSearchResults = emptyList()

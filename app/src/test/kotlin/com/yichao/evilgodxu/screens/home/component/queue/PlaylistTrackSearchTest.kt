@@ -6,12 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/**
- * 播放列表搜索的歌词维度复核。
- *
- * 关注两点：命中的排序（标题/歌手直接命中先于歌词命中，歌词命中按命中行数降序且稳定），
- * 以及歌词命中项取到的片段（首个非空命中行，原文优先、退到翻译）。
- */
+/** 歌词命中排序与片段：命中行数降序，原文优先 */
 class PlaylistTrackSearchTest {
 
     private fun track(

@@ -19,39 +19,26 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-// 落点在缓存目录：报告是每次分享重新生成的一次性产物，既不按日归档也不必留存，
-// 随系统「清理缓存」整批回收即可，不与日志或其他持久数据共用目录
+// 落缓存目录，随时可被系统清理
 private const val REPORT_DIR_NAME = "reports"
 
 private const val REPORT_FILE_NAME = "设备音频报告.png"
 
-// 写出失败只留系统日志：这条路径不承担用户侧的排障，不该往待分享的日志里写
+// 写出失败只记系统日志
 private const val TAG = "AudioReport"
 
 private val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
-// 与播放器自身的属性同口径：混音器偏好与路由都按这条属性判定
+// 与播放器属性同口径
 private val PLAYBACK_ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
     .setUsage(AudioAttributes.USAGE_MEDIA)
     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
     .build()
 
-/**
- * 设备音频报告：把定位「换台设备就不一样」所需的现场一次取全，供用户主动分享出去。
- *
- * 要解决的问题：同一份曲目在 USB 解码器、蓝牙与内置扬声器上是三条完全不同的通路，而平台对它们的描述
- * 分散在 AudioManager 属性、AudioDeviceInfo、动态混音端口与 USB 描述符四处，用户口述不出来。缺了这份
- * 现场，「直出为什么没挂上」只能靠猜。
- *
- * 只读、不申请授权、不改动任何播放状态：USB 描述符那条路刻意不 claim 接口（见 [UsbAudioCapabilities]），
- * 故正在走的平台链路不受影响。读不到的项写「未上报」/「读不到」，不写推测值。
- *
- * 只在用户主动触发时生成并覆盖当前报告，不参与播放链路，也不常驻任何监听；落点、命名与失效判定都归
- * 本模块自己，不与运行日志共用任何一份状态。
- */
+/** 设备音频报告：汇总属性、设备与 USB 声明；只读不改状态 */
 internal object AudioReport {
 
-    /** 生成并覆盖写入当前报告，返回分享用的文件；写出失败时为 null */
+    /** 生成并覆盖报告文件；失败为 null */
     fun writeShareable(context: Context): File? {
         val dir = File(context.cacheDir, REPORT_DIR_NAME)
         val file = File(dir, REPORT_FILE_NAME)
@@ -77,7 +64,7 @@ internal object AudioReport {
         }
     }
 
-    // 报告的时效以生成时刻为准，故当场读一次：版本可能随覆盖安装变化，缓存冷启动时的取值没有意义
+    // 当场读版本，覆盖安装后会变
     private fun appVersion(context: Context): String = runCatching {
         val info = context.packageManager
             .getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0L))
@@ -95,7 +82,7 @@ internal object AudioReport {
         appendLine()
     }
 
-    // 音频相关的系统特性：缺哪个就少哪条能力，是判断「这台机器本来就不支持」的第一道依据
+    // 系统特性：判断设备能力的第一道依据
     private fun featureSummary(context: Context): String {
         val features = context.packageManager
         fun mark(feature: String): String = if (features.hasSystemFeature(feature)) "是" else "否"
@@ -115,7 +102,7 @@ internal object AudioReport {
         appendLine()
     }
 
-    // 平台属性读不到是常态（厂商未实现），按「读不到」如实写出
+    // 读不到按实际情况写出
     private fun AudioManager?.property(name: String): String =
         runCatching { this?.getProperty(name) }.getOrNull()?.takeIf { it.isNotBlank() } ?: "读不到"
 
@@ -150,20 +137,14 @@ internal object AudioReport {
         appendLine()
     }
 
-    /**
-     * 动态混音端口的档位与已受理的偏好。
-     *
-     * 这两行是「直出到底挂上没挂上」的直接证据：支持列表为空说明该设备此刻没有可用端口（厂商未声明，
-     * 或设备上没有输出），已受理偏好说明本应用当前钉定了哪一档。
-     */
+    /** 动态混音端口与已受理偏好，直出是否生效的证据 */
     private fun mixerAttributeLines(audioManager: AudioManager?, device: AudioDeviceInfo): List<String> {
         val supported = runCatching { audioManager?.getSupportedMixerAttributes(device) }
             .getOrNull()
             .orEmpty()
         val preferred = runCatching { audioManager?.getPreferredMixerAttributes(PLAYBACK_ATTRIBUTES, device) }
             .getOrNull()
-        // 平台会为同一档位返回多条同名条目（实测 KT02H20 每档两条），逐条照抄只是噪音；
-        // 原始条数另记，重复本身可能对应设备侧的多个 profile，不该静默吞掉
+        // 同名条目去重，原始条数另记
         val descriptions = supported.map(::describeMixerAttributes).distinct()
         return buildList {
             add(
@@ -177,18 +158,11 @@ internal object AudioReport {
         }
     }
 
-    /**
-     * 设备描述符自己声明的播放能力，及其结构摘要；非 USB 通路不产出这段。
-     *
-     * 平台 API 报不全这一份（`getSupportedMixerAttributes` 只给动态端口声明过的条目），故 USB 通路另读
-     * 描述符——这正是直出能否成立的原始依据。读不到时如实写出，不按平台值替代。
-     *
-     * 摘要只在读到设备时才追加：档位为空时，它是唯一能说明「断在哪一层」的东西。
-     */
+    /** USB 设备描述符声明与结构摘要；非 USB 通路跳过 */
     private fun StringBuilder.appendUsbDeclared(context: Context, device: AudioDeviceInfo) {
         if (device.type !in USB_OUTPUT_TYPES) return
         val name = device.productName?.toString()?.takeIf { it.isNotBlank() }
-        // 独占路径读到的声明优先：只读路径下设备可能不应答类请求（实测 KT02H20），那时档位只剩平台值
+        // 优先独占读到的声明，只读路径可能无应答
         val remembered = UsbAudioCapabilities.remembered(name)
         val declared = remembered ?: UsbAudioCapabilities.read(context, name)
         if (declared == null) {
@@ -260,7 +234,7 @@ internal object AudioReport {
         else -> "类型$type"
     }
 
-    // 只认常见布局：其余按位掩码原样给出，开发者可直接对照平台常量
+    // 常见布局给名字，其余给掩码
     private fun channelMaskName(mask: Int): String = when (mask) {
         AudioFormat.CHANNEL_OUT_MONO -> "MONO"
         AudioFormat.CHANNEL_OUT_STEREO -> "STEREO"
@@ -275,6 +249,6 @@ internal object AudioReport {
 
     private fun hex4(value: Int): String = String.format(Locale.US, "%04X", value)
 
-    // 平台对无地址的设备以上报字符串 "0" 表示，不是真实地址
+    // "0" 表示无地址
     private const val ZERO_ADDRESS = "0"
 }

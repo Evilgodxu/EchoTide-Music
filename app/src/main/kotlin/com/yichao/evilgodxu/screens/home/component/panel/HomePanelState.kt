@@ -17,32 +17,28 @@ import com.yichao.evilgodxu.LocalPlaybackState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
-// 首页跨形态共享状态：在形态分派之上创建；旋转不重建 Activity，页面位置需跨形态保持
+// 跨形态共享状态：旋转不重建 Activity，页面位置需保持
 @Stable
 internal class HomePanelState(
     val playbackState: MusicPlaybackState,
-    // 曲库格式分析对话框显隐：常驻首页层，关闭仅收起展示
+    // 曲库分析对话框显隐，关闭仅收起
     val libraryAnalysis: LibraryAnalysisController,
-    // 并列页面位置：页面切换统一由它驱动，页面自身不感知滑动过程
+    // 并列页面位置，页面本身不感知滑动
     val pagerState: PagerState,
     private val scope: CoroutineScope,
 ) {
-    // 首页播放列表面板（底部弹出）显隐：显示期间让出纵向手势，滚动交由播放列表处理
+    // 播放列表面板显隐，显示时让出纵向手势
     var playlistVisible by mutableStateOf(false)
-    // 首页音频信息弹窗（底部弹出）显隐：与播放列表同属底部弹层，显隐期间一并让出纵向手势
+    // 音频信息弹窗显隐，同样让出纵向手势
     var audioInfoVisible by mutableStateOf(false)
     var showTimer by mutableStateOf(false)
-    // 首页背景代表色：供搜索页与歌单页的浮层容器复用，保持与首页底色一致
+    // 背景代表色，供搜索与歌单浮层复用
     var backgroundColor by mutableStateOf(md_theme_dark_surface)
-    // 点击歌手信息后请求打开的歌手歌单：由歌单面板消费并跳转到该歌手的曲目列表
+    // 待打开的歌手歌单，由歌单面板消费
     var pendingArtistPlaylist by mutableStateOf<String?>(null)
-    // 歌单面板当前是否停在自带整屏骨架的页面（歌手页）：标题栏在该页始终隐藏，不与沉浸头图争顶部。
-    // 由歌单面板随页面栈在同一次事件回调里写入——挪到组合之后的副作用上报，
-    // 进入该页的首帧会先亮出标题栏再收回去
+    // 停留在歌手页：标题栏隐藏；须在同一次回调写入，否则首帧闪出
     var playlistImmersive by mutableStateOf(false)
-    // 歌单面板当前是否停在可逐级回退的下钻页：该状态下右滑用于回退一级，
-    // 首页横向翻页须关闭（一层滑动只对应一个去向）。与 playlistImmersive 分开，
-    // 是因为下钻页仍要看得到标题栏，只是不再让首页翻页参与横向滑动
+    // 下钻页：右滑回退并关闭首页翻页（仍显示标题栏）
     var playlistSwipeBack by mutableStateOf(false)
 
     val currentPage: HomePage
@@ -57,7 +53,7 @@ internal class HomePanelState(
         goToPage(HomePage.PLAYER)
     }
 
-    // 打开指定歌手的歌单页：切到歌单面板，由面板跳转到该歌手的曲目列表
+    // 打开歌手歌单：切到歌单面板并跳转
     fun openArtistPlaylist(artist: String) {
         pendingArtistPlaylist = artist
         goToPage(HomePage.PLAYLIST)
@@ -69,7 +65,7 @@ internal fun rememberHomePanelState(): HomePanelState {
     val context = LocalContext.current
     val playbackState = LocalPlaybackState.current
     val scope = rememberCoroutineScope()
-    // 默认落在播放器页，两侧页面仅在滑动或主动跳转时进入
+    // 默认播放器页，两侧页靠滑动进入
     val pagerState = rememberPagerState(initialPage = HomePage.PLAYER.ordinal) {
         HomePage.entries.size
     }

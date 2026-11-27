@@ -29,18 +29,18 @@ import com.yichao.evilgodxu.theme.SystemBarAppearance
 import com.yichao.evilgodxu.windowsize.rememberExpandedForm
 import com.yichao.evilgodxu.windowsize.rememberWindowLandscape
 
-// 页面入口：只做依赖连接、尺寸判定与副作用挂载，布局交给组装器
+// 页面入口：依赖连接与副作用，布局交给组装器
 @Composable
 fun HomeScreen(
     onOpenSettings: () -> Unit,
-    // 播放列表高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
+    // 高级菜单「查看频谱」：跳转频谱页
     onOpenSpectrum: (Long) -> Unit,
-    // 播放列表高级菜单的「编辑元数据」：跳转元数据编辑页，只传曲目标识
+    // 高级菜单「编辑元数据」：跳转元数据页
     onOpenMetadata: (Long) -> Unit,
 ) {
-    // 本页常驻底层，被覆盖层压住时让出返回键与系统栏外观的写入
+    // 被覆盖层压住时让出返回键与系统栏写入
     val isTopLayer = LocalIsTopLayer.current
-    // ViewModel 工厂在非组合上下文中执行，依赖须先在此取出
+    // ViewModel 工厂在非组合上下文执行，依赖先取出
     val application = LocalApplication.current
     val playbackState = LocalPlaybackState.current
     val playlistRefresher = LocalPlaylistRefresher.current
@@ -64,14 +64,13 @@ fun HomeScreen(
         onAudioGranted = viewModel::refreshPermissions,
         markRequested = viewModel::markPermissionRequested,
     )
-    // 回到前台复检授权：授权也可能发生在系统设置页，那条路没有弹窗回调，
-    // 只认回调会让「已在系统里开了权限」的本进程一直停在空库，等下次冷启动才恢复
+    // 回前台复检授权，系统设置页授权没有弹窗回调
     LifecycleResumeEffect(Unit) {
         viewModel.refreshPermissions()
         onPauseOrDispose { }
     }
 
-    // 跨形态共享状态：旋转不重建 Activity，页面位置与后台分析需在形态切换间保持
+    // 共享状态：旋转不重建 Activity，需跨形态保持
     val panelState = rememberHomePanelState()
     val onToggleLandscape = landscapeToggleAction()
 
@@ -100,7 +99,7 @@ fun HomeScreen(
     }
 }
 
-// 横竖屏切换：朝向以窗口实测宽高比为准，Activity 自行处理方向变更，配置读取可能不随之刷新
+// 横竖屏切换：朝向按窗口宽高比，配置可能不刷新
 @Composable
 private fun landscapeToggleAction(): () -> Unit {
     val activity = LocalActivityResultRegistryOwner.current as? Activity
@@ -114,9 +113,8 @@ private fun landscapeToggleAction(): () -> Unit {
     }
 }
 
-// 系统栏图标按「图标底下压着什么」定色：首页两条系统栏全沉浸隐藏，图标只在上滑临时唤出时可见，
-// 而首页恒为深色封面衍生背景，故固定白色、不沿用上个页面的深色图标；底部弹层展开时导航栏落在
-// 跟随主题的面板上，改回按主题取色，否则浅色主题下白图标压在浅色面板上不可辨
+// 首页背景恒深色，状态栏图标固定白色。
+// 底部弹层展开时导航栏落在浅色面板，改按主题取色。
 @Composable
 private fun HomeSystemBarsEffect(panelState: HomePanelState, isTopLayer: Boolean) {
     val sheetOnTop = panelState.playlistVisible ||
@@ -124,15 +122,14 @@ private fun HomeSystemBarsEffect(panelState: HomePanelState, isTopLayer: Boolean
         panelState.libraryAnalysis.visible
     val lightNavigationBars = sheetOnTop && !LocalIsDarkTheme.current
     SideEffect {
-        // 被覆盖层压住时不再写入：本页会持续重组（歌词、进度），否则会不断覆盖上层页的外观声明
+        // 被覆盖层压住时不写入，否则会覆盖上层外观
         if (!isTopLayer) return@SideEffect
         SystemBarAppearance.isLightStatusBars = false
         SystemBarAppearance.isLightNavigationBars = lightNavigationBars
     }
 }
 
-// 首页两级返回：搜索页优先清空内容再回播放器，歌单页直接回播放器。
-// 被覆盖层压住时全部让出，返回键交给覆盖层
+// 两级返回：搜索页先清内容，歌单页直接回；覆盖层压住时让出
 @Composable
 private fun HomeBackHandlers(panelState: HomePanelState, enabled: Boolean) {
     val playbackState = LocalPlaybackState.current
@@ -154,8 +151,7 @@ private fun HomeBackHandlers(panelState: HomePanelState, enabled: Boolean) {
     }
 }
 
-// 搜索页的生命周期同步：离开即清空结果可见性与错误提示，避免下次进入残留上一次搜索的状态；
-// 只有播放器真正开始播放（无错误）时才返回播放器页，播放失败时留在搜索页看错误提示
+// 离开搜索页清空结果与错误；播放成功才回播放器
 @Composable
 private fun SearchPageSyncEffects(panelState: HomePanelState) {
     val playbackState = LocalPlaybackState.current

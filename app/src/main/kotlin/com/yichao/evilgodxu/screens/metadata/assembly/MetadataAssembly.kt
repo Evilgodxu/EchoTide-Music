@@ -19,12 +19,11 @@ import com.yichao.evilgodxu.screens.metadata.component.MetadataForm
 import com.yichao.evilgodxu.ui.component.PageTopBar
 import com.yichao.evilgodxu.windowsize.WindowSizeClass
 
-// 内容左右留白：窄窗空间紧张按 16dp 留足触控边距，宽窗可视区充裕，
-// 收到 12dp 让表单与屏幕边缘分离而不显空
+// 左右留白：窄窗 16dp，宽窗 12dp
 private val COMPACT_HORIZONTAL_PADDING = 16.dp
 private val EXPANDED_HORIZONTAL_PADDING = 12.dp
 
-// 元数据页组装器：骨架为 Scaffold + 纵向滚动的表单，形态差异只体现在左右留白
+// 组装器：Scaffold + 滚动表单，差异仅在留白
 @Composable
 internal fun MetadataAssembly(
     windowSizeClass: WindowSizeClass,
@@ -106,8 +105,7 @@ internal fun MetadataAssembly(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                // 只留左右白边，底缘不留固定内边距：它在滚动容器之外，键盘弹出时会变成
-                // 键盘上沿一条不随内容滚动的页面底色空隙
+                // 仅留左右白边，底缘留空避免键盘空隙
                 .padding(horizontal = horizontalPadding),
         )
     }

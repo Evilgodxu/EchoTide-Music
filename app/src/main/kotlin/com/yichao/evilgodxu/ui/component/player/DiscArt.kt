@@ -24,7 +24,7 @@ import com.yichao.evilgodxu.ui.component.coverThumbnailSize
 import com.yichao.evilgodxu.ui.component.player.AlbumArt
 import kotlinx.coroutines.isActive
 
-// 封面在内圈占光碟直径的比例：外圈边缘留出透明材质
+// 内圈封面占光碟直径 0.85
 private const val DISC_COVER_INSET = 0.85f
 
 @Composable
@@ -34,8 +34,7 @@ internal fun DiscArt(
     discSize: Dp,
     modifier: Modifier = Modifier,
     coverArt: @Composable (MusicTrack?) -> Unit = { target ->
-        // 光碟尺寸即控件实际渲染尺寸：封面请求档位据此换算，不沿用面板/轮播的大图档位。
-        // 换曲与占位块出场都经「底层常驻 + 上层淡入」过渡，封面不出现亮度塌陷与突现
+        // 按实际渲染尺寸换算封面档位，换图淡入
         AlbumArt(
             track = target,
             modifier = Modifier.fillMaxSize(),
@@ -44,8 +43,7 @@ internal fun DiscArt(
         )
     },
 ) {
-    // 旋转角不随曲目重建：切歌时归零会让光碟在换曲瞬间突跳一个角度，与切歌过渡的平滑目标相悖，
-    // 故角度继续累积，切歌只换封面；暂停后重新播放也自当前角度续转，不回卷
+    // 角度跨曲累积，暂停后续转不回卷
     val rotation = remember { Animatable(0f) }
     LaunchedEffect(isPlaying, track?.id) {
         if (isPlaying) {
@@ -64,7 +62,7 @@ internal fun DiscArt(
                 .graphicsLayer { rotationZ = rotation.value }
                 .clip(CircleShape)
         ) {
-            // 专辑封面仅覆盖中间区域，外圈边缘留出透明材质
+            // 封面居中，外圈留透明材质
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -76,7 +74,7 @@ internal fun DiscArt(
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val r = size.minDimension / 2f
                 val center = this.center
-                // 浅色外环：紧贴封面外缘，无间距，宽度为半径的 9%
+                // 浅色外环紧贴封面，宽为半径 9%
                 val ringWidth = r * 0.09f
                 drawCircle(
                     color = Color.White.copy(alpha = 0.22f),

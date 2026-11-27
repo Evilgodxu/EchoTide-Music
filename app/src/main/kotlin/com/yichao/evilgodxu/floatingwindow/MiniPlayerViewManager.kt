@@ -55,13 +55,7 @@ class MiniPlayerViewManager(
     private var composeView: ComposeView? = null
     private var isDismissing = false
 
-    /**
-     * 状态栏显隐没有跨应用的公开回调，只能轮询显示指标。
-     *
-     * 位置只认「顶部状态栏 inset 是否存在」这一个条件：前台应用在旋转后才进入沉浸模式时，
-     * 状态栏会晚一步隐藏，此刻没有任何窗口事件可捕获；inset 轮询能把这一变化补上。
-     * 息屏期间状态栏不会变化，轮询随之挂起，避免后台播放时空转。
-     */
+    /** 轮询顶部状态栏 inset 以贴合位置；息屏时挂起 */
     private val statusBarWatcher = object : Runnable {
         override fun run() {
             val view = composeView ?: return
@@ -79,13 +73,13 @@ class MiniPlayerViewManager(
         }
     }
 
-    // 播放列表展开态：窗口高度在紧凑条与展开高度之间动画，Compose 侧据此决定是否铺开列表
+    // 播放列表展开态：窗口高度随之动画
     private val playlistExpanded = mutableStateOf(false)
     private var heightAnimator: ValueAnimator? = null
 
     val isShowing: Boolean get() = composeView != null
 
-    // 悬浮窗组合树所需的应用级单例宿主：经 Application 取用
+    // 悬浮窗组合树经 Application 取单例
     private fun app(): App =
         context.applicationContext as App
 
@@ -108,8 +102,7 @@ class MiniPlayerViewManager(
         fun performRestore() = controller.performRestore(null)
     }
 
-    // 触摸监听只消费窗口外的按下以便收起列表：这类事件不是落在本视图上的点击，
-    // 视图自身也无点击语义，故无需转到 performClick（无障碍点击动作无对应行为）
+    // 只消费窗口外按下以收起列表
     @SuppressLint("InflateParams", "ClickableViewAccessibility")
     fun show() {
         if (composeView != null) return
@@ -118,7 +111,7 @@ class MiniPlayerViewManager(
         val flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                // 展开后才需要窗口外触摸：点击列表以外的区域即收起
+                // 窗口外触摸用于收起列表
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
 
         val params = WindowManager.LayoutParams(
@@ -135,8 +128,7 @@ class MiniPlayerViewManager(
         val view = ComposeView(context).apply {
             translationY = (-barH).toFloat()
             setContent {
-                // 悬浮窗独立于 Activity 组合树，须自行为应用级依赖提供值，
-                // 否则内部组件读取组合局部会触发默认 error 崩溃
+                // 悬浮窗须自备应用级依赖，否则读取局部会崩溃
                 ProvideAppDependencies(app().container) {
                     MiniPlayerOverlay(
                         playbackState = playbackState,
@@ -150,7 +142,7 @@ class MiniPlayerViewManager(
                 }
             }
         }
-        // 窗口外触摸只用于收起列表，故在监听器里消费掉，不让它流进 Compose
+        // 消费窗口外触摸，不流进 Compose
         view.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_OUTSIDE) {
                 if (playlistExpanded.value) togglePlaylist()
@@ -195,8 +187,7 @@ class MiniPlayerViewManager(
             .start()
     }
 
-    // 校正窗口纵向位置与高度：状态栏显隐、密度变化后重新贴合；
-    // 播放列表展开动画进行中不动高度，避免轮询打断补间
+    // 贴合状态栏重算位置与高度；展开动画中不动高度
     private fun applyWindowLayout() {
         val view = composeView ?: return
         val params = view.layoutParams as? WindowManager.LayoutParams ?: return
@@ -212,12 +203,7 @@ class MiniPlayerViewManager(
         runCatching { windowManager.updateViewLayout(view, params) }
     }
 
-    /**
-     * 展开/收起播放列表。
-     *
-     * 窗口高度就是列表可见高度，故直接对窗口高度做补间：窗口长高多少就露出多少行，
-     * Compose 侧同步铺开列表。
-     */
+    /** 展开/收起播放列表：对窗口高度做补间 */
     private fun togglePlaylist() {
         val view = composeView ?: return
         val params = view.layoutParams as? WindowManager.LayoutParams ?: return
@@ -237,8 +223,7 @@ class MiniPlayerViewManager(
         }
     }
 
-    // 展开高度 = 紧凑条 + 恰好五行的列表高度：按整行数、行间距与列表留白推算，
-    // 与屏幕尺寸无关，横竖屏展开后都完整露出同样多的曲目
+    // 展开高度 = 紧凑条 + 五行列表高度
     private fun expandedHeightPx(): Int = barHeightPx() + dpToPx(
         MINI_PLAYLIST_VISIBLE_ROWS * MINI_PLAYLIST_ROW_HEIGHT_DP +
             (MINI_PLAYLIST_VISIBLE_ROWS - 1) * MINI_PLAYLIST_ROW_SPACING_DP +
@@ -247,20 +232,11 @@ class MiniPlayerViewManager(
 
     private fun barHeightPx(): Int = dpToPx(BAR_HEIGHT_DP)
 
-    // 迷你条宽度 = 左右内边距 + 封面 + 全部按钮
+    // 宽度 = 内边距 + 封面 + 按钮
     private fun barWidthPx(): Int =
         dpToPx(MINI_PADDING_H_DP * 2 + MINI_COVER_DP + MINI_BUTTON_COUNT * MINI_BUTTON_DP)
 
-    /**
-     * 迷你播放器顶部纵坐标。
-     *
-     * 唯一依据是顶部状态栏 inset：状态栏可见时贴在它下方，隐藏后 inset 变为 0，
-     * 只剩 1dp 的屏幕边缘间距。不参考屏幕朝向，因为横屏下状态栏也可能仍显示，
-     * 朝向与「状态栏是否占据顶部」并不等价。
-     *
-     * 取不到指标时按间距下限放置，而非读系统内部尺寸：`status_bar_height` 是私有的框架资源，
-     * 各厂商与版本都不保证存在或准确。
-     */
+    /** 顶部纵坐标：贴状态栏 inset，最低 1dp；不按朝向判断 */
     private fun topOffsetPx(): Int {
         val topInset = runCatching {
             windowManager.currentWindowMetrics.windowInsets
@@ -279,7 +255,7 @@ class MiniPlayerViewManager(
         val view = composeView ?: return
         if (isDismissing) return
         isDismissing = true
-        // 收起动画与高度动画会争夺同一个窗口参数，收起前先停掉高度动画
+        // 先停高度动画，避免争用窗口参数
         heightAnimator?.cancel()
         heightAnimator = null
         view.removeCallbacks(statusBarWatcher)
@@ -309,9 +285,9 @@ class MiniPlayerViewManager(
     companion object {
         // 紧凑容纳两行文本与最小触控热区
         private const val BAR_HEIGHT_DP = 32
-        // 状态栏不占顶部时的最小间距（横屏状态栏在侧边）
+        // 状态栏不占顶部时的最小间距
         private const val MIN_TOP_GAP_DP = 1
-        // 状态栏显隐只能轮询：半秒一次足以覆盖沉浸模式的延迟隐藏，又不会频繁打断窗口布局
+        // 轮询间隔：兼顾延迟隐藏与开销
         private const val STATUS_BAR_POLL_MS = 500L
     }
 }

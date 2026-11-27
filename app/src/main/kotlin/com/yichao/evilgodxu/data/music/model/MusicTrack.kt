@@ -10,7 +10,7 @@ data class MusicTrack(
     val albumId: Long,
     val albumName: String = "",
     val neteaseId: Long = 0L,
-    // 在线封面地址：仅作在线播放时下载封面原图的凭据，不参与显示（显示端从音频文件取封面）
+    // 在线封面地址，仅下载凭据，显示仍取音频文件
     val neteaseCoverUrl: String = "",
     val lyricCachePath: String = "",
     internal val lyricLines: List<LyricLine> = emptyList(),
@@ -19,9 +19,9 @@ data class MusicTrack(
     val lyricOffsetMs: Long = 0L,
     // 歌词自动匹配已尝试且失败：不再重复拉取
     val lyricFailed: Boolean = false,
-    // 是否由在线播放产生（含已缓存为本地文件）；仅当前播放时保留，切歌后自动清理
+    // 在线播放产生（含已缓存），切歌后清理
     val isOnlinePlay: Boolean = false,
-    // 本地音频文件修改时间（毫秒）：扫描时取自 MediaStore，供「文件修改时间」排序；在线/外部曲目为 0
+    // 本地文件修改时间，供排序；在线/外部为 0
     val fileModifiedMs: Long = 0L,
 ) {
     val isLocalAudioSource: Boolean
@@ -31,12 +31,7 @@ data class MusicTrack(
     fun isUpgradableToLossless(): Boolean = isLocalAudioSource
 }
 
-// 播放模式。
-//
-// Highlight（心动）与前三种不是同一类语义：前三种决定「按什么顺序放」，
-// 它决定「每首放哪一段」。之所以并入同一枚举而非另立一个维度，是因为本枚举的持久化
-// 与界面切换循环都已成型（见 MusicPlaybackState 的 mode 落盘、PlayerControls 的循环切换），
-// 并入即可免费获得跨冷启动的记忆；代价是 calculateIndex 与 applyPlaybackMode 各需一条分支。
-//
-// 新值一律**追加在末尾**：mode 以 ordinal 落盘，插在中间会让已装机用户保存的序号整体错位。
+// 播放模式
+// Highlight 决定每首放哪一段，其余决定播放顺序
+// 新值只能追加末尾：按 ordinal 落盘，插入会错位
 enum class PlayMode { RepeatOne, RepeatAll, Shuffle, Highlight }

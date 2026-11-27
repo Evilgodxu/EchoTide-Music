@@ -70,14 +70,14 @@ internal suspend fun applyLocalCover(
     cover: RecentCover,
 ): Boolean = withContext(Dispatchers.IO) {
     try {
-        // 写入音频文件需要「全部文件」访问：缺权限时打开系统授权页并放弃本次写入
+        // 写音频文件需全部文件访问，缺权限则放弃
         if (!hasAllFilesAccess()) return@withContext false
         val bytes = context.contentResolver.openInputStream(cover.uri)?.use { it.readBytes() } ?: return@withContext false
-        // 封面写入音频文件，系统据此重建封面略缩图；显示端据此重新取图（系统略缩图或文件内嵌封面），落盘的旧缩略图由 bumpCoverRevision 一并作废
+        // 写入文件后系统重建缩略图，并作废旧缩略图
         val writeSuccess = MusicMetadataWriter.writeCover(context, track, bytes)
         if (!writeSuccess) return@withContext false
         withContext(Dispatchers.Main) {
-            // 封面已写入音频文件：清掉在线封面地址，转由文件自身的封面提供显示
+            // 清掉在线封面地址，改用文件内封面
             playbackState.updateTrack(track.copy(neteaseCoverUrl = ""))
             playbackState.coverCache.bumpCoverRevision()
             playbackState.setLocalCoverCandidates(emptyList())

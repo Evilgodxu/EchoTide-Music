@@ -11,15 +11,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
 
-// 应用级悬浮窗授权监控：生命周期独立于 Activity/ViewModel。
-// 用户在系统悬浮窗设置页授权时，即使 Activity 已被销毁（如开启"不保留活动"或配置变更），
-// 只要进程存活，仍能检测到授权并回调 onGranted，用于把应用自动带回前台。
+// 悬浮窗授权监控：不随 Activity 销毁
 object OverlayGrantMonitor {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var job: Job? = null
 
-    // 只保留最新一次回调，避免 ViewModel 重建后旧回调持有已清理实例
+    // 只保留最新回调，避免持有旧实例
     @Volatile
     private var onGranted: ((Context) -> Unit)? = null
 
@@ -44,7 +42,7 @@ object OverlayGrantMonitor {
         }
     }
 
-    // 用户已从设置页返回或主动关闭开关：结束监控，避免无意义轮询
+    // 结束监控，避免无意义轮询
     @Synchronized
     fun stop() {
         job?.cancel()

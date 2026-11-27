@@ -96,56 +96,43 @@ internal fun LyricsPanel(
     fontSize: TextUnit = 12.sp,
     contentColor: Color? = null,
     visibleLines: Int = DEFAULT_VISIBLE_LINES,
-    // 相邻歌词行之间的纵向留白：由排版设置按场景传入（首页竖屏、首页横屏各自独立）
+    // 行间距，按场景传入
     lineSpacing: Dp = LyricLayoutDefaults.LINE_SPACING_DEFAULT_DP.dp,
-    // 歌词行的水平对齐：由排版设置传入，逐字、逐词与整行三条渲染路径共用同一取值
+    // 水平对齐，三条渲染路径共用
     alignment: LyricAlignment = LyricAlignment.CENTER,
-    // 上下边缘的渐隐长度（行）：自留白内缘起算，越往边缘越透明
+    // 上下边缘渐隐行数，自留白内缘起算
     fadeLines: Float = LyricLayoutDefaults.FADE_LINES_DEFAULT,
-    // 渐隐留白（行）：自上下边缘向内的纯空白，歌词视口整体内缩该距离，行只在留白以内排布与滚动，
-    // 渐隐自留白内缘起算。最淡的几行因此离窗口边缘更远，不会以亚像素细线贴边残留
+    // 渐隐留白行数，歌词视口内缩
     fadeInsetLines: Float = LyricLayoutDefaults.FADE_INSET_LINES_DEFAULT,
-    // 纵向快速滑动的切歌出口（true 为下一曲）：由首页提供，用于把「一甩即走」的滑动归给切歌——
-    // 这类滑动全程不让歌词跟随移动；为 null 的场景（无切歌手势）不做快速滑动仲裁，
-    // 纵向拖拽一律按歌词跳转处理
+    // 纵向快速滑动切歌出口；null 时一律按歌词跳转
     onVerticalFling: ((next: Boolean) -> Unit)? = null,
-    // 纵向拖拽接管本次手势的出口（方向判定为纵向即回调）：由宿主收回触摸瞬间顺带唤出的控件，
-    // 使歌词拖拽定位不把已收起的标题栏闪出来
+    // 纵向拖拽接管回调，避免闪出标题栏
     onVerticalDragClaim: (() -> Unit)? = null,
 ) {
-    // 已唱 / 未唱歌词颜色：默认取主题色，传入 contentColor 时（如首页）覆盖为指定色
+    // 已唱与未唱颜色；contentColor 可覆盖
     val activeColor = contentColor ?: MaterialTheme.colorScheme.primary
     val pendingColor = (contentColor ?: MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.72f)
-    // 逐字渲染开关：关闭后整行高亮，不再逐字跳动
+    // 逐字渲染开关，关闭后整行高亮
     val context = LocalContext.current
     val wordByWordEnabled by context.wordByWordRenderingFlow().collectAsState(initial = true)
-    // 跟随当前曲目：切换歌曲时重置到曲目起点，避免沿用上一首的播放位置定位错行。
-    // 起步位置取状态层持有的歌词时间轴（见 seedLyricPosition）：旋转会让竖屏/横屏各自的组装树
-    // 重建歌词面板，若以重建那一刻的播放位置重新起步，面板本地已按真实流逝时间推进的相位就被抹掉，
-    // 表现为重建一次、歌词落后数百毫秒
+    // 跟随曲目起算，起步取状态层歌词时间轴
     var lyricPosition by remember(playbackState.currentTrack?.id) {
         mutableLongStateOf(playbackState.seedLyricPosition(playbackState.currentTrack?.id))
     }
-    // 歌词拖拽跳转后的短时保护窗：窗内本地进度自走、忽略控制器的旧位置，
-    // 避免 seek 回报前把刚拖到的行又拉回拖拽前位置
+    // 拖拽跳转后的短时保护窗，忽略旧位置
     var seekGuardUntilMs by remember(playbackState.currentTrack?.id) { mutableLongStateOf(0L) }
     LaunchedEffect(playbackState.isPlaying, playbackState.currentTrack?.id) {
-        // 本次跟随所属曲目：作为歌词时间轴快照的归属，切曲后不再沿用上一首的进度
+        // 本次跟随所属曲目
         val trackId = playbackState.currentTrack?.id
         var lastSyncMs = 0L
         while (isActive) {
-            // 锚点取控制器的即时位置：它按时间连续外推，读取时每轮都在前进；状态层的
-            // currentPosition 是回报的峰值包络，只在其超过历史最大值时才前进，跟着它走会一顿一顿。
-            // 锚点的回锚回退由下面的容差分支兜住——不超过容差就不把本地已推进的进度拉回。
-            // 取的是换算到整曲绝对时间后的值（见 lyricPositionMs）：心动模式下控制器回报的是
-            // 片段内进度，直接用会让整段歌词落后一个片段起点
+            // 锚点取控制器即时位置，按绝对时间换算
             val candidate = playbackState.lyricPositionMs
             val now = System.currentTimeMillis()
             val guarding = now < seekGuardUntilMs
             if (playbackState.isPlaying) {
                 val elapsed = if (lastSyncMs == 0L) 0L else (now - lastSyncMs).coerceAtLeast(0L)
-                // 播放中以真实流逝时间推进，锚点仅作参照：锚点回锚落后时本地继续前进不被拉回，
-                // 锚点前移或大幅回退（手动拖动/切曲）时才对齐
+                // 播放中按真实流逝时间推进，锚点仅作参照
                 lyricPosition = when {
                     guarding -> lyricPosition + elapsed
                     candidate >= lyricPosition -> candidate
@@ -154,9 +141,7 @@ internal fun LyricsPanel(
                 }
                 lastSyncMs = now
             } else {
-                // 暂停时保持本地已推进的真实位置，仅当锚点前移（正向 seek）或大幅回退
-                // （拖动/切曲）时跟随；避免把播放期间已领先于锚点滞后回报的本地位置拉回，
-                // 导致已唱完的歌词高亮回退
+                // 暂停时保持本地位置，仅在正向 seek 时跟随
                 if (!guarding) {
                     lyricPosition = when {
                         candidate >= lyricPosition -> candidate
@@ -166,20 +151,20 @@ internal fun LyricsPanel(
                 }
                 lastSyncMs = 0L
             }
-            // 回写本次推进到的进度：面板重建时以此接着走，不被播放位置的回锚拉回
+            // 回写进度，重建时接着走
             playbackState.recordLyricPosition(trackId, lyricPosition)
             delay(if (playbackState.isPlaying) 50L else 200L)
         }
     }
 
     val lines = playbackState.currentTrack?.lyricLines.orEmpty()
-    // 手势回调在整个 pointerInput 生命周期内保持有效，用 rememberUpdatedState 保证始终读到最新歌词
+    // 手势协程常驻，始终读最新歌词
     val currentLines by rememberUpdatedState(lines)
-    // 切歌出口同理：手势协程常驻，需读到最新的回调而非组合期捕获的旧值
+    // 切歌出口同理
     val currentOnVerticalFling by rememberUpdatedState(onVerticalFling)
     // 纵向接管出口同理
     val currentOnVerticalDragClaim by rememberUpdatedState(onVerticalDragClaim)
-    // 歌词缺失时按需补全（懒加载）：补全成功后回写 lyricLines 驱动重组显示
+    // 歌词缺失时按需补全
     LaunchedEffect(
         playbackState.currentTrack?.id,
         playbackState.currentTrack?.lyricCachePath,
@@ -189,19 +174,16 @@ internal fun LyricsPanel(
         playbackState.requestMetadata(playbackState.currentTrack)
     }
     val activeIndex = lines.indexOfLast { it.timeMs <= lyricPosition }.coerceAtLeast(0)
-    // 当前行居中，上下各显示 (total-1)/2 行（total 为奇数）
+    // 当前行居中，上下各半
     val offset = visibleLines / 2
-    // 视口高度按 N 行标准高度计算：超长句换行与译文叠层会让单行高于标准，
-    // 视口固定为 N 行标准高，超出部分交由边缘渐隐与裁剪处理
+    // 视口固定为 N 行标准高，超出由渐隐裁剪
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    // 行间距像素值：视口高度、兜底行距与纵向布局三处共用同一份换算，口径不会漂移
+    // 行距像素，三处共用
     val lineSpacingPx = with(density) { lineSpacing.roundToPx() }
-    // 歌词行起始留白：靠左版式与首页标题、艺术家名称的横向内边距取同一值，三者左边缘对齐
+    // 靠左版式与标题左缘对齐
     val rowStartInset = if (alignment == LyricAlignment.START) LYRIC_ALIGNED_START_INSET else LYRIC_ROW_INSET
-    // 标准单行高度（含行内上下内边距）：视口上限与窗口内占位行共用，使滚动基准线不随占位行变化。
-    // 必须与 LyricChar/Text 的实际渲染同口径——沿用 LocalTextStyle（bodyLarge 自带 24.sp 行高）合并，
-    // 否则裸 TextStyle 测出的高度偏小，视口按偏小行距排布会被实际更高的行撑出裁剪，可见行数少于设定值
+    // 标准行高，与渲染同口径
     val lyricTextStyle = LocalTextStyle.current
     val lyricLineHeightPx = remember(fontSize, density, lyricTextStyle) {
         textMeasurer.measure(
@@ -214,32 +196,29 @@ internal fun LyricsPanel(
         slotPx * visibleLines + lineSpacingPx * (visibleLines - 1)
     }
     val standardSlotHeight = with(density) { (lyricLineHeightPx + 4.dp.roundToPx()).toDp() }
-    // 拖拽换算的兜底行距：仅在窗口尚无实测行高时使用，正常路径均由实测行高换算
+    // 兜底行距，仅窗口未实测时使用
     val fallbackSlotPx = with(density) { standardSlotHeight.toPx() } + lineSpacingPx
-    // 渐隐留白：视口上下各内缩这么多行，行只在留白以内排布与滚动，留白区间不出现歌词。
-    // 上下等量内缩，中线不变，当前行仍居视口正中；最多内缩到只剩一行可排，避免视口被吃空
+    // 上下各内缩渐隐留白，最多只剩一行
     val effectiveInsetLines = fadeInsetLines.coerceIn(0f, (visibleLines - 1) / 2f)
     val blankHeight = (standardSlotHeight + lineSpacing) * effectiveInsetLines
-    // 内缩后视口覆盖的行数：渐隐比例按它换算，设定值仍是「几行」
+    // 内缩后覆盖行数，用于换算渐隐比例
     val innerLines = (visibleLines - effectiveInsetLines * 2f).coerceAtLeast(1f)
     val viewportHeight = with(density) { maxViewportHeight.toDp() }
 
-    // 显示位置（浮点行号）：正常播放由跟随动画推进，拖拽与回弹期间由手势/回弹动画驱动。
-    // 用普通状态直接承载动画输出，释放瞬间即可同步写入，避免显示回退到过期的动画值
+    // 浮点行号；普通状态承载动画输出
     var scrollPosition by remember(playbackState.currentTrack?.id) { mutableFloatStateOf(0f) }
-    // scrubbing 为拖拽中，settling 为释放后的吸附/回弹动画中；两者进行时都挂起跟随 Effect
+    // 拖拽中或回弹中，均挂起跟随
     var scrubbing by remember(playbackState.currentTrack?.id) { mutableStateOf(false) }
     var settling by remember(playbackState.currentTrack?.id) { mutableStateOf(false) }
-    // 拖拽起始位置：未对齐释放时的回弹目标
+    // 拖拽前位置，未对齐时回弹目标
     var scrubStartPosition by remember(playbackState.currentTrack?.id) { mutableFloatStateOf(0f) }
-    // 回弹代数：令被新拖拽打断的旧回弹动画失效，避免它把位置或 settling 改回去
+    // 回弹代数，作废旧动画
     var settleGeneration by remember(playbackState.currentTrack?.id) { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
-    // 像素位移 → 行位移的换算依据：由 LyricColumnLayout 测量时写入的普通对象，手势回调只读
+    // 像素位移换算行位移，测量时写入
     val dragGeometry = remember { LyricScrollGeometry() }
 
-    // 跟随播放：拖拽/回弹期间挂起，避免与手势、回弹动画争抢同一个位置。
-    // 跨度大于阈值（拖动进度/切歌）时直接定位，避免长距离滚动
+    // 跟随播放；跨度超过阈值直接定位
     LaunchedEffect(activeIndex, playbackState.currentTrack?.id, scrubbing, settling) {
         if (scrubbing || settling) return@LaunchedEffect
         val start = scrollPosition
@@ -254,19 +233,16 @@ internal fun LyricsPanel(
             scrollPosition = target
         }
     }
-    // 显示位置：拖拽/回弹期间即手势位置；其余时间跟随播放。与目标跨度较大时（拖动进度/切歌瞬间）
-    // 跟随动画尚未归位，本帧直接用目标行定位，避免错误行被居中
+    // 跨度大时直接用目标行，避免错误行居中
     val displayPosition = when {
         scrubbing || settling -> scrollPosition
         abs(scrollPosition - activeIndex) > LYRIC_SCROLL_MAX_STEP -> activeIndex.toFloat()
         else -> scrollPosition
     }
-    // 拖拽已对齐到某一行：释放即吸附并从此行起播，基准标识据此切换为确认色。
-    // 判定与释放时的吸附条件共用同一个函数，避免标识已确认却回弹
+    // 已对齐到某行，标识转为确认色
     val scrubAligned = scrubbing && alignedScrubRow(scrollPosition, lines.lastIndex) != null
 
-    // 切歌淡入：换曲时歌词窗口整体淡入，替代新旧歌词的瞬时替换。
-    // 用整体淡入而不做新旧交叠：面板持有拖拽与跟随两套常驻状态，同时驻留两份实例会互相争抢同一个手势
+    // 换曲时歌词整体淡入
     val switchFade = remember(playbackState.currentTrack?.id) { Animatable(0f) }
     LaunchedEffect(playbackState.currentTrack?.id) {
         switchFade.animateTo(1f, tween(LYRIC_SWITCH_FADE_MS))
@@ -280,17 +256,14 @@ internal fun LyricsPanel(
                 onClick = onClick,
                 onLongClick = onLongClick,
             )
-            // 纵向拖拽调进度：方向优先抢占 —— 位移过阈值时纵向占优即由歌词接管并消费，
-            // 横向占优则一次也不消费、整个手势留给外层左右滑动，两者互斥。
-            // 接管后再按速度确认：速度落回阈值内才由歌词跟随手指，一甩即走的快速滑动歌词不动、直接切歌。
-            // 声明在 combinedClickable 之后（内层），拖拽时取消点击；点按/长按不受影响
+            // 纵向拖拽调进度；方向优先，快速滑动留给切歌
             .pointerInput(playbackState.currentTrack?.id) {
-                // 快速滑动切歌的判定阈值（像素/秒）：达到该值即视为「一甩即走」的切歌滑动，歌词不跟随移动
+                // 快速滑动阈值 600dp/s
                 val flingVelocityPx = with(density) { LYRIC_FLING_VELOCITY_DP_S.dp.toPx() }
-                // 速度样本不足等异常下速度可能为 NaN，比较结果为假即按慢速处理，避免把拖拽误判为切歌
+                // NaN 视为慢速，避免误判切歌
                 fun isFling(velocityY: Float): Boolean = abs(velocityY) >= flingVelocityPx
 
-                // 拖拽起点：与组合期的 displayPosition 同口径，但读实时状态避免闭包过期
+                // 拖拽起点同 displayPosition，读实时状态
                 fun liveDisplayPosition(): Float {
                     val liveActive = currentLines.indexOfLast { it.timeMs <= lyricPosition }
                         .coerceAtLeast(0)
@@ -301,8 +274,7 @@ internal fun LyricsPanel(
                     }
                 }
 
-                // 释放后的收尾动画：吸附到目标行或弹性回弹。
-                // 代数用于让被新拖拽打断的旧动画失效，避免它把位置或 settling 改回去
+                // 释放收尾：吸附或回弹，代数作废旧动画
                 fun settleTo(target: Float, animationSpec: AnimationSpec<Float>) {
                     val generation = ++settleGeneration
                     settling = true
@@ -318,15 +290,14 @@ internal fun LyricsPanel(
                     }
                 }
 
-                // 拖拽中：像素位移 ÷ 当前行到下一行中心的距离 = 行位移，行高不定也能跟手
+                // 像素位移除以行距得行位移
                 fun advanceScrub(dragAmount: Float) {
                     val slot = dragGeometry.slotAt(scrollPosition)
                     scrollPosition = (scrollPosition - dragAmount / slot)
                         .coerceIn(0f, currentLines.lastIndex.toFloat())
                 }
 
-                // 确认慢速拖拽：作废未完成的回弹、接管显示位置，并把确认前累计的位移一次性补给，
-                // 使窗口直接跟到手指处，不因确认延迟而与手指错位
+                // 确认慢速拖拽，补入累计位移
                 fun beginScrub(pendingPx: Float) {
                     if (currentLines.isEmpty()) return
                     settleGeneration++
@@ -337,8 +308,7 @@ internal fun LyricsPanel(
                 }
 
                 fun finishScrub(cancelled: Boolean, flingVelocityY: Float) {
-                    // 全程未确认跟随：整个手势都被判为快速滑动，歌词自始至终没有移动，
-                    // 只按速度决定是否切歌，不再走对齐与回弹
+                    // 全程未确认跟随：只按速度决定切歌
                     if (!scrubbing) {
                         val fling = currentOnVerticalFling
                         if (!cancelled && fling != null && isFling(flingVelocityY)) {
@@ -348,8 +318,7 @@ internal fun LyricsPanel(
                     }
                     scrubbing = false
                     if (currentLines.isEmpty()) return
-                    // 确认跟随之后才甩出（起步慢、途中加速）同样按切歌处理：不跳转歌词进度，
-                    // 先把窗口收回当前演唱行，再交外层切歌；无相邻曲目可切时即停在该行
+                    // 确认后甩出也按切歌，先收回当前行
                     val fling = currentOnVerticalFling
                     if (!cancelled && fling != null && isFling(flingVelocityY)) {
                         val playIndex = currentLines.indexOfLast { it.timeMs <= lyricPosition }
@@ -360,17 +329,15 @@ internal fun LyricsPanel(
                     }
                     val candidate = alignedScrubRow(scrollPosition, currentLines.lastIndex)
                     if (!cancelled && candidate != null) {
-                        // 对齐：吸附到该行并从该行时间点起播。先把当前行切到目标行并开短时保护窗
-                        // 忽略控制器旧位置，避免跟随 Effect 在 seek 回报前把内容拉回拖拽前的行
+                        // 对齐：跳到该行起播，并设保护窗
                         val targetMs = currentLines[candidate].timeMs
                         lyricPosition = targetMs
                         seekGuardUntilMs = System.currentTimeMillis() + LYRIC_SCRUB_SEEK_GUARD_MS
-                        // 歌词行给的是整曲绝对时间，跳转前换算到播放器当前项的坐标系
-                        // （心动模式下以片段起点为原点），否则会落到片段外被钳到边界
+                        // 绝对时间换算到播放器坐标系
                         seekToAndPlay(playbackState, playbackState.toPlayerPosition(targetMs))
                         settleTo(candidate.toFloat(), tween(LYRIC_SCRUB_SNAP_MS))
                     } else {
-                        // 未对齐：不跳转进度，弹性回弹到拖拽前位置
+                        // 未对齐：回弹到拖拽前位置
                         settleTo(
                             target = scrubStartPosition,
                             animationSpec = spring(
@@ -383,34 +350,32 @@ internal fun LyricsPanel(
 
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    // 速度采样：从按下起的每个事件位置都送入追踪器，松手时据此区分快速滑动（切歌）与慢速拖拽（跳转）
+                    // 速度采样，区分快速滑动与慢速拖拽
                     val velocityTracker = VelocityTracker()
                     velocityTracker.addPosition(down.uptimeMillis, down.position)
-                    // 方向仲裁：阈值按欧氏距离丈量（单轴判定要等某一轴单独越过阈值，斜向时更晚），
-                    // 纵向占优即抢先认领并消费；横向占优则一次也不消费，整个手势完整让给外层左右滑动
+                    // 方向仲裁：纵向占优则接管消费
                     var dragY = 0f
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id }
                             ?: return@awaitEachGesture
-                        // 手指抬起或被子控件（进度条/控制栏等）消费，放弃本手势
+                        // 抬起或被消费则放弃手势
                         if (!change.pressed || change.isConsumed) return@awaitEachGesture
                         velocityTracker.addPosition(change.uptimeMillis, change.position)
                         val delta = change.position - down.position
                         if (delta.getDistance() < viewConfiguration.touchSlop) continue
                         if (abs(delta.y) < abs(delta.x)) return@awaitEachGesture
                         dragY = delta.y
-                        // 纵向接管：先告知宿主收回本次触摸顺带唤出的控件（无歌词可拖时不算拖拽）
+                        // 纵向接管，通知宿主收回控件
                         if (currentLines.isNotEmpty()) currentOnVerticalDragClaim?.invoke()
                         change.consume()
                         break
                     }
-                    // 拖拽起点：与组合期的 displayPosition 同口径，但读实时状态避免闭包过期。
-                    // 此时只记录起点，待确认是慢速拖拽后才由 beginScrub 接管显示位置
+                    // 只记录起点，确认慢速后才接管
                     scrubStartPosition = liveDisplayPosition()
-                    // 尚未生效的累计位移：确认跟随前不清空，确认时一次性补给
+                    // 未生效的累计位移，确认时补给
                     var pendingScrubPx = dragY
-                    // 无切歌出口时不做快速滑动仲裁，拖拽立即跟随手指
+                    // 无切歌出口时立即跟随手指
                     if (currentOnVerticalFling == null) {
                         beginScrub(pendingScrubPx)
                         pendingScrubPx = 0f
@@ -421,8 +386,7 @@ internal fun LyricsPanel(
                             advanceScrub(change.positionChange().y)
                         } else {
                             pendingScrubPx += change.positionChange().y
-                            // 速度落回阈值内即确认是慢速拖拽；确认后一直跟随，不再重新仲裁，
-                            // 避免中途速度波动导致窗口跟跟停停
+                            // 速度落回阈值即确认慢速拖拽
                             if (currentLines.isNotEmpty() &&
                                 !isFling(velocityTracker.calculateVelocity().y)
                             ) {
@@ -442,7 +406,7 @@ internal fun LyricsPanel(
         contentAlignment = Alignment.Center
     ) {
         if (lines.isEmpty()) {
-            // 关联歌词缓存存在时读取挂载极快，不闪"暂无歌词"占位；仅真正缺失时提示
+            // 仅真正缺歌词时显示提示
             val hasLyricCache = playbackState.currentTrack?.lyricCachePath
                 ?.let { MusicMetadataCache.isValid(context, it) } == true
             if (!hasLyricCache) {
@@ -453,27 +417,24 @@ internal fun LyricsPanel(
                 )
             }
         } else {
-            // 窗口容器高度固定：滚动都在其内部进行，行溢出与滚出内容经过边缘即被裁剪
+            // 高度固定，溢出即裁剪
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(viewportHeight),
             ) {
-                // 歌词视口按留白内缩：留白区间内不排布任何行，歌词自留白内缘才开始，
-                // 上下各留一段纯留白，边缘的极端字形不再贴着窗口边缘出现
+                // 视口按留白内缩，边缘不贴字
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(vertical = blankHeight)
                         .clipToBounds()
-                        // 上下边缘渐隐：行在视口边缘整体出现/消失过于生硬，蒙层让进出更连贯。
-                        // 渐隐自留白内缘起算，比例按内缩后的行数换算
+                        // 上下边缘渐隐，比例按内缩行数换算
                         .verticalFadeMask(fadeFraction = fadeLines / innerLines)
                 ) {
-                    // 以显示位置所在行为窗口锚点，上下各多渲染 buffer 行：滚动或拖拽时新行已在窗口内、
-                    // 被移除的行已完全移出视口，两者在同一坐标系整体平移，因此只会连续上移，不会突兀替换
+                    // 以显示行为锚点，上下多渲染 buffer 行
                     val anchorIndex = displayPosition.roundToInt().coerceIn(0, lines.lastIndex)
-                    // 拖拽时高亮跟随中线最近的候选行，作为「释放会选中哪一行」的反馈；其余时间跟随播放
+                    // 拖拽时高亮中线最近行
                     val highlightIndex = if (scrubbing) anchorIndex else activeIndex
                     val windowStart = anchorIndex - offset - LYRIC_WINDOW_BUFFER
                     LyricColumnLayout(
@@ -487,7 +448,7 @@ internal fun LyricsPanel(
                     ) {
                         repeat(visibleLines + LYRIC_WINDOW_BUFFER * 2) { row ->
                             val index = windowStart + row
-                            // 以行下标为键：窗口平移时同一行的状态（高亮进度等）得以保留，不会跳变
+                            // 以行下标为键，保留行状态
                             key(index) {
                                 val line = lines.getOrNull(index)
                                 if (line == null) {
@@ -503,7 +464,7 @@ internal fun LyricsPanel(
                                         label = "lyric_emphasis"
                                     )
                                     val scale = LYRIC_ROW_SCALE_BASE + LYRIC_ROW_SCALE_AMPLITUDE * emphasis
-                                    // 非当前行整体降低不透明度，弱化其视觉存在感；随高亮进度平滑过渡
+                                    // 非当前行降低不透明度
                                     val rowAlpha = LYRIC_INACTIVE_ALPHA + (1f - LYRIC_INACTIVE_ALPHA) * emphasis
                                     val nextTimeMs = lines.getOrNull(index + 1)?.timeMs ?: line.timeMs + 3000L
                                     LyricText(
@@ -519,8 +480,7 @@ internal fun LyricsPanel(
                                         alignment = alignment,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            // 留白置于缩放层之外：缩放原点因此落在文本起始侧，
-                                            // 靠左版式下当前行放大只向右展开，不会连同留白一起被放大
+                                            // 留白在缩放层外，靠左放大只向右
                                             .padding(
                                                 start = rowStartInset,
                                                 top = 2.dp,
@@ -543,8 +503,7 @@ internal fun LyricsPanel(
                         }
                     }
                 }
-                // 拖拽基准标识：固定在视口中线、不随内容滚动，仅拖拽时淡入；对齐后转为确认色。
-                // 挂在留白层之外，留白不影响标识位置
+                // 拖拽基准标识，固定中线，对齐转换确认色
                 LyricScrubMarker(
                     visible = scrubbing,
                     color = activeColor,
@@ -560,9 +519,7 @@ internal fun LyricSpacer(height: Dp) {
     Spacer(modifier = Modifier.height(height))
 }
 
-// 拖拽调进度的基准标识：视口中线两侧各一段短横线（形如「- 歌词 -」），仅拖拽时淡入，
-// 作为「哪一行与中线对齐会被选中」的参考线；已对齐时切换为浅绿色确认态，
-// 用户据此判断此刻松手即会从该行起播
+// 中线两侧短横线；对齐时变确认色
 @Composable
 private fun BoxScope.LyricScrubMarker(visible: Boolean, color: Color, aligned: Boolean) {
     val alpha by animateFloatAsState(
@@ -571,7 +528,7 @@ private fun BoxScope.LyricScrubMarker(visible: Boolean, color: Color, aligned: B
         label = "lyric_scrub_marker",
     )
     if (alpha <= 0.01f) return
-    // 对齐确认色：颜色随对齐状态过渡，跨行擦过时不会闪成不相关的中间色
+    // 对齐确认色过渡
     val confirmColor = LocalSuccessColor.current
     val dashColor by animateColorAsState(
         targetValue = if (aligned) confirmColor else color,
@@ -602,8 +559,7 @@ private fun LyricScrubDash(color: Color, modifier: Modifier) {
     )
 }
 
-// 拖拽像素 → 行位移的换算依据：由 LyricColumnLayout 测量时写入，手势回调只读。
-// 走普通对象而非 Compose 状态，避免手势期间写入测量结果触发额外重组
+// 拖拽换算几何，测量写入，普通对象
 private class LyricScrollGeometry {
     private var windowStart = 0
     private var rowHeights: IntArray = EMPTY_ROW_HEIGHTS
@@ -617,7 +573,7 @@ private class LyricScrollGeometry {
         this.fallbackSlotPx = fallbackSlotPx
     }
 
-    // 当前位置所在行到下一行中心的距离：像素位移 ÷ 该值 = 行位移
+    // 当前行到下一行中心的距离
     fun slotAt(position: Float): Float {
         val heights = rowHeights
         if (heights.isEmpty()) return fallbackSlotPx.coerceAtLeast(1f)
@@ -630,16 +586,14 @@ private class LyricScrollGeometry {
 
 private val EMPTY_ROW_HEIGHTS = IntArray(0)
 
-// 歌词纵向布局：窗口内按真实行高逐行排布，再以“动画浮点行号”定位目标位置在内容中的中心，
-// 整体平移使该中心对齐视口中线。行高随换行而不同，按固定行高偏移会使当前行偏离中线，
-// 故用实测高度换算；目标中心在相邻两行中心之间线性插值，跨行切换不会跳变。
+// 按真实行高排布，目标中心对齐中线。
 @Composable
 private fun LyricColumnLayout(
     windowStart: Int,
     animatedPosition: Float,
     maxViewportHeight: Int,
     geometry: LyricScrollGeometry,
-    // 行间距像素值：由 LyricsPanel 按场景设置换算后传入，与视口高度、兜底行距同源
+    // 行距像素，与视口高度同源
     spacingPx: Int,
     fallbackSlotPx: Float,
     modifier: Modifier = Modifier,
@@ -652,7 +606,7 @@ private fun LyricColumnLayout(
         val placeables = measurables.map {
             it.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
         }
-        // 把手势换算所需的实测几何写入普通对象：拖拽时按真实行距换算，且不触发额外重组
+        // 写入实测几何，不触发重组
         geometry.update(
             windowStart = windowStart,
             rowHeights = IntArray(placeables.size) { placeables[it].height },
@@ -661,13 +615,13 @@ private fun LyricColumnLayout(
         )
         val width = if (constraints.hasBoundedWidth) constraints.maxWidth
         else placeables.maxOfOrNull { it.width } ?: 0
-        // 视口高度固定为 N 行标准高度：窗口内多出的 buffer 行不撑高面板，滚动基准线保持稳定
+        // 视口固定 N 行，buffer 行不撑高
         val boundedMax = if (constraints.hasBoundedHeight) constraints.maxHeight else Int.MAX_VALUE
         val viewportHeight = minOf(maxViewportHeight, boundedMax).coerceAtLeast(1)
         if (placeables.isEmpty()) {
             layout(width, viewportHeight) {}
         } else {
-            // 动画行号换算成窗口内相对行号，取整定位所在行，余数用于在相邻行中心之间插值
+            // 行号取整定位，余数用于插值
             val relative = (animatedPosition - windowStart)
                 .coerceIn(0f, placeables.lastIndex.toFloat())
             val row = floor(relative).toInt().coerceIn(0, placeables.lastIndex)
@@ -680,7 +634,7 @@ private fun LyricColumnLayout(
             } else {
                 0f
             }
-            // 平移量 = 视口中线 - 动画行号对应位置的中心，使该位置始终居于中线
+            // 平移使目标位置居中
             val shift = viewportHeight / 2f - (rowCenter + fraction * rowToNextCenter)
             layout(width, viewportHeight) {
                 var y = shift
@@ -708,10 +662,9 @@ internal fun LyricText(
     modifier: Modifier = Modifier,
 ) {
     var contentWidthPx by remember { mutableIntStateOf(0) }
-    // 所有行统一按当前行的放大预留宽度分行：未唱/已唱和正在唱行数一致，避免换行跳变。
-    // 与分行用的固定字重（LYRIC_WRAP_FONT_WEIGHT）配合，折行点只由文本与可用宽度决定，对高亮态不敏感
+    // 统一按放大预留宽度分行，避免换行跳变
     val wrapWidthPx = if (contentWidthPx <= 0) 0 else (contentWidthPx / LYRIC_ROW_SCALE_MAX).roundToInt()
-    // 各行的水平缩放余量同样全行统一，保证分行宽度与主歌词排版一致
+    // 水平缩放余量全行统一
     val reserveWidthPx = (contentWidthPx * (LYRIC_ROW_SCALE_MAX - 1f) / (2f * LYRIC_ROW_SCALE_MAX)).roundToInt()
     val reserveWidth = with(LocalDensity.current) { reserveWidthPx.toDp() }
     Column(
@@ -757,7 +710,7 @@ internal fun LyricText(
             )
         }
         line.translation?.takeIf { it.isNotBlank() }?.let { translation ->
-            // 翻译行以更小字号静置展示，主歌词高亮时翻译同步使用完整高亮色与发光
+            // 译文小字号静置，当前行同步高亮
             Text(
                 text = translation,
                 fontSize = (fontSize.value * 0.68f).sp,
@@ -772,7 +725,7 @@ internal fun LyricText(
                 softWrap = true,
                 modifier = Modifier
                     .fillMaxWidth()
-                    // 居中版式两侧对称留出缩放余量；靠左版式的余量只留在行尾，译文与主歌词左边缘对齐
+                    // 居中两侧对称留白，靠左只留行尾
                     .padding(
                         start = if (alignment == LyricAlignment.START) 0.dp else reserveWidth,
                         end = reserveWidth,
@@ -783,9 +736,7 @@ internal fun LyricText(
     }
 }
 
-// 关闭逐字渲染：整行统一着色，不逐字填充也不跳动。
-// 折行不交给 Text 软换行——软换行按当前渲染字重计算，行被高亮加粗时会重新折行、行数跳变；
-// 改为与逐字/逐词路径同一套手写分行、同一固定折行字重，再逐行按单行渲染，折行点不随高亮态变化
+// 关闭逐字：整行着色，仍用手写分行
 @Composable
 private fun WholeLineLyricText(
     line: LyricLine,
@@ -816,7 +767,7 @@ private fun WholeLineLyricText(
                 fontWeight = fontWeight,
                 color = if (isCurrent) activeColor else pendingColor,
                 textAlign = alignment.lineTextAlign,
-                // 折行已由上面手动完成，这里按单行呈现，避免按渲染字重再排一次
+                // 已手动分行，按单行呈现
                 softWrap = false,
                 maxLines = 1,
                 modifier = Modifier.fillMaxWidth(),
@@ -825,67 +776,59 @@ private fun WholeLineLyricText(
     }
 }
 
-// 播放中位置回退容差：小于该值视为锚点抖动，大于视为真实跳变（拖动进度条、歌词拖拽跳转、切曲回卷）
+// 位置回退容差，小于视为抖动
 private const val LYRIC_SEEK_TOLERANCE_MS = 1500L
 
-// 歌词面板默认可见行数：保持奇数使当前行垂直居中（上下各 (n-1)/2 行）
+// 可见行数，奇数使当前行居中
 private const val DEFAULT_VISIBLE_LINES = 5
 
-// 歌词行两侧留白：居中版式两侧等距，长句折行时也不贴边
+// 居中版式两侧留白
 private val LYRIC_ROW_INSET = 6.dp
 
-// 靠左版式的起始留白：与首页竖屏标题、艺术家名称的横向内边距同值，歌词与标题左边缘对齐
+// 靠左版式起始留白，与标题对齐
 private val LYRIC_ALIGNED_START_INSET = 32.dp
 
-// 切歌时歌词窗口的淡入时长：短于封面与背景的过渡，歌词作为主体先立住
+// 换曲歌词淡入 260ms，短于封面
 private const val LYRIC_SWITCH_FADE_MS = 260
 
-// 窗口上下各多渲染的行数：滚动时新行已在窗口内、被移除的行已完全移出视口，
-// 两者在同一坐标系整体平移，因此只会连续上移，不会出现边缘闪现或整块替换
+// 上下各多渲染 2 行，平移连续
 private const val LYRIC_WINDOW_BUFFER = 2
 
-// 换行滚动：间隙大于该行数（拖动进度/切歌）直接定位，不逐行长滚。
-// 时长与缓动参照自然滚动（先快后慢），时长与行尾提前量共用 LYRIC_SCROLL_TRANSITION_MS
+// 跨度超 2 行直接定位
 private const val LYRIC_SCROLL_MAX_STEP = 2
 
-// 非当前行不透明度：弱化视觉存在感，随高亮进度平滑过渡
+// 非当前行不透明度 0.55
 private const val LYRIC_INACTIVE_ALPHA = 0.55f
 
-// 拖拽调进度：释放时与基准标识的对齐容差（行），超出则不跳转并回弹到拖拽前位置
+// 释放对齐容差 0.35 行
 private const val LYRIC_SCRUB_SNAP_ROWS = 0.35f
 
-// 对齐释放后吸附到目标行的动画时长
+// 吸附动画 220ms
 private const val LYRIC_SCRUB_SNAP_MS = 220
 
-// 快速滑动切歌阈值（dp/s）：滑动速度达到该值即视为「一甩即走」的切歌滑动——歌词全程不跟随移动、
-// 离手也不跳转歌词进度；速度始终低于该值才确认是有意的歌词拖拽。仅在外部提供切歌出口时生效
+// 快速滑动切歌阈值 600dp/s
 private const val LYRIC_FLING_VELOCITY_DP_S = 600f
 
-// 对齐跳转后的短时保护窗：窗内本地进度自走、忽略控制器的旧位置，
-// 避免跟随 Effect 在 seek 回报前把内容拉回拖拽前的行
+// 对齐跳转后保护窗 1000ms
 private const val LYRIC_SCRUB_SEEK_GUARD_MS = 1000L
 
-// 基准标识（两侧短横线）尺寸与淡入淡出时长，以及切换到对齐确认色的过渡时长
+// 基准标识尺寸与过渡时长
 private const val LYRIC_SCRUB_MARKER_FADE_MS = 160
 private const val LYRIC_SCRUB_MARKER_CONFIRM_MS = 120
 private val LYRIC_SCRUB_DASH_WIDTH = 22.dp
 private val LYRIC_SCRUB_DASH_HEIGHT = 2.dp
 
-// 拖拽位置当前对齐到的行下标；偏差超出吸附容差视为未对齐（null）。
-// 释放时的吸附判定与拖拽中的标识确认态共用本函数，两侧口径不会漂移
+// 当前对齐行，偏差超容差为 null
 private fun alignedScrubRow(position: Float, lastIndex: Int): Int? {
     if (lastIndex < 0) return null
     val candidate = position.roundToInt().coerceIn(0, lastIndex)
     return candidate.takeIf { abs(position - candidate) <= LYRIC_SCRUB_SNAP_ROWS }
 }
 
-// 上下边缘淡出：按纵向透明度梯度对内容做 DstIn 蒙层，使上下行渐变消失。
-// 作用范围已是扣掉留白后的视口，渐隐因此自留白内缘起算，与窗口最外缘无关。
-// 边缘两端还各保留一段完全透明区间，杜绝子像素级残影——行带 graphicsLayer 缩放、以小数 y 放置时，
-// 字形/光晕可能仅以 ≤1dp 的细线越过边缘，单点透明 stop 只掩到精确边界，仍会残留原色细线
+// 上下边缘 DstIn 渐隐，两端留全透明保护带
 private fun Modifier.verticalFadeMask(fadeFraction: Float = 0.25f): Modifier = drawWithCache {
     val fade = fadeFraction.coerceIn(0f, MAX_FADE_EDGE_FRACTION)
-    // 完全透明保护带：覆盖边缘残影的像素宽度
+    // 完全透明保护带宽度
     val guard = fade * 0.12f
     val brush = Brush.verticalGradient(
         colorStops = arrayOf(
@@ -899,8 +842,7 @@ private fun Modifier.verticalFadeMask(fadeFraction: Float = 0.25f): Modifier = d
     )
     onDrawWithContent {
         val bounds = Rect(Offset.Zero, size)
-        // 绘制级裁剪与蒙层放在同一图层：子层包边像素在进入图层前即被裁除，
-        // 避免英文光晕/字形越过窗口边缘后以未蒙层原色残留
+        // 裁剪与蒙层同层，避免边缘残影
         drawIntoCanvas { canvas ->
             canvas.save()
             canvas.clipRect(bounds)
@@ -915,5 +857,5 @@ private fun Modifier.verticalFadeMask(fadeFraction: Float = 0.25f): Modifier = d
     }
 }
 
-// 单侧留白与渐隐合计的比例上限：停在半高以内，保证上下两段不会相接、中段始终有全亮区
+// 渐隐比例上限，保证中段全亮
 private const val MAX_FADE_EDGE_FRACTION = 0.45f

@@ -10,8 +10,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.R
 
-// 清理入口：挂在合计占用下方，作用范围限于「可清理」卡片，不随某张归属卡片略去。
-// 无可清理产出时一并置灰，避免给出点了也不会有任何结果的按钮
+// 清理仅作用于可清理卡片，无项则置灰
 @Composable
 internal fun CacheClearAction(
     clearing: Boolean,

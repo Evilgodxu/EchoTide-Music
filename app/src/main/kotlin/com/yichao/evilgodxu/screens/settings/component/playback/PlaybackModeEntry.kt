@@ -7,7 +7,7 @@ import com.yichao.evilgodxu.screens.settings.component.entry.SettingsEntry
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 播放模式入口：悬浮播放、切歌手势与 USB 输出都在页内层级展开，读写走设置页自己的状态
+// 播放模式入口，页内层级展开
 @Composable
 fun PlaybackModeEntry(onClick: () -> Unit) {
     GroupCard(title = stringResource(R.string.settings_section_player)) {

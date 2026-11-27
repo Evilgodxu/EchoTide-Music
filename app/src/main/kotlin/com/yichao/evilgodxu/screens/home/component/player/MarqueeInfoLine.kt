@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.TextUnit
 import com.yichao.evilgodxu.ui.component.MarqueeText
 
-// 单行信息文本：宽度超出容器时启用往复式跑马灯，并叠加与「最近搜索」标签一致的首尾渐隐
+// 单行文本：溢出时往复跑马灯 + 首尾渐隐
 @Composable
 internal fun MarqueeInfoLine(
     text: String,
@@ -30,8 +30,7 @@ internal fun MarqueeInfoLine(
     fontWeight: FontWeight,
     color: Color,
     modifier: Modifier = Modifier,
-    // 未溢出时的水平对齐：随首页竖屏的排版设置切换；溢出时跑马灯自容器起始侧起滚，
-    // 该模式下内容本就铺满容器，对齐无可见差异
+    // 未溢出时的对齐；溢出后内容铺满，对齐无差异
     textAlign: TextAlign = TextAlign.Center,
 ) {
     val textMeasurer = rememberTextMeasurer()
@@ -39,15 +38,14 @@ internal fun MarqueeInfoLine(
         modifier = modifier,
         contentAlignment = if (textAlign == TextAlign.Start) Alignment.CenterStart else Alignment.Center,
     ) {
-        // 与渲染同源：合并 LocalTextStyle 后再测量，静态分支与跑马灯分支的宽度判定才一致
+        // 先合并 LocalTextStyle 再测量，分支判定才一致
         val textStyle = LocalTextStyle.current.merge(
             TextStyle(fontSize = fontSize, fontWeight = fontWeight),
         )
         val textWidthPx = textMeasurer.measure(AnnotatedString(text), textStyle).size.width
         val containerWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
         if (containerWidthPx > 0f && textWidthPx > containerWidthPx) {
-            // 超出即交给往复式跑马灯：滚到末尾原路退回，两端各停一拍（见 MarqueeText），
-            // 再叠加两端渐隐，使文字进出边缘时淡入淡出而非硬切
+            // 溢出交给跑马灯，两端各停一拍，再加渐隐
             MarqueeText(
                 text = text,
                 color = color,
@@ -67,12 +65,10 @@ internal fun MarqueeInfoLine(
     }
 }
 
-// 跑马灯首尾渐隐宽度：取与「最近搜索」标签横滑渐隐相同的值，保证首页整体视觉一致
+// 渐隐宽度 40dp，与最近搜索标签一致
 private val MarqueeFadeWidth = 40.dp
 
-// 首尾渐隐：在滚动内容之上叠一层 DstOut 蒙层，直接抹掉内容自身的透明度。
-// 与「最近搜索」标签横滑渐隐同一套做法——Offscreen 层内用 DstOut，不铺固定底色，
-// 沉浸渐变背景上不会留下色带；两端常驻渐隐，文字进出边缘时淡入淡出而非硬切
+// 首尾渐隐：DstOut，不铺底色
 private fun Modifier.marqueeEdgeFade(): Modifier = this
     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
     .drawWithContent {

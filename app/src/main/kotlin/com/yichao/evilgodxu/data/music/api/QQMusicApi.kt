@@ -16,30 +16,28 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * QQ 音乐在线源：网页版搜索接口（客户端接口作兜底）+ GetVkey 获取播放地址 + 歌词接口。
- * 歌曲标识为 songmid 字符串，转成稳定数字 id 存入搜索结果。
- */
+// QQ 在线源：网页搜索、Vkey 播放与歌词
+// 歌曲标识为 songmid，入库时转成稳定数字 id
 internal object QQMusicApi : OnlineMusicSource {
 
     private const val ENDPOINT = "https://u.y.qq.com/cgi-bin/musicu.fcg"
     private const val MUSIC_DOMAIN = "https://isure.stream.qqmusic.qq.com/"
     private const val WEB_SEARCH_ENDPOINT = "https://c.y.qq.com/soso/fcgi-bin/search_for_qq_cp"
-    // 网页版单曲详情：给出音轨号、碟号、发行日期，搜索接口没有这些
+    // 网页版单曲详情补齐音轨号、碟号、发行日期
     private const val SONG_DETAIL_ENDPOINT = "https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg"
-    // 网页版搜索接口单页上限，超出会被服务端截断
+    // 网页版搜索单页上限 30，超出被截断
     private const val WEB_SEARCH_MAX_PAGE_SIZE = 30
-    // 歌词接口的模块名，同时用作请求体中的键
+    // 歌词模块名，同时用作请求体中的键
     private const val LYRIC_MODULE = "music.musichallSong.PlayLyricInfo"
     private const val LYRIC_MODULE_METHOD = "$LYRIC_MODULE.GetPlayLyricInfo"
-    // 官方接口的 comm 参数需要 QIMEI36，取不到设备标识时用该固定兜底值
+    // comm 参数所需 QIMEI36，取不到设备标识时用兜底值
     private const val QIMEI36 = "6c9d3cd110abca9b16311cee10001e717614"
     private const val VERSION_CODE = 13020508
     private const val UID = "3931641530"
     private const val GUID_CHARS = "abcdef1234567890"
 
-    // 音质代号 + 扩展名，按从高到低分组：无损 flac / 高品 ogg / 标准 mp3、m4a。
-    // 母带、全景声等平台升频代号不参与匹配，故不入表
+    // 音质代号+扩展名，高到低分组
+    // 母带、全景声等升频代号不参与匹配
     private val LOSSLESS_QUALITIES = arrayOf(
         "F000" to ".flac",
     )
@@ -50,7 +48,7 @@ internal object QQMusicApi : OnlineMusicSource {
         "M800" to ".mp3", "M500" to ".mp3", "C600" to ".m4a", "C400" to ".m4a", "C200" to ".m4a"
     )
 
-    // 音质档位对应的编码组合；只列本档位自身的代号，跨档降级由 adaptiveCandidates 逐档驱动
+    // 本档位代号，跨档降级由候选链驱动
     private fun qualityCandidates(quality: MusicQuality): Array<Pair<String, String>> = when (quality) {
         // QQ 无独立 Hi-Res 代号，该档回退到无损
         MusicQuality.HI_RES,
@@ -65,7 +63,7 @@ internal object QQMusicApi : OnlineMusicSource {
             .onFailure { CrashLogManager.logException("QQMusicApi", "搜索歌曲失败", it) }
             .getOrDefault(emptyList())
         if (webResults.isNotEmpty()) return@withContext webResults
-        // 客户端接口对未登录请求一律返回空列表，仅在其风控放行时段可用，故只作兜底
+        // 客户端接口未登录返回空，仅作兜底
         try {
             delay(300)
             doSearch(keyword, page, pageSize)
@@ -107,7 +105,7 @@ internal object QQMusicApi : OnlineMusicSource {
         return List(itemSong.length()) { index -> songResult(itemSong.getJSONObject(index)) }
     }
 
-    // 搜索条目字段名在不同接口间有差异，统一映射为搜索结果模型
+    // 各接口字段名有差异，统一映射为结果模型
     private fun songResult(item: JSONObject): NeteaseSongSearchResult {
         val mid = item.optString("mid").ifBlank { item.optString("songmid") }
         val singer = item.optJSONArray("singer") ?: JSONArray()
@@ -116,18 +114,18 @@ internal object QQMusicApi : OnlineMusicSource {
             .joinToString(" / ")
         val albumObject = item.optJSONObject("album")
         val albumMid = albumObject?.optString("mid").orEmpty().ifBlank { item.optString("albummid") }
-        // 封面 CDN 按尺寸段生成，列表行用 150x150，其余场景用 800x800
+        // 封面按尺寸段生成：列表 150，其余 800
         val cover = albumMid.takeIf { it.isNotBlank() }
             ?.let { "https://y.gtimg.cn/music/photo_new/T002R800x800M000$it.jpg" }
         val thumb = albumMid.takeIf { it.isNotBlank() }
             ?.let { "https://y.gtimg.cn/music/photo_new/T002R150x150M000$it.jpg" }
-        // 搜索响应只有专辑名与发行时间戳；音轨号、碟号只在详情接口里，由 songDetail 补齐
+        // 搜索仅有专辑名与发行时间，音轨/碟号由详情补齐
         val publishSeconds = item.optLong("pubtime", 0L)
             .takeIf { it > 0L }
             ?: albumObject?.optLong("time_public", 0L)?.takeIf { it > 0L }
         return NeteaseSongSearchResult(
             id = stableIdFromString(mid),
-            // 字段名因接口而异（title/name/songname），逐级回退
+            // 字段名因接口而异，逐级回退
             title = item.optString("title").ifBlank { item.optString("name") }
                 .ifBlank { item.optString("songname") },
             artist = artist,
@@ -143,12 +141,8 @@ internal object QQMusicApi : OnlineMusicSource {
         )
     }
 
-    /**
-     * 单曲详情：搜索响应不含音轨号、碟号与发行日期，缓存落地前用一次详情请求补齐。
-     *
-     * 与搜索走不同的 CGI（网页版单曲接口），只取标签需要的字段；任一字段缺失即为 null，
-     * 由调用方合并时保留搜索结果里的值。
-     */
+    // 单曲详情：补齐搜索缺失的音轨号、碟号与发行日期
+    // 字段缺失为 null，合并时保留搜索结果的值
     suspend fun songDetail(mid: String): NeteaseSongSearchResult? = withContext(Dispatchers.IO) {
         if (mid.isBlank()) return@withContext null
         try {
@@ -178,10 +172,10 @@ internal object QQMusicApi : OnlineMusicSource {
                 releaseDate = song.optString("time_public").takeIf { it.isNotBlank() }
                     ?: album?.optString("time_public")?.takeIf { it.isNotBlank() },
                 trackNumber = song.optInt("index_album", 0).takeIf { it > 0 },
-                // index_cd 从 0 起算，0 即单碟：单碟不写碟号，避免给所有单曲都盖上「碟 1」
+                // index_cd 从 0 起算，单碟不写碟号
                 discNumber = song.optInt("index_cd", 0).takeIf { it > 0 }?.plus(1),
-                // 平台自带的响度数据：gain 为相对目标响度的增益（dB），peak 为线性峰值。
-                // 缺省或非有限值即视为平台没给，不写 0 —— 0 dB 是「无需调整」，与「没有数据」语义不同
+                // 平台响度：gain 为 dB 增益，peak 为线性峰值
+                // 缺省或非法即未给，不写 0（0 dB 表示无需调整）
                 replayGainTrackGainDb = volume?.optDouble("gain", Double.NaN)?.takeIf { it.isFinite() },
                 replayGainTrackPeak = volume?.optDouble("peak", Double.NaN)?.takeIf { it.isFinite() },
             )
@@ -235,12 +229,8 @@ internal object QQMusicApi : OnlineMusicSource {
         }
     }
 
-    /**
-     * 获取歌词：逐字歌词优先。
-     *
-     * GetPlayLyricInfo 的 qrc 模式返回带逐字时间轴的密文，解密后即 QRC；
-     * 该接口未覆盖该曲或解密失败时，回退只带逐行时间轴的旧歌词接口。
-     */
+    // 获取歌词：逐字优先
+    // qrc 密文解密后解析；无覆盖或解密失败则回退逐行 LRC
     suspend fun lyricLines(result: NeteaseSongSearchResult): List<LyricLine>? = withContext(Dispatchers.IO) {
         val mid = result.sourceId ?: return@withContext null
         try {
@@ -252,7 +242,7 @@ internal object QQMusicApi : OnlineMusicSource {
         }
     }
 
-    // 逐字歌词：密文为十六进制，明文是包着 XML 信封的 QRC 文本
+    // 逐字歌词：十六进制密文，明文为 XML 封装的 QRC
     private fun qrcLyricLines(mid: String): List<LyricLine>? = try {
         val info = requestPlayLyricInfo(mid)
         val lyrics = info?.optString("lyric")?.takeIf { it.isNotBlank() }
@@ -262,7 +252,7 @@ internal object QQMusicApi : OnlineMusicSource {
         if (info == null || lyrics == null) {
             null
         } else {
-            // 翻译与原文同为 QRC 密文，缺失或解密失败时静默跳过
+            // 译文同为 QRC 密文，缺失则静默跳过
             val translations = info.optString("trans").takeIf { it.isNotBlank() }
                 ?.let { QrcCipher.decrypt(it) }
                 ?.let { parseQrcText(extractQrcContent(it)) }
@@ -293,7 +283,7 @@ internal object QQMusicApi : OnlineMusicSource {
         return post(body).optJSONObject(LYRIC_MODULE_METHOD)?.optJSONObject("data")
     }
 
-    // QRC 明文外层是 XML 信封，歌词正文写在 LyricContent 属性里且按 XML 规则转义过
+    // QRC 明文为 XML，正文在 LyricContent
     private fun extractQrcContent(text: String): String {
         val content = QRC_CONTENT_PATTERN.find(text)?.groupValues?.get(1) ?: return text
         return content
@@ -304,7 +294,7 @@ internal object QQMusicApi : OnlineMusicSource {
             .replace("&amp;", "&")
     }
 
-    /** 逐行歌词兜底：接口返回 base64 编码的 LRC 文本 */
+    // 逐行歌词兜底：base64 编码的 LRC
     private fun lrcLyricLines(mid: String): List<LyricLine>? = try {
         val url = "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg" +
                 "?songmid=$mid&g_tk=5381&loginUin=0&hostUin=0&format=json" +
@@ -325,13 +315,13 @@ internal object QQMusicApi : OnlineMusicSource {
         if (lrc == null) {
             null
         } else {
-            // trans 字段为 base64 翻译歌词，取不到时静默跳过
+            // trans 为 base64 译文，取不到则跳过
             val trans = runCatching {
                 json.optString("trans").takeIf { it.isNotBlank() }
                     ?.let { String(Base64.getDecoder().decode(it), Charsets.UTF_8) }
                     .orEmpty()
             }.getOrDefault("")
-            // 该接口的 LRC 偶带行内逐字标签，交由增强 LRC 解析器识别
+            // 该接口 LRC 偶带逐字标签，交给增强解析器
             mergeTranslations(parseWordTimedLrcText(lrc), parseWordTimedLrcText(trans))
                 .takeIf { it.isNotEmpty() }
         }
@@ -357,7 +347,7 @@ internal object QQMusicApi : OnlineMusicSource {
             .url(ENDPOINT)
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .header("User-Agent", MusicHttpClient.MUSIC_USER_AGENT)
-            // 缺 Referer/Origin 时搜索接口会返回空列表
+            // 缺 Referer/Origin 时搜索返回空
             .header("Referer", "https://y.qq.com/")
             .header("Origin", "https://y.qq.com/")
             .build()
@@ -379,6 +369,6 @@ internal object QQMusicApi : OnlineMusicSource {
         repeat(32) { append(GUID_CHARS[Random.nextInt(GUID_CHARS.length)]) }
     }
 
-    // XML 信封中的歌词正文属性；正文内的双引号已转义为 &quot;，故非引号字符即可覆盖整段
+    // XML 信封的歌词正文属性，内层引号已转义
     private val QRC_CONTENT_PATTERN = Regex("""LyricContent="([^"]*)"""")
 }

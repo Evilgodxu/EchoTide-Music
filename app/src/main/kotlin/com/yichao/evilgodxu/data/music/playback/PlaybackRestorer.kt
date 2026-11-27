@@ -9,12 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * 冷启动恢复的应用侧：把读取快照落到播放状态。
- *
- * 读取与排序由 StartupStateLoader 完成，本类只做状态赋值与首帧预置的归位；
- * 启动镜像已预置的取色结果不覆盖，避免首帧背景色回退。
- */
+/** 冷启动恢复：把读取快照落到播放状态，保留首帧已预置取色 */
 internal class PlaybackRestorer(private val state: MusicPlaybackState) {
 
     suspend fun restore(context: Context) {
@@ -22,7 +17,7 @@ internal class PlaybackRestorer(private val state: MusicPlaybackState) {
         val preferences = restored.preferences
         val queue = restored.queue
         val cachedPlaylist = queue.tracks
-        // 无过滤时缓存列表即默认队列，套用保存的排序规则；有过滤时缓存列表是过滤结果，保持来源自身顺序
+        // 无过滤时套用保存排序，有过滤保持来源顺序
         val orderedCachedPlaylist = if (queue.source == null) {
             sortTracks(cachedPlaylist, queue.sortField, queue.sortDescending)
         } else {
@@ -34,53 +29,50 @@ internal class PlaybackRestorer(private val state: MusicPlaybackState) {
         val savedUri = savedState.audioUri
         val savedPosition = savedState.position
         val savedMode = savedState.modeOrdinal
-        // 保存的平台可能是已移除音源的自定义平台，须按当前可用候选校验后再落地
+        // 保存平台可能已移除，须按可用候选校验
         val savedSearchSource = state.searchSourceStore.read(preferences)
         val availablePlatformKeys = MusicSearchSource.builtInKeys +
             customSearchPlatforms(state.proxySourceStore.sources.value).keys
         withContext(Dispatchers.Main) {
             state.searchSource = resolveSearchSource(savedSearchSource, availablePlatformKeys)
-            // 无保存过滤来源时播放默认队列全集
+            // 无保存过滤来源即播默认队列全集
             state.queueFilter = savedSource
             state.applyRestoredViewedState(queue.followsQueue, queue.viewedSource)
             state.playlistSortField = queue.sortField
             state.playlistSortDescending = queue.sortDescending
-            // 默认队列：无过滤时以缓存列表为准（已按保存规则排序）；有过滤时取单独保存的默认队列。
-            // 旧缓存缺失时退回过滤结果，待扫描刷新重建完整队列
+            // 无过滤用缓存列表，有过滤取保存的默认队列
             state.defaultPlaylist = when {
                 savedSource == null -> orderedCachedPlaylist.ifEmpty { cachedBackup }
                 else -> cachedBackup.ifEmpty { orderedCachedPlaylist }
             }
-            // 收藏合并自缓存列表与默认队列，避免切换过滤后库内收藏丢失
+            // 收藏合并缓存列表与默认队列
             state.likedIds = (cachedPlaylist + state.defaultPlaylist)
                 .filter { it.isFavorite }
                 .map { it.id }
                 .toSet()
             if (state.playlist.isEmpty()) {
-                // 有过滤时缓存列表已是过滤结果；无过滤时直接采用默认队列
+                // 有过滤用缓存结果，无过滤用默认队列
                 val restored = if (savedSource == null) state.defaultPlaylist else orderedCachedPlaylist
                 if (restored.isNotEmpty()) {
                     state.playlist = restored.map { it.copy(isFavorite = state.likedIds.contains(it.id)) }
                 }
             }
-            // 列表就绪即让首帧预置的当前曲目归位并补齐下标，此后界面不再需要二次定位
+            // 列表就绪后为预置曲目归位
             adoptSeededCurrentTrack()
-            // 播放列表缓存缺失时（如首次安装、缓存被清）首帧预置的曲目无从校验，可能已不在库中：
-            // 撤下交由随后的扫描恢复路径按保存的 URI 重新定位，避免显示一首无法播放的曲目
+            // 列表为空则撤下预置曲目，交由扫描恢复
             if (state.playlist.isEmpty()) state.currentTrack = null
             state.pendingSavedUri = savedUri
             state.pendingResumePosition = savedPosition
-            // 启动镜像已为同一曲目预置取色时不覆盖，比较与采纳由 BackgroundColorMemory 承担
+            // 首帧已预置同曲取色则不覆盖
             state.backgroundColors.restoreFrom(preferences)
             if (state.currentTrack == null) {
                 state.currentPosition = savedPosition
             }
             state.playMode = PlayMode.entries.getOrElse(savedMode) { PlayMode.RepeatAll }
         }
-        // 冷启动预读上次曲目的落盘封面：驻留内存后首帧可同步取用，不阻塞本次恢复
+        // 预读上次曲目落盘封面，不阻塞恢复
         savedUri?.let { uri -> state.playbackScope.launch { CurrentCoverCache.load(context, uri) } }
-        // 恢复后的首帧预读：曲目时长补齐、歌词与源格式提前取回，
-        // 使界面重建时无需自己再编排一遍启动加载
+        // 恢复后补时长、歌词与源格式，界面重建无需重编
         state.currentTrack?.let { track ->
             if (state.duration <= 0L) state.duration = track.duration
             state.requestMetadata(track)
@@ -88,8 +80,7 @@ internal class PlaybackRestorer(private val state: MusicPlaybackState) {
         }
     }
 
-    // 启动镜像预置的当前曲目在播放列表就绪后归位：以列表实例为准并补齐下标（首帧时列表为空，无从定位），
-    // 同时保留首帧已同步读出的歌词内容，避免镜像副本与列表实例长期并存
+    // 预置曲目归位并补下标，保留首帧歌词
     private fun adoptSeededCurrentTrack() {
         if (state.playlist.isEmpty()) return
         val seeded = state.currentTrack

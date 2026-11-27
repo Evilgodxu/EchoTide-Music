@@ -44,7 +44,7 @@ internal fun MiniPlayerOverlay(
     val barHeight = with(density) { barHeightPx.toDp() }
     val barWidth = with(density) { barWidthPx.toDp() }
 
-    // 左右滑动切歌：拖动时条跟随手指，抬手后回弹（切歌由手势侧直接触发，无滑出动画）
+    // 拖动时跟随手指，抬手回弹
     var swipeOffset by remember { mutableFloatStateOf(0f) }
     val swipeTranslate by animateFloatAsState(
         targetValue = swipeOffset,
@@ -65,14 +65,13 @@ internal fun MiniPlayerOverlay(
         .copy(alpha = if (isDarkTheme) 0.55f else 0.60f)
 
     MaterialTheme(colorScheme = colorScheme) {
-        // 窗口高度由管理器按展开态动画，内容整体铺满窗口：紧凑条恒在顶部，
-        // 播放列表占据其余高度，窗口长高多少就露出多少行
+        // 内容铺满窗口；紧凑条在顶，列表占据其余高度
         Column(
             modifier = Modifier
                 .width(barWidth)
                 .fillMaxHeight()
                 .graphicsLayer { translationX = swipeTranslate }
-                // 胶囊圆角：半径取条高（32dp）一半，呈椭圆轮廓；展开后同半径呈圆角面板
+                // 圆角 16dp，展开后呈圆角面板
                 .background(cardBackground, RoundedCornerShape(16.dp))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },

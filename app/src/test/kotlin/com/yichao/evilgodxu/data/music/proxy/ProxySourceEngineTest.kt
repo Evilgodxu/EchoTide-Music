@@ -3,10 +3,7 @@ package com.yichao.evilgodxu.data.music.proxy
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/**
- * 代理音源 URL 组装：已有查询参数的基地址不能吞掉新增参数，
- * 模板占位符里的 &/# 也不能把歌名拆成新的参数或片段。
- */
+/** 基地址与占位符都不得吞掉或拆坏参数 */
 class ProxySourceEngineTest {
 
     @Test

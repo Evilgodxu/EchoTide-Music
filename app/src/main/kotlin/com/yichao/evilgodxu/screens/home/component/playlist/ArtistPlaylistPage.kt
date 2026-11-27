@@ -35,78 +35,51 @@ import com.yichao.evilgodxu.ui.gesture.swipeBack
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.launch
 
-// 歌手页的两个视角：只切换下方内容，头图与标签栏恒在
+// 两个视角：只换下方内容，头图与标签恒在
 private enum class ArtistTab(@StringRes val labelRes: Int) {
     SONGS(R.string.playlist_tab_songs),
     ALBUMS(R.string.playlist_tab_albums),
 }
 
 /**
- * 歌手页：上方为沉浸头图（歌手首曲的专辑封面，沿播放页封面的沉浸处理），
- * 下方以标签页区分歌曲与专辑。
- *
- * 标签由本页自己的分页承载：左右滑动在歌曲与专辑之间切换，首页那层翻页在该页关闭
- * （见 HomePanels 的翻页开关）——一层滑动只对应一个去向，滑动落在哪个列表上都不该同时换标签又换页。
- * 歌曲是首个标签，右滑在它上面没有可切换的目标，故转为回退一级（见 onSwipeBack）：去向仍然唯一。
- *
- * 歌曲顺序 = 曲库顺序套上该歌手的存档曲序（见 ArtistOrderStore）：分组由曲库即时解析，
- * 次序本身没有落脚点，故拖拽落定即写档，离开再进仍保持。头图封面、沉浸背景取色与歌曲列表
- * 读的是同一份顺序——拖到哪首就显示哪首，三者不会各读各的先后；专辑列表另按曲库顺序扫，
- * 专辑封面不该因歌曲次序调整而改换（见下方 albums）。
- *
- * 整页自带骨架而非套在面板的标题栏内容列里：沉浸头图与沉浸背景都要铺到状态栏后方，
- * 与播放页的同名处理一致（见 [PlaylistPanel] 的页面分派）。标题栏在该页始终隐藏
- * （首页组装器按 HomePanelState.playlistImmersive 收起），页面因此不从顶部取任何基准，
- * 也不设页内返回入口——顶部整条让给头图，退出该页走系统返回键（面板的 BackHandler 逐级回退）
- * 与「歌曲」标签上的右滑。
- *
- * 沉浸背景的流动帧随本页在合成树上存亡（面板离开当前页即把回退栈复位到总览页，
- * 见 [PlaylistPanel]），故不必再按可见性门控：滑入动画期间它已随本页一同铺开，
- * 中途才补上反而会让整屏底色跳一次。
- *
- * 背景取色只用于本页画面，不向外回报：取色持久化与菜单底色都锚定当前播放曲目
- * （见 MusicPlaybackState.saveBackgroundColors 与 HomeShell 的回调），
- * 此处取的是歌手首曲，回报会把这位歌手的底色写到正在播放的那一首名下。
+ * 歌手页：沉浸头图 + 歌曲/专辑标签，翻页由本页接管
+ * 曲序＝曲库套存档，拖拽即写档；背景取色不回报
+ * 标题栏恒隐藏，返回键与「歌曲」右滑退出
  */
 @Composable
 internal fun ArtistPlaylistPage(
     group: PlaylistGroup,
     playbackState: MusicPlaybackState,
     onOpenAlbum: (PlaylistGroup) -> Unit,
-    // 「歌曲」标签上继续右滑：该标签已是首个标签，右滑没有可切换的目标，转由面板回退一级
+    // 歌曲为首标签，右滑转为回退一级
     onSwipeBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
     val artistOrderStore = LocalArtistOrderStore.current
-    // 与分组列表同一口径：按分组保存的 trackIds 解析，避免多歌手曲目（如 "A / B"）
-    // 因 artist 整串不等于歌手名而被过滤，导致详情曲目少于列表展示数
+    // 按分组 trackIds 解析，避免多歌手曲目被过滤
     val libraryById = remember(playbackState.libraryTracks) {
         playbackState.libraryTracks.associateBy { it.id }
     }
     val tracks = remember(playbackState.libraryTracks, group.key) {
         resolveTracks(playbackState.libraryTracks, group.trackIds)
     }
-    // 展示顺序 = 曲库顺序套上该歌手的存档曲序。头图封面、沉浸背景取色与歌曲列表都读这一份，
-    // 三者同源：拖拽落下后存档即更新，同一帧里换的是同一首歌的封面与底色，不会各读各的先后
+    // 顺序＝曲库顺序套存档，头图/背景/列表同源
     val savedOrder = artistOrderStore.orders[group.name].orEmpty()
     val orderedTracks = remember(tracks, savedOrder) { applySavedTrackOrder(tracks, savedOrder) }
     val unknownAlbum = stringResource(R.string.playlist_unknown_album)
-    // 专辑分组按曲库顺序扫（不套存档）：专辑封面取该专辑在曲库里的首曲，
-    // 不该因为用户调整了歌曲次序而改换；顺带让这份分组缓存不在拖拽过程中逐次重算
+    // 专辑按曲库顺序分组，封面不随歌曲排序变
     val albums = remember(tracks, unknownAlbum) { albumGroups(tracks, unknownAlbum) }
-    // 标签分页：左右滑动即切换歌曲与专辑（首页那层翻页在该页已关闭，见 HomePanels），
-    // 标签切换的跟手拖动、吸附与回弹由系统结算，本页不自行判定
+    // 标签分页由系统结算拖动与吸附
     val tabPagerState = rememberPagerState { ArtistTab.entries.size }
-    // 右滑回退只在「歌曲」标签已归位时接管：该标签是首个标签，右滑在此没有分页去向；
-    // 「专辑」标签上的右滑归分页（切回歌曲），分页正在滑动或归位时也不该被本手势截走
+    // 歌曲标签归位时才接管右滑；专辑页右滑归分页
     val backSwipeEnabled = {
         tabPagerState.currentPage == ArtistTab.SONGS.ordinal && !tabPagerState.isScrollInProgress
     }
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            // 分页占着横向滑动，本手势须在其之前判定（见 swipeBack 的 pass 参数）
+            // 分页占横滑，本手势须在 Initial 判定
             .swipeBack(
                 enabled = backSwipeEnabled,
                 pass = PointerEventPass.Initial,
@@ -114,7 +87,7 @@ internal fun ArtistPlaylistPage(
             ),
     ) {
         val headerHeight = (maxHeight * IMMERSIVE_HEADER_HEIGHT_RATIO).coerceAtMost(ImmersiveHeaderMaxHeight)
-        // 整屏沉浸背景：与头图同源，下缘渐隐的封面正是融入它
+        // 整屏沉浸背景，与头图同源
         SongImmersiveBackground(track = orderedTracks.firstOrNull(), modifier = Modifier.fillMaxSize())
         Column(modifier = Modifier.fillMaxSize()) {
             ImmersiveGroupHeader(
@@ -135,7 +108,7 @@ internal fun ArtistPlaylistPage(
             HorizontalPager(
                 state = tabPagerState,
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                // 两页都常驻合成树：曲目列表持有拖拽排序与滚动位置，来回切换不重建
+                // 两页常驻，保留排序与滚动位置
                 beyondViewportPageCount = ArtistTab.entries.size,
                 key = { ArtistTab.entries[it] },
             ) { index ->
@@ -156,7 +129,7 @@ internal fun ArtistPlaylistPage(
     }
 }
 
-// 歌手专辑列表：封面取专辑内该歌手的曲目首曲，点击进入该专辑的曲目页
+// 专辑列表：封面取首曲，点击进专辑
 @Composable
 private fun ArtistAlbumList(
     albums: List<PlaylistGroup>,
@@ -168,7 +141,7 @@ private fun ArtistAlbumList(
         return
     }
     val listState = rememberLazyListState()
-    // 专辑行封面取专辑首曲：可视区邻域提前取图，滚动进入视口时不再先闪占位符
+    // 封面预取，进入视口不闪占位符
     CoverPrefetch(listState) { index ->
         albums.getOrNull(index)?.trackIds?.firstOrNull()?.let { libraryById[it] }
     }
@@ -190,9 +163,7 @@ private fun ArtistAlbumList(
     }
 }
 
-// 歌手歌曲列表：曲序按该歌手的存档次序铺开——分组由曲库即时解析，次序本身没有落脚点，
-// 故拖拽落定即写档。沉浸歌手页的「歌曲」标签与宽屏歌单面板的歌手详情共用这一份实现，
-// 两处的曲序与拖拽口径因此一致
+// 歌曲列表按存档次序，拖拽即写档；浸入页与宽屏共用
 @Composable
 internal fun ArtistSongsContent(
     group: PlaylistGroup,
@@ -213,8 +184,7 @@ internal fun ArtistSongsContent(
     )
 }
 
-// 宽屏歌单面板的歌手详情：与沉浸歌手页的「歌曲」标签同源，仅呈现该歌手的歌曲列表。
-// 专辑浏览在宽屏由左栏的专辑类目承担，故此处不重复提供专辑标签
+// 宽屏歌手详情：仅歌曲列表，专辑由左栏承担
 @Composable
 internal fun PlaylistArtistTracksPage(
     group: PlaylistGroup,

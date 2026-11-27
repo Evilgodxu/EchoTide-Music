@@ -6,11 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * ReplayGain 标签的读取口径：单位剥离、缺项判定与峰值限幅。
- *
- * 只测纯换算——读文件与写容器不在这里；这里的每条断言都对应播放侧会看到的取值。
- */
+/** 单位剥离、缺项判定与峰值限幅 */
 class ReplayGainTagsTest {
 
     @Test

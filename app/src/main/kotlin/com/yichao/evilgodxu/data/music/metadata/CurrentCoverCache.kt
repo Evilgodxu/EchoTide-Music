@@ -8,21 +8,10 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * 当前曲目封面落盘缓存：切歌后即把该曲目封面缩略图写入应用 cache 目录，
- * 使进程被杀后的冷启动首帧可直接读该文件出图，无需再查系统略缩图或解码音频内嵌封面。
- *
- * 只保留最后播放的一首：目录内同一时刻仅一个文件，文件名由音频 URI 推出，换歌即覆盖。
- * 该产出可由封面源重建，属可随时回收的系统缓存；封面被重写后由 [clear] 作废。
- */
+/** 当前曲目封面落盘缓存，只保留最后播放的一首 */
 internal object CurrentCoverCache {
 
-    /**
-     * 落盘尺寸：取系统略缩图的上限档。
-     *
-     * 该产出只在冷启动首帧兜底：首页大封面随后会被内嵌原图（见 [MusicCoverLoader.loadLarge]）替换，
-     * 其余封面显示处的请求档位都更小，可从同一张落盘封面直接命中
-     */
+    /** 落盘尺寸取系统略缩图上限档 */
     const val THUMBNAIL_SIZE = MusicCoverLoader.SYSTEM_THUMBNAIL_MAX_SIZE_PX
 
     private const val DIR_NAME = "current_cover"
@@ -30,49 +19,39 @@ internal object CurrentCoverCache {
     private const val JPEG_QUALITY = 90
     private const val TAG = "CurrentCoverCache"
 
-    // 内存镜像：落盘与冷启动预读后驻留，供首帧同步取用，避免在主线程读盘解码
+    // 内存镜像，供首帧同步取用
     @Volatile
     private var resident: Pair<String, Bitmap>? = null
 
-    // 作废代数：封面重写会清空落盘与内存镜像，此时仍在飞的读盘拿到的是旧图，
-    // 回填会把刚作废的封面重新写回内存镜像，故在回填前用它一票否决
+    // 作废代数，挡住作废后回填的旧图
     @Volatile
     private var generation = 0
 
-    /** 缓存落点：供缓存台账统计与回收引用，路径只在此定义一次 */
+    /** 缓存落点，供台账统计与回收 */
     fun location(context: Context): File = File(context.cacheDir, DIR_NAME)
 
-    /** 同步取已驻留的封面：仅当与请求曲目同源时返回，供 Compose 首帧直接出图 */
+    /** 同步取已驻留封面，仅同源时返回 */
     fun peek(audioUri: String): Bitmap? = resident?.takeIf { it.first == audioUri }?.second
 
-    /** 读回该曲目的落盘封面：未落盘或解码失败返回 null，命中后驻留内存镜像 */
+    /** 读回落盘封面，命中后驻留内存 */
     suspend fun load(context: Context, audioUri: String): Bitmap? {
         peek(audioUri)?.let { return it }
         val startGeneration = generation
         return withContext(Dispatchers.IO) {
-            // 落盘档须与本次读取同代：读盘期间被作废的档不再驻留、也不交给调用方，
-            // 由调用方回退到封面取图入口拿到新图
+            // 读取期间被作废则丢弃，由调用方回退
             decode(fileFor(context, audioUri))
                 ?.takeIf { startGeneration == generation }
                 ?.also { resident = audioUri to it }
         }
     }
 
-    /**
-     * 同步读回该曲目的落盘封面并驻留内存镜像。
-     *
-     * 仅冷启动首帧同步预置使用（见 MusicPlaybackState.seedFromBootMirror）：封面必须在首帧组合前
-     * 就已就位，否则封面会先渲染占位符再出图。读盘量为一张封面缩略图，调用点只有 Application.onCreate 一处。
-     */
+    /** 冷启动首帧同步预置，仅 onCreate 调用 */
     fun loadBlocking(context: Context, audioUri: String) {
         if (peek(audioUri) != null) return
         decode(fileFor(context, audioUri))?.let { resident = audioUri to it }
     }
 
-    /**
-     * 确保该曲目封面已落盘：已有落盘封面时直接复用，未落盘才用 [decodeSource] 取图并写入。
-     * 返回可用于取色的位图；取图与写入均失败时返回 null。
-     */
+    /** 确保封面已落盘并返回位图，失败 null */
     suspend fun ensure(context: Context, audioUri: String, decodeSource: suspend () -> Bitmap?): Bitmap? {
         load(context, audioUri)?.let { return it }
         val bitmap = decodeSource() ?: return null
@@ -80,24 +59,21 @@ internal object CurrentCoverCache {
         return bitmap
     }
 
-    /** 作废落盘封面与内存镜像：封面被重写后旧图不再成立 */
+    /** 作废落盘与内存镜像 */
     suspend fun clear(context: Context) {
         generation++
         resident = null
         withContext(Dispatchers.IO) { runCatching { location(context).deleteRecursively() } }
     }
 
-    /**
-     * 回收 [persist] 未改名的中转残留：`.tmp` 只在改名窗口内存在，退出时仍在盘上说明那次写入
-     * 被进程结束打断 —— 它不属于任何曲目，也没有入口会读（见 [reclaimTempResidueIn]）。
-     */
+    /** 回收未改名的 .tmp 残留 */
     fun reclaimTempResidue(context: Context, olderThanMs: Long) {
         reclaimTempResidueIn(location(context), TEMP_SUFFIX, olderThanMs)
     }
 
-    // 写入：先落中转文件再改名，进程在写入中被杀不会留下半截封面
+    // 先写中转再改名，避免半截封面
     private suspend fun persist(context: Context, audioUri: String, bitmap: Bitmap) = withContext(Dispatchers.IO) {
-        // 硬件位图不可直接压缩，转为软件位图；改造结果与显示端同一张图，不影响取色
+        // 硬件位图不可压缩，转软件位图
         val software = bitmap.takeIf { it.config != Bitmap.Config.HARDWARE }
             ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
             ?: return@withContext
@@ -111,7 +87,7 @@ internal object CurrentCoverCache {
                 temp.delete()
                 return@runCatching
             }
-            // 只保留最后播放的一首：清掉换歌前的旧封面，避免目录内堆积多份且归属含糊
+            // 只保留最后一首，清掉旧封面
             dir.listFiles()?.forEach { if (it.name != target.name) it.delete() }
             resident = audioUri to software
         }.onFailure {
@@ -119,7 +95,7 @@ internal object CurrentCoverCache {
         }
     }
 
-    // 文件名由音频 URI 推出：换歌即写到新名字，冷启动按同一推导取回，不会读到别首曲目的封面
+    // 文件名由音频 URI 推导，冷启动可取回
     private fun fileFor(context: Context, audioUri: String): File =
         File(location(context), "cover_${audioUri.hashCode().toUInt().toString(16)}.jpg")
 

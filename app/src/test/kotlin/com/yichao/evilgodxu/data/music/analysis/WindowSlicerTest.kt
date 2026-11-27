@@ -8,28 +8,21 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/**
- * 切片分帧复核。
- *
- * 切片器把 PCM 攒成暂存块再分段并行转换：块边界、暂存块容量边界与段边界都可能改变分帧结果，
- * 而分帧一旦错位，频谱图上只表现为整幅图错位，不会有任何显式报错。
- * 故这里以逐样本直入的朴素实现为基准，逐窗比对分段并行实现的结果。
- */
+/** 以逐样本直入为基准比对分段并行 */
 class WindowSlicerTest {
 
     private companion object {
-        // 与解码端同源的窗长与跳步
+        // 窗长与跳步，与解码端一致
         const val FFT_SIZE = 2048
         const val HOP_SIZE = FFT_SIZE / 2
 
-        // 空闲窗缓冲给到远超总窗数，让投递不因取不到缓冲而挂起
+        // 空闲窗缓冲远超总窗数，避免挂起
         const val FREE_WINDOW_COUNT = 64
     }
 
     @Test
     fun `分段送流与逐样本参考一致`() = runTest {
-        // 帧数取到超过暂存块容量（16bit 立体声下为 32768 帧），
-        // 一次跑遍「装满了自动清仓」与「收尾清仓」两条路径
+        // 超过暂存容量 32768 帧，覆盖两条清仓路径
         val frames = 40_000
         val channels = 2
         val shorts = ShortArray(frames * channels) { index ->
@@ -41,7 +34,7 @@ class WindowSlicerTest {
             .array()
 
         val expected = referenceWindows(monoOf(FloatArray(shorts.size) { shorts[it] / 32768f }, channels))
-        // 块大小不整除窗长，逼近解码器一次一块的真实节奏
+        // 块大小不整除窗长，逼近真实节奏
         val actual = collectWindows(pcm, channels, PcmFormat.ENCODING_16BIT, entryBytes = 1500, parts = 4)
 
         assertWindows(expected, actual)
@@ -67,7 +60,7 @@ class WindowSlicerTest {
 
     @Test
     fun `单段收尾与参考一致`() = runTest {
-        // 帧数低于单段下限，转换退化为单段；此时入窗路径与并行路径必须给出同一结果
+        // 低于单段下限时退化为单段
         val frames = 5_000
         val channels = 1
         val shorts = ShortArray(frames) { index -> ((index * 61) % 30011 - 15005).toShort() }
@@ -82,8 +75,8 @@ class WindowSlicerTest {
         assertWindows(expected, actual)
     }
 
-    // 驱动切片器：按固定字节数逐块喂入，收走其发出的整窗。
-    // 块大小取采样帧的整数倍：解码输出缓冲本就按整帧给出，切片器也只按整帧消费
+    // 按固定字节数逐块喂入，收走整窗
+    // 块大小取采样帧整数倍
     private suspend fun collectWindows(
         pcm: ByteArray,
         channels: Int,
@@ -114,7 +107,7 @@ class WindowSlicerTest {
         return emitted
     }
 
-    // 基准实现：逐样本取声道均值后再按跳步取窗，等价于最早的串行切片逻辑
+    // 基准：逐声道均值后按跳步取窗
     private fun monoOf(perSample: FloatArray, channels: Int): FloatArray {
         val frames = perSample.size / channels
         return FloatArray(frames) { frame ->

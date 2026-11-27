@@ -38,8 +38,8 @@ import com.yichao.evilgodxu.ui.component.player.HeaderIconButton
 import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlinx.coroutines.launch
 
-// 播放列表面板头部：标题、当前歌单快捷切换、曲目数、刷新、排序与关闭。
-// 排序作用于当前播放结果（默认队列或其过滤结果），仅浏览其它歌单时按钮置灰
+// 面板头部：标题、歌单切换、计数、刷新、排序、关闭。
+// 排序只作用于当前队列，浏览其它歌单时置灰。
 @Composable
 internal fun PlaylistSheetHeader(
     playbackState: MusicPlaybackState,
@@ -68,7 +68,7 @@ internal fun PlaylistSheetHeader(
             fontWeight = FontWeight.SemiBold,
         )
         Spacer(Modifier.width(8.dp))
-        // 歌单副标题：浅色小字常驻显示当前浏览的歌单，点击快捷切换
+        // 副标题显示当前歌单，点击切换
         Text(
             text = viewedName ?: stringResource(R.string.playlist_switch_default),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -113,11 +113,11 @@ internal fun PlaylistSheetHeader(
                 selected = playbackState.playlistSortField,
                 enabled = sortEnabled,
                 expandDirection = ExpandDirection.Down,
-                // 排序按钮靠面板右缘，菜单右对齐避免溢出屏幕
+                // 按钮靠右缘，菜单右对齐避免溢出
                 horizontalAlignment = Alignment.End,
                 maxMenuHeight = sortMenuMaxHeight,
                 header = {
-                    // 方向切换：点击即时生效且不收起，便于连续调整字段与方向
+                    // 方向切换即时生效且不收起
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -131,8 +131,8 @@ internal fun PlaylistSheetHeader(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center,
                     ) {
-                        // 排序方向取 sync_alt 旋转 90° 后的上下双向箭头：单向上/下箭头易被读作页面导航而非排序。
-                        // 整套轮廓压暗、仅高亮当前方向的一支（原左向笔画旋转后朝上，原右向笔画旋转后朝下）
+                        // 双向箭头用 sync_alt 旋转 90°
+                        // 压暗整体轮廓，只高亮当前方向。
                         Box(
                             modifier = Modifier
                                 .size(20.dp)

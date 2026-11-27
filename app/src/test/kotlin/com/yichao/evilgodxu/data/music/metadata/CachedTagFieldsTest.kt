@@ -7,12 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/**
- * 缓存标签组装：决定搜索结果里的字段哪些会真的写进音频文件。
- *
- * 断言的是「写入集合」而非内部实现：缺失字段不出现，意味着写入端保留文件既有值；
- * 空串出现在集合里则等于清除该标签，两者不可混用。
- */
+/** 只断言写入集合：缺字段保留原值，空串清标签 */
 class CachedTagFieldsTest {
 
     private val track = MusicTrack(

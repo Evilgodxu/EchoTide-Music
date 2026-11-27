@@ -4,13 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/**
- * 播放格式的挑选。
- *
- * 这一层的判据是"能不能逐位原样送出"，故每个用例都对着**不该被选中**的搭配构造：能出声但需要重采样、
- * 丢低位或做声道映射的搭配必须一律落空，让调用方退回平台路径。宁可退回，也不要静默降级出声——
- * "少了几位"在听感上未必立刻可辨，用户只会觉得哪里不对却说不上来。
- */
+/** 不能逐位原样送出就退回平台路径 */
 class UsbOutputPlanTest {
 
     @Test
@@ -25,11 +19,11 @@ class UsbOutputPlanTest {
             ),
         )
 
-        // 本项目直出的口径是"止步于源格式"：32 位通道装 24 位源并不带来保真收益
+        // 止步于源格式，宽槽无收益
         assertEquals(1, plan?.altSetting)
     }
 
-    // 有效位深相同时取更窄的子槽：3 字节槽装 24 位，比 4 字节槽少一个补零字节
+    // 同有效位深取更窄子槽
     @Test
     fun `位深相同时优先更窄的子槽`() {
         val plan = planUsbOutput(
@@ -45,7 +39,7 @@ class UsbOutputPlanTest {
         assertEquals(1, plan?.altSetting)
     }
 
-    // 子槽再宽也救不了有效位深不足：32 位源进 24 位通道，低八位注定被丢
+    // 有效位深不足，宽槽也丢低位
     @Test
     fun `拒绝比源更浅的位深`() {
         val plan = planUsbOutput(
@@ -61,9 +55,7 @@ class UsbOutputPlanTest {
         assertNull(plan)
     }
 
-    // 16 位源优先落在留出软件音量余量的 24 位通道上：独占的音量由本应用施加，而衰减消耗的是位深——
-    // 16 位槽上一个 LSB 就是 -90 dBFS，容不下 -30 dB 衰减之后的低电平细节。满幅时写出仍逐位原样：
-    // 16 位样本落在 24 位槽的高两位、低八位为零，设备读到的还是那个值
+    // 16 位源优先进 24 位槽，留衰减余量
     @Test
     fun `16 位源优先留出余量的 24 位模式`() {
         val plan = planUsbOutput(
@@ -80,7 +72,7 @@ class UsbOutputPlanTest {
         assertEquals(2, plan?.altSetting)
     }
 
-    // 设备只声明 16 位时退回"够装即可"：留不出余量也得能播，四舍五入保证误差仍在半个 LSB 内
+    // 只声明 16 位时退回够装即可
     @Test
     fun `没有更宽档位时退回 16 位模式`() {
         val plan = planUsbOutput(
@@ -93,7 +85,7 @@ class UsbOutputPlanTest {
         assertEquals(1, plan?.altSetting)
     }
 
-    // 声道数不匹配时不做映射：映射属于另一条链路的事，这里只送原样数据
+    // 声道不匹配不映射，只送原样
     @Test
     fun `声道数不匹配被拒绝`() {
         val plan = planUsbOutput(
@@ -118,7 +110,7 @@ class UsbOutputPlanTest {
         assertNull(plan)
     }
 
-    // UAC2 的档位不在描述符里：未声明任何档位时不得判为不支持，否则所有 UAC2 设备都会被挡在门外
+    // UAC2 无声明档位不得判不支持
     @Test
     fun `未声明采样率的格式可接受`() {
         val plan = planUsbOutput(

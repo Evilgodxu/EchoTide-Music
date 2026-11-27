@@ -33,7 +33,7 @@ import com.yichao.evilgodxu.theme.StatusBarStyleEffect
 import com.yichao.evilgodxu.windowsize.rememberWindowSizeClass
 import com.yichao.evilgodxu.update.LocalUpdateViewModel
 
-// 页面入口：形态分发 + 跨形态副作用，不承载布局
+// 页面入口：分发与副作用，不承载布局
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
@@ -58,15 +58,14 @@ fun SettingsScreen(
     val revealThemeAt: (Offset) -> Unit = LocalThemeTransitionController.current::revealAt
     val context = LocalContext.current
 
-    // 用 ActivityResultLauncher 打开悬浮窗系统设置页：结果由 ActivityResultRegistry 托管，
-    // 配置变更或进程被回收后重建 Activity 时仍会重新投递，保证授权状态能可靠对账
+    // 用 Launcher 打开悬浮窗设置，重建后仍能对账
     val overlayPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
         viewModel.onOverlaySettingsReturned()
     }
 
-    // 免打扰访问页：与悬浮窗同一套——同任务内打开，返回时对账；勾选后由跟随把应用带回前台
+    // 免打扰页同理：返回时对账
     val notificationPolicyLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -79,7 +78,7 @@ fun SettingsScreen(
         }
     }
 
-    // 需要悬浮窗授权时跳转系统设置（仅由迷你播放器开关触发）
+    // 需授权时跳系统悬浮窗设置
     LaunchedEffect(uiState.overlayPermissionPending) {
         if (uiState.overlayPermissionPending) {
             val intent = Intent(
@@ -91,28 +90,28 @@ fun SettingsScreen(
         }
     }
 
-    // 状态栏图标跟随主题：浅色主题深色图标，深色主题白色图标
+    // 状态栏图标跟随主题
     StatusBarStyleEffect()
 
-    // 页内层级先于导航栈接管返回：深于根页时退回根页，根页才让导航栈出栈
+    // 层级先接管返回，根页才交给导航栈
     BackHandler(enabled = uiState.page != SettingsPage.ROOT) {
         viewModel.backToRoot()
     }
 
-    // 弹层与形态无关，挂在骨架层：组装器只上抛"请求打开"，不持有弹窗状态
+    // 弹层挂在骨架层，组装器只上抛请求
     var showThemeDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
     var pendingLanguage by remember { mutableStateOf<AppLanguage?>(null) }
     var pendingThemeClickPosition by remember { mutableStateOf(Offset.Zero) }
 
-    // 先关闭弹窗，下一帧再切语言，避免切换瞬间闪现旧语言
+    // 下一帧再切语言，避免闪现旧语言
     LaunchedEffect(pendingLanguage) {
         val language = pendingLanguage ?: return@LaunchedEffect
         pendingLanguage = null
         viewModel.setLanguage(language)
     }
 
-    // 窗口尺寸类在此计算一次后下传，组装器不自行读取窗口尺寸
+    // 尺寸类在此计算后下传
     SettingsAssembly(
         windowSizeClass = rememberWindowSizeClass(),
         uiState = uiState,
@@ -144,7 +143,7 @@ fun SettingsScreen(
             currentTheme = uiState.themeMode,
             onDismiss = { showThemeDialog = false },
             onThemeSelected = { mode ->
-                // 先从点击位置播放圆形揭示，再落库主题：揭示动画需要旧主题画面作为底图
+                // 先播放揭示动画再落库主题
                 revealThemeAt(pendingThemeClickPosition)
                 viewModel.setThemeMode(mode)
                 showThemeDialog = false

@@ -22,11 +22,10 @@ import com.yichao.evilgodxu.data.music.analysis.SPECTROGRAM_DYNAMIC_RANGE_DB
 private val BAR_WIDTH = 8.dp
 private val LABEL_GAP = 4.dp
 
-// 刻度档数：把量程等分，与动态范围的整十分档对齐；导出图按同一档数标注
+// 刻度 4 档，导出图同档数
 internal const val SCALE_INTERVALS = 4
 
-// dB 色标：竖直渐变条自上而下由满强度降至量程下限，右侧标注各档分贝值。
-// 取色与频谱图同源，条上任意高度取到的颜色即图中同一强度对应的颜色
+// 色标：顶部满强度到底部下限，与图同源
 @Composable
 internal fun SpectrumColorScale(modifier: Modifier = Modifier) {
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -37,7 +36,7 @@ internal fun SpectrumColorScale(modifier: Modifier = Modifier) {
     val density = LocalDensity.current
     val barWidthPx = with(density) { BAR_WIDTH.toPx() }
     val labelGapPx = with(density) { LABEL_GAP.toPx() }
-    // 自上而下与色板相反：顶部为满强度，底部为量程下限
+    // 反转色板：顶部满强度
     val gradient = remember { SPECTRUM_COLOR_STOPS.map { Color(it) }.reversed() }
     Canvas(modifier = modifier) {
         drawRect(
@@ -53,7 +52,7 @@ internal fun SpectrumColorScale(modifier: Modifier = Modifier) {
                 AnnotatedString(if (decibel == 0f) "0" else decibel.toInt().toString()),
                 labelStyle,
             )
-            // 首末刻度与色条端重合，标签向内收以免被容器裁掉
+            // 首末标签向内收，避免被裁
             val labelY = (height * fraction - layout.size.height / 2f)
                 .coerceIn(0f, (height - layout.size.height).coerceAtLeast(0f))
             drawText(textLayoutResult = layout, topLeft = Offset(barWidthPx + labelGapPx, labelY))

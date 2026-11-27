@@ -5,7 +5,7 @@ import androidx.compose.ui.res.stringResource
 import com.yichao.evilgodxu.R
 
 /**
- * 自动补译进度对话框：逐批请求翻译接口，收起后任务继续在后台执行。
+ * 自动补译进度：收起后任务继续在后台
  */
 @Composable
 internal fun LyricsTranslateDialog(
@@ -16,7 +16,7 @@ internal fun LyricsTranslateDialog(
     LyricsTaskProgressDialog(
         visible = visible,
         title = stringResource(R.string.music_panel_auto_translate_title),
-        // 译文按批返回，进度以「已提交的行数」计；准备阶段行数未知，故给出等待文案
+        // 按批返回，进度以已提交行数计
         statusText = if (progress == null) {
             stringResource(R.string.music_panel_auto_translate_pending)
         } else {

@@ -52,77 +52,57 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 
-// 封面取样尺寸：取色只需封面边缘环的平均色，64px 已足够且解码代价最低。
-// 显示端的背景取样与切歌时的代现算（见 CoverFlowFrameStore）取同一档位，两处取到的才是同一张图
+// 封面取样 64px，取色与代现算共用
 internal const val COVER_BACKGROUND_SAMPLE_SIZE = 64
 
-// 背景帧降采样倍数：帧位图边长为视口的 1/16（像素量约 1/256），叠画、模糊与放大都以小图为准
+// 帧边长为视口 1/16，像素量约 1/256
 private const val COVER_BACKGROUND_DOWNSAMPLE = 16
 
-// 封面放大系数：放大到画布较长边的 1.3 倍后居中，错位叠画仍能盖满画布不露空边
+// 放大到长边 1.3 倍，叠画不露边
 private const val COVER_BACKGROUND_OVERSCAN = 1.3f
 
-// 叠画饱和度：封面本身偏灰时也能得到有色彩的背景
+// 叠画饱和度，灰封面也能出色
 private const val COVER_BACKGROUND_SATURATION = 2.5f
 
-// 模糊半径：按 1/16 小图尺度取固定值，叠画后的封面柔化为连贯色域，边界不显形。
-// 半径过大会把整幅压成一块平均色——色相锚定之后平均本身不再发浊，但过度平均会抹掉画面的明暗结构，
-// 观感转而成"糊"。取到短边的两成上下：边界仍被化开，色域的高低起伏还留得住
+// 小图模糊 11px：化开边界，保留明暗层次
 private const val COVER_BACKGROUND_BLUR_RADIUS = 11
 
-// 流动帧间隔：与显示帧率对齐约 30fps，低于此间隔的重绘并入下一帧
+// 重绘间隔约 30fps，更密的并入下一帧
 private const val COVER_BACKGROUND_FLOW_FRAME_INTERVAL_MS = 32L
 
-// 单帧可计入相位推进的帧间隔上限：正常帧远低于它，越过去的只有应用不可见造成的停滞，
-// 那段停滞必须不计入（见流动时间轴），否则相位会在回前台首帧上一次性跳过去
+// 帧间隔上限 1s，超出视为停滞不计入相位
 private const val FLOW_FRAME_MAX_GAP_MS = 1_000L
 
-// 压暗强度的下限：底色的明度再高，各层压暗也不低于这一强度。压暗层同时承担前景文字与状态栏的
-// 对比，浅色底若按明度一路减下去，对比就不够了。取不到封面时只剩底色，那层压暗正按这一强度铺开，
-// 故它不参与明度收敛；帧的压暗层与蒙层基准强度更高，收敛后由本值兜底
+// 压暗下限：保证前景文字与状态栏对比
 private const val DIM_MIN_ALPHA = 0.15f
 
-// 压暗的明度自适应：底色相对亮度低于 [DIM_LUMINANCE_DARK] 时全额压暗，高于 [DIM_LUMINANCE_LIGHT] 时
-// 降到 [DIM_LIGHT_SCALE]，区间内线性收敛。浅色封面衍生出的浅色底一旦按深色底的强度压暗，
-// 自身会明显变暗发灰，与封面外缘拉开距离，封面渐隐带上便现出一条可辨的暗色差带
+// 明度过 0.12 全额压暗，过 0.60 降至 0.4 倍
 private const val DIM_LUMINANCE_DARK = 0.12f
 private const val DIM_LUMINANCE_LIGHT = 0.60f
 
-// 浅色底保留的压暗比例：明度最高的底色按此比例压缩帧上的压暗强度，压不到下限的由下限兜住
+// 最亮底色压暗降至 0.4 倍，不低于下限
 private const val DIM_LIGHT_SCALE = 0.4f
 
-// 流动帧压暗层的顶端、中段与底端强度：两端要压住状态栏与底栏，中段只留一层薄压暗。
-// 中段不再归零：蒙层减薄之后压暗的基底由这里补，画面比原来透亮一档，前景文字与状态栏仍有底
+// 压暗顶端 0.24、中段 0.06、底端 0.40
 private const val COVER_SCRIM_TOP_ALPHA = 0.24f
 private const val COVER_SCRIM_BASE_ALPHA = 0.06f
 private const val COVER_SCRIM_BOTTOM_ALPHA = 0.40f
 
-// 流动帧两层蒙层的强度：第一层以封面主色在暗部垫一层色调，第二层中性黑只负责压暗、不改变色相。
-// 第一层不再承担「把杂色拉向主色」——色相统一的职责已交给色相锚定（见 anchorFrameHues），
-// 而它原先那套向主色线性混合的做法正是灰浊色的第二个来源：两个相隔很远的色相按 alpha 直线插值，
-// 落点同样在色环中段。两个强度都收薄到原来的三成上下，压暗主要交给压暗层的两端，
-// 中段因此不再被压掉四成亮度
+// 主色垫底 0.14、中性黑 0.12，色相交给锚定
 private const val WASH_PRIMARY_DARKEN = 0.55f
 private const val WASH_PRIMARY_ALPHA = 0.14f
 private const val WASH_SECONDARY_ALPHA = 0.12f
 
-// 模糊后的彩度回补：帧由 64px 缩略图放大、三份叠画再模糊而来，彩度一路衰减；
-// 通道平均本身也会把相邻色相相互抵消。这里统一回补一档，画面才通透而不发灰
+// 模糊后彩度回补 1.12，避免发灰
 private const val FRAME_SATURATION_RESTORE = 1.12f
 
-// 压暗层中段的基底位置（占视口高度比例）：此处压暗为最低的基底，上半段向顶端增强、下半段向底端增强
+// 中段基底在视口 50% 处，向两端增强
 private const val COVER_SCRIM_ZERO_FRACTION = 0.5f
 
-// 压暗层每半段的采样段数：色标之间为线性插值，按平滑曲线采样后不再出现折点
+// 每半段采样 12 次，平滑无折点
 private const val COVER_SCRIM_SAMPLE_SEGMENTS = 12
 
-// 流动帧压暗层色标：顶端 [COVER_SCRIM_TOP_ALPHA] 平滑收敛到 [COVER_SCRIM_ZERO_FRACTION] 处的
-// [COVER_SCRIM_BASE_ALPHA]，再平滑增强到底端 [COVER_SCRIM_BOTTOM_ALPHA]。两半都取自 [smoothFadeAlpha]，
-// 中段与两端的斜率均为 0：压暗层自身不会在背景中段留下层次分界。
-// [scale] 为底色的明度系数（见 dimScaleOf），两端强度按它缩放并由 [dimAlpha] 兜住下限；
-// 中段的基底不参与明度收敛——它只抵住前景文字，薄到浅色底上也看不出层次，
-// 若一并交给 [dimAlpha] 兜底，浅色封面会被拉回与深色底同样重的压暗
-// 色标形状只与常量有关，同一系数下构造一次即可复用
+// 压暗色标：两端按明度缩放，中段基底固定
 private fun coverScrimStops(scale: Float): Array<Pair<Float, Color>> {
     val topAlpha = dimAlpha(COVER_SCRIM_TOP_ALPHA, scale)
     val bottomAlpha = dimAlpha(COVER_SCRIM_BOTTOM_ALPHA, scale)
@@ -147,35 +127,23 @@ private fun coverScrimStops(scale: Float): Array<Pair<Float, Color>> {
     }.toTypedArray()
 }
 
-/**
- * 明度系数对应的压暗强度：按系数缩放，并以 [DIM_MIN_ALPHA] 兜底。
- * 兜底与缩放同样重要——浅色底压得更轻是为了贴合封面外缘的观感，
- * 轻到前景文字与状态栏看不出对比便失去了压暗层的意义。
- */
+/** 按压暗系数缩放强度，下限 DIM_MIN_ALPHA */
 private fun dimAlpha(fullAlpha: Float, scale: Float): Float =
     (fullAlpha * scale).coerceAtLeast(DIM_MIN_ALPHA)
 
-/**
- * 底色明度对应的压暗系数：相对亮度越高系数越低，浅色底因此压得更轻。
- * 相对亮度按人眼感知加权（[luminance]），与按色相/饱和度取色的取色模块口径不同：
- * 这里要判的是「这个底色看上去有多亮」，而非它是不是有彩。
- * 系数只决定帧上各层压暗的相对轻，绝对强度由 [dimAlpha] 兜住下限。
- * 无底色可依据时取 1，即维持原有的全额压暗。
- */
+/** 底色越亮压暗系数越低，无底色时取 1 */
 private fun dimScaleOf(color: Color?): Float {
     val luminance = color?.luminance() ?: return 1f
     val overLight = (luminance - DIM_LUMINANCE_DARK) / (DIM_LUMINANCE_LIGHT - DIM_LUMINANCE_DARK)
     return 1f - overLight.coerceIn(0f, 1f) * (1f - DIM_LIGHT_SCALE)
 }
 
-// 切歌横移沿用封面那一条时长（见 TRACK_SLIDE_MS）：整屏换色必须与换图同时推进、同时落位，
-// 各写一份时长迟早会漂移出前后脚
+// 切歌横移沿用 TRACK_SLIDE_MS，与换图同时落位
 
-// 同曲取色落地的过渡时长：底色由占位色换成真实取色，无方向可言，只做交叠淡出
+// 取色落地淡出 480ms，无方向
 private const val COVER_BACKGROUND_FADE_MS = 480
 
-// 背景流动的三层固定默认值：旋转周期与方向、错位量（占画布宽高的比例）。
-// 三层周期互质且方向相反，叠画后的封面缓慢漂移而不出现明显循环
+// 三层周期互质且反向，叠画缓慢漂移不显循环
 private val COVER_BACKGROUND_LAYERS = listOf(
     CoverBackgroundLayer(periodMs = 120_000L, clockwise = false, offsetX = 0f, offsetY = 0f, rotateAboutCenter = false),
     CoverBackgroundLayer(periodMs = 90_000L, clockwise = true, offsetX = -0.95f, offsetY = -0.7f, rotateAboutCenter = false),
@@ -187,78 +155,50 @@ private data class CoverBackgroundLayer(
     val clockwise: Boolean,
     val offsetX: Float,
     val offsetY: Float,
-    // 错位后再绕画布中心旋转一次，使该层的位移轨迹更接近漂浮
+    // 错位后再绕中心旋转，轨迹更像漂浮
     val rotateAboutCenter: Boolean,
 )
 
 // 整屏换色的过渡方式
 private enum class BackgroundSwitch {
-    // 上一份底色原地淡出：用于同曲取色落地——新色只是替换占位色，没有方向可言
+    // 同曲取色落地：原地淡出
     Fade,
 
-    // 切歌横移：上一份底色与当前底色各持一份整幅色面，同幅同速平移，全程拼满整屏。
-    // 底色是竖向渐变，自身横移看不出变化，横移的是整层色面，读起来就是新色自一侧漫过来。
-    // 名称即新色移入的一侧，与封面、歌曲信息的横移取同一侧
+    // 切歌横移：新旧色面同速平移，名称即新色入侧
     SlideFromLeft,
     SlideFromRight,
 }
 
-// 正在进行的整屏换色：移出的一份底色、过渡方式，以及切歌瞬间冻结的流动帧
+// 换色过渡：旧底色、方式与冻结帧
 private data class BackgroundSwitchState(
     val base: BackgroundBase,
     val switch: BackgroundSwitch,
-    // 切歌那一刻画面上的帧：退场层用它复现旧曲目的完整背景。
-    // 为空表示切歌时本就只有底色（该曲目取不到封面，或帧尚未就绪）
+    // 切歌瞬间的帧，用于复现旧背景；空表示当时只有底色
     val frame: ImageBitmap?,
 )
 
-// 整屏底色的一种渲染口径：有取色时以代表色铺底，未就绪时退化为落盘单色。
-// 层次由流动帧负责，底色只承担「帧还没到时不能露出空白」这一件事
+// 底色：取色未就绪时铺落盘单色，避免空白
 private data class BackgroundBase(
     val colors: CoverBackgroundColors?,
     val solid: Color?,
 ) {
-    // 压暗自适应所依据的色调：有取色结果时以代表色为准，否则退回落盘的单一底色
+    // 压暗依据的色调：代表色或落盘单色
     val tone: Color?
         get() = colors?.representative ?: solid
 
     fun fill(): Brush = SolidColor(tone ?: md_theme_dark_surface)
 }
 
-// 歌曲沉浸式背景：整屏统一渲染，不随顶置封面位置做局部处理，左右切页时背景始终连续。
-// 背景只有一条渲染路径：封面叠画出的一帧（见 renderCoverFlowFrame）。
-// 帧的色相在模糊之前先向底色主色收拢（见 [anchorFrameHue]）：模糊是通道平均，跨色相的像素
-// 平均后落在色环中段、饱和度最低处，那层灰浊色正是这么来的——收拢之后平均路径走在色环同侧，
-// 浑浊消失；画面收进一个色系，明暗结构仍是封面自己的，不再是整幅混成一团。
-// 「背景流动」开关只决定相位推不推进——关着时相位钉在零点，画面就是这一帧的首帧；
-// 开着时逐帧重算。静止与流动因此共用同一份构图与压暗，切换开关不会看到两种背景互相塌换。
-// 帧内的压暗层与蒙层随底色的明度收敛（见 [dimScaleOf]）：浅色封面叠出的浅色背景只轻度压暗，
-// 保持与封面外缘同色调，封面渐隐带上不出现暗色差带；收敛后各层强度由 [DIM_MIN_ALPHA] 兜底。
-// 压暗主要落在视口上下两端，中段只留一层薄基底：色相统一之后不再需要大面积蒙层去压杂色，
-// 中段也就不必再被压掉四成亮度。
-// 底色（封面边缘三段色里的代表色）只在帧未就绪时露出，那层压暗恒定按该强度铺开——
-// 浅色底同样要留出前景文字与状态栏的对比。
-// 取色同源且已持久化：命中缓存（切歌预取、或冷启动时由持久化结果回填）即视为已取色，
-// 帧的色调直接复用；缓存未命中才从略缩图现算并回传落盘。
-// 三段取色都取不到时先回落「该曲上次持久化结果的代表色」整幅铺色，避免冷启动首帧闪默认色。
-// 该曲目确认无封面（见 CoverSkipRegistry）时帧整体撤下，背景退为这一片底色加均匀压暗。
-// 这份结果由本组件按曲目自行取用、不由调用方传入：浏览场景（如 3D 封面轮播）居中的曲目随时在换，
-// 调用方无从替「此刻居中的那一首」预先给定，而它正要复用同一份已算好的结果。
-// 底色有变时上一份底色与当前底色交叠一处：切歌按方向整屏横移，同曲取色落地则原地淡出，
-// 两种情形都不会瞬间跳变。
-// 回前台不补播过渡：应用不可见期间发生的换色谁也没看见，重新可见时才被应用的那一次若补播横移，
-// 返回前台就成了「先看到上一首的底色，再看着它整屏移走」，故按可见会话识别后直接落位；
-// 取色尚未定论、暂时沿用上一份底色的兜底不受此影响（回落时机不属于一次换色）。
-// 流动帧同样不等显示端：相位自本曲起播按帧累加（可见期间才推进），切歌起播即由代现算备好零点那一帧
-// （见 [CoverFlowFrameStore]），回前台首帧铺出的就是它，与显示端随后现算的帧同源同相位。
-// 首页与 3D 封面轮播共用，随传入曲目实时变化；背景代表色经回调暴露供浮层容器复用，
-// 新算出的三段取色经 [onExtractedColors] 回传，由调用方持久化供下次播放直接复用。
+// 歌曲沉浸背景：帧由封面叠画、模糊、色相锚定生成
+// 流动开关只推相位，关闭时画面停在首帧
+// 压暗随底色明度收敛，浅底更轻，由下限兜底
+// 取色优先缓存与落盘，自行按曲目取用并回传
+// 切歌横移、同曲取色淡出；回前台不补播过渡
 @Composable
 internal fun SongImmersiveBackground(
     track: MusicTrack?,
     modifier: Modifier = Modifier,
-    // 触发本次换色的曲目变更类型：带方向的类型按该方向整屏横移，其余交叠淡出或直接替换。
-    // 为空表示调用方无从提供类型（浏览场景，如 3D 封面轮播），同样只做交叠淡出
+    // 换色方向；空表示浏览场景，交叠淡出
     switchKind: TrackSwitchKind? = null,
     onBackgroundColor: ((Color) -> Unit)? = null,
     onExtractedColors: ((CoverBackgroundColors) -> Unit)? = null,
@@ -267,52 +207,40 @@ internal fun SongImmersiveBackground(
     val playbackState = LocalPlaybackState.current
     val audioUri = track?.audioUri
     val coverRevision = playbackState.coverRevision
-    // 该曲上次持久化取色的代表色：仅在曲目与持久化结果同源时非空。三段取色都取不到时按它整幅铺色，
-    // 不落到默认深色底。可观察，取色落定即跟随重组
+    // 该曲上次落盘的代表色，取不到色时整幅铺它
     val restoredColor = playbackState.restoredBackgroundColorFor(track)
-    // 预取已算好的取色：切歌首帧就能取到新曲目的色调，不必等下面那张 64px 略缩图解码
+    // 预取取色，切歌首帧即可用
     val cachedColors = remember(audioUri, coverRevision) { audioUri?.let { CoverColorCache.get(it) } }
-    // 与封面显示同一份系统略缩图：封面重写后系统图随媒体扫描重建，版本号变化即重新取色
+    // 与封面共用系统缩略图，重写后重新取色
     val thumbnailState = rememberThumbnailState(track, COVER_BACKGROUND_SAMPLE_SIZE)
     val thumbnail = thumbnailState.bitmap
     var extracted by remember(audioUri, coverRevision) { mutableStateOf(cachedColors) }
-    // 取色是否已有定论：未定论时先沿用当前底色，不回落默认渐变——
-    // 那是与页面底色同为近黑的一条，换曲时整屏瞬间发黑
+    // 取色未定论时沿用旧底色，避免闪黑
     var resolved by remember(audioUri, coverRevision) { mutableStateOf(cachedColors != null) }
     LaunchedEffect(audioUri, coverRevision, thumbnail, thumbnailState.pending) {
-        // 取色优先用缓存结果：它或来自预取、或来自持久化恢复，都与高清封面同源，
-        // 且不依赖略缩图是否已解码；两者都没有才由这张略缩图现算
+        // 优先缓存取色，其次用缩略图现算
         val cached = CoverColorCache.get(audioUri.orEmpty())
         val colors = cached ?: thumbnail?.asAndroidBitmap()?.let { extractCoverBackgroundColors(it) }
-        // 封面还在取图就先不下结论：下结论意味着「本次取色到此为止」，底色会随即换成回落色或默认渐变
-        // ——后者与页面底色同为近黑的一条，换曲时整屏先黑一下再变彩。等封面到位（取到色，
-        // 或确认这首确实没有封面）再落定，中间这段一直沿用上一份底色
+        // 封面取图未完成先不定论，沿用旧底色
         if (colors == null && thumbnailState.pending) return@LaunchedEffect
         extracted = colors
         resolved = true
-        // 只回传新算出的结果：缓存命中说明这份取色已经落过盘（或由持久化结果回填），重复回传只会白写一次偏好
+        // 仅回传新算结果，缓存命中不重复落盘
         if (colors != null && cached == null) onExtractedColors?.invoke(colors)
     }
     val colors = extracted
     val background = colors?.representative ?: restoredColor ?: md_theme_dark_surface
     LaunchedEffect(background) { onBackgroundColor?.invoke(background) }
 
-    // 背景帧：封面略缩图就绪即渲染，静止与流动共用同一帧——关闭流动只是让相位停在零点，
-    // 看到的就是流动的首帧，不再是另一条独立的渐变。
-    // 提前于换色逻辑声明：换色过渡要把切歌瞬间的这一帧冻结进退场层
+    // 帧提前渲染，静止与流动共用同一帧
     val flowEnabled by context.backgroundFlowEnabledFlow().collectAsStateWithLifecycle(initialValue = false)
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
-    // 显示端现算出的那一帧所属的曲目：与当前曲目一致才认它，流动的逐帧推进都发生在它身上
+    // 现算帧所属曲目，用于认领
     var frameUri by remember { mutableStateOf<String?>(null) }
 
-    // 整屏换色：上一份底色连同切歌瞬间冻结的流动帧整屏铺在上层，按下述方式与当前底色交叠。
-    // 流动帧必须一并冻结带走：帧由封面现算，切歌那刻会立刻换成新曲目的帧，而底色交叠要持续一整段时长；
-    // 只管底色、任由帧瞬间换掉，整屏就会在切歌伊始跳一次色。
-    // 旧底色与旧帧自带相同的压暗层，过渡期间的亮度与静止画面一致
-    //
-    // 目标底色为 null 表示取色还没定论：此时不发新底色，画面沿用当前这份，
-    // 等取色落地再换——回落默认渐变会让整屏先黑一下再变彩，比晚一步换色难看得多
+    // 换色过渡：旧底色连同冻结帧整屏铺在上层
+    // 目标为空表示取色未定论，画面沿用当前底色
     val targetBase = remember(colors, restoredColor, resolved) {
         if (!resolved) {
             null
@@ -321,63 +249,49 @@ internal fun SongImmersiveBackground(
         }
     }
     val visibleSession = rememberVisibleSession()
-    // 铺下当前这份底色时的可见会话：与当前会话不同，说明这份底色与本次换色之间隔着一段页面不可见的时间，
-    // 即本次换色发生在后台。这类换色回前台时才被应用，不是「刚刚发生」的事件，见下方过渡判定
+    // 铺底色时的可见会话，用于识别后台换色
     var lastBaseSession by remember { mutableIntStateOf(visibleSession) }
-    // 实际铺开的底色：只在下方换色效果里随退场层一同换到新值。
-    // 不能直接铺 [targetBase]——换色效果的状态写入要到下一次组合才生效，而渲染就在这次写入与下次组合之间：
-    // 那一帧上新底色已在铺、退场层却还没立起来，于是先闪一次新色（横移时当前层已移出视口，闪的是空屏）。
-    // 两者在同一次效果里落定，底色与退场层因此永远同帧出现，任何一次换色都不留这一帧的破绽
+    // 实际铺开的底色，与退场层同帧落定
     var base by remember { mutableStateOf(targetBase ?: BackgroundBase(colors = null, solid = restoredColor)) }
-    // 底色是否已换成当前曲目那一份：取色未定论或尚未落位时，铺的还是上一首的底色
+    // 底色是否已换成当前曲目
     val baseApplied = base == targetBase
-    // 代现算备好的同曲目帧：切歌起播时（显示端重组停摆的那段时间）已现算好，
-    // 回前台、重新进入页面、配置变更后重建时同步命中，不必等显示端自己的现算从零点起步。
-    // 与显示端现算的帧同源同相位，两者可互换（见 renderCoverFlowFrame 与流动时间轴）
+    // 代现算备好的同曲目帧，与现算同源同相位
     val preparedFrame = remember(audioUri, coverRevision) { CoverFlowFrameStore.peek(audioUri, coverRevision) }
-    // 铺出的一帧：显示端为本曲目现算过就以它为准；尚未现算过（刚换曲、页面重建、后台切歌回来）
-    // 才由代现算那一帧顶上，取不到时沿用上一次铺出的帧，避免换帧窗口里露出底色
+    // 优先显示端现算帧，其次代现算帧，再退上次帧
     val shownFrame = when {
-        // 底色还没换到当前曲目：本曲目的帧（连同代现算备下的那一份）先不铺，沿用上一次铺出的帧。
-        // 底纹必须与其底色一同入场——抢先露出来就是一次「下一首的背景一闪而过」，
-        // 而底色交叠的那段时长里它还会被当成退场层的帧冻结带走
+        // 底色未换到本曲目时沿用旧帧，底纹与底色同步入场
         !baseApplied -> frame
         frameUri == audioUri -> frame
         else -> preparedFrame ?: frame
     }
-    // 流动帧各层压暗共用的明度系数：底色越浅压得越轻（见 dimScaleOf），强度由 dimAlpha 兜住下限
+    // 各层共用的明度压暗系数
     val dimScale = remember(base) { dimScaleOf(base.tone) }
-    // 当前铺开的底色是否沿用自上一曲：取色未定论期间为真，落地后归假。
-    // 它与「上一份有没有取色」合起来判定本次是不是取色落地——落在两处之一都不该按键类型横移
+    // 当前底色是否沿用自上一曲，用于判定取色落地
     var baseInherited by remember { mutableStateOf(false) }
     var switching by remember { mutableStateOf<BackgroundSwitchState?>(null) }
-    // 过渡进度：1 为过渡起点（当前底色尚未入场），0 为过渡结束（当前底色完全落位）
+    // 过渡进度：1 起点，0 落位
     val switchProgress = remember { Animatable(0f) }
     LaunchedEffect(targetBase, visibleSession) {
         val next = targetBase
         val previous = base
         val previousInherited = baseInherited
-        // 页面刚重新可见（会话切换）：不可见期间谁也没看见画面，回前台不该补播任何过渡。
-        // 上一轮未走完的过渡连同进度一并作废——动画在不可见期间停摆，接着走等于把半途的横移补出来；
-        // 同时据此识别下方「本次换色发生在后台」的情形
+        // 重新可见时作废旧过渡，不补播
         val resumed = lastBaseSession != visibleSession
         if (resumed) switching = null
         lastBaseSession = visibleSession
-        // 取色还没定论：不发新底色，画面沿用当前这份（回落默认渐变会让整屏先黑一下再变彩）
+        // 取色未定论：沿用当前底色
         if (next == null) {
             baseInherited = true
             return@LaunchedEffect
         }
         baseInherited = false
         if (previous == next) return@LaunchedEffect
-        // 本次换色发生在页面不可见期间：底色照常换成新曲目的取色，只是补播横移会读成刚切歌，直接落位
+        // 后台换色直接落位，不补横移
         if (resumed) {
             base = next
             return@LaunchedEffect
         }
-        // 上一份是回落色（无取色）或沿用自上一曲，说明本次是取色落地：先后关系不可读，只做淡出；
-        // 两份都持真实取色时才谈方向，方向由变更类型给出——选曲播放与内容同源的变更都没有方向，
-        // 不做过渡，底色原地换掉
+        // 回落色或继承底色时淡出；有方向才横移
         val kind = switchKind
         val sweep = when {
             previousInherited || previous.colors == null -> BackgroundSwitch.Fade
@@ -391,15 +305,11 @@ internal fun SongImmersiveBackground(
             base = next
             return@LaunchedEffect
         }
-        // 进度先复位到起点：此刻还没立起退场层，进度只影响本层偏移，写入不会单独显形。
-        // 放在换底色之前，是为了让下面「立退场层」与「换底色」两次写入之间没有挂起点——
-        // 中间若被挂起，就可能有一次组合只取到其中一半，恰好丢掉的又是那一帧的退场层
+        // 先复位进度，再一次性立退场层并换底色
         switchProgress.snapTo(1f)
-        // 冻结的是此刻铺在画面上的那一帧（frame 的所有者仍是被切走的那一首）：本曲目的帧要么等
-        // 本效果之后的现算，要么由代现算备好，都不属于切歌那一刻的画面，退场层要复现的只有前者
+        // 冻结切歌瞬间的帧，复现旧画面
         switching = BackgroundSwitchState(base = previous, switch = sweep, frame = frame)
-        // 退场层立起后再换底色：两次写入落在同一次效果里、下一次组合一并取到，
-        // 底色与退场层因此永远同帧出现，任何一次换色都不留「只有新底色、没有退场层」的那一帧
+        // 与换底色同帧写入，不留破绽
         base = next
         switchProgress.animateTo(
             targetValue = 0f,
@@ -410,13 +320,9 @@ internal fun SongImmersiveBackground(
         switching = null
     }
 
-    // 流动时间轴：相位以本曲起播为零点按帧间隔累加，且只在本曲目可见期间推进。
-    // 不取系统时间而取累加：应用不可见期间没有帧，相位随之停住，回前台接着走，
-    // 而不是把停滞的整段时间一次性补上——那一次跳变正落在回前台首帧上。
-    // 起点为零还让帧可被代现算（见 CoverFlowFrameStore）：代现算备好的就是零点那一帧，
-    // 与显示端接管后现算出的帧同相位，两者可互换而看不出接缝。
-    // 会话与首帧都从零累计：前者是停滞后的第一个间隔（正是那段停滞本身），后者根本无间隔可累加。
-    // 开关只决定相位推不推进：关着时相位钉在零点，画面停在同一帧的首帧上
+    // 流动时间轴：相位按帧累加，只在本曲可见时推进
+    // 不取系统时间，避免回前台一次性跳变
+    // 关开关时相位钉在零点，即首帧
     var flowTimeMs by remember(audioUri) { mutableLongStateOf(0L) }
     LaunchedEffect(flowEnabled, thumbnail, visibleSession) {
         if (!flowEnabled) {
@@ -428,7 +334,7 @@ internal fun SongImmersiveBackground(
         var lastPublishedNanos = 0L
         while (true) {
             val nowNanos = withFrameNanos { it }
-            // 帧间隔上限：正常帧远低于它，越过去的只有应用不可见或长时间停摆
+            // 帧间隔上限，超出视为停摆
             val deltaNanos = (nowNanos - previousNanos)
                 .takeIf { previousNanos != 0L && it in 0..FLOW_FRAME_MAX_GAP_MS * 1_000_000L } ?: 0L
             previousNanos = nowNanos
@@ -443,50 +349,42 @@ internal fun SongImmersiveBackground(
     }
 
     LaunchedEffect(thumbnail, viewportSize, flowTimeMs, base.tone, baseApplied) {
-        // 无源可渲染：没有曲目，或该曲目已确认取不到封面（见 CoverSkipRegistry）。
-        // 这两种情形下帧整体撤下，背景只剩底色，不留上一首的底纹
+        // 无曲目或确认无封面时撤帧，只留底色
         if (track == null || CoverSkipRegistry.isSkipped(track)) {
             frame = null
             frameUri = null
             return@LaunchedEffect
         }
-        // 底色尚未换到当前曲目：本曲目的帧先不算，免得它先于底色铺出来（见 shownFrame）。
-        // 底色落位时 base.tone 变化会重跑本效果，那时才算本曲目的帧
+        // 底色未落位先不算帧
         if (!baseApplied) return@LaunchedEffect
-        // 封面仍在取图（或视口尚未量出）不算无源：保留上一次铺出的帧，别在换帧窗口里露出纯底色。
-        // 切歌时新曲目的 64px 略缩图要等一次媒体库查询，这一段若把帧撤下，
-        // 正在滑入的半屏会先是一条纯新配色的渐变（一次可见的闪），随后底纹才补上——两段观感差得很远
+        // 封面取图中保留旧帧，避免换帧窗口露底色
         val cover = thumbnail?.asAndroidBitmap()
         if (cover == null || viewportSize.width <= 0 || viewportSize.height <= 0) return@LaunchedEffect
         val rendered = withContext(Dispatchers.Default) {
             renderCoverFlowFrame(cover, viewportSize, base.tone, flowTimeMs)
         }
         frame = rendered
-        // 到此才认领本曲目：此前铺的一直是上一首的帧，认领后逐帧推进才发生在本曲目身上
+        // 认领本曲目后逐帧推进
         frameUri = audioUri
     }
     val transition = switching
-    // 压暗层色标随底色明度变化，按系数缓存复用
+    // 压暗色标按明度系数缓存
     val scrimStops = remember(dimScale) { coverScrimStops(dimScale) }
     Box(
         modifier = modifier
             .fillMaxSize()
             .onSizeChanged {
                 viewportSize = it
-                // 代现算按同一显示尺寸渲染，帧的构图才与显示端逐帧现算出的完全一致
+                // 代现算按同一尺寸渲染，构图一致
                 CoverFlowFrameStore.setViewport(it)
             },
     ) {
-        // 当前底色层：一片代表色打底，帧铺在其上；帧没到时它就是全部画面。
-        // 仅持上次持久化的代表色时先铺该色，取色未就绪时才用主题默认深色。
-        // 切歌横移时整层自进入侧入场，落位后偏移归零——纯色层本身横移看不出变化，
-        // 读到的位移来自它上面那帧与原底色层色面的相对运动
+        // 当前底色层：纯色打底，帧铺其上；横移时整层入场
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    // 过渡进度 1 为起点，偏移按进度本身取：进度越大离落位越远，
-                    // 入场侧即这里的符号方向，须与封面、歌曲信息的横移方向一致
+                    // 进度越大离落位越远，方向与封面横移一致
                     translationX = when (transition?.switch) {
                         BackgroundSwitch.SlideFromLeft -> -size.width * switchProgress.value
                         BackgroundSwitch.SlideFromRight -> size.width * switchProgress.value
@@ -495,8 +393,7 @@ internal fun SongImmersiveBackground(
                 },
         ) {
             Box(modifier = Modifier.fillMaxSize().background(base.fill()))
-            // 无帧时才铺这层压暗：有帧时压暗由帧自带的渐深层承担，两层叠起来会把画面压死。
-            // 强度沿全幅一致，不产生亮度层次分界；按压暗下限铺开，浅色底也是这个强度
+            // 无帧时才铺这层均匀压暗
             if (shownFrame == null) {
                 Box(
                     modifier = Modifier
@@ -504,7 +401,7 @@ internal fun SongImmersiveBackground(
                         .background(Color.Black.copy(alpha = DIM_MIN_ALPHA)),
                 )
             }
-            // 帧整幅铺满并盖住底色；帧内已做整体模糊，封面叠画的边界不显形
+            // 帧铺满，已含整体模糊
             shownFrame?.let { bitmap ->
                 Image(
                     bitmap = bitmap,
@@ -512,9 +409,7 @@ internal fun SongImmersiveBackground(
                     contentScale = ContentScale.FillBounds,
                     modifier = Modifier.fillMaxSize(),
                 )
-                // 流动帧压暗层：帧整体偏亮，压暗上下边缘保证状态栏与前景文字可读。
-                // 归零点与两端斜率均为 0，不会在背景中段留下亮度分界；
-                // 两端强度按底色明度收敛，并由 [DIM_MIN_ALPHA] 兜底
+                // 帧压暗层：两端压住状态栏，按明度收敛
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -522,13 +417,9 @@ internal fun SongImmersiveBackground(
                 )
             }
         }
-        // 上一份底色层：置于最上层，复现旧曲目切歌那一刻的完整背景——底色、压暗层，
-        // 以及当时冻结的流动帧（帧在时盖住底色，观感与切歌前静止画面一致）。
-        // 横移时向离开侧等速移出，与当前底色层同速：两层的偏移量之和恒为一屏宽，
-        // 全程首尾相接拼满整屏，谁也不会先离开而露出空档
+        // 旧底色层：复现切歌瞬间画面，同速移出拼满整屏
         transition?.let { previous ->
-            // 退场层里的流动帧按旧底色自己的明度系数压暗：复刻的是切歌那一刻的画面，不随新底的深浅变化。
-            // 静态压暗层是定值，新旧两层自然一致
+            // 旧帧按旧底色明度压暗，复刻当时画面
             val previousDimScale = remember(previous) { dimScaleOf(previous.base.tone) }
             val previousScrimStops = remember(previousDimScale) { coverScrimStops(previousDimScale) }
             Box(
@@ -551,8 +442,7 @@ internal fun SongImmersiveBackground(
                             .background(Color.Black.copy(alpha = DIM_MIN_ALPHA)),
                     )
                 }
-                // 冻结的帧连同其压暗层一并在层内复刻，退场侧与切歌前的静止画面完全同源，
-                // 不会在切歌伊始由帧骤然塌回一片纯色
+                // 冻结帧连同压暗层一并复刻
                 previous.frame?.let { bitmap ->
                     Image(
                         bitmap = bitmap,
@@ -571,20 +461,10 @@ internal fun SongImmersiveBackground(
     }
 }
 
-/**
- * 现算一帧背景流动帧：色相锚定、叠画尺寸、蒙层与模糊的全套口径都在本入口内定下。
- *
- * 显示端的逐帧现算与切歌起播时的代现算（见 [CoverFlowFrameStore]）共用本入口，口径只有一份，
- * 代现算备好的帧与显示端此后现算出的帧因此完全同源——包括相位：两处都从本曲起播算起（见流动时间轴），
- * 代现算的零点帧与显示端接管后的首帧相差不到一帧的旋转量，替换时看不出差异。
- *
- * [tone] 取底色代表色：它同时决定蒙层强度（见 [dimScaleOf]）与色相锚定的锚点，压暗与着色出自同一个色调。
- * 锚点本身不带彩时（灰片、黑白封面取出的中性色）没有色相可锚，锚定跳过，帧仍是封面原色。
- */
+/** 现算流动帧：色相锚定、叠画、蒙层与模糊的唯一口径 */
 internal fun renderCoverFlowFrame(cover: Bitmap, viewport: IntSize, tone: Color?, timeMs: Long): ImageBitmap {
     val dimScale = dimScaleOf(tone)
-    // 蒙层（见 WASH_* 常量）：两层的暗化量都按底色明度缩放，浅色封面叠出的浅色帧不会被压暗成另一种色调；
-    // 强度由 [dimAlpha] 兜住下限，浅色帧上也要留出前景文字与状态栏的对比
+    // 两层蒙层按明度缩放，强度由下限兜底
     val washPrimary = lerp(tone ?: md_theme_dark_surface, Color.Black, WASH_PRIMARY_DARKEN * dimScale)
         .copy(alpha = dimAlpha(WASH_PRIMARY_ALPHA, dimScale))
     val washSecondary = Color.Black.copy(alpha = dimAlpha(WASH_SECONDARY_ALPHA, dimScale))
@@ -599,24 +479,14 @@ internal fun renderCoverFlowFrame(cover: Bitmap, viewport: IntSize, tone: Color?
     ).asImageBitmap()
 }
 
-// 主色的色相：只在该色带得住色彩时有效。近灰的色相来自噪声，拿它当锚点会把整幅帧拉向一个凭空的色相
+// 近灰主色不锚定，避免引入噪声色相
 private fun Color.anchorHueOrNull(): Float? {
     val hsl = FloatArray(3)
     ColorUtils.colorToHSL(toArgb(), hsl)
     return hsl[0].takeIf { hsl[1] >= HUE_ANCHOR_MIN_SATURATION }
 }
 
-/**
- * 渲染一帧流动背景：在 1/16 视口尺寸的小画布上错位叠画三份高饱和封面，先把色相锚定到 [anchorHue]
- * 附近，再叠主色与中性黑两层蒙层，最后整体模糊并回补彩度，由显示端放大铺满。
- * 像素量约为整屏的 1/256，叠画、锚定与模糊的代价随之降到可忽略。[timeMs] 推进三层的旋转角度。
- *
- * 锚定夹在叠画与模糊之间：模糊是通道平均，跨色相的像素在那里被平均到色环中段，灰浊色正是这一步的产物；
- * 锚定在前，平均路径才走在色环同侧（见 [anchorFrameHue]）。蒙层也排在锚定之后，
- * 它与图像的混合因此同样落在本色系内部，不再把远景色相沿直线拖过灰心。
- *
- * 只由 [renderCoverFlowFrame] 调用：锚点、蒙层与色调的取法属于那一层的口径，这里只管画面本身。
- */
+/** 叠画三份封面，锚定色相后加蒙层、模糊并回补彩度 */
 private fun renderCoverBackgroundFrame(
     cover: Bitmap,
     viewportWidth: Int,
@@ -650,15 +520,14 @@ private fun renderCoverBackgroundFrame(
         if (layer.rotateAboutCenter) matrix.postRotate(rotation, width / 2f, height / 2f)
         canvas.drawBitmap(cover, matrix, paint)
     }
-    // 叠画完成、模糊之前锚定色相：这一步决定整幅画面落在哪个色系里（见 anchorFrameHue）
+    // 模糊前锚定色相，决定整幅色系
     anchorHue?.let { anchorFrameHues(frame, it) }
     canvas.drawColor(washPrimaryArgb)
     canvas.drawColor(washSecondaryArgb)
     return restoreFrameSaturation(blurBackgroundFrame(frame, COVER_BACKGROUND_BLUR_RADIUS))
 }
 
-// 模糊后的彩度回补：模糊按通道平均，相邻色相在此相互抵消，彩度随之一路衰减（见 FRAME_SATURATION_RESTORE）。
-// 用色彩矩阵一次绘过，比逐像素回一趟 HSL 便宜一个量级；小画布上多一张位图的分配可以忽略
+// 彩度回补用色彩矩阵一次绘过，成本低一个量级
 private fun restoreFrameSaturation(source: Bitmap): Bitmap {
     val restored = createBitmap(source.width, source.height)
     Canvas(restored).drawBitmap(
@@ -674,7 +543,7 @@ private fun restoreFrameSaturation(source: Bitmap): Bitmap {
     return restored
 }
 
-// 两趟盒式模糊：输入是 1/16 视口的小图，纯 CPU 逐像素处理即可，无需引入渲染管线
+// 两趟盒式模糊，小图纯 CPU 即可
 private fun blurBackgroundFrame(source: Bitmap, radius: Int): Bitmap {
     val width = source.width
     val height = source.height
@@ -738,7 +607,7 @@ private fun blurBackgroundFrame(source: Bitmap, radius: Int): Bitmap {
 
     val result = createBitmap(width, height)
     result.setPixels(pixels, 0, width, 0, 0, width, height)
-    // 待模糊的中间帧只在本函数内使用：流动期间每帧都会新建，及时回收避免遗留图片垃圾
+    // 待模糊的中间帧用完即回收
     source.recycle()
     return result
 }

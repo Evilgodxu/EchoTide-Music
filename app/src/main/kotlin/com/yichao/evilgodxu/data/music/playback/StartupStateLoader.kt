@@ -9,12 +9,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 
-/**
- * 冷启动恢复的读取侧：并发读出各份存储，并给出可直接套用的初始快照。
- *
- * 各段读取互不依赖，总耗时取最慢一段而非各段之和。
- * 应用状态仍由宿主负责——读取只产出数据，不触碰播放状态。
- */
+/** 冷启动读取侧：并发读出各份存储，产出初始快照 */
 internal class StartupStateLoader(
     private val searchHistoryStore: SearchHistoryStore,
     private val recentPlayedStore: RecentPlayedStore,
@@ -34,10 +29,10 @@ internal class StartupStateLoader(
         val queueRead = async(Dispatchers.IO) {
             playlistPersistence.read()
         }
-        // 搜索历史与常听由各自的收集侧持续回流，此处只等首次读盘完成
+        // 搜索历史与常听由收集侧回流，只等首次读盘
         searchHistoryStore.awaitLoaded()
         recentPlayedStore.awaitLoaded()
-        // 保存的搜索平台要按当前可用音源校验，音源快照须先就绪
+        // 音源快照须先就绪，供平台校验
         proxySourceStore.awaitLoaded()
         Result(
             preferences = preferencesRead.await(),

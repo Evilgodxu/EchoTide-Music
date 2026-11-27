@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.theme.AppShape
 import com.yichao.evilgodxu.theme.AppSpacing
 
-// 分区卡片容器：标题 + 圆角卡片内容，供设置类页面复用
+// 分区卡片：标题 + 圆角内容
 @Composable
 fun GroupCard(title: String, content: @Composable () -> Unit) {
     Column {

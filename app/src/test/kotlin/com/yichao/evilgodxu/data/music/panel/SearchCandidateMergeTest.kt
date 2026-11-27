@@ -6,15 +6,10 @@ import com.yichao.evilgodxu.data.music.model.NeteaseSongSearchResult
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/**
- * 歌词与封面候选聚合的去重复核。
- *
- * 候选列表以 id 作列表 key，同一平台对同一歌曲返回的多条记录（同 id）必须收敛为一条，
- * 否则列表 key 重复会在渲染时抛 IllegalArgumentException 崩溃。
- */
+/** 同 id 候选须收敛，避免列表 key 重复崩溃 */
 class SearchCandidateMergeTest {
 
-    // 酷狗把同一文件 hash 按不同演绎者各列一条：hash 与 id 相同，仅歌手展示不同
+    // 同 hash 多条记录，id 相同仅歌手不同
     private fun kugou(hash: String, artist: String): NeteaseSongSearchResult = NeteaseSongSearchResult(
         id = stableIdFromString(hash),
         title = "On The Edge of Destiny (英文版)",
@@ -30,7 +25,7 @@ class SearchCandidateMergeTest {
         val withArtist = kugou(hash, "Wønder、Etherous Games")
         val artistOnly = kugou(hash, "Wønder")
 
-        // 前置条件：平台返回的两条记录确实是同一个身份
+        // 前置条件：两条记录同一身份
         assertEquals(withArtist.id, artistOnly.id)
 
         val merged = mergeCandidates(listOf(withArtist), listOf(artistOnly))
@@ -56,7 +51,7 @@ class SearchCandidateMergeTest {
 
     @Test
     fun `不同来源的同一 ID 仍保留`() {
-        // 不同平台的 id 空间相互独立，撞号不代表同一条目
+        // 不同平台 id 空间独立，撞号不同条目
         val id = stableIdFromString("33B4300263D4499A08B6B83C0E718286")
         val kugou = kugou("33B4300263D4499A08B6B83C0E718286", "Wønder")
         val other = kugou.copy(source = MusicSearchSource.KUWO, sourceId = "1")

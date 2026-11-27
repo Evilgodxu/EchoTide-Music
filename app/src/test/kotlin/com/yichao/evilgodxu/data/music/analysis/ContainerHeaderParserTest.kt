@@ -5,10 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/**
- * 容器头解析复核：逐格式构造合成头部字节，断言取出的采样率/位深/声道。
- * 合成数据只按各容器的公开规范手工排布，不调用被测代码的位运算，避免与实现同错。
- */
+/** 容器头解析：合成字节手工排布，避免同错 */
 class ContainerHeaderParserTest {
 
     @Test
@@ -19,7 +16,7 @@ class ContainerHeaderParserTest {
 
     @Test
     fun `FLAC 高比特深度不会被误当作 16 位`() {
-        // 32bit 的位深域值为 31，低 4 位进位曾使旧实现误读为 16bit
+        // 32bit 位深域值 31，低位进位易误读
         val bytes = flac(192_000, 32, 2)
         assertEquals(ContainerFormat(192_000, 32, 2), ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()))
     }
@@ -29,7 +26,7 @@ class ContainerHeaderParserTest {
         val tag = id3Tag(payloadBytes = 1024)
         val bytes = tag + flac(48_000, 24, 2)
         assertEquals(tag.size, ContainerHeaderParser.id3v2TagSize(bytes))
-        // 标签之后的音频数据才含容器魔数：按偏移重新定位即可解析
+        // 按标签偏移重定位后解析
         assertNull(ContainerHeaderParser.parse(bytes, 0, bytes.size.toLong()))
         assertEquals(
             ContainerFormat(48_000, 24, 2),
@@ -69,8 +66,8 @@ class ContainerHeaderParserTest {
 
     @Test
     fun `ALAC 位深取自 magic cookie`() {
-        // 采样描述自带的 samplesize（16）对 ALAC 是名义值，真实位深在 alac 幻数盒中；
-        // 幻数盒成立也正面认定了码流，容器因此能给出码流名（扩展名 .m4a 说不出这个）
+        // samplesize 为名义值，位深在 alac 盒
+        // 幻数盒成立可给出码流名
         val bytes = alacFile(bitDepth = 24, channels = 2, sampleRate = 48_000)
         assertEquals(
             ContainerFormat(48_000, 24, 2, "ALAC"),
@@ -80,8 +77,7 @@ class ContainerHeaderParserTest {
 
     @Test
     fun `MP4 里的非 ALAC 轨道不报编码名`() {
-        // mp4a 可能是 AAC 也可能不是，容器头无从正面认定，故码流名留空；
-        // 位深同理——有损编码的 msamplesize 只是名义值
+        // 非 alac 不报码流名与位深
         val bytes = mp4aFile(bitDepth = 16, channels = 2, sampleRate = 44_100)
         assertEquals(
             ContainerFormat(44_100, null, 2, null),
@@ -91,7 +87,7 @@ class ContainerHeaderParserTest {
 
     @Test
     fun `MP4 盒偏移跳过超出窗口的大盒`() {
-        // moov 后置：头窗在超大 mdat 处被截断，据其声明尺寸外推出 moov 起点
+        // 按 mdat 声明尺寸外推 moov 起点
         val ftyp = box("ftyp", Builder().ascii("M4A ").u32be(0).ascii("M4A ").toBytes())
         val truncatedMdat = Builder().u32be(MDAT_DECLARED_BYTES).ascii("mdat").toBytes()
         val head = ftyp + truncatedMdat
@@ -113,7 +109,7 @@ class ContainerHeaderParserTest {
         assertNull(ContainerHeaderParser.parse(bytes.copyOfRange(0, 12), 0, bytes.size.toLong()))
     }
 
-    // ---- 合成头部构造 ----
+    // 合成头部构造
 
     private class Builder {
         private val out = ByteArrayOutputStream()
@@ -151,7 +147,7 @@ class ContainerHeaderParserTest {
         fun toBytes(): ByteArray = out.toByteArray()
     }
 
-    // FLAC：STREAMINFO 的采样率 20 位 + 声道数-1 共 3 位 + 位深-1 共 5 位打包在块体偏移 10 起的 8 字节中
+    // STREAMINFO：采样率20+声道3+位深5
     private fun flac(sampleRate: Int, bitDepth: Int, channels: Int): ByteArray {
         val packed = (sampleRate.toLong() shl 44) or
             (((channels - 1).toLong()) shl 41) or
@@ -212,7 +208,7 @@ class ContainerHeaderParserTest {
         return mp4AudioFile("alac", channels, sampleRate, extraChild = cookie)
     }
 
-    // 有损编码的采样描述：无 alac 幻数盒，samplesize 只是名义值
+    // 无 alac 盒，samplesize 为名义值
     private fun mp4aFile(bitDepth: Int, channels: Int, sampleRate: Int): ByteArray =
         mp4AudioFile("mp4a", channels, sampleRate, sampleSize = bitDepth, extraChild = null)
 
@@ -248,7 +244,7 @@ class ContainerHeaderParserTest {
         .toBytes()
 
     private companion object {
-        // 声明尺寸远大于头窗，用于验证据尺寸外推后置 moov 起点
+        // 声明尺寸远大于头窗
         const val MDAT_DECLARED_BYTES = 100_000L
     }
 }

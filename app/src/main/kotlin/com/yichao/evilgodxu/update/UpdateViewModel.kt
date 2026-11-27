@@ -14,8 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-// 更新检查与下载状态的统一管理，供主页与设置页共用，
-// 以单例形式注册，保证两处读写同一状态，对话框由 Activity 全局弹出
+// 更新状态单例：主页与设置页共用，对话框全局弹出
 class UpdateViewModel(
     application: Application,
     private val settingsRepository: SettingsRepository,
@@ -35,7 +34,7 @@ class UpdateViewModel(
     val downloadState: StateFlow<DownloadState> = _downloadState.asStateFlow()
 
     init {
-        // 提示出现后进程被回收、同一天重开不会再自动检查，故冷启动先恢复尚未处理的待更新信息
+        // 冷启动恢复未处理的待更新信息
         viewModelScope.launch {
             val pending = UpdateManager.readPendingUpdate(updateStore)
             if (pending != null && _updateInfo.value == null) {
@@ -45,7 +44,7 @@ class UpdateViewModel(
         }
     }
 
-    // 手动检查结果的一次性提示：无回放，自动检查静默、仅手动检查反馈
+    // 一次性提示；自动检查静默
     private val _messages = MutableSharedFlow<CheckFeedback>(extraBufferCapacity = 1)
     val messages: Flow<CheckFeedback> = _messages.asSharedFlow()
 
@@ -65,7 +64,7 @@ class UpdateViewModel(
                 _showUpdateDialog.value = true
                 return@launch
             }
-            // 自动检查静默：仅手动检查反馈一次性提示
+            // 仅手动检查提示
             if (!force) return@launch
             _messages.emit(if (checkFailed) CheckFeedback.ERROR else CheckFeedback.UP_TO_DATE)
         }
@@ -75,7 +74,7 @@ class UpdateViewModel(
         val info = _updateInfo.value ?: return
         _downloadState.value = DownloadState.Downloading(0f)
         viewModelScope.launch {
-            // 下载通知文案面向用户：按当前应用语言构造本地化 Context 取资源，不使用系统 Context
+            // 按应用语言构造本地化 Context 取文案
             val language = settingsRepository.getAppLanguage()
             val localizedContext = localizationManager.createLocalizedContext(
                 localizationManager.resolveLanguage(language),
@@ -91,8 +90,7 @@ class UpdateViewModel(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // 下载管理器、安装器启动等异常都转成失败状态：不捕获会直接逸出协程，
-                // 界面停在下载中而进程先退场
+                // 异常转失败态，避免界面停在下载中
                 com.yichao.evilgodxu.log.CrashLogManager.logException(
                     "UpdateViewModel",
                     "更新包下载或安装启动失败: 版本=${info.latestVersion}",
@@ -116,7 +114,7 @@ class UpdateViewModel(
     }
 }
 
-// 供界面树消费的组合局部，由宿主 Activity 提供
+// 由宿主 Activity 提供的组合局部
 val LocalUpdateViewModel = staticCompositionLocalOf<UpdateViewModel> {
     error("UpdateViewModel is not provided")
 }

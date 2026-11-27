@@ -11,9 +11,7 @@ import com.yichao.evilgodxu.service.setUsbAttachEntryEnabled
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-// 应用入口：构造依赖容器并编排启动顺序。
-// 依赖本身由 AppContainer 持有，经 ProvideAppDependencies 注入 Compose 树；
-// 系统创建的组件经 (application as App).container 取用
+// 应用入口：建容器并编排启动
 class App : Application() {
 
     val container: AppContainer = AppContainer(this)
@@ -24,19 +22,15 @@ class App : Application() {
         val playbackState = container.playbackState
         // 最先初始化崩溃日志，捕获启动阶段异常
         CrashLogManager.init(this)
-        // 首帧前同步预置上次播放状态（见 seedFromBootMirror），使首页首帧即是完整内容而非空态；
-        // 这是启动关键路径上的刻意读盘，异步化会把空窗推回首帧之后。
-        // 首启动没有镜像可读，跳过这段同步读盘——首帧本就是空态，没有内容可预置
+        // 首帧前同步预置播放状态；无镜像则跳过，异步会露空态
         if (playbackState.hasBootMirror(this)) {
             playbackState.seedFromBootMirror(this)
         }
-        // 冷启动尽早恢复持久化播放列表：恢复任务由首个调用方触发（见 restoreSavedState），
-        // 此处预触发使首帧渲染时歌单与当前曲目已就绪。首启动读盘结果为空，直接空跑一轮即可
+        // 提前恢复播放列表，使首帧歌单与曲目就绪
         appScope.launch {
             runCatching { playbackState.restoreSavedState(applicationContext) }
         }
-        // 预热设置 DataStore，并把持久化语言同步到系统「应用语言」偏好：
-        // 系统据此在下次启动创建 Activity 前配置资源，冷启动首帧即正确语言
+        // 预热设置并同步系统应用语言，冷启动首帧即正确
         appScope.launch {
             val preferences = runCatching { settingsDataStore.data.first() }.getOrNull()
             preferences?.let {
@@ -45,15 +39,13 @@ class App : Application() {
                 )
             }
         }
-        // USB 接入入口只跟着独占开关启停：直出不需要 USB 授权，面板参数取平台上报值，不读描述符，
-        // 故直出开着时也没有认领设备的理由。独占关着时该入口不认领设备，
-        // 系统也就不会弹「用哪个应用打开」。订阅落盘值而非开关回调，故设置页之外的写入同样生效
+        // USB 入口跟随独占开关；订阅落盘值，设置页外写入亦生效
         appScope.launch {
             runCatching {
                 usbExclusiveOutputModeFlow().collect { setUsbAttachEntryEnabled(it) }
             }
         }
-        // 冷启动回收上一次进程遗留的中转文件：启动时刻必然不存在本次下载，可整批清理
+        // 冷启动清理上次遗留的中转文件
         appScope.launch {
             runCatching { CacheInventory.reclaimOnColdStart(this@App) }
         }

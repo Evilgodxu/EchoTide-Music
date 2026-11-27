@@ -6,18 +6,12 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * UAC 控制请求的编码。
- *
- * 这一层值得单独验证的理由：控制请求打错参数时，设备通常**不报错**，只是把请求忽略掉，表现成
- * "设了采样率却没反应、调了音量却没变化"，从播放侧的日志里看不出是哪一位写错了。所以这里逐个
- * 核对 wValue / wIndex 的位组合与数据字节序，而不是等真机上出问题再回头查。
- */
+/** 控制请求打错时设备静默忽略，须逐位核对 */
 class UsbAudioRequestsTest {
 
-    // ---------------------------------------------------------------- 请求类型
+    // 请求类型
 
-    // bmRequestType 由「方向 | 类型 | 接收者」三段拼成，逐段核对而非重抄字面量
+    // bmRequestType 由三段拼成，逐段核对
     @Test
     fun `请求类型携带方向、类别与接收方`() {
         val inBit = 0x80
@@ -31,13 +25,13 @@ class UsbAudioRequestsTest {
         assertEquals(inBit or recipientEndpoint or classType, UsbAudioRequests.IN_ENDPOINT)
     }
 
-    // ---------------------------------------------------------------- wValue / wIndex
+    // wValue / wIndex
 
     @Test
     fun `功能单元取值打包控制与声道`() {
-        // 音量选择子 0x02、声道 1 → 0x0201
+        // 选择子 0x02、声道 1 → 0x0201
         assertEquals(0x0201, UsbAudioRequests.featureUnitValue(UsbAudioRequests.CONTROL_VOLUME, 1))
-        // 主控的声道号为 0，此时低字节必须确实是 0
+        // 主控声道 0，低字节须为 0
         assertEquals(0x0200, UsbAudioRequests.featureUnitValue(UsbAudioRequests.CONTROL_VOLUME, 0))
     }
 
@@ -52,19 +46,19 @@ class UsbAudioRequestsTest {
         assertEquals(0x2A01, UsbAudioRequests.clockIndex(clockId = 42, controlInterface = 1))
     }
 
-    // 无符号字段的溢出边界：高位必须落在高字节，而不是被静默截断
+    // 溢出时高位落在高字节
     @Test
     fun `打包保留高字节`() {
         assertEquals(0xFF0A, UsbAudioRequests.featureUnitIndex(unitId = 0xFF, controlInterface = 0x0A))
         assertEquals(0xFF00, UsbAudioRequests.clockValue(0xFF))
     }
 
-    // ---------------------------------------------------------------- 采样率字节序
+    // 采样率字节序
 
     @Test
     fun `UAC1 采样率为三字节小端`() {
         assertEquals(listOf(0x44, 0xAC, 0x00), UsbAudioRequests.uac1Rate(44100).map { it.toInt() and 0xFF })
-        // 176.4kHz 会用到第三个字节，正是 24 位与 16 位的差别所在
+        // 176.4kHz 用到第三个字节
         assertEquals(listOf(0x10, 0xB1, 0x02), UsbAudioRequests.uac1Rate(176400).map { it.toInt() and 0xFF })
     }
 
@@ -81,9 +75,9 @@ class UsbAudioRequestsTest {
         assertEquals(44100, UsbAudioRequests.unsigned24(UsbAudioRequests.uac1Rate(44100), 0))
     }
 
-    // ---------------------------------------------------------------- 音量值
+    // 音量值
 
-    // 音量是 1/256 dB 的有符号值，负值必须补码往返，不能按无符号解释
+    // 1/256dB 有符号，负值补码往返
     @Test
     fun `音量取值为 16 位有符号`() {
         assertEquals(listOf(0x00, 0xF6), UsbAudioRequests.volumeValue(-2560).map { it.toInt() and 0xFF })
@@ -91,11 +85,11 @@ class UsbAudioRequestsTest {
         assertEquals(0, UsbAudioRequests.signed16(UsbAudioRequests.volumeValue(0), 0))
     }
 
-    // ---------------------------------------------------------------- 音量范围应答
+    // 音量范围应答
 
     @Test
     fun `音量范围取第一段子区间`() {
-        // 子区间数 1，随后 最小 -32768、最大 0、步长 256
+        // 子区间数 1，最小/最大/步长
         val reply = bytes(0x01, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x01)
 
         val range = usbAudioVolumeRange(reply, reply.size)
@@ -105,7 +99,7 @@ class UsbAudioRequestsTest {
         assertTrue(range!!.usable)
     }
 
-    // 上下限相等表示没有可调范围：不得据此认定音量可设，否则每次设置都会静默失效
+    // 上下限相等即不可调
     @Test
     fun `零宽音量范围不可用`() {
         val reply = bytes(0x01, 0x00, 0x00, 0x80, 0x00, 0x80, 0x00, 0x00)

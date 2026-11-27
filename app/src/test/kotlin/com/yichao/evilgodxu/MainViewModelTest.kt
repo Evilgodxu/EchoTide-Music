@@ -15,8 +15,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 
-// 应用级状态持有者：验证仓库回流为初始状态，以及写入后经同一条路径回到 UI。
-// 写入入口在设置页，故这里直接经仓库写入——VM 只做聚合，不另开写口
+// 仓库回流为初始状态，写入后同样回流
+// 写入入口在设置页，VM 不另开写口
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest {
 

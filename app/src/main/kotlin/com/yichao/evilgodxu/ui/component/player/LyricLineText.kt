@@ -40,8 +40,7 @@ import com.yichao.evilgodxu.data.music.model.LyricWord
 import com.yichao.evilgodxu.data.settings.LyricAlignment
 import kotlin.math.roundToLong
 
-// 对齐方式到 Compose 布局参数的换算：整行、逐字、词分行三种渲染共用同一份口径，
-// 避免各处各自判断对齐值而出现某条路径仍居中
+// 对齐方式统一换算，三条渲染路径共用
 internal val LyricAlignment.columnAlignment: Alignment.Horizontal
     get() = if (this == LyricAlignment.START) Alignment.Start else Alignment.CenterHorizontally
 
@@ -51,19 +50,15 @@ internal val LyricAlignment.rowArrangement: Arrangement.Horizontal
 internal val LyricAlignment.lineTextAlign: TextAlign
     get() = if (this == LyricAlignment.START) TextAlign.Start else TextAlign.Center
 
-// 歌词行动画缩放：普通行微缩，当前行高亮放大至 max；分行按预留上限 max 计算宽度
+// 行缩放：基准 0.98，当前行最高 1.35
 internal const val LYRIC_ROW_SCALE_BASE = 0.98f
 internal const val LYRIC_ROW_SCALE_AMPLITUDE = 0.16f
 internal const val LYRIC_ROW_SCALE_MAX = 1.35f
 
-// 折行测量专用的固定字重：折行点只应由文本内容与可用宽度决定。
-// 渲染字重随高亮态在 Medium/Normal 间切换，若折行也沿用渲染字重，同一行在高亮前后会量出不同的
-// 折行点，表现为行被高亮放大时重新折行、行数跳变。固定字重后折行结果对高亮态不敏感，
-// 放大余量由 LYRIC_ROW_SCALE_MAX 预留的宽度承担，故此处取基准字重即可
+// 折行用固定字重，避免高亮时折行点跳变
 internal val LYRIC_WRAP_FONT_WEIGHT = FontWeight.Normal
 
-// 普通歌词（无逐字时序）：按字均分时间整行顺序点亮，正在演唱的字高亮从左到右扫过并叠加弹簧跳动；
-// 点亮时长留出行尾提前量，末字在切到下一行前完整亮满
+// 无逐字时序：按字均分点亮，行尾留提前量
 @Composable
 internal fun LineFillLyricText(
     line: LyricLine,
@@ -80,23 +75,23 @@ internal fun LineFillLyricText(
 ) {
     val lineDuration = (nextTimeMs - line.timeMs).coerceAtLeast(1L)
     val totalLen = line.text.length.coerceAtLeast(1)
-    // 提前量恒小于行时长，按字均分后仍有正的每字时长
+    // 提前量小于行时长，每字时长仍为正
     val perCharMs = (lineDuration - lyricEndLeadMs(line, nextTimeMs)) / totalLen.toFloat()
 
-    // 当前正在演唱的字下标：仅当前行且已开唱才计算，唱完时停在末字
+    // 当前演唱的字下标，未开唱为 -1
     val currentCharIdx = if (isCurrent && positionMs > line.timeMs) {
         ((positionMs - line.timeMs).toFloat() / perCharMs).toInt().coerceIn(0, totalLen - 1)
     } else {
         -1
     }
-    // 行内已播放时长折算成字符级进度：当前字的亮起比例由其与整数的差值决定
+    // 行内已播时长折算为字符级进度
     val charProgress = if (isCurrent && positionMs > line.timeMs) {
         (positionMs - line.timeMs).toFloat() / perCharMs
     } else {
         -1f
     }
 
-    // 逐字独立渲染无法借助 Text 软换行，按传入的可用宽度手动分行
+    // 逐字渲染无法软换行，按宽度手动分行
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = alignment.columnAlignment,
@@ -132,8 +127,7 @@ internal fun LineFillLyricText(
     }
 }
 
-// 单个歌词字：未唱为待唱色，已唱为高亮色；正在演唱的字高亮按 fillFraction 从左到右
-// 逐渐亮起。待唱层与高亮层共用同一文本布局绘制，逐像素对齐，避免缩放跳起时错位
+// 单字：待唱层与高亮层共用布局，逐像素对齐
 @Composable
 internal fun LyricChar(
     text: String,
@@ -145,8 +139,7 @@ internal fun LyricChar(
     pendingColor: Color,
     shadowBlurRadius: Float,
 ) {
-    // 跳起与落下均渐进过渡：新字柔和弹起的同时旧字缓缓回落，
-    // 两者在时间上重叠，形成连续流动感，避免瞬间落下/瞬间跳起的突兀
+    // 跳起与回落重叠过渡，形成流动感
     val emphasis = remember { Animatable(0f) }
     LaunchedEffect(filling) {
         emphasis.animateTo(
@@ -164,7 +157,7 @@ internal fun LyricChar(
             },
         )
     }
-    // 位置进度按采样周期跳跃推进，用线性 tween 平滑成连续亮起动画
+    // 线性 tween 把跳跃进度平滑成连续亮起
     val highlightFraction by animateFloatAsState(
         targetValue = fillFraction,
         animationSpec = tween(
@@ -175,7 +168,7 @@ internal fun LyricChar(
     )
     val density = LocalDensity.current
     val floatPx = with(density) { 0.05f * fontSize.toPx() }
-    // 文本样式与 Text 组件默认行为一致（沿用 LocalTextStyle），保证布局高度准确
+    // 样式沿用 LocalTextStyle，保证行高准确
     val textMeasurer = rememberTextMeasurer()
     val currentTextStyle = LocalTextStyle.current
     val layout = remember(text, fontSize, fontWeight, currentTextStyle) {
@@ -190,7 +183,7 @@ internal fun LyricChar(
     Box(
         modifier = Modifier
             .graphicsLayer {
-                // 跳起效果：弹簧放大带过冲 + 轻微上浮
+                // 弹簧放大带过冲并轻微上浮
                 scaleX = 1f + 0.14f * emphasis.value
                 scaleY = 1f + 0.14f * emphasis.value
                 translationY = -floatPx * emphasis.value
@@ -200,9 +193,9 @@ internal fun LyricChar(
                 height = with(density) { layout.size.height.toDp() },
             )
             .drawWithContent {
-                // 待唱层：整字待唱色
+                // 待唱层整字铺待唱色
                 drawText(layout, color = pendingColor, topLeft = Offset.Zero)
-                // 高亮层：按已亮起比例从左到右裁剪露出，发光随高亮区域显示
+                // 高亮层按已亮比例裁出，发光随之显示
                 clipRect(right = size.width * highlightFraction.coerceIn(0f, 1f)) {
                     drawText(layout, color = activeColor, shadow = glowShadow, topLeft = Offset.Zero)
                 }
@@ -214,10 +207,10 @@ private const val LINE_CHAR_SHADOW_BLUR = 5f
 
 private const val LYRIC_FILL_SMOOTH_MS = 60
 
-// 演唱结束的字回落用时：与下一字跳起重叠渐变，形成渐落衔接，不宜过短
+// 回落 320ms，与下一字跳起重叠
 private const val LYRIC_JUMP_DOWN_MS = 320
 
-// 按可用宽度分行：行宽超过可用宽度即换行，行尾截断完整单词时回退到最近空格
+// 按可用宽度分行，行尾回退到最近空格
 internal fun wrapLyricText(
     text: String,
     maxWidthPx: Int,
@@ -225,12 +218,12 @@ internal fun wrapLyricText(
     style: TextStyle,
 ): List<String> {
     if (text.isBlank() || maxWidthPx <= 0) return listOf(text)
-    // 整行放得下时免去分行测量
+    // 整行放得下免测量
     if (textMeasurer.measure(AnnotatedString(text), style).size.width <= maxWidthPx) return listOf(text)
     val rows = mutableListOf<String>()
     var lineStart = 0
     while (lineStart < text.length) {
-        // 逐字扩展行前缀，找到首个超过可用宽度的位置
+        // 逐字扩展找到首个超宽位置
         var end = lineStart
         while (end < text.length && textMeasurer.measure(
                 AnnotatedString(text.substring(lineStart, end + 1)), style,
@@ -242,7 +235,7 @@ internal fun wrapLyricText(
             rows.add(text.substring(lineStart))
             break
         }
-        // 行尾落在单词中间时回退到最近的空格断行，避免截断完整单词
+        // 行尾在词中时回退到最近空格
         var breakAt = end
         var j = end
         while (j > lineStart) {
@@ -252,7 +245,7 @@ internal fun wrapLyricText(
             }
             j--
         }
-        // 窄屏下至少放入一个字符，避免出现空行
+        // 至少放入一个字符，避免空行
         if (breakAt <= lineStart) breakAt = lineStart + 1
         rows.add(text.substring(lineStart, breakAt))
         lineStart = breakAt
@@ -262,31 +255,23 @@ internal fun wrapLyricText(
     return rows
 }
 
-// 滚动过渡时长：下一行起点一到，当前行即停止居中并滚动退场（与歌词面板的跟随动画同源）。
-// 点亮须在滚动开始前完成，否则会看到半亮的末字被滚走
+// 滚动过渡 400ms，点亮须先完成
 internal const val LYRIC_SCROLL_TRANSITION_MS = 400
 
-// 末字时长系数：歌词只给字起点、不给时长时，末字按平均字时长的该倍数估出收尾时刻，
-// 略微留出尾音余量，而不是一路拉到下一行起点
+// 无时长时末字按平均字时长的 1.2 倍估收尾
 private const val LYRIC_LAST_UNIT_DURATION_FACTOR = 1.2f
 
-// 行尾提前量：整行（或逐字末词）点亮在切到下一行前完成的余量。
-//
-// 点亮终点取「末字自然收尾」与「下一行起点 − 滚动过渡时长」的较小者：
-// 前者由末字起点加上平均字时长乘系数估得，让末字按自己的节奏完整亮起；
-// 后者保证滚动开始时整行已经亮满。下一行起点是硬边界，终点绝不越过它。
-// 各处歌词渲染共用本函数，使整行与逐字两种口径、迷你条与完整播放器的末尾行为一致
+// 行尾提前量：取末字收尾与滚动前的较小者
 internal fun lyricEndLeadMs(line: LyricLine, nextTimeMs: Long): Long {
     val lineDuration = (nextTimeMs - line.timeMs).coerceAtLeast(1L)
-    // 行短于两倍过渡时长时余量至多占半行，避免把整行点亮压成一瞬
+    // 行短于两倍过渡时长时余量至多占半行
     val scrollLeadMs = minOf(LYRIC_SCROLL_TRANSITION_MS.toLong(), lineDuration / 2)
     val fillEndMs = minOf(lyricNaturalEndMs(line, nextTimeMs), nextTimeMs - scrollLeadMs)
-    // 提前量恒小于行时长，按字/按词均分后仍有正的点亮时长
+    // 提前量恒小于行时长，点亮时长仍为正
     return (nextTimeMs - fillEndMs).coerceIn(0L, lineDuration - 1L)
 }
 
-// 末字自然收尾时刻：有时长按源给的终点；只有字起点时按末词之前各字的平均字时长估出末字时长，
-// 不再把它拉长到下一行起点。无逐字时序时按字均分整行，末字正好唱到行尾
+// 末字自然收尾：有时长用源终点，否则按平均字时长估
 private fun lyricNaturalEndMs(line: LyricLine, nextTimeMs: Long): Long {
     val words = line.words
     if (words.isEmpty()) return nextTimeMs
@@ -297,18 +282,15 @@ private fun lyricNaturalEndMs(line: LyricLine, nextTimeMs: Long): Long {
     val avgCharMs = if (leadingChars > 0) {
         (lastWord.startMs - line.timeMs).toFloat() / leadingChars
     } else {
-        // 整行只有一个词时没有更早的字可参照，按整行均分
+        // 整行只有一个词时按整行均分
         (nextTimeMs - line.timeMs).toFloat() / lastChars
     }
     return lastWord.startMs +
         (lastChars * avgCharMs * LYRIC_LAST_UNIT_DURATION_FACTOR).roundToLong()
 }
 
-// 词终点：优先取词自身的时长；增强 LRC 只提供起点（duration 为 0）时用下一个词的起点兜底，
-// 末词用下一行起点兜底，保证每个词都有可用的起止区间。
-// [tailLeadMs] 为末词的行尾提前量：逐字时序常把末字延伸到句尾，末词终点因而正落在切行时刻上，
-// 整行高亮要到切到下一行那一刻才刚完成。传入正值即把末词终点提前该值，使最后一个词在切行前
-// 完整点亮；末词自身区间容不下提前量时保持原终点，避免把整词压成瞬间点亮
+// 词终点：优先用词时长，否则用下一词起点，末词用行起点
+// tailLeadMs 把末词终点提前，使其在切行前亮完
 internal fun lyricWordEnds(
     words: List<LyricWord>,
     nextTimeMs: Long,
@@ -324,7 +306,7 @@ internal fun lyricWordEnds(
     val lastIndex = ends.lastIndex
     if (tailLeadMs <= 0L || lastIndex < 0) return ends
     val leadEnd = nextTimeMs - tailLeadMs
-    // 末词起点已越过提前后的终点（贴近行尾的短词）时保持原终点，不硬挤出提前量
+    // 短词贴近行尾时保持原终点，不硬挤提前量
     return if (ends[lastIndex] > leadEnd && leadEnd > words[lastIndex].startMs) {
         ends.toMutableList().also { it[lastIndex] = leadEnd }
     } else {
@@ -332,10 +314,7 @@ internal fun lyricWordEnds(
     }
 }
 
-// 逐字歌词的行内点亮比例：已唱完的词按整词字数计入，正在演唱的词按词内已过时长折算到字数，
-// 返回整行已点亮字符占比。总字数按词文本累计，与 [LyricLine.text] 同源，故该比例可直接
-// 折算成文字宽度上的点亮边缘；词起点与时长都不均匀（词间可能存在空隙），
-// 因此不做「整行时长按词数均分」的近似
+// 整行已点亮字符占比，按词内时长折算
 internal fun lyricWordFillFraction(
     words: List<LyricWord>,
     wordEnds: List<Long>,
@@ -346,7 +325,7 @@ internal fun lyricWordFillFraction(
     var filledChars = 0f
     words.forEachIndexed { index, word ->
         val start = word.startMs
-        // 至少留 1ms 区间：零时长词不能除零，也不能整词瞬间跳过
+        // 至少 1ms 区间，零时长词不除零
         val end = wordEnds[index].coerceAtLeast(start + 1)
         val charCount = word.text.length
         filledChars += when {
@@ -358,10 +337,7 @@ internal fun lyricWordFillFraction(
     return (filledChars / totalChars).coerceIn(0f, 1f)
 }
 
-// 逐字歌词：严格按每个词自身的起止时间做卡拉OK式点亮——已唱完的词整词高亮，
-// 正在演唱的词内逐字从左到右亮起并叠加弹簧跳动。词时序来自歌词源，起点与时长都不均匀
-// （词间可能存在空隙），故不做「整行时长按词数均分」的近似；末词终点另按行尾提前量收窄，
-// 与无词时序时的按字均分口径一致，最后一个词同样在切到下一行前完整点亮
+// 逐字歌词：按词起止做卡拉OK式点亮，末词按行尾提前量收窄
 @Composable
 internal fun WordSplitLyricText(
     line: LyricLine,
@@ -376,18 +352,18 @@ internal fun WordSplitLyricText(
     alignment: LyricAlignment,
     modifier: Modifier = Modifier,
 ) {
-    // 词终点与迷你条歌词共用同一套换算，两处点亮时序一致
+    // 词终点与迷你条共用同一换算
     val wordEnds = remember(line.words, nextTimeMs, line.timeMs) {
         lyricWordEnds(line.words, nextTimeMs, tailLeadMs = lyricEndLeadMs(line, nextTimeMs))
     }
 
-    // 词独立渲染无法借助 Text 软换行，按传入的可用宽度将整行词分成多行：英文词保持完整不截断
+    // 按宽度分行，英文词保持完整
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = alignment.columnAlignment,
     ) {
         val textMeasurer = rememberTextMeasurer()
-        // 与按字分行同口径：折行量宽用固定字重，不随当前行加粗而改变折行点
+        // 折行量宽用固定字重
         val wrapStyle = LocalTextStyle.current.merge(
             TextStyle(fontSize = fontSize, fontWeight = LYRIC_WRAP_FONT_WEIGHT),
         )
@@ -403,12 +379,12 @@ internal fun WordSplitLyricText(
                 rowWords.forEach { word ->
                     val index = globalIdx++
                     val wordStart = word.startMs
-                    // 至少留 1ms 区间：零时长词不能除零，也不能整词瞬间跳过
+                    // 至少 1ms 区间，零时长词不除零
                     val wordEnd = wordEnds[index].coerceAtLeast(wordStart + 1)
                     val isWordSung = isCurrent && positionMs >= wordEnd
                     val isWordCurrent = isCurrent && positionMs >= wordStart && positionMs < wordEnd
                     val charCount = word.text.length.coerceAtLeast(1)
-                    // 当前词内已演唱的字符级进度：按词内已过时长占词时长比例折算到字数
+                    // 当前词内已唱字符进度
                     val wordCharProgress = if (isWordCurrent) {
                         (positionMs - wordStart).toFloat() / (wordEnd - wordStart) * charCount
                     } else {
@@ -419,12 +395,12 @@ internal fun WordSplitLyricText(
                     } else {
                         -1
                     }
-                    // 词保持整体排版，词内逐字渲染以支持单字亮起与跳动；词间间距由词文本自带空格保留
+                    // 词内逐字渲染，词间空格随词文本保留
                     Row(
                         horizontalArrangement = Arrangement.Center,
                     ) {
                         word.text.forEachIndexed { charIdx, ch ->
-                            // 仅当前演唱词中当前正在演唱的字触发跳动，其余字保持静态
+                            // 仅当前演唱字的当前字触发跳动
                             val isFilling = isWordCurrent && charIdx == currentCharIdx
                             LyricChar(
                                 text = ch.toString(),
@@ -450,7 +426,7 @@ internal fun WordSplitLyricText(
 
 private const val WORD_CHAR_SHADOW_BLUR = 7f
 
-// 按可用宽度分配逐字歌词的词：累加词宽超过宽度上限时换行，单个词保持完整不截断
+// 按宽度分配词，词保持完整
 private fun wrapLyricWords(
     words: List<LyricWord>,
     maxWidthPx: Int,
@@ -462,7 +438,7 @@ private fun wrapLyricWords(
     var rowWidth = 0
     words.forEach { word ->
         val wordWidth = textMeasurer.measure(AnnotatedString(word.text), style).size.width
-        // 当前行加不下下一个词时提前换行；词本身超宽时强制独占一行
+        // 放不下则换行，超宽词独占一行
         if (row.isNotEmpty() && rowWidth + wordWidth > maxWidthPx) {
             rows.add(row.toList())
             row.clear()

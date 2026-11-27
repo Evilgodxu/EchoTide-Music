@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 
-// 权限类型：系统特殊权限走设置页，运行时权限走系统授权弹窗
+// 权限类型：特殊权限走设置页，运行时走弹窗
 enum class PermissionType {
     OVERLAY,                 // 悬浮窗（系统特殊权限）
     MANAGE_EXTERNAL_STORAGE, // 全部文件（系统特殊权限）
@@ -56,7 +56,7 @@ class PermissionMonitor(private val context: Context) {
     fun isNotificationGranted(): Boolean =
         context.checkSelfPermission(notificationPermission()) == PackageManager.PERMISSION_GRANTED
 
-    // 系统免打扰的读写权：USB 直出期间据此置为完全静音
+    // 免打扰读写权；直出期间据此静音
     fun isNotificationPolicyGranted(): Boolean =
         notificationManager?.isNotificationPolicyAccessGranted == true
 

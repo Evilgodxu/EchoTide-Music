@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
 
-// 分析中占位：分析按全曲推进且不可跳步，只报进度、不提供取消入口
+// 分析中：只报进度，不可取消
 @Composable
 internal fun SpectrumProgress(progress: Float, modifier: Modifier = Modifier) {
     Column(
@@ -46,7 +46,7 @@ internal fun SpectrumProgress(progress: Float, modifier: Modifier = Modifier) {
     }
 }
 
-// 不可分析占位：音频不可解码或源文件已不可访问
+// 不可分析占位
 @Composable
 internal fun SpectrumUnavailable(modifier: Modifier = Modifier) {
     Column(

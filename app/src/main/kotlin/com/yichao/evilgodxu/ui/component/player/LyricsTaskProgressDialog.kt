@@ -20,11 +20,8 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.ui.component.DialogCard
 
 /**
- * 歌词后台任务的进度对话框，供自动补译使用。
- *
- * 这类任务耗时随歌词行数增长，收起对话框只隐藏展示、不中断任务，故按钮语义是「后台继续」而不是「取消」。
- *
- * @param fraction 进度比例；传 null 表示进度未知，按不确定态展示
+ * 歌词后台任务进度：收起不中断，按钮即「后台继续」。
+ * fraction 为 null 时按不确定态展示。
  */
 @Composable
 internal fun LyricsTaskProgressDialog(

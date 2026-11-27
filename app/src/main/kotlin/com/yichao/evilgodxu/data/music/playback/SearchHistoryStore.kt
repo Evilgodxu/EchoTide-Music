@@ -34,12 +34,7 @@ private val Context.searchHistoryDataStore: DataStore<SearchHistoryArchive> by d
     },
 )
 
-/**
- * 搜索历史：最近 10 条，去重且最新的排在最前。
- *
- * DataStore 持有持久化状态；内存中的 [entries] 只服务 Compose 的同步读取，
- * 写入经单一写协程合流，连续输入只落最后一次。
- */
+/** 搜索历史：最近 10 条去重倒序，内存供 Compose */
 internal class SearchHistoryStore(context: Context, scope: CoroutineScope) {
 
     private companion object {

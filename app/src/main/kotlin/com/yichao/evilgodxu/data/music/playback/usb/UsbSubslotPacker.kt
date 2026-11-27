@@ -4,35 +4,9 @@ import com.yichao.evilgodxu.data.music.playback.PcmConversion
 import java.nio.ByteBuffer
 
 /**
- * 把解码输出打包成设备子槽的字节排布。
- *
- * 规则是**保留最高位字节**：样本统一按左对齐 32 位看待（满幅落在最高位），设备的子槽取它的高
- * [subslotBytes] 个字节——子槽 3 丢掉最低字节，子槽 2 再丢一个。只要源位深不超过 `subslotBytes × 8`
- * 就逐位无损（如 16 位源放进 24 位槽：左移补零，一个比特都没动）。
- *
- * 因此调用方必须先确认子槽容得下源位深再打包：[planUsbOutput] 已经把这一步挡在选择之前，本函数不做
- * 静默降级——源位深更深时低位会被直接丢弃，而"少了几位"这种事在听感上未必立刻可辨，比直接失败更难查。
- *
- * 音量按 15 位定点增益施加：raw 路径绕过了混音器，`AudioManager` 的音量与音效都不再作用于这条流，
- * 系统音量滑杆若想要有用就只能自己做。起止增益相同且为满幅时整段缩放不参与，写出仍是逐位原样——独占
- * 直出的价值正在于此，不该因为一个恒为满幅的乘数而被牺牲掉。小于 1 时按线性幅度缩放（与媒体3 的音量
- * 口径一致）；缩放要丢的精度由 [writeSubslot] 按目标子槽的 LSB 四舍五入兜住。
- *
- * 位深不是无限的：衰减是拿位深换响度，16 位子槽上一个 LSB 就是 -90 dBFS。故 [planUsbOutput] 给窄源
- * 留了一档余量（见该函数的说明），本函数只负责在这一档内把误差压到最小。
- *
- * 起止增益不同即在**本块缓冲内**逐样本斜到目标值：音量键按下即生效，而一次改动不会在缓冲边界上留一个
- * 台阶。台阶本身未必听成咔哒，但每块缓冲都来一次就是持续的背景噪声。
- *
- * 斜坡的长度由 [rampSamples] 给出。默认按整块均分（音量改动的场景：本块走到目标值，下一块从目标值接上）；
- * 由调用方指定样本数时，斜坡只在该数内走完、其余样本恒为目标增益——起播渐入必须如此：把 5ms 的渐入摊到
- * 一整块（几十毫秒）上，听感就从"起音"变成了"淡入"。
- *
- * 打包留在 Kotlin 而非原生层，是因为它是可判定的纯变换：能在 JVM 上逐字节核对，就不必把正确性押在
- * 真机试听上。
- *
- * @param rampSamples 斜坡覆盖的样本数；[RAMP_WHOLE_BLOCK] 表示按整块均分
- * @return 末尾凑不满一个样本的字节数，正常为 0
+ * 打包成设备子槽：样本左对齐 32 位。
+ * 音量按 15 位定点，满幅时逐位原样。
+ * 返回末尾不足一个样本的字节数。
  */
 internal fun packToSubslot(
     source: ByteBuffer,
@@ -52,7 +26,7 @@ internal fun packToSubslot(
             writeSubslot(output, if (applyGain) scaleByGain(value, gainFromQ15) else value, subslotBytes)
         }
     } else if (rampSamples == RAMP_WHOLE_BLOCK) {
-        // 斜坡按本块样本数均分：末样本正好落在目标增益上，下一块即从目标值接着走
+        // 按本块均分：末样本落在目标，下一块续走
         val samples = source.remaining() / bytesPerSourceSample
         val span = (samples - 1).coerceAtLeast(1)
         var index = 0
@@ -63,7 +37,7 @@ internal fun packToSubslot(
             index++
         }
     } else {
-        // 定长斜坡：第 span 个样本起就是目标增益，块内其余样本不再变化
+        // 定长斜坡：第 span 个起即为目标增益
         val span = minOf(rampSamples, source.remaining() / bytesPerSourceSample).coerceAtLeast(0)
         val last = (span - 1).coerceAtLeast(0)
         var index = 0
@@ -71,7 +45,7 @@ internal fun packToSubslot(
             val value = PcmConversion.readAs32BitIntPcm(source, pcmEncoding)
             val gain = when {
                 index >= span -> gainToQ15
-                // 斜坡只有一个样本时无从插值，取起点值：下一个样本即落在目标上
+                // 只有一个样本时无从插值，取起点值
                 span <= 1 -> gainFromQ15
                 else -> gainFromQ15 + ((gainToQ15 - gainFromQ15).toLong() * index / last).toInt()
             }
@@ -88,24 +62,13 @@ internal fun packToSubslot(
 }
 
 /**
- * 写出一个样本的高 [subslotBytes] 个字节，小端。
- *
- * 左对齐 32 位下，源的有效位落在最高字节一侧；跳过最低的 `4 - subslotBytes` 个字节即得到目标排布。
- * 子槽 4 时跳过 0 字节，即整字照搬。
- *
- * 丢低位前先按目标子槽的 LSB **四舍五入**：直接算术右移是向下取整，负样本一律多减一档，长期是半个
- * LSB 的直流偏置，且把量化误差做成与信号相关。位深越浅、衰减越深，这笔误差越盖过低电平内容——16 位
- * 子槽上一个 LSB 就是 -90 dBFS，默认 -30 dB 的衰减把 -60 dBFS 的细节正好压到 1 个 LSB 上，听感即
- * "背景细节变成发毛的噪声"。四舍五入把误差收到 ±½ LSB 且均值为零，是这一位精度下的最小误差。
- *
- * 已经落在整 LSB 上的值不受影响：满幅时低字节本就是零，加半个 LSB 之后再移位不会改动任何一个目标
- * 字节，故"满幅逐位原样"的契约不变。**不做抖动**——抖动拿 -90 dBFS 的噪声换掉相关失真，改变的是数据
- * 本身，满幅分支上更等于把"逐位无损"变成"逐位加噪"。要深衰减又不掉细节，出路是给子槽留余量
- * （见 [planUsbOutput] 的软件音量余量），不是在末端加噪。
+ * 写一个样本的高 subslotBytes 字节，小端。
+ * 丢低位前按目标 LSB 四舍五入。
+ * 不做抖动，深衰减靠子槽余量。
  */
 internal fun writeSubslot(output: ByteBuffer, value: Int, subslotBytes: Int) {
     val skip = 4 - subslotBytes
-    // 满幅正值加半个 LSB 会越过 Int 上界，故在 Long 里加完再钳回
+    // 满幅加半 LSB 会越过 Int，先在 Long 加
     val rounded = if (skip == 0) {
         value
     } else {
@@ -121,20 +84,17 @@ internal fun writeSubslot(output: ByteBuffer, value: Int, subslotBytes: Int) {
 /** 15 位定点的满幅增益：等于不缩放 */
 internal const val UNITY_GAIN_Q15 = 32768
 
-/** 斜坡按整块样本数均分；由调用方给定样本数时斜坡只在该数内走完 */
+/** 斜坡按整块均分，给定样本数则只走该数 */
 internal const val RAMP_WHOLE_BLOCK = -1
 
 /**
- * 音量换算成 15 位定点增益。
- *
- * 满幅及以上一律取满幅：独占链路上放大没有意义（源已按满幅送出），而超出满幅的乘数会把样本推过
- * 整型边界、听到的是削顶失真。
+ * 音量换算成 15 位定点，满幅及以上取满幅。
  */
 internal fun volumeToGainQ15(volume: Float): Int {
     if (volume >= 1f) return UNITY_GAIN_Q15
     return (volume.coerceAtLeast(0f) * UNITY_GAIN_Q15).toInt()
 }
 
-/** 按定点增益缩放：带半步进位，长期平均才不偏向负值一侧 */
+/** 按定点增益缩放，带半步进位，长期均值不偏负 */
 private fun scaleByGain(value: Int, gainQ15: Int): Int =
     ((value.toLong() * gainQ15 + UNITY_GAIN_Q15 / 2) shr 15).toInt()

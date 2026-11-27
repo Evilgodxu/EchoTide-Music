@@ -7,12 +7,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * 响度计：K 加权 + 两级门限的整体响度统计。
- *
- * 用合成波形验证口径而不是比对某个文件的结果：满幅正弦在 1 kHz 处的响度可以手算，
- * 系数推导错一位、门限用总和而非均值、偏移常数写反，都会立刻偏离这个值。
- */
+/** K 加权 + 两级门限的整体响度 */
 class LoudnessMeterTest {
 
     private fun feed(meter: LoudnessMeter, frequency: Double, amplitude: Double, seconds: Double, sampleRate: Int) {
@@ -32,8 +27,7 @@ class LoudnessMeterTest {
 
     @Test
     fun `满幅一半的千赫兹正弦响度约负九点零七LUFS`() {
-        // 幅度 0.5 的正弦均方为 0.125 → -0.691 + 10·log10(0.125) = -9.72，
-        // 再叠加 K 加权在 1 kHz 处的 +0.65 dB（BS.1770 系数），得 -9.07 LUFS
+        // -9.72 + K 加权 0.65dB 得 -9.07
         val meter = LoudnessMeter(sampleRate = 48_000, channels = 1)
         feed(meter, frequency = 1_000.0, amplitude = 0.5, seconds = 3.0, sampleRate = 48_000)
         val result = meter.result()!!
@@ -48,7 +42,7 @@ class LoudnessMeterTest {
         feed(meter, frequency = 1_000.0, amplitude = 0.5, seconds = 3.0, sampleRate = 48_000)
         val result = meter.result()!!
 
-        // 目标 -18 LUFS，测到 -9.07 时增益约 -8.93 dB
+        // -18 目标，-9.07 增益 -8.93
         assertEquals(-8.93, result.gainDb, 0.1)
         assertEquals(-18.0, result.loudnessLufs + result.gainDb, 0.001)
     }
@@ -93,7 +87,7 @@ class LoudnessMeterTest {
 
     @Test
     fun `峰值取原始样本而非滤波后样本`() {
-        // 低频信号经过高通会被衰减，峰值仍应取自原始样本
+        // 峰值取原始样本，不取滤波后
         val meter = LoudnessMeter(sampleRate = 48_000, channels = 1)
         feed(meter, frequency = 60.0, amplitude = 0.8, seconds = 2.0, sampleRate = 48_000)
         val result = meter.result()!!

@@ -8,26 +8,19 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * 把 ALAC 解出的一帧写成切片器可消费的交错浮点 PCM。
- *
- * 存在的理由是字节序：切片器按 [PcmFormat] 解释样本，其中浮点样本按小端读，而落盘的字节序
- * 由写入方决定——写成大端不会报任何错，只会让频谱静默退化成噪声。故字节序在此钉死，
- * 与 [PcmFormat] 成对出现，改动须同时改两处。
- *
- * 中间表示取浮点而非整型：频谱只关心幅度，浮点免去「源码位深 × 输出编码」的字长换算，
- * 解码精度也不因中间表示受损。
+ * 把 ALAC 帧写成交错浮点 PCM。
+ * 小端，须与 PcmFormat 一致。
  */
 internal class AlacFramePcm(private val config: AlacSpecificConfig) {
 
-    // 容量按整帧预置：解码缓冲的样本数上界即帧长，逐帧复用同一块，不随帧数增长
+    // 按整帧预置容量，逐帧复用同一块
     private val buffer: ByteBuffer =
         ByteBuffer.allocate(config.frameLength * config.channelCount * Float.SIZE_BYTES)
             .order(ByteOrder.LITTLE_ENDIAN)
 
     /**
-     * 写入 [decoder] 当前解出的帧；返回位置为 0、上界为本帧字节数的视图。
-     *
-     * 返回的缓冲在下次 [encode] 前有效：逐帧复用是这里唯一的取舍，调用方用完即交出去。
+     * 写入当前帧，返回本帧视图。
+     * 缓冲逐帧复用，下次 encode 前有效。
      */
     fun encode(decoder: AlacFrameDecoder): ByteBuffer {
         val samples = decoder.sampleCount

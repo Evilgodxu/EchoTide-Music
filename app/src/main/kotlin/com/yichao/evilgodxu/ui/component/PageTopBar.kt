@@ -20,11 +20,11 @@ import androidx.compose.ui.res.stringResource
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 二级页面标题栏：返回按钮防抖，避免快速连点重复出栈导致崩溃
+// 二级页标题栏，返回按钮防抖
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PageTopBar(title: String, onBack: () -> Unit, modifier: Modifier = Modifier) {
-    // 上次返回点击时刻，用于 400ms 内的重复点击拦截
+    // 记录上次点击，400ms 内忽略
     var lastBackClickAt by remember { mutableLongStateOf(0L) }
     TopAppBar(
         modifier = modifier,

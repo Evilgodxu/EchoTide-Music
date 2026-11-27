@@ -42,21 +42,16 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
-// 条目改动的落盘延迟：每次输入都重写整段音频，逐键写入会把同一份音频反复搬运。
-// 以停顿为界合并连续输入，用户停止输入后统一写一次
+// 输入停顿 600ms 后合并落盘，避免反复重写音频
 private const val AUTO_SAVE_DEBOUNCE_MS = 600L
 
-// 同专辑封面候选的数量上限：面板是横向排列的缩略图，取满一屏可看完的数量即可，
-// 继续读图只是把已被裁掉的候选也算一遍
+// 同专辑封面候选上限：横向缩略图一屏可见即可
 private const val SAME_ALBUM_COVER_LIMIT = 5
 
-// 同专辑封面候选的扫描上限：同专辑曲目通常只有十几首，上限用于挡住专辑名判等过宽时的大范围遍历
+// 同专辑扫描上限：挡住专辑名判等过宽
 private const val SAME_ALBUM_SCAN_LIMIT = 60
 
-/**
- * 元数据编辑页状态持有者：进入页面读取内嵌标签回填表单，
- * 条目改动后自动写回音频文件并同步曲目内存态，页面不再有手动保存入口。
- */
+/** 元数据编辑页状态：读标签回填，改动自动写回音频 */
 class MetadataViewModel(
     application: Application,
     private val playbackState: MusicPlaybackState,
@@ -66,45 +61,36 @@ class MetadataViewModel(
     private val _uiState = MutableStateFlow(MetadataUiState(trackId = trackId))
     val uiState: StateFlow<MetadataUiState> = _uiState.asStateFlow()
 
-    // 文件内嵌标签的原值：作为「哪些字段被改动过」的比较基准，写入成功后随之刷新
+    // 文件内嵌标签原值：判断字段是否改动，写入后刷新
     private var snapshot = TrackTagFields.EMPTY
 
-    // 本次待落盘的封面改动：不改 / 写入给定图 / 删除既有封面
+    // 待落盘的封面改动：不改 / 换图 / 删除
     private var pendingCover: CoverUpdate = CoverUpdate.Keep
 
-    // 待落盘的字段改动：同一字段的连续输入只保留最后一次，避免排队重写多遍文件
+    // 待写字段：同字段只留最后一次，避免重写多遍
     private var pending: MutableMap<TagField, String>? = null
-    // 正在写入的那一批值：用户在其间改回快照原值时，仍要据此判断最新期望值是否已写入
+    // 在写的批次：据此判断改回原值是否已写入
     private var inFlight: Map<TagField, String>? = null
     private var saveJob: Job? = null
-    // 单行补译的进行中任务：重新读盘会作废它，避免结果落到已刷新的歌词列表上
+    // 单行补译任务：重新读盘即作废
     private var translateJob: Job? = null
-    // 写入互斥：同一时刻只允许一遍文件重写，并发重写同一文件会相互覆盖
+    // 写入互斥：同一时刻只允许一遍重写
     private val writeMutex = Mutex()
 
     init {
-        // 首次读取兜底：页面进入时还会再调一次 reload，正常情况下此处的结果随即被覆盖；
-        // 保留它是为了让 ViewModel 单独构造（预览、测试）时也有完整状态
+        // 首次读取兜底：预览、测试单独构造时也有状态
         reload()
     }
 
-    /**
-     * 重新读取表单内容，每次进入页面都调用一次。
-     *
-     * ViewModel 按曲目缓存复用于同一次导航会话，只靠 init 会在二次进入时展示上次的旧快照 ——
-     * 用户在别处（在线刷新歌词、改名等）改动过曲目后回到本页，看到的必须是磁盘上的当前值。
-     * 读取期间置 loading，避免旧内容与新内容在界面上交叠。
-     *
-     * 幂等：清空编辑中间态后重新读盘，连续调用只会以最后一次的结果落地
-     */
+    /** 重读回填表单；读取时置 loading */
     fun reload() {
         val target = findTrack()
         if (target == null || !target.isLocalAudioSource) {
-            // 无本地音频文件的曲目（纯在线流）没有可写的标签目标，表单不可编辑
+            // 在线流无本地文件，表单不可编辑
             _uiState.update { it.copy(loading = false, editable = false) }
             return
         }
-        // 曲目引用可能已被上一轮保存整体替换，快照与待写入状态一并按当前曲目重置
+        // 曲目可能已被整体替换，重置快照与待写状态
         resetEditingState()
         _uiState.update {
             it.copy(
@@ -133,7 +119,7 @@ class MetadataViewModel(
         loadTags(target)
     }
 
-    // 把编辑中间态清回初始值：重新读取后此前未提交的改动与提示都不再适用
+    // 清空编辑中间态
     private fun resetEditingState() {
         saveJob?.cancel()
         saveJob = null
@@ -144,7 +130,7 @@ class MetadataViewModel(
         snapshot = TrackTagFields.EMPTY
     }
 
-    // 曲目可能经播放队列或曲库浏览列表进入，两处都查一遍
+    // 队列与曲库各查一次
     private fun findTrack(): MusicTrack? {
         val playbackState = this.playbackState
         return playbackState.playlist.firstOrNull { it.id == trackId }
@@ -158,11 +144,9 @@ class MetadataViewModel(
             val textFields = tags?.fields
             val lyrics = resolveLyrics(target, tags?.lyrics, tags?.lyricsModifiedMs ?: 0L)
             val lines = MusicMetadataCache.parseLyricsText(lyrics)
-            // 有歌词文本却解析不出行，说明格式有问题：这与「本来就没有歌词」是两回事，
-            // 界面须区分二者，否则用户会以为歌词丢了而去找回，实际只是时间戳格式不对
+            // 有文本却解析不出行：格式错，需与无歌词区分
             val lyricsUnparsable = lyrics.isNotBlank() && lines.isEmpty()
-            // 表单初值：文件读不出标签时标题/艺术家/专辑回落到曲目内存态（扫描结果比空表单更接近真实值）；
-            // 歌词以择优结果为准，作为后续「是否改回原值」的比较基准
+            // 初值：读不出标签时回落到曲目内存态
             val initial = TrackTagFields.build {
                 TagField.entries.forEach { field ->
                     val value = when (field) {
@@ -189,11 +173,7 @@ class MetadataViewModel(
         }
     }
 
-    /**
-     * 歌词择优：内嵌歌词与缓存文件是同一份歌词的两个副本，并不总在同一次事务里落盘
-     * ——在线刷新先写缓存再内嵌，内嵌失败时缓存是新的、内嵌是旧的。
-     * 因此取二者中修改时间较新的一个；时间不可比（任一侧取不到）时优先内嵌歌词。
-     */
+    /** 内嵌与缓存取较新的一份；时间不可比时优先内嵌 */
     private suspend fun resolveLyrics(target: MusicTrack, embedded: String?, embeddedMs: Long): String {
         val cachePath = target.lyricCachePath.takeIf { MusicMetadataCache.isValid(getApplication(), it) }
             ?: MusicMetadataCache.findLyrics(getApplication(), target.title, target.artist)
@@ -205,20 +185,18 @@ class MetadataViewModel(
         return when {
             embedded.isNullOrBlank() -> cached?.first.orEmpty()
             cached == null -> embedded
-            // 缓存更新即采用缓存；时间不可比时保持内嵌优先
+            // 缓存更新时用缓存，否则内嵌优先
             cached.second > embeddedMs && embeddedMs > 0L -> cached.first
             else -> embedded
         }
     }
 
-    // 点击条目进入编辑态：同时只允许一行可编辑。切换到其它条目时先提交上一行的原文草稿，
-    // 避免正在编辑的歌词行因切换而丢掉改动
+    // 进入编辑：单行可编辑，切换前先提交草稿
     fun onEditStart(target: MetadataEditTarget) {
         if (_uiState.value.saving || _uiState.value.loading) return
         if (_uiState.value.editing == target) return
         commitLyricDraft()
-        // 歌词原文行预填完整增强 LRC（行时间戳 + 逐字标签 + 文本，不含翻译），
-        // 使时间戳可被完整修改，能力对齐首页歌词编辑模块；全文编辑预填整篇歌词的增强 LRC
+        // 预填完整增强 LRC（不含翻译），时间戳可改
         val draft = when (target) {
             is MetadataEditTarget.LyricLineAt -> _uiState.value.lyricLines.getOrNull(target.index)
                 ?.let { MusicMetadataCache.encodeLyricLine(it, includeTranslation = false) }
@@ -228,21 +206,19 @@ class MetadataViewModel(
         _uiState.update { it.copy(editing = target, message = null, lyricLineDraft = draft) }
     }
 
-    // 结束编辑态：先提交原文草稿再收起输入框。
-    // 由「完成」键与点击其它区域触发，两者都是用户的明确意图，不依赖焦点事件时序
+    // 结束编辑：先提交草稿再收起输入框
     fun onEditEnd() {
         commitLyricDraft()
         _uiState.update { it.copy(editing = null, lyricLineDraft = null) }
     }
 
-    // 字段改写：界面按 [TagField] 统一回调，不必为每个字段各留一个入口
+    // 字段统一回调
     fun onFieldChange(field: TagField, value: String) {
         _uiState.update { it.copy(fields = it.fields + (field to value), message = null) }
         scheduleFieldSave(field, value)
     }
 
-    // 切换歌词全文编辑模式：只切换展示形态，不建立编辑态，
-    // 故进入全文时不会自动弹出键盘；退出前提交可能存在的草稿
+    // 切换全文模式：只换形态，不弹键盘
     fun onLyricsWholeModeToggle() {
         if (_uiState.value.saving || _uiState.value.loading) return
         commitLyricDraft()
@@ -252,14 +228,11 @@ class MetadataViewModel(
         }
     }
 
-    // 原文行内联草稿：仅暂存用户输入，不解析也不落盘。
-    // 编辑过程中文本可能处于中间态（如 <mm:ss.5 标签尚未补全），此时解析会丢字，故等到编辑结束再提交
+    // 原文行草稿：只暂存，编辑结束再解析提交
     fun onLyricRawChange(raw: String) =
         _uiState.update { it.copy(lyricLineDraft = raw, message = null) }
 
-    // 翻译行改写：与原文行互不干扰，留空即清除该行翻译。
-    // 输入过程中原样保留用户文本（含首尾空白）：若按去空白后的值回写状态，
-    // 「敲入的空格」会与当前值相等而被判定成无改动，空格键等于失效；去空白只在落盘边界做
+    // 翻译行改写：留空即清除，去空白只在落盘时做
     fun onLyricTranslationChange(index: Int, text: String) {
         val lines = _uiState.value.lyricLines
         if (index !in lines.indices) return
@@ -269,13 +242,7 @@ class MetadataViewModel(
         scheduleLyricsSave(updated)
     }
 
-    /**
-     * 单行补译：为该行的原文请求译文并并入其翻译行，随后照常自动落盘。
-     *
-     * 目标行由用户在翻译行的长按菜单中显式指定，故不套用整篇补译的「歌词正文行」规则。
-     * 译文回来时按发起时的原文校验目标行 —— 请求期间用户可能改写或增删了歌词，
-     * 下标所指的行已不是发起时那一行，此时丢弃结果，避免把译文写到别的行上。
-     */
+    /** 单行补译：译文回来按原文校验，行已变则丢弃 */
     fun onLyricLineTranslate(index: Int) {
         val state = _uiState.value
         if (state.saving || state.loading || state.translatingLine != null) return
@@ -290,7 +257,7 @@ class MetadataViewModel(
         translateJob = viewModelScope.launch {
             when (val outcome = autoTranslateLyricLine(source)) {
                 is TranslateLineOutcome.Applied -> applyLineTranslation(index, source, outcome.translation)
-                // 原文已是中文、或译文与原文相同：都是正常结果，用普通提示而非报错
+                // 原文已是中文或译文相同：普通提示
                 TranslateLineOutcome.SameLanguage -> _uiState.update {
                     it.copy(messageIsError = false, message = message(R.string.music_panel_auto_translate_same_language))
                 }
@@ -305,7 +272,7 @@ class MetadataViewModel(
         }
     }
 
-    // 把译文并入指定行：仅当该行原文仍是发起补译时的文本才写入，否则视为行已错位而丢弃
+    // 原文已变则丢弃译文
     private fun applyLineTranslation(index: Int, source: String, translation: String) {
         val lines = _uiState.value.lyricLines
         val current = lines.getOrNull(index) ?: return
@@ -317,13 +284,7 @@ class MetadataViewModel(
         scheduleLyricsSave(updated)
     }
 
-    /**
-     * 提交歌词草稿：把内联编辑的增强 LRC 解析回歌词。
-     *
-     * 逐行编辑整体替换该行（解析结果可能拆分为多行，与首页一致），全文编辑整体替换整篇。
-     * 解析不出行时保留原歌词并提示格式问题，避免一次误删时间戳前缀就丢掉内容。
-     * 翻译不由原文入口维护，逐行提交后按原值保留。
-     */
+    /** 解析增强 LRC；失败保留原词并提示 */
     private fun commitLyricDraft() {
         val draft = _uiState.value.lyricLineDraft ?: return
         val target = _uiState.value.editing ?: return
@@ -347,13 +308,13 @@ class MetadataViewModel(
             MetadataEditTarget.LyricsWhole -> parsed
             else -> return
         }
-        // 文本未变（如仅打开又退出）时不做任何写入与状态刷新
+        // 文本未变则不写入
         if (updated == lines) return
         _uiState.update { it.copy(lyricLines = updated) }
         scheduleLyricsSave(updated)
     }
 
-    // ---- 封面 ----
+    // 封面
 
     fun onCoverSelected(bytes: ByteArray) {
         pendingCover = CoverUpdate.Set(bytes)
@@ -364,7 +325,7 @@ class MetadataViewModel(
                 message = null,
             )
         }
-        // 封面是一次性的选择结果，不参与逐键输入，直接落盘
+        // 一次性选择，直接落盘
         scheduleSave()
     }
 
@@ -374,7 +335,7 @@ class MetadataViewModel(
         scheduleSave()
     }
 
-    // 保存封面：把界面当前展示的封面存入系统相册（未落盘的选定封面也能保存）
+    // 保存当前封面到相册，含未落盘封面
     fun onCoverExport() {
         val state = _uiState.value
         if (state.exportingCover) return
@@ -405,7 +366,7 @@ class MetadataViewModel(
         }
     }
 
-    // 打开同专辑封面选择面板：面板一打开即开始读取候选，避免用户再点一次
+    // 打开即读取候选
     fun onSameAlbumCoversRequest() {
         if (_uiState.value.sameAlbumLoading) return
         _uiState.update { it.copy(sameAlbumVisible = true, sameAlbumLoading = true, sameAlbumCovers = emptyList(), message = null) }
@@ -422,8 +383,7 @@ class MetadataViewModel(
         _uiState.update { it.copy(sameAlbumVisible = false, sameAlbumCovers = emptyList(), sameAlbumLoading = false) }
     }
 
-    // 同名专辑的其它本地曲目的内嵌封面：按内容去重，避免同专辑曲目共用一张图时列出一排相同的候选。
-    // 取满候选上限即停，不再继续读后面的曲目 —— 多读的图最终也要被裁掉
+    // 同专辑其它本地封面：按内容去重，取满即停
     private suspend fun loadSameAlbumCovers(target: MusicTrack): List<ByteArray> = withContext(Dispatchers.IO) {
         val album = target.albumName.trim()
         if (album.isEmpty()) return@withContext emptyList()
@@ -442,7 +402,7 @@ class MetadataViewModel(
         covers
     }
 
-    // ---- 在线刷新封面（复用首页既有的封面搜索与写回能力）----
+    // 在线刷新封面
 
     fun onCoverRefreshOpen() {
         val target = findTrack() ?: return
@@ -472,12 +432,7 @@ class MetadataViewModel(
         _uiState.update { it.copy(coverRefreshSelectedId = candidate.id) }
     }
 
-    /**
-     * 确认在线刷新：把候选封面写入音频文件，并把界面回填为文件中的新封面。
-     *
-     * 本地选定的待写封面在此作废：封面已由本次写入落盘，若继续保留它的待写标记，
-     * 下一次自动落盘会把在线封面重新盖回用户先前选定的本地图。
-     */
+    /** 确认在线刷新：写入候选封面并回填；同时作废本地待写封面 */
     fun onCoverRefreshConfirm() {
         val state = _uiState.value
         if (state.coverRefreshSaving) return
@@ -516,15 +471,9 @@ class MetadataViewModel(
         playbackState.setCoverCandidates(emptyList())
     }
 
-    // ---- 音量增益自算 ----
+    // 音量增益自算
 
-    /**
-     * 本地计算 ReplayGain：整曲解码后按 EBU R128 统计整体响度与峰值，填入单曲增益、峰值与参考响度。
-     *
-     * 专辑增益需要同专辑全部曲目一起统计，单曲分析给不出，故不参与本次填充；
-     * 参考响度虽是测量口径，但它决定了增益的相对基准，须与增益一同写入——
-     * 否则其它播放器拿到增益后无从判断该按哪个基准施加。
-     */
+    /** 整曲解码算单曲增益、峰值与参考响度；专辑增益不参与 */
     fun onReplayGainCompute() {
         val state = _uiState.value
         if (state.replayGainComputing || state.loading || !state.editable) return
@@ -558,7 +507,7 @@ class MetadataViewModel(
         }
     }
 
-    // ---- 在线补全 ----
+    // 在线补全
 
     fun onFillOpen() {
         val target = findTrack() ?: return
@@ -588,7 +537,7 @@ class MetadataViewModel(
         _uiState.update { it.copy(fillOverwrite = overwrite) }
     }
 
-    // 候选确认后进入二级对话框问补全方式：候选面板先收起来，取消时回到候选而不是退出整个流程
+    // 确认候选后进入补全方式对话框，取消可回到候选
     fun onFillConfirm() {
         if (_uiState.value.fillSelectedId == null) return
         _uiState.update { it.copy(fillVisible = false, fillModeVisible = true) }
@@ -598,19 +547,14 @@ class MetadataViewModel(
         _uiState.update { it.copy(fillModeVisible = false, fillVisible = true) }
     }
 
-    /**
-     * 按选定的补全方式写入：以选中候选的详情字段填充表单，逐项走既有的自动落盘路径。
-     *
-     * 字段写入沿用 [onFieldChange]：待写入集与「改回原值」判定都在那一处，
-     * 补全因此与手工输入共享同一条落盘与内存同步逻辑，无需另开写入通道。
-     */
+    /** 填入表单，复用 onFieldChange 落盘 */
     fun onFillApply() {
         val state = _uiState.value
         if (state.fillApplying) return
         val candidate = playbackState.metadataFillCandidates.firstOrNull { it.id == state.fillSelectedId } ?: return
         _uiState.update { it.copy(fillApplying = true) }
         viewModelScope.launch {
-            // 音轨号、碟号、版权只在详情接口里，落地前补一次；失败就用手上这份
+            // 音轨号等只在详情接口，落地前补一次
             val detailed = withTimeoutOrNull(METADATA_FILL_DETAIL_WAIT_MS) { enrichTrackDetail(candidate) } ?: candidate
             val plan = fillPlan(state.fields, detailed, state.fillOverwrite)
             if (plan.isEmpty()) {
@@ -646,17 +590,14 @@ class MetadataViewModel(
         playbackState.metadataFillCandidates = emptyList()
     }
 
-    // ---- 落盘 ----
+    // 落盘
 
-    // 字段待写入值：去空白后的内容。
-    // 等于快照原值时把该字段从待写入集移除 —— 否则「改回原值」会残留上一轮的旧值，
-    // 停顿时仍按旧值重写文件，出现「内容没变也写入」
+    // 字段待写值去空白；等于原值则移出待写集
     private fun scheduleFieldSave(field: TagField, value: String) {
         val current = value.trim()
         val newValue = current.takeIf { it != snapshot[field].orEmpty() }
         if (newValue == null) {
-            // 写盘开始后又改回快照原值：正在写的不是这个值，快照随后会变成写入值，
-            // 仅按快照比较会把这次「改回」丢掉，界面显示原值而文件停在中间值
+            // 写入中改回原值：需补写，否则文件停在中间值
             val writing = inFlight?.get(field)
             if (writing != null && writing != current) {
                 (pending ?: mutableMapOf<TagField, String>().also { pending = it })[field] = current
@@ -670,18 +611,13 @@ class MetadataViewModel(
         scheduleSave()
     }
 
-    /**
-     * 歌词待写入值：与字段同理，改回原歌词时清掉待写入值，避免按旧歌词重写文件。
-     *
-     * 落盘前统一去空白（含翻译行，空串即清除）：界面为了能用空格键而原样保留输入，
-     * 写入与「是否改动」的比较都按去空白后的内容进行 —— 否则只多敲一个空格也会重写整段音频
-     */
+    /** 歌词待写值：改回原词则清除；落盘前统一去空白 */
     private fun scheduleLyricsSave(lines: List<LyricLine>) {
         val normalized = lines.map { it.copy(translation = it.translation?.trim()?.takeIf(String::isNotEmpty)) }
         val encoded = MusicMetadataCache.encodeLyrics(normalized)
         val newValue = normalized.takeIf { it != snapshotLyrics() }
         if (newValue == null) {
-            // 与字段同理：在途歌词不是当前期望内容时，这次改回原歌词仍须补写
+            // 在途歌词不同时仍需补写
             val writing = inFlight?.get(TagField.LYRICS)
             if (writing != null && writing != encoded) {
                 (pending ?: mutableMapOf<TagField, String>().also { pending = it })[TagField.LYRICS] = encoded
@@ -696,19 +632,11 @@ class MetadataViewModel(
         scheduleSave()
     }
 
-    // 快照中的歌词行：以解析结果为准，原文本的换行与空白差异不构成改动
+    // 快照歌词按解析结果比较
     private fun snapshotLyrics(): List<LyricLine> =
         MusicMetadataCache.parseLyricsText(snapshot[TagField.LYRICS].orEmpty())
 
-    /**
-     * 安排一次自动落盘：延迟到输入停顿后执行，期间的新改动合并进同一批。
-     *
-     * 合并的意义在于文件重写成本 —— 每次落盘都要把整段音频重新搬运一遍，
-     * 逐键写入会让同一份音频被反复复制；以停顿为界则一次输入只写一遍。
-     *
-     * 只取消尚未开始的等待，不打断进行中的写入：写入一旦开始就要写完，
-     * 中途取消会留下半截写入且本批改动已在 pending 中被取出，改动将无从补写
-     */
+    /** 停顿后合并落盘；只取消未开始的等待，不打断进行中的写入 */
     private fun scheduleSave() {
         if (_uiState.value.loading || !_uiState.value.editable) return
         saveJob?.cancel()
@@ -718,18 +646,9 @@ class MetadataViewModel(
         }
     }
 
-    /**
-     * 立即落盘尚未到点的改动，供页面离开时调用。
-     *
-     * 写入必须交给页面之外的作用域：本方法由组合的销毁回调触发，viewModelScope 随即
-     * 连同 ViewModel 一起被取消，在其上 launch 的写入会在真正执行前就被取消，
-     * 改动留在 pending 中再也等不到落盘。playbackScope 随播放状态长驻，可作为承接方。
-     *
-     * 不等待写入完成 —— 调用方是组合的销毁回调，阻塞它只会推迟页面切换
-     */
+    /** 立即落盘；交 playbackScope 保证写完 */
     fun flushPending() {
-        // 先把未结束的歌词草稿落入待写入集：草稿只在提交时才成为待写入内容，
-        // 否则用户在全文编辑或原文行编辑中直接离开，最后一次改动会随组合销毁一起丢掉
+        // 先提交未结束的歌词草稿，避免离开时丢失
         commitLyricDraft()
         saveJob?.cancel()
         saveJob = null
@@ -737,21 +656,10 @@ class MetadataViewModel(
         playbackState.playbackScope.launch { flush() }
     }
 
-    /**
-     * 落盘累积的改动：整批字段一次性写回音频文件，成功后同步曲目内存态并重建歌词缓存，
-     * 使列表与播放器立即看到新标题/艺术家/专辑。
-     *
-     * 仅改动过的字段参与写入 —— 未改动的字段缺失，由写入端保留文件原值。
-     *
-     * 写入串行化：并发重写同一文件会相互覆盖，故由互斥量保证同一时刻只有一遍写入；
-     * 等锁期间产生的新改动留在 pending 中，由持锁者的补写轮次或本次接手，不会被丢弃。
-     *
-     * 整段置于 NonCancellable：文件已按批取出待写，中途取消会让这次写入既没写进文件、
-     * 也没能同步内存态与快照，而待写入集已被清空 —— 这批改动就彻底丢了
-     */
+    /** 整批写回并同步内存态；写入串行且不可取消，避免改动丢失 */
     private suspend fun flush() = withContext(NonCancellable) { writeMutex.withLock { drain() } }
 
-    // 逐轮写入直到待写入集为空：写入期间新到达的改动由下一轮接手
+    // 逐轮写入直到待写集为空
     private suspend fun drain() {
         while (true) {
             val changes = pending
@@ -769,7 +677,7 @@ class MetadataViewModel(
                 cover = coverEdit,
             )
             if (!success) {
-                // 失败时把改动退回待写入集：用户仍停留在编辑态，下一次输入或离开页面时再试
+                // 失败退回待写集，下次再试
                 requeue(changes, coverEdit)
                 inFlight = null
                 _uiState.update {
@@ -783,8 +691,7 @@ class MetadataViewModel(
                 lyrics = changes?.get(TagField.LYRICS),
                 coverChanged = coverEdit !is CoverUpdate.Keep,
             )
-            // 写入成功后以本批内容为新基准：此后不再有未落盘改动。
-            // 快照按批推进而非取当前界面值 —— 界面可能已被用户继续改过，那是下一轮要写的
+            // 快照按本批推进，界面后续改动留给下一轮
             snapshot = TrackTagFields.overlay(snapshot) { fields.entries().forEach { (field, value) -> put(field, value) } }
             inFlight = null
             if (coverEdit !is CoverUpdate.Keep) pendingCover = CoverUpdate.Keep
@@ -793,9 +700,7 @@ class MetadataViewModel(
                     saving = false,
                     messageIsError = false,
                     message = message(R.string.metadata_save_done),
-                    // 去空白后的值回填界面，使界面与文件内容一致。
-                    // 只回填「本批写过且界面值仍是本批值」的字段：写入期间用户可能已在改别的字段、
-                    // 或继续在同一字段上输入，用快照覆盖会把那些更新的文本抹掉
+                    // 回填本批写过的字段；界面已改动的保留
                     fields = state.fields.mapValues { (field, current) ->
                         val batch = fields[field]
                         if (batch != null && current.trim() == batch) batch else current
@@ -805,22 +710,17 @@ class MetadataViewModel(
         }
     }
 
-    // 写入失败后把本批改动放回待写入集：与写入期间产生的新改动合并，不覆盖新值
+    // 退回本批改动，不覆盖新改动
     private fun requeue(changes: Map<TagField, String>?, coverEdit: CoverUpdate) {
         if (changes != null) {
             val current = pending ?: mutableMapOf<TagField, String>().also { pending = it }
             changes.forEach { (field, value) -> current.putIfAbsent(field, value) }
         }
-        // 封面写入失败时保留待写入状态，用户下次改动会连同封面一起重试
+        // 封面写入失败保留待写状态，下次重试
         if (coverEdit !is CoverUpdate.Keep && pendingCover is CoverUpdate.Keep) pendingCover = coverEdit
     }
 
-    /**
-     * 内存态同步：标题/艺术家/专辑写回曲目，歌词重解析为时间轴后落缓存，
-     * 使播放器立即按新字段刷新而不必重新扫描曲库。
-     *
-     * 歌词缓存索引按「标题 - 艺术家」命名，两者任一被改动即换了文件名，故按新字段重建缓存。
-     */
+    /** 同步曲目内存态并重建歌词缓存，播放器立即刷新 */
     private suspend fun applyToMemory(
         target: MusicTrack,
         fields: TrackTagFields,
@@ -833,7 +733,7 @@ class MetadataViewModel(
         fields[TagField.ARTIST]?.let { updated = updated.copy(artist = it) }
         fields[TagField.ALBUM]?.let { updated = updated.copy(albumName = it) }
         if (lyrics != null) {
-            // 歌词缓存写入是文件 IO，切到 IO 调度，避免在主线程上落盘
+            // 歌词缓存写盘切到 IO
             val lines = MusicMetadataCache.parseLyricsText(lyrics)
             val path = withContext(Dispatchers.IO) {
                 MusicMetadataCache.saveLyrics(getApplication(), updated.title, updated.artist, lines)
@@ -845,8 +745,7 @@ class MetadataViewModel(
             )
         }
         state.updateTrack(updated)
-        // 封面字节随文件重写而变（写入新图或移除内嵌封面），作废显示端的封面缓存，
-        // 使列表与播放器取到新图而不是旧缩略图
+        // 封面变化，作废显示端缓存
         if (coverChanged) state.coverCache.bumpCoverRevision()
     }
 

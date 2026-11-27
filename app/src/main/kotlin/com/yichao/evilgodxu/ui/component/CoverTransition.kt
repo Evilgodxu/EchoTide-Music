@@ -26,34 +26,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 封面换图（略缩图升清、换曲换封面、占位块出场）的淡入时长。
-// 取 500ms 而非常规元素过渡的 300ms：这里叠的是两次取图之间的清晰度差与整幅换图，
-// 再快就读成「跳」而不是「化」。首页大封面与迷你播放器光碟共用同一节拍；
-// 列表行封面只有 28dp 且同屏十余行可能同时到达，另取更短的档位（见 PlaylistArt）
+// 封面淡入 500ms；列表行另取更短档
 internal const val COVER_FADE_IN_MS = 500
 
 /**
- * 封面显示与换图过渡：底层常驻 + 上层淡入。
- *
- * 不能用交叠淡出——它要求两层同时半透明，合成结果在过渡中段只剩约七成不透明度，
- * 底色会透上来形成一次亮度塌陷，表现为封面整体暗一下再亮回来。
- * 这里让底层那张始终保持完全不透明铺满容器，新到的一张叠在其上、alpha 由 0 动画到 1，
- * 过渡全程至少有一层以实色盖住底色；上层完全显示后才撤下底层，回到单层驻留。
- *
- * [bitmap] 为空即无正图可显示，空出的位置由「[placeholderColor] 铺底 + [baseBitmap]」补上——
- * [baseBitmap] 是调用方已就位的低清档（大封面复用持久化背景色与预取的小缩略图），
- * 正图到位后淡入覆盖它，于是取图全程有图可看，且「低清 → 高清」的升清是渐进的一次淡入而非跳变。
- * 底图与正图同用 [ContentScale.Crop]、同一构图，升清时不会错位。
- * 两者都缺席时才退回图标兜底（[placeholderIconSize] 非空），图标也算作占位块的实色垫底，
- * 故「换曲 → 该曲确认无封面」的落位过程同样不塌陷亮度。
- *
- * [animated] 为假时不做过渡、直接替换，并跳过两层的全部开销：
- * 用于封面不随播放变更的场景（3D 轮播的格位、封面替换对话框的对比图）。
- *
- * 过渡只在「新到的一张与正显示的不是同一张」时发生（见下方 `bitmap === base` 的短路）：
- * 命中内存缓存时初值就是同步取回的那一张，本组件第一帧即以它为底层，随后异步取图拿回同一个实例、
- * [bitmap] 不变，这次开合根本不会发生。于是平滑只落在「异步取到、此前为空」的那一次——
- * 滚动中反复滚回同一行不会每次都淡入一次，那才会被读成闪烁。
+ * 封面换图过渡：底层常驻不透明，新图在上层淡入。
+ * 不能用交叠淡出，否则中段亮度塌陷。
+ * bitmap 为空时用占位色、低清底图或图标兜底。
  */
 @Composable
 internal fun CoverTransition(
@@ -61,24 +40,22 @@ internal fun CoverTransition(
     contentDescription: String?,
     placeholderColor: Color,
     modifier: Modifier = Modifier,
-    // 低清底图：正图未就位时垫在底色的位置上；为空即只剩底色（或图标兜底）
+    // 低清底图，正图未就位时垫底
     baseBitmap: ImageBitmap? = null,
-    // 兜底图标尺寸：为空即不叠图标。底图本身有内容时不叠，图标只服务「什么都没有」的场合
+    // 兜底图标尺寸，空即不叠
     placeholderIconSize: Dp? = 24.dp,
     animated: Boolean = true,
     fadeInMillis: Int = COVER_FADE_IN_MS,
 ) {
-    // 底层内容：当前已完全显示的一张
+    // 底层：已完全显示的一张
     var base by remember { mutableStateOf(bitmap) }
-    // 上层内容：正在淡入的一张。它可以是空（占位块淡入），故另设 fading 标记在场与否，
-    // 不能以「位图是否为空」判定，否则占位块永远进不了上层
+    // 上层正在淡入的一张；fading 标记是否在场
     var incoming by remember { mutableStateOf<ImageBitmap?>(null) }
     var fading by remember { mutableStateOf(false) }
     val fade = remember { Animatable(1f) }
 
     LaunchedEffect(bitmap, animated, fadeInMillis) {
-        // 不做过渡、或结果与正在显示的是同一张图（首帧、取图命中同一实例）时直接回到单层，
-        // 不摆一次空转的动画
+        // 同一张图或不做过渡时直接回单层
         if (!animated || bitmap === base) {
             base = bitmap
             incoming = null
@@ -86,12 +63,12 @@ internal fun CoverTransition(
             fade.snapTo(1f)
             return@LaunchedEffect
         }
-        // 先挂到 0f 再起动画：起手若沿用上一轮推进过的值，会先以半透明亮一帧再回落
+        // 先归 0 再动画，避免半透明亮一帧
         incoming = bitmap
         fading = true
         fade.snapTo(0f)
         fade.animateTo(1f, tween(durationMillis = fadeInMillis))
-        // 上层完全显示才落成底层；三处赋值之间没有挂起点，同一帧内一并生效，替换处不会露出空档
+        // 上层落成底层后再清空，同帧生效不露空档
         base = bitmap
         incoming = null
         fading = false
@@ -113,15 +90,14 @@ internal fun CoverTransition(
                 contentDescription = contentDescription,
                 placeholderColor = placeholderColor,
                 placeholderIconSize = placeholderIconSize,
-                // alpha 只在绘制阶段读取，逐帧推进不触发重组
+                // alpha 仅在绘制阶段读取
                 modifier = Modifier.graphicsLayer { alpha = fade.value },
             )
         }
     }
 }
 
-// 单层封面内容：有位图即整幅铺满；无位图即占位（底色 + 低清底图，或底色 + 图标）。
-// 底层与上层共用这一份实现，两层的构图、缩放与过滤口径因此完全一致，过渡期间不会错位或清晰度突变
+// 单层封面：有位图即铺满，否则占位
 @Composable
 private fun CoverLayer(
     bitmap: ImageBitmap?,
@@ -136,23 +112,23 @@ private fun CoverLayer(
             bitmap = bitmap,
             contentDescription = contentDescription,
             contentScale = ContentScale.Crop,
-            // 高清渲染：mipmap 三线性过滤，缩放/旋转均无锯齿与模糊
+            // mipmap 三线性过滤，缩放无锯齿
             filterQuality = FilterQuality.High,
             modifier = modifier
                 .fillMaxSize()
-                // 图片未铺满的极短间隙不露容器底色
+                // 间隙不露容器底色
                 .background(Color.Black),
         )
     } else {
         Box(
-            // 占位块颜色由调用方给定：首页大封面取该曲持久化的背景色，其余封面取随主题的 surfaceVariant
+            // 占位色由调用方给定
             modifier = modifier
                 .fillMaxSize()
                 .background(placeholderColor),
             contentAlignment = Alignment.Center,
         ) {
             when {
-                // 底图与正图同一构图口径，升清前后不位移；它只是低清，放大由绘制过滤承担
+                // 与正图同构图，升清不位移
                 baseBitmap != null -> Image(
                     bitmap = baseBitmap,
                     contentDescription = null,

@@ -17,7 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
-// 自定义歌单的落盘落点：名字即持久化标识，读写与存储页统计共用这一处声明
+// 歌单存储落点，名字即持久化标识
 internal val PLAYLISTS_STORE = PersistedData("playlists", PersistedFileKind.DATA_STORE_JSON)
 
 @Serializable
@@ -33,7 +33,7 @@ private data class PlaylistArchive(
     val playlists: List<StoredPlaylist> = emptyList(),
 )
 
-// 类型化 DataStore：整份歌单是一个原子状态，增删改都在一次事务里完成
+// 整份歌单原子提交，增删改一次事务
 private val Context.playlistsDataStore: DataStore<PlaylistArchive> by dataStore(
     fileName = "${PLAYLISTS_STORE.name}.json",
     serializer = JsonSerializer(PlaylistArchive.serializer(), PlaylistArchive()),
@@ -43,22 +43,17 @@ private val Context.playlistsDataStore: DataStore<PlaylistArchive> by dataStore(
     },
 )
 
-/**
- * 自定义歌单存储。
- *
- * DataStore 是唯一事实源：读取由 [playlists] 的收集侧持续回流，写入一律经 [DataStore.updateData]
- * 原子提交，不再在内存里另存一份再异步补写。内存中的 [playlists] 只服务 Compose 的同步读取。
- */
+/** 歌单存储；DataStore 为准，内存态供界面 */
 class PlaylistStore(context: Context, scope: CoroutineScope) {
 
     private val appContext = context.applicationContext
-    // 歌单 id 生成：时间戳高 44 位 + 进程内自增低 20 位，避免同毫秒快速创建碰撞
+    // 时间戳高 44 位 + 自增低 20 位，避免碰撞
     private val idCounter = AtomicLong(0)
 
     var playlists by mutableStateOf<List<Playlist>>(emptyList())
         private set
 
-    // 首次读盘完成：界面据此区分「暂无歌单」与「尚未读完」
+    // 区分暂无歌单与尚未读完
     var isLoaded by mutableStateOf(false)
         private set
 
@@ -136,7 +131,7 @@ class PlaylistStore(context: Context, scope: CoroutineScope) {
         }
     }
 
-    // 曲目换 MediaStore ID 后把用户歌单里的引用迁到新 ID：保留原位置与顺序
+    // 换 ID 后迁移引用，保留原位置顺序
     suspend fun replaceTrackId(oldId: Long, newId: Long) {
         if (oldId == newId) return
         appContext.playlistsDataStore.updateData { archive ->
@@ -156,7 +151,7 @@ class PlaylistStore(context: Context, scope: CoroutineScope) {
         }
     }
 
-    // 歌曲被彻底删除后，从所有自定义歌单中清除残留引用
+    // 曲目彻底删除，清除所有残留引用
     suspend fun removeTrackFromAll(trackId: Long) {
         appContext.playlistsDataStore.updateData { archive ->
             archive.copy(

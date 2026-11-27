@@ -20,8 +20,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 
-// 代理音源执行引擎：按规范构建请求、解析响应并映射到在线搜索/播放统一模型。
-// 所有入口在对应的平台/动作未配置或请求失败时返回 null，由调用方回退内置音源。
+// 代理音源执行引擎：构建请求、解析响应并映射统一模型
+// 未配置或失败时返回 null，由调用方回退内置音源
 internal object ProxySourceEngine {
 
     private const val SEARCH_COUNT = 20
@@ -51,8 +51,8 @@ internal object ProxySourceEngine {
             .also { if (it.isEmpty()) return@withContext null }
     }
 
-    // 按平台搜索的统一入口：代理音源优先，未配置或解析失败时回退内置实现。
-    // 自定义平台没有内置实现，代理不可用时只能返回空列表
+    // 按平台搜索：代理优先，失败回退内置
+    // 自定义平台无内置实现，代理不可用返回空
     suspend fun searchPlatform(
         sourceStore: ProxySourceStore,
         source: MusicSearchSource,
@@ -66,7 +66,7 @@ internal object ProxySourceEngine {
         }.orEmpty()
     }
 
-    // 按音质档位解析播放直链：直链同时用于播放与缓存下载
+    // 解析播放直链，同时用于播放与缓存下载
     suspend fun resolveUrl(
         sourceStore: ProxySourceStore,
         target: NeteaseSongSearchResult,
@@ -75,13 +75,13 @@ internal object ProxySourceEngine {
         val action = sourceStore.platformSpec(target.source.key)?.url
             ?: return@withContext null
         val qualityValue = action.qualities[quality]
-        // qualities 未声明时任意音质都执行动作（{quality} 渲染为空串），适配固定直链音源
+        // qualities 未声明时任意音质都执行，适配固定直链
         if (qualityValue == null && action.qualities.isNotEmpty()) return@withContext null
         val body = executeAction(
             action,
             placeholders(target) + ("quality" to (qualityValue ?: "")),
         ) ?: return@withContext null
-        // result.url 未配置时视为响应体本身即直链
+        // result.url 缺省时响应体即直链
         resolveString(body, action.result.url ?: "$") ?: return@withContext null
     }
 
@@ -94,11 +94,11 @@ internal object ProxySourceEngine {
         val body = executeAction(action, placeholders(target)) ?: return@withContext null
         val lrc = resolveString(body, action.result.lyric) ?: return@withContext null
         val tlyric = resolveString(body, action.result.tlyric).orEmpty()
-        // 音源可返回普通 LRC 或带行内 <mm:ss.xxx> 字标签的增强 LRC，后者可直接得到逐字时间轴
+        // 音源可返回 LRC 或增强 LRC，后者直接给出逐字
         mergeTranslations(parseWordTimedLrcText(lrc), parseWordTimedLrcText(tlyric))
     }
 
-    // 换取封面直链：优先搜索结果中的 coverUrl，否则经 pic 动作按 coverId 解析
+    // 取封面：优先 coverUrl，缺则走 pic
     suspend fun coverUrl(sourceStore: ProxySourceStore, target: NeteaseSongSearchResult): String? =
         withContext(Dispatchers.IO) {
             target.coverUrl?.takeIf { it.isNotBlank() }?.let { return@withContext it }
@@ -106,7 +106,7 @@ internal object ProxySourceEngine {
             val action = sourceStore.platformSpec(target.source.key)?.pic
                 ?: return@withContext null
             val body = executeAction(action, placeholders(target)) ?: return@withContext null
-            // 响应体即图片直链时 result.url 同样可省略
+            // 响应体即图片直链时 result.url 可省略
             resolveString(body, action.result.url ?: "$") ?: return@withContext null
         }
 
@@ -192,7 +192,7 @@ internal object ProxySourceEngine {
                     val raw = resp.body.string()
                     when {
                         raw.isBlank() -> null
-                        // 响应体即直链（纯文本 URL）：原样返回，避免 JSON 解析在 =、# 处截断查询参数
+                        // 响应体即纯文本直链，原样返回避免截断查询参数
                         raw.trimStart().startsWith("http://", ignoreCase = true) ||
                             raw.trimStart().startsWith("https://", ignoreCase = true) -> raw.trim()
                         else -> JSONTokener(raw).nextValue()
@@ -206,7 +206,7 @@ internal object ProxySourceEngine {
     }
 
     internal fun buildUrl(action: ProxyActionSpec, values: Map<String, String>): String {
-        // 模板里的动态值同样按 URL 组件编码：歌名里的 & 与 # 不能改变请求结构
+        // 动态值按 URL 组件编码，&/# 不得改变请求结构
         val base = renderUrlTemplate(action.url, values)
         val queryValues = if (action.isPost) action.query else action.params
         if (queryValues.isEmpty()) return base
@@ -221,11 +221,11 @@ internal object ProxySourceEngine {
         return base + separator + query
     }
 
-    // URL 模板渲染：占位符值按 URI 组件编码，避免 &/# 等字符把值拆成额外参数或片段
+    // 占位符按 URI 组件编码，避免拆成额外参数/片段
     private fun renderUrlTemplate(template: String, values: Map<String, String>): String {
         var result = template
         values.forEach { (key, value) ->
-            // URLEncoder 以 + 表示空格，放进 URL 路径/查询前换回 %20
+            // 空格编码的 + 在 URL 中换回 %20
             result = result.replace("{$key}", URLEncoder.encode(value, "UTF-8").replace("+", "%20"))
         }
         return result
@@ -246,7 +246,7 @@ internal object ProxySourceEngine {
         }?.takeIf { it.isNotBlank() }
     }
 
-    // 歌手字段：字符串数组按 " / " 拼接，单个字符串原样返回
+    // 歌手数组按 " / " 拼接，单字符串原样返回
     private fun resolveJoinString(root: Any, path: String?): String? {
         val value = ProxyJsonPath.resolve(root, path) ?: return null
         return when (value) {
@@ -270,7 +270,7 @@ internal object ProxySourceEngine {
         }
     }
 
-    // 响度按浮点取：增益与峰值都带小数，按整型读会把 -7.6 读成 -7
+    // 响度按浮点取，避免 -7.6 被读成 -7
     private fun resolveDouble(root: Any, path: String?): Double? {
         val value = ProxyJsonPath.resolve(root, path) ?: return null
         val parsed = when (value) {

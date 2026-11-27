@@ -30,15 +30,7 @@ import com.yichao.evilgodxu.ui.gesture.swipeBack
 import com.yichao.evilgodxu.windowsize.WindowSizeClass
 import com.yichao.evilgodxu.windowsize.contentMaxWidth
 
-/**
- * 设置页组装器：标题栏与内容区共用一层 Scaffold，页内层级只换内容与标题。
- *
- * 层级切换与路由推入同一观感（同速整宽位移、300ms），故设置页只有一条路由；
- * 形态差异经 ContentPane 的行宽上限表达。
- *
- * @param onBack 根页返回，交给导航栈
- * @param onPageBack 页内层级返回，退回根页
- */
+/** 组装器：共用 Scaffold，层级只换内容 */
 @Composable
 internal fun SettingsAssembly(
     windowSizeClass: WindowSizeClass,
@@ -63,11 +55,10 @@ internal fun SettingsAssembly(
     modifier: Modifier = Modifier,
 ) {
     val page = uiState.page
-    // 层级内容离开组合后仍保留各自的滚动位置：从下方入口进层级再退回，根页不跳回顶部
+    // 保留各层级滚动位置
     val levelStates = rememberSaveableStateHolder()
     Scaffold(
-        // 右滑返回：层级退回根页，根页退回上一页，与标题栏的返回键同一出口。
-        // 手势挂在整页上，只收无人认领的横向位移——纵向滚动与开关自身的拖动都不受影响
+        // 右滑返回：层级退根页，根页退上一页
         modifier = modifier.swipeBack(
             onBack = { if (page == SettingsPage.ROOT) onBack() else onPageBack() },
         ),
@@ -94,7 +85,7 @@ internal fun SettingsAssembly(
             AnimatedContent(
                 targetState = page,
                 transitionSpec = {
-                    // 只有根页与页内层级之间会切换，故去向不是根页即为前进
+                    // 去向非根页即为前进
                     val spec = tween<IntOffset>(AppMotion.Standard)
                     if (targetState != SettingsPage.ROOT) {
                         slideInHorizontally(spec) { it } togetherWith
@@ -141,7 +132,7 @@ internal fun SettingsAssembly(
                             onVolumeGainChange = onVolumeGainChange,
                         )
 
-                        // 排版与存储各自持有状态，层级内容自己接线，组装器只把它们放进内容区
+                        // 排版与存储自带状态，只放进内容区
                         SettingsPage.TYPOGRAPHY -> TypographyPane(innerPadding = innerPadding)
 
                         SettingsPage.PROXY_SOURCE -> ProxySourcePane(

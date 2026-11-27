@@ -16,10 +16,10 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "RingtoneInstaller"
 
-// 默认铃声用途：决定要写入的铃声类型，以及复制来源时的落点目录
+// 铃声用途，决定类型与落点目录
 internal enum class RingtoneUsage { RINGTONE, ALARM }
 
-// 安装结果：写入系统设置权限缺失是唯一需要用户介入的失败，单独区分以便授权后自动重试
+// 结果；缺写设置权限单独区分，可重试
 internal sealed interface RingtoneInstallResult {
     data object Success : RingtoneInstallResult
     data object WriteSettingsRequired : RingtoneInstallResult
@@ -27,10 +27,8 @@ internal sealed interface RingtoneInstallResult {
 }
 
 /**
- * 把整首曲目设为系统默认来电铃声或闹钟铃声。
- *
- * 媒体库入库的曲目直接沿用自身 URI —— 系统读得到，也不额外占一份磁盘；
- * 由外部应用传入的音频只有本应用持有读授权，系统读不到，复制一份到公共铃声目录再设置。
+ * 设置系统默认铃声或闹钟铃声
+ * 媒体库条目直用原 URI，外部音频复制到公共目录
  */
 internal suspend fun setTrackAsDefaultSound(
     context: Context,
@@ -38,7 +36,7 @@ internal suspend fun setTrackAsDefaultSound(
     usage: RingtoneUsage,
 ): RingtoneInstallResult = withContext(Dispatchers.IO) {
     val trackUri = localTrackUri(context, track) ?: return@withContext RingtoneInstallResult.Failed
-    // 写默认铃声走 Settings 写入，需 WRITE_SETTINGS 授权；缺失时先引导授权
+    // 需 WRITE_SETTINGS，缺失先引导授权
     if (!Settings.System.canWrite(context)) return@withContext RingtoneInstallResult.WriteSettingsRequired
 
     val prepared = runCatching {
@@ -57,7 +55,7 @@ internal suspend fun setTrackAsDefaultSound(
         RingtoneManager.setActualDefaultRingtoneUri(context, usage.systemType(), prepared)
     }
     if (applied.isFailure) {
-        // 授权刚被撤销：按失败上报，不打断界面流程
+        // 授权被撤销，按失败上报
         CrashLogManager.logException(TAG, "设为默认铃声失败：${track.title}", applied.exceptionOrNull())
         return@withContext RingtoneInstallResult.Failed
     }
@@ -89,18 +87,17 @@ private fun publishForSystem(context: Context, source: Uri, title: String, usage
             true
         } ?: false
     } ?: false
-    // 写入失败时条目会留在媒体库里成为空文件，就地回收
+    // 写入失败会留下空文件，就地回收
     if (!written) {
         runCatching { resolver.delete(uri, null, null) }
         return null
     }
-    // 新文件完整写入后再清旧产物：复制失败时旧铃声仍在，不会出现两个都没有的空档。
-    // 只回收本应用目录内的同名条目，用户自己放在公共铃声目录的同名文件不受影响
+    // 写入成功再清旧产物，只清本应用目录
     deleteExistingEntry(resolver, collection, displayName, relativePath, keepUri = uri)
     return uri
 }
 
-// 清掉本应用目录下的同名旧条目：同一首歌反复设置只保留最后一次结果，避免铃声列表堆积
+// 清同名旧条目，避免铃声列表堆积
 private fun deleteExistingEntry(
     resolver: ContentResolver,
     collection: Uri,
@@ -118,7 +115,7 @@ private fun deleteExistingEntry(
         val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
         val pathColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.RELATIVE_PATH)
         while (cursor.moveToNext()) {
-            // 目标目录是本应用专属子目录，同名条目只可能由本应用产出
+            // 目标目录专属本应用，同名即本应用产出
             if (cursor.getString(pathColumn)?.trimEnd('/') != relativePath.trimEnd('/')) continue
             val existing = collection.buildUpon().appendPath(cursor.getLong(idColumn).toString()).build()
             if (existing == keepUri) continue
@@ -136,16 +133,16 @@ private fun deleteExistingEntry(
 private fun RingtoneUsage.systemType(): Int =
     if (this == RingtoneUsage.RINGTONE) RingtoneManager.TYPE_RINGTONE else RingtoneManager.TYPE_ALARM
 
-// 产出落在应用专属子目录：同名清理只在自家目录内进行，公共铃声目录下用户自己的文件不会被波及
+// 落专属子目录，不波及用户文件
 private fun RingtoneUsage.relativePath(): String =
     if (this == RingtoneUsage.RINGTONE) "${Environment.DIRECTORY_RINGTONES}/EchoTide"
     else "${Environment.DIRECTORY_ALARMS}/EchoTide"
 
-// 同名音频按用途分别追加后缀，避免同一首歌的铃声与闹钟产物互相覆盖
+// 按用途加后缀，避免互相覆盖
 private fun RingtoneUsage.nameSuffix(): String =
     if (this == RingtoneUsage.RINGTONE) RINGTONE_SUFFIX else ALARM_SUFFIX
 
-// 文件名中不可用字符统一替换，避免公共目录写入失败
+// 替换非法字符，避免写入失败
 private fun sanitizeName(title: String): String =
     title.ifBlank { DEFAULT_NAME }
         .map { if (it in FORBIDDEN_NAME_CHARS || it.code < 0x20) '_' else it }

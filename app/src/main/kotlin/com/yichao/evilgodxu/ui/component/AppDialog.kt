@@ -42,16 +42,15 @@ import com.yichao.evilgodxu.theme.AppShape
 import com.yichao.evilgodxu.theme.AppSpacing
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 非列表对话框内容区的最大高度：超出后在卡片内滚动，避免长内容把对话框撑满屏幕
+// 内容区最大高度 320dp，超出滚动
 private val DIALOG_CONTENT_MAX_HEIGHT = 320.dp
-// 列表类对话框内容区占屏幕高度的比例：列表过长时在该高度内滚动，保证对话框高度上限稳定
+// 列表类对话框高度占屏幕 36%
 internal const val DIALOG_LIST_HEIGHT_FRACTION = 0.36f
-// 标题栏高度与图标按钮尺寸：保证带按钮时标题区依然紧凑，不产生额外留白
+// 标题栏与图标按钮 32dp，保持紧凑
 private val DIALOG_HEADER_HEIGHT = 32.dp
 private val DIALOG_HEADER_ICON_SIZE = 32.dp
 
-// 统一对话框：卡片样式与其余确认框一致（DialogCard + 居中标题 + 内边距 16dp，高度随内容撑开）。
-// 返回、关闭、尾部操作与底部按钮均为可选参数，未传入即不渲染，不给不需要的对话框强加按钮。
+// 统一对话框：卡片 + 居中标题，按钮均为可选
 @Composable
 internal fun AppDialog(
     onDismiss: () -> Unit,
@@ -60,17 +59,16 @@ internal fun AppDialog(
     onClose: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
     buttons: (@Composable RowScope.() -> Unit)? = null,
-    // 列表类内容自带滚动时置 false，避免与外层滚动嵌套
+    // 列表自带滚动时置 false
     scrollable: Boolean = true,
-    // 传入时内容区按屏幕高度占比取固定高度（列表类对话框用），否则高度由内容撑开
+    // 按屏幕高度占比定高
     contentHeightFraction: Float? = null,
-    // 标题对齐方式：默认居中，标题区右侧带文字按钮时左对齐更美观
+    // 标题对齐，带文字按钮时左对齐
     titleAlignment: TextAlign = TextAlign.Center,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val scrollState = rememberScrollState()
-    // 窗口高度取实际容器尺寸而非 Configuration 的屏幕高：多窗口/自由窗口下容器小于屏幕，
-    // 按屏幕高比例定高会超出可用空间
+    // 用容器尺寸而非屏幕高，兼容多窗口
     val windowHeight = with(LocalDensity.current) {
         LocalWindowInfo.current.containerSize.height.toDp()
     }
@@ -118,7 +116,7 @@ internal fun AppDialog(
     }
 }
 
-// 标题栏：标题默认居中；返回、关闭与尾部操作仅在传入时渲染，未传入的按钮不占位
+// 标题栏：按钮仅在传入时渲染
 @Composable
 private fun AppDialogHeader(
     title: String,
@@ -127,8 +125,7 @@ private fun AppDialogHeader(
     trailing: (@Composable () -> Unit)?,
     titleAlignment: TextAlign,
 ) {
-    // 两侧为图标按钮预留的宽度：居中标题必须左右对称留白，单侧留白会把文字整体挤偏；
-    // 左对齐标题则按各自实际按钮占位，避免无谓的左侧缩进
+    // 居中标题两侧对称留白，左对齐按实际按钮占位
     val startReserve = if (onBack != null) DIALOG_HEADER_ICON_SIZE else 0.dp
     val endReserve = if (trailing != null || onClose != null) DIALOG_HEADER_ICON_SIZE else 0.dp
     val centered = titleAlignment == TextAlign.Center
@@ -177,7 +174,7 @@ private fun AppDialogHeader(
     }
 }
 
-// 标题栏图标按钮：紧凑圆形点击区，避免 Material 图标按钮的固定触控高度撑高标题区
+// 紧凑圆形点击区，避免撑高标题区
 @Composable
 private fun AppDialogHeaderIcon(
     icon: ImageVector,
@@ -201,8 +198,7 @@ private fun AppDialogHeaderIcon(
     }
 }
 
-// 对话框选项行：文本居中，带图标时改为图标 + 左对齐文案。
-// 选中态只以背景高亮 + 加粗表示，与切换歌单列表项同色（primary 10% 底），不使用勾选图标
+// 选项行：选中只以底色高亮与加粗表示
 @Composable
 internal fun DialogOption(
     label: String,
@@ -210,15 +206,14 @@ internal fun DialogOption(
     icon: ImageVector? = null,
     selected: Boolean = false,
     enabled: Boolean = true,
-    // 加载态：文案转为透明并在原位置显示进度圈，行高不变，避免加载指示另起一行把对话框撑高
+    // 加载态：文案透明，原位显示进度圈
     loading: Boolean = false,
-    // 紧凑尺寸：纵向留白减半，用于确认框内高度受限的附加选项；选中样式与常规尺寸一致
+    // 紧凑尺寸：纵向留白减半
     compact: Boolean = false,
 ) {
-    // 选项底色统一抬升到 surfaceContainerHigh：对话框卡片取 surface，选项若同色会在深色下与卡片融为一片，
-    // 抬升一档后浅色更灰、深色更亮，两个主题都能拉开层次（与展开式选择器菜单容器同色阶）
+    // 选项抬升色阶，与卡片拉开层次
     val background = MaterialTheme.colorScheme.surfaceContainerHigh
-    // 选中高亮叠在抬升后的底色之上：直接以半透明 primary 覆盖卡片，其混色结果与抬升后的未选中底色几乎一致
+    // 选中高亮叠在抬升底色上
     val selectionTint =
         if (selected) MaterialTheme.colorScheme.primary.copy(alpha = AppAlpha.Selected) else Color.Transparent
     val contentColor = if (enabled) MaterialTheme.colorScheme.onSurface
@@ -246,7 +241,7 @@ internal fun DialogOption(
                 modifier = Modifier.size(20.dp),
             )
         }
-        // 文案与加载指示叠在同一层：加载时文案透明化但保留占位，进度圈落在文案原位，行高与常规态一致
+        // 文案与进度圈叠放，行高不变
         Box(
             modifier = Modifier.weight(1f),
             contentAlignment = if (icon != null) Alignment.CenterStart else Alignment.Center,

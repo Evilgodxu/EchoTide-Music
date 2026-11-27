@@ -5,22 +5,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * 列表封面请求尺寸复核：请求档位必须覆盖实际显示尺寸，且落在固定步长的档位上。
- *
- * 请求尺寸同时是内存缓存的键。偏小会让封面被放大渲染而发虚；偏大或随密度取任意像素值，
- * 会让同一首歌多占内存、少驻留张数，反过来加重滚动时的重复取图。
- */
+/** 请求档位覆盖显示尺寸并按固定步长分档 */
 class CoverThumbnailSizeTest {
 
     private companion object {
         // 与实现一致的分档步长
         const val STEP_PX = 32
 
-        // 与实现一致的列表行封面显示边长上限（dp）
+        // 列表行封面显示边长上限（dp）
         const val LIST_COVER_MAX_DP = 28f
 
-        // 覆盖常见密度：mdpi 到 xxxhdpi，含常见的非整数密度
+        // 覆盖 mdpi 到 xxxhdpi 常见密度
         val DENSITIES = listOf(1f, 1.5f, 2f, 2.625f, 3f, 3.5f, 4f)
     }
 

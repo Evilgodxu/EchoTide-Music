@@ -4,7 +4,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 
-// 容器标签读写共用的小端/大端字节原语：各格式实现按需取用，避免每处各写一份
+// 容器标签读写共用的小端/大端原语
 internal fun int32(b: ByteArray, p: Int): Int = ByteBuffer.wrap(b, p, 4).order(ByteOrder.BIG_ENDIAN).int
 
 internal fun long64(b: ByteArray, p: Int): Long = ByteBuffer.wrap(b, p, 8).order(ByteOrder.BIG_ENDIAN).long

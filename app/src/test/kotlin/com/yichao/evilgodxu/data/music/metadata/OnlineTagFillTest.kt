@@ -6,12 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * 补全计划：决定一次补全要写哪些字段、写成什么。
- *
- * 两种口径的差别只在「已有值」：仅补全不碰用户填过的内容，全覆盖才覆盖；
- * 两种口径都跳过内容完全相同的字段 —— 写了不改变任何东西，却要重写整段音频。
- */
+/** 仅补全不碰已有值；内容相同则跳过 */
 class OnlineTagFillTest {
 
     private val candidate = NeteaseSongSearchResult(

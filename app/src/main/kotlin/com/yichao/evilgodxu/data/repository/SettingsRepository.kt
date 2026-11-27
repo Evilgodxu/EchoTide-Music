@@ -17,17 +17,16 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-// 设置仓库契约：数据层入口，由 App 注入实现，单测注入内存 fake。
-// ViewModel 只依赖本接口，不直接触碰 DataStore
+// 设置仓库契约；ViewModel 只依赖本接口
 interface SettingsRepository {
 
-    // 设置状态流：主题模式驱动全局配色
+    // 主题模式流
     val settings: Flow<SettingsState>
 
     // 应用语言流：统一读 DataStore
     val appLanguage: Flow<AppLanguage>
 
-    // 播放相关设置：迷你播放器、歌词渲染、滑动切歌、背景流动、音量增益与两路 USB 输出
+    // 播放设置流
     val playbackSettings: Flow<PlaybackSettings>
 
     suspend fun saveThemeMode(mode: ThemeMode)
@@ -36,22 +35,19 @@ interface SettingsRepository {
 
     suspend fun setAppLanguage(language: AppLanguage)
 
-    // 整组播放设置一次编辑落盘，调用方只改需要的字段
+    // 整组编辑落盘，调用方只改所需字段
     suspend fun updatePlaybackSettings(transform: (PlaybackSettings) -> PlaybackSettings)
 
-    // 两路 USB 输出互斥：开启一路必然关闭另一路
+    // 两路 USB 输出互斥
     suspend fun setUsbDirectOutput(enabled: Boolean)
 
     suspend fun setUsbExclusiveOutput(enabled: Boolean)
 }
 
-// DataStore 实现：以 DataStore 为设置项的唯一事实源。
-// 上下文由构造注入，供设置读写复用同一份存储位置
+// DataStore 实现，为设置项唯一事实源
 class DataStoreSettingsRepository(private val context: Context) : SettingsRepository {
 
-    // 设置状态流：主题模式驱动全局配色。
-    // DataStore 每次 edit 都会重发整份 Preferences（改任一字段都需整体重写），
-    // 播放进度等高频写入会连带触发本流；按派生值去重，避免消费端被无效刷新
+    // edit 会重发整份 Preferences，按派生值去重
     override val settings: Flow<SettingsState> = context.settingsDataStore.data.map { preferences ->
         SettingsState(
             themeMode = ThemeMode.fromValue(preferences[SettingsKeys.THEME_MODE] ?: ThemeMode.SYSTEM.value),
@@ -63,7 +59,7 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
         AppLanguage.fromTag(preferences[SettingsKeys.LANGUAGE])
     }.distinctUntilChanged()
 
-    // 播放设置同理：任一设置写入都会重发整份 Preferences，按快照去重避免无效刷新
+    // 按快照去重，避免无效刷新
     override val playbackSettings: Flow<PlaybackSettings> = context.settingsDataStore.data.map { preferences ->
         preferences.toPlaybackSettings()
     }.distinctUntilChanged()
@@ -80,7 +76,7 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
         }
     }
 
-    // 写入后由 Compose 层的语言流驱动热切换
+    // 语言流驱动 Compose 热切换
     override suspend fun setAppLanguage(language: AppLanguage) {
         context.settingsDataStore.edit { preferences ->
             preferences[SettingsKeys.LANGUAGE] = language.languageTag.orEmpty()
@@ -91,7 +87,7 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
         context.settingsDataStore.edit { preferences -> preferences.applyPlaybackSettings(transform) }
     }
 
-    // 复用设置模块的整组落盘：两路互斥的两个键在同一次编辑内写完，不留中间态
+    // 两个互斥键同次编辑写完，不留中间态
     override suspend fun setUsbDirectOutput(enabled: Boolean) {
         context.saveUsbDirectOutputMode(enabled)
     }

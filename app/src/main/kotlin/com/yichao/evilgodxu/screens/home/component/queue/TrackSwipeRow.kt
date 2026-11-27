@@ -28,17 +28,15 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-// 滑动可露出的最大位移：限制过度拖动，超出部分不再跟手
+// 最大露出位移 96dp，限制过度拖动
 private val SWIPE_REVEAL_DP = 96.dp
-// 触发操作的最小位移：松手时未达阈值即回弹
+// 触发阈值 56dp，未达即回弹
 private val SWIPE_TRIGGER_DP = 56.dp
 private const val SWIPE_SETTLE_MS = 180
 
 /**
- * 播放列表项滑动容器：右滑露出并触发高级菜单，左滑露出并触发歌单归属（加入 / 移出歌单）。
- *
- * 两侧图标常驻在内容之下，只在内容位移后露出，因此滑动过程中即可预判释放后的动作。
- * 图标不带文案：露出区域窄，文字会被裁切，且动作含义由图标本身即可辨识。
+ * 播放列表项滑动容器：右滑露出高级菜单，左滑露出歌单归属。
+ * 图标常驻内容之下，位移后露出；不带文案以免裁切。
  */
 @Composable
 internal fun TrackSwipeRow(
@@ -69,7 +67,7 @@ internal fun TrackSwipeRow(
                 .offset { IntOffset(offset.value.roundToInt(), 0) }
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                // 内容需不透明：两侧图标位于内容之下，透明底会让图标在静止时透出
+                // 内容须不透明，否则图标静止时透出
                 .background(MaterialTheme.colorScheme.surface)
                 .pointerInput(revealPx, triggerPx) {
                     detectHorizontalDragGestures(

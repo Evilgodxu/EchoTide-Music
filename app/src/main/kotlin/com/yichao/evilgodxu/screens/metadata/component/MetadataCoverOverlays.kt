@@ -28,12 +28,7 @@ import com.yichao.evilgodxu.screens.metadata.MetadataUiState
 import com.yichao.evilgodxu.ui.component.DialogCard
 import com.yichao.evilgodxu.ui.component.player.CoverRefreshDialog
 
-/**
- * 封面相关的浮层：同专辑封面选择与在线刷新候选。
- *
- * 在线刷新复用首页既有的候选选择控件与搜索/写回能力 —— 同一份「按来源搜索封面并写回音频文件」
- * 只有一处实现，编辑页与播放面板不会各自演化。
- */
+/** 封面浮层：同专辑选择与在线刷新候选 */
 @Composable
 internal fun MetadataCoverOverlays(
     uiState: MetadataUiState,
@@ -53,7 +48,7 @@ internal fun MetadataCoverOverlays(
         onDismiss = onSameAlbumDismiss,
         onSelected = onSameAlbumSelected,
     )
-    // 目标曲目：在线刷新的候选写回按它的文件进行，故必须是本页正在编辑的那一首
+    // 目标曲目须是本页正在编辑的那首
     val track = playbackState.playlist.firstOrNull { it.id == uiState.trackId }
         ?: playbackState.libraryTracks.firstOrNull { it.id == uiState.trackId }
     CoverRefreshDialog(
@@ -71,7 +66,7 @@ internal fun MetadataCoverOverlays(
     )
 }
 
-// 同专辑封面选择：横向排列候选项，选中即回填为待写封面
+// 同专辑封面：横向候选，选中即回填
 @Composable
 private fun SameAlbumCoverPicker(
     visible: Boolean,

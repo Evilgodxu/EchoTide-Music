@@ -11,8 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
-// 歌词与标题等文本的水平对齐。START 跟随布局方向，阿拉伯语等 RTL 语言下即靠右，
-// 不按「左」命名以免把方向写死
+// 对齐方式；START 随布局方向，RTL 下即靠右
 enum class LyricAlignment { CENTER, START }
 
 // 歌词排版默认值与可调范围
@@ -22,37 +21,34 @@ object LyricLayoutDefaults {
     const val HOME_PORTRAIT_VISIBLE_LINES = 9
     const val LANDSCAPE_VISIBLE_LINES = 11
     const val LANDSCAPE_3D_INTENSITY = 1f
-    // 居中是歌词的默认版式：整行随唱随亮，视觉重心落在屏幕中线
+    // 默认居中，视觉重心落在中线
     val HOME_PORTRAIT_ALIGNMENT = LyricAlignment.CENTER
     const val FONT_SIZE_MIN_SP = 12
     const val FONT_SIZE_MAX_SP = 24
-    // 奇数行预设：当前行居中，上下各 (n-1)/2 行；首页竖屏 3/5/7/9/11，横屏 7/9/11
+    // 奇数行预设，当前行居中，上下各半
     val HOME_PORTRAIT_LINE_PRESETS = listOf(3, 5, 7, 9, 11)
     val LANDSCAPE_LINE_PRESETS = listOf(7, 9, 11)
     const val THREE_D_MIN = 0f
     const val THREE_D_MAX = 2f
     const val THREE_D_STEP = 0.25f
-    // 歌词行间距（dp）：相邻歌词行之间的纵向留白，两场景共用同一默认值与范围。
-    // 默认值取行距与紧凑度的折中——行内上下内边距只撑开相邻行字形，行间留白靠它拉开
+    // 行间距 dp，两场景共用默认值与范围
     const val LINE_SPACING_DEFAULT_DP = 10
     const val LINE_SPACING_MIN_DP = 0
     const val LINE_SPACING_MAX_DP = 18
     const val LINE_SPACING_STEP_DP = 1
 
-    // 渐隐以半行为一档：整行刻度会跨过太多视觉差异，半行既够细又能落成精确二进制值
+    // 渐隐以半行为档，可精确表示
     const val FADE_STEP_LINES = 0.5f
-    // 上下各起的渐隐长度（行）。默认取一行半：容器高度不足以容纳设定行数时，顶部溢出行会被裁成
-    // 一薄片，渐变区需覆盖整个溢出行，薄片才会深陷透明区而不残留细线
+    // 渐隐长度（行），默认 1.5 可盖住溢出薄片
     const val FADE_LINES_DEFAULT = 1.5f
     const val FADE_LINES_MIN = 0.5f
     const val FADE_LINES_MAX = 3f
-    // 渐隐留白：歌词视口自上下边缘向内缩进的行数。该区间为纯空白——行不排布、不滚动到这里，
-    // 渐隐自留白内缘起算。默认不留白，保持既有版式
+    // 渐隐留白行数，默认 0 保持版式
     const val FADE_INSET_LINES_DEFAULT = 0f
     const val FADE_INSET_LINES_MIN = 0f
     const val FADE_INSET_LINES_MAX = 2f
 
-    // 首次安装、旧版本升级以及读取前的首帧初值都取自这两份，避免各处各写一套默认值
+    // 首帧与升级初值统一取这两份默认
     val HOME_PORTRAIT_LAYOUT = LyricLayoutParams(
         fontSizeSp = HOME_PORTRAIT_FONT_SIZE_SP,
         visibleLines = HOME_PORTRAIT_VISIBLE_LINES,
@@ -71,7 +67,7 @@ object LyricLayoutDefaults {
     )
 }
 
-// 静态多行歌词排版参数（首页竖屏）；对齐方式同时作用于歌词与标题、艺术家名称
+// 首页竖屏排版；对齐同时作用于标题与艺术家
 data class LyricLayoutParams(
     val fontSizeSp: Int,
     val visibleLines: Int,
@@ -81,7 +77,7 @@ data class LyricLayoutParams(
     val fadeInsetLines: Float,
 )
 
-// 首页横屏歌词排版参数：额外携带 3D 立体滚动强度
+// 首页横屏排版，额外含 3D 强度
 data class LandscapeLyricLayoutParams(
     val fontSizeSp: Int,
     val visibleLines: Int,
@@ -214,11 +210,11 @@ suspend fun Context.saveLandscapeLyricLayout(
 private fun nearestOddPreset(value: Int, presets: List<Int>): Int =
     presets.minByOrNull { kotlin.math.abs(it - value) } ?: value
 
-// 键缺失或取值已不在枚举内（跨版本降级、数据损坏）时回落默认对齐，避免整份排版读取中断
+// 未知取值回落默认对齐，避免读取中断
 private fun String?.toLyricAlignment(): LyricAlignment =
     LyricAlignment.entries.firstOrNull { it.name == this } ?: LyricLayoutDefaults.HOME_PORTRAIT_ALIGNMENT
 
-// 按半行档位取整并夹到区间内：读取与写入共用，避免浮点值或旧版本数据落成非整档
+// 按半行取整并夹区间，读写共用
 private fun snapHalfLines(value: Float, min: Float, max: Float): Float {
     val step = LyricLayoutDefaults.FADE_STEP_LINES
     return ((value / step).roundToInt() * step).coerceIn(min, max)

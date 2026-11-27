@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-// 内存版平台能力：记录调用而不触达系统，用于验证 ViewModel 的判定与状态流转
+// 内存版平台能力，记录调用不触系统
 class FakeSettingsEnvironment(
     override val appVersion: String = "6.2.3",
     var overlayGranted: Boolean = true,

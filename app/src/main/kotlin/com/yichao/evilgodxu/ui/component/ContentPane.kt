@@ -11,15 +11,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.isSpecified
 
 /**
- * 单栏内容容器：窄窗占满可用宽度，宽窗限制行宽并水平居中。
- *
- * 只改变行宽、不改变功能区块的组成，因此形态差异用一个宽度上限表达；
- * 只有当两种形态的区块结构确实不同时，才值得拆成两套组装器。
- *
- * 只负责行宽与居中，不施加内边距与滚动：内容组件各自已按内边距与滚动容器组织，
- * 在这里再套一层会重复消费顶部内边距与滚动状态。
- *
- * @param maxContentWidth 行宽上限，[Dp.Unspecified] 表示不限制。
+ * 单栏容器：窄窗满宽，宽窗限宽居中；不管内边距与滚动
  */
 @Composable
 fun ContentPane(

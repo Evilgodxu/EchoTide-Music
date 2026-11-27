@@ -1,20 +1,14 @@
 package com.yichao.evilgodxu.data.music.remote
 
-/**
- * 按占用字节淘汰的 LRU：容量不足时从最久未读的一项开始丢弃。
- *
- * 被淘汰的值只解除引用、不主动回收：图像可能仍被上一帧持有，回收会让绘制读到已释放的位图，
- * 释放交由 GC 决定。
- *
- * 值类型做成泛型是为了可测：容量核算与淘汰顺序都是纯逻辑，单测用字符串当值即可覆盖，
- * 不必构造位图。
- */
+// 按占用字节淘汰的 LRU，不足时丢最久未读项
+// 被淘汰值只解引用不回收，交给 GC
+// 值泛型化以便用字符串单测容量逻辑
 internal class SizeBoundedLru<K, V>(
     private val maxBytes: Int,
     private val sizeOf: (V) -> Int,
 ) {
 
-    // accessOrder 为真：读取即刷新最近使用顺序，迭代顺序因此就是「最久未读 → 最近读过」
+    // accessOrder 为真，迭代顺序即最久未读到最近
     private val entries = LinkedHashMap<K, V>(0, LOAD_FACTOR, true)
 
     var sizeBytes: Int = 0
@@ -26,7 +20,7 @@ internal class SizeBoundedLru<K, V>(
     @Synchronized
     fun put(key: K, value: V) {
         val size = sizeOf(value)
-        // 单张超过总容量：收下它只会把其余全部挤掉，下一次还得重取，不如不驻留
+        // 单张超总容量则不驻留，避免挤掉其余
         if (size > maxBytes) return
         entries.put(key, value)?.let { sizeBytes -= sizeOf(it) }
         sizeBytes += size

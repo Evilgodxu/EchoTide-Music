@@ -6,8 +6,7 @@ import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.data.music.proxy.ProxySourceEngine
 import com.yichao.evilgodxu.log.CrashLogManager
 
-// 无损升级候选：代理音源优先，失败或未配置时回退内置搜索；
-// 按标题/歌手搜索在线原曲，供用户确认选中后下载无损版本替换本地文件
+// 无损升级候选：代理音源优先，失败回退内置搜索
 internal suspend fun searchLosslessUpgradeCandidates(
     playbackState: MusicPlaybackState,
     track: MusicTrack,

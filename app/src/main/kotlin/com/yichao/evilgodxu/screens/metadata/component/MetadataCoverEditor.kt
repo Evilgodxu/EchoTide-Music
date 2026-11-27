@@ -42,27 +42,17 @@ import com.yichao.evilgodxu.ui.component.AppDialog
 import com.yichao.evilgodxu.ui.component.DialogOption
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 封面卡片高度：与参考实现一致，给背景大图与前景信息行留出同一档高度
+// 封面卡片高度 208dp
 private val COVER_CARD_HEIGHT = 208.dp
-// 封面缩略图边长：卡片内的方形展示尺寸
+// 缩略图边长 148dp
 private val COVER_THUMB_SIZE = 148.dp
 
-// 角标底色：压在图上，固定深色以保证在任意封面上都可见
+// 角标深底，任意封面可见
 private val BADGE_BACKGROUND = Color.Black.copy(alpha = 0.6f)
-// 角标文字：固定白色，与深色角标底色配套
+// 角标白字
 private val BADGE_TEXT = Color.White
 
-/**
- * 内嵌封面编辑区：整幅封面卡片（压暗背景 + 封面缩略图 + 标题/艺术家），点击后弹出操作对话框。
- *
- * 预览由内嵌封面字节直接解码：此处要展示的正是「音频文件里当前存的是哪张图」，
- * 与显示端按系统略缩图取图的路径不同，不复用封面加载器。
- *
- * 信息与角标布局对齐参考实现：缩略图上标出「封面」「尺寸」与操作提示，
- * 使「当前存的是哪张图」「能对它做什么」在同一屏内可读。
- *
- * 操作入口用对话框而非贴边浮层：选项文案较长，浮层在窄屏上会被迫横向挤压或折行
- */
+/** 内嵌封面编辑区：卡片点击后弹出操作对话框 */
 @Composable
 internal fun MetadataCoverEditor(
     title: String,
@@ -77,7 +67,7 @@ internal fun MetadataCoverEditor(
     onRemoveCover: () -> Unit,
 ) {
     var showActions by remember { mutableStateOf(false) }
-    // 解码结果与像素尺寸随字节数组引用变化重算：编辑器同一曲目内不会原地改写字节
+    // 字节引用变化时重算解码结果
     val bitmap = remember(coverBytes) {
         coverBytes?.let { bytes ->
             runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }.getOrNull()
@@ -95,7 +85,7 @@ internal fun MetadataCoverEditor(
             .background(MaterialTheme.colorScheme.surfaceVariant),
     ) {
         if (bitmap != null) {
-            // 背景大图压暗后叠一层向下渐深的蒙层：前景文字与角标始终压在足够暗的底上
+            // 压暗大图 + 渐深蒙层，保证文字可读
             Image(
                 bitmap = bitmap,
                 contentDescription = null,
@@ -165,11 +155,7 @@ internal fun MetadataCoverEditor(
     }
 }
 
-/**
- * 封面操作对话框：本页封面可做的五项操作，按使用频度排序。
- *
- * 置灰规则按「当前是否做得了」定：保存与移除需要有封面在；导出进行中整组不可再触发。
- */
+/** 封面操作对话框：五项操作按使用频度排序 */
 @Composable
 private fun CoverActionDialog(
     visible: Boolean,
@@ -221,7 +207,7 @@ private fun CoverActionDialog(
     }
 }
 
-// 封面缩略图：方形封面 + 角标（左上「封面」、左下尺寸、右下「点击更换」）
+// 缩略图 + 三处角标
 @Composable
 private fun CoverThumbnail(
     bitmap: ImageBitmap?,
@@ -269,7 +255,7 @@ private fun CoverThumbnail(
     }
 }
 
-// 图上角标：深色底 + 白字，字号取最小值以尽量不遮挡封面
+// 角标：深底白字小字号
 @Composable
 private fun CoverBadge(text: String, modifier: Modifier = Modifier) {
     Box(
@@ -281,7 +267,7 @@ private fun CoverBadge(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-// 封面像素尺寸：只读图片头，不解码整图
+// 只读图片头取尺寸，不解码整图
 private fun coverPixelSize(bytes: ByteArray?): String? {
     if (bytes == null || bytes.isEmpty()) return null
     val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -290,7 +276,7 @@ private fun coverPixelSize(bytes: ByteArray?): String? {
     return "${options.outWidth}×${options.outHeight}"
 }
 
-// 同专辑封面选择项：方形缩略图，点击即选中该封面
+// 同专辑项：方形缩略图，点击选中
 @Composable
 internal fun SameAlbumCoverItem(
     bytes: ByteArray,

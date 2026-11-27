@@ -12,12 +12,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.yichao.evilgodxu.LocalApplication
 
-/**
- * 存储层级：接上采样与清理的状态持有者，明细由 [CacheUsageGroups] 按收到的状态渲染。
- *
- * ViewModel 随设置页的导航条目存活，不会随层级切换重建，故进入层级要主动重采一次；
- * 回到前台同样重采，使占用不受后台期间缓存涨落影响。
- */
+/** 存储层级：进入与回前台都重采一次 */
 @Composable
 internal fun CachePane(innerPadding: PaddingValues) {
     val application = LocalApplication.current

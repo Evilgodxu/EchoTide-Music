@@ -37,27 +37,27 @@ import com.yichao.evilgodxu.ui.icons.AppIcons
 import kotlin.math.abs
 import kotlinx.coroutines.launch
 
-// 底部控制栏：与迷你播放器控件布局一致（播放模式 → 上一曲 → 播放/暂停 → 下一曲 → 播放列表）
+// 底部控制栏：模式 → 上一曲 → 播放 → 下一曲 → 队列
 @Composable
 internal fun PlayerControls(
     playbackState: MusicPlaybackState,
-    // 播放模式选择展开态：由所在播放器页持有，展开时四个控制按钮让位于四种播放模式
+    // 模式展开态；展开时四按钮换成四种模式
     modeSelectorExpanded: Boolean,
     onModeSelectorExpandedChange: (Boolean) -> Unit,
     onPlaylistClick: () -> Unit,
     onPlaylistLongClick: () -> Unit = {},
-    // 从播放/暂停按钮向上滑动：唤出音频信息弹窗；为 null 时该按钮保持普通点击行为
+    // 上滑唤出音频信息；null 时只响应点击
     onPlayPauseSwipeUp: (() -> Unit)? = null,
-    // 从播放列表按钮向上滑动：打开播放列表面板；为 null 时该按钮保持普通点击行为
+    // 上滑打开播放列表；null 时只响应点击
     onPlaylistSwipeUp: (() -> Unit)? = null,
-    // 音量调节进行态：起手至松手期间为 true，供宿主在调节期间暂缓自身的自动收起
+    // 音量调节中，宿主据此暂停自动收起
     onVolumeAdjustingChange: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // 播放/暂停按钮上的左右滑动：调节音量，浮层跟随手指横向位置
+    // 播放键左右滑动调音量，浮层跟随
     val volumeSwipe = rememberVolumeSwipeState(playbackState)
-    // 手势协程只建立一次，进行态回调以最新值读取
+    // 手势协程只建一次，回调读最新值
     val currentOnVolumeAdjusting = rememberUpdatedState(onVolumeAdjustingChange)
     Box(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -74,7 +74,7 @@ internal fun PlayerControls(
                 tint = Color.White,
             )
             if (modeSelectorExpanded) {
-                // 展开期间四个控制按钮让位给四种播放模式：选中即切换模式并收起，原按钮随后复位
+                // 展开时四按钮换成模式，选中即切换收起
                 playModeMenuOrder.forEach { mode ->
                     PlayModeOptionButton(
                         mode = mode,
@@ -111,7 +111,7 @@ internal fun PlayerControls(
                     enabled = playbackState.playlist.isNotEmpty(),
                     onClick = { togglePlayPause(playbackState) },
                     onSwipeUp = onPlayPauseSwipeUp,
-                    // 左右滑动调音量：起手与松手同时向宿主报告进行态
+                    // 起手与松手向宿主报告进行态
                     onVolumeSwipeStart = {
                         volumeSwipe.begin()
                         currentOnVolumeAdjusting.value(true)
@@ -144,7 +144,7 @@ internal fun PlayerControls(
                 )
             }
         }
-        // 浮层画在控制栏上方，容器高度为 0，不影响控制栏高度与底部避让
+        // 浮层画在上方，容器 0 高，不影响避让
         VolumeSwipeHud(
             state = volumeSwipe,
             modifier = Modifier.align(Alignment.TopStart),
@@ -159,7 +159,7 @@ private fun PlayerControlButton(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     onSwipeUp: (() -> Unit)? = null,
-    // 左右滑动调音量：位移为相对起手点的累计值（px）
+    // 位移为相对起手点的累计值（px）
     onVolumeSwipeStart: (() -> Unit)? = null,
     onVolumeSwipe: ((dragPx: Float) -> Unit)? = null,
     onVolumeSwipeEnd: (() -> Unit)? = null,
@@ -176,7 +176,7 @@ private fun PlayerControlButton(
     }
     if (onSwipeUp != null || onVolumeSwipe != null) {
         val density = LocalDensity.current
-        // 手势协程不随回调身份重建：以最新值读取，避免重建中断进行中的手势
+        // 读最新回调，避免重建中断手势
         val currentOnSwipeUp = rememberUpdatedState(onSwipeUp)
         val currentOnVolumeStart = rememberUpdatedState(onVolumeSwipeStart)
         val currentOnVolume = rememberUpdatedState(onVolumeSwipe)
@@ -184,8 +184,7 @@ private fun PlayerControlButton(
         Box(
             modifier = Modifier
                 .size(48.dp)
-                // 点击与按压反馈仍由 combinedClickable 承担；无长按行为时传空回调而非省缺，
-                // 静默吞掉长按后的抬手，避免误触发单击动作
+                // 无长按时传空回调，吞掉抬手
                 .combinedClickable(
                     enabled = enabled,
                     onClick = onClick,
@@ -214,7 +213,7 @@ private fun PlayerControlButton(
             iconContent()
         }
     } else {
-        // 长按支持：单击保留原行为，长按触发 onLongClick
+        // 单击原行为，长按触发 onLongClick
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -230,17 +229,11 @@ private fun PlayerControlButton(
     }
 }
 
-// 按钮手势的接管方向：未定 / 横向调音量 / 纵向向上 / 放行
+// 手势接管方向：未定/音量/上滑/放行
 private enum class GestureMode { Undecided, Volume, Up, Pass }
 
 /**
- * 控制栏按钮的滑动判定：横向主导时交给 [onVolumeDrag] 调节音量，
- * 纵向向上主导且累计超过 [upThresholdPx] 时触发 [onSwipeUp]。
- *
- * 越过触摸阈值前不消费任何事件，点击与按压反馈照常由 [combinedClickable] 处理；
- * 判定方向后才接管本次手势（消费位移与抬手）：横向拖动因此不会翻页，纵向滑动也不会
- * 同时触发切歌。纵向向下与没有对应回调的方向一律放行，交由整页切歌手势处理。
- * 上滑越过距离即唤出，不等抬手——手势已由本按钮接管，提前响应对手势距离更宽容。
+ * 横向音量，上滑唤出；阈值前不消费，向下放行切歌。
  */
 private suspend fun PointerInputScope.detectSwipeGestures(
     upThresholdPx: Float,
@@ -261,7 +254,7 @@ private suspend fun PointerInputScope.detectSwipeGestures(
             while (true) {
                 val event = awaitPointerEvent()
                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                // 已被上层手势接管时让出，避免同一次滑动触发两个动作
+                // 已被上层接管时让出，避免双触发
                 if (change.isConsumed) break
                 accX += change.positionChange().x
                 accY += change.positionChange().y
@@ -304,6 +297,5 @@ private suspend fun PointerInputScope.detectSwipeGestures(
     }
 }
 
-// 按钮上滑唤出弹层所需的最小上升距离：方向判定已由系统触摸阈值把关，此处取其两倍量级，
-// 排除轻扫抖动，同时保证一次常规上滑即可唤出
+// 上滑 32dp 唤出；方向已由触摸阈值把关，排除轻扫抖动
 private val SWIPE_UP_TRIGGER_DISTANCE = 32.dp

@@ -10,32 +10,24 @@ import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * 音频文件内嵌标签的完整读取入口，供元数据编辑页回填表单。
- *
- * 与写入端 [MusicMetadataWriter] 覆盖同一批容器与同一批字段：平台元数据提取器只能给出部分字段
- * （WAV 的文本标签、各容器的内嵌歌词都不在其支持范围内），表单若只回填曲目
- * 内存态，用户会在这些容器上看到空字段并把空值写回去，等于抹掉文件里的既有标签。
- *
- * 读取只走定点窗口，不整文件驻留：字段本身很小，但封面帧可达数 MB。
- */
+/** 内嵌标签完整读取入口，供编辑页回填；只走定点窗口 */
 internal object MusicMetadataEditor {
 
-    // 容器判定前缀：各容器魔数与 MP4 的 ftyp 都在最前 16 字节内
+    // 容器判定前缀 16 字节
     private const val CONTAINER_PROBE_BYTES = 16
 
-    // 头部窗口：FLAC/OGG 的注释块与 M4A 的 moov 盒都在文件头部附近
+    // 头部窗口：FLAC/Ogg 注释与 M4A moov
     private const val HEADER_CAP = 512 * 1024
-    // 尾部窗口：标签位于音频之后的容器（WAV）靠它定位
+    // 尾部窗口，WAV 靠它定位
     private const val TAIL_CAP = 2 * 1024 * 1024
-    // MP3 的 ID3v2 标签按声明长度精确读取：标签可含大封面帧
+    // MP3 按声明长度精确读取，含大封面
     private const val MAX_MP3_TAG = 32 * 1024 * 1024
     private const val ID3_HEADER_BYTES = 10
 
-    // 歌词字段的候选键：各写入端与第三方工具落点不一，按序取首个非空值
+    // 歌词候选键，按序取首个非空
     private val LYRICS_KEYS = listOf("LYRICS", "SYNCEDLYRICS", "UNSYNCEDLYRICS")
 
-    // 字段在 Vorbis 注释中的候选键：首项为写入端使用的键，其后为第三方工具的同义键
+    // Vorbis 字段候选键，首项为写入端键
     private val VORBIS_ALIASES: Map<TagField, List<String>> = mapOf(
         TagField.TITLE to listOf("TITLE"),
         TagField.ARTIST to listOf("ARTIST"),
@@ -58,24 +50,15 @@ internal object MusicMetadataEditor {
         TagField.REPLAY_GAIN_REFERENCE_LOUDNESS to listOf("REPLAYGAIN_REFERENCE_LOUDNESS"),
     )
 
-    /**
-     * 表单回填内容。字段集合只含文本标签，内嵌歌词单独给出：
-     * 歌词有「缓存文件」与「文件内嵌」两份副本，两者并非总在同一次事务里落盘（内嵌写入可能失败），
-     * 故调用方需要歌词的写入时刻与缓存文件的修改时间择优。
-     */
+    /** 表单回填内容：文本字段与内嵌歌词分开 */
     class EditableTags(
         val fields: TrackTagFields,
         val lyrics: String?,
-        /**
-         * 内嵌歌词的写入时刻（毫秒），取音频文件的最后修改时间。无内嵌歌词时为 0
-         */
+        /** 内嵌歌词写入时刻，无则 0 */
         val lyricsModifiedMs: Long = 0L,
     )
 
-    /**
-     * 读取音频文件当前的内嵌标签；文件不可读、容器不支持或无标签时返回空字段。
-     * 调用方须在 IO 线程调用，本方法不做线程切换
-     */
+    /** 读内嵌标签；不可读或无标签返回空字段，须在 IO 线程 */
     fun read(context: Context, track: MusicTrack): EditableTags {
         val prefix = LocalAudioSource.read(context, track.path, track.audioUri, 0L, CONTAINER_PROBE_BYTES)
             ?: return EditableTags(TrackTagFields.EMPTY, null)
@@ -84,13 +67,12 @@ internal object MusicMetadataEditor {
         return EditableTags(
             fields = fields,
             lyrics = lyrics,
-            // 标签写在文件内，内嵌歌词的落盘时刻即文件的修改时间
+            // 歌词落盘时刻即文件修改时间
             lyricsModifiedMs = if (lyrics != null) modifiedTimeMs(context, track) else 0L,
         )
     }
 
-    // 音频文件的最后修改时间：本地路径取文件属性，content URI 经解析器查询。
-    // 取不到时返回 0，由调用方按「无法比较」处理
+    // 文件修改时间；不可得返回 0
     private fun modifiedTimeMs(context: Context, track: MusicTrack): Long = runCatching {
         if (track.path.isNotBlank()) {
             File(track.path).lastModified()
@@ -99,7 +81,7 @@ internal object MusicMetadataEditor {
         }
     }.getOrDefault(0L)
 
-    // content URI 曲目经 MediaStore 查询修改时间；非媒体库条目查询不到时返回 0
+    // URI 源经 MediaStore 查修改时间
     private fun queryLastModified(context: Context, track: MusicTrack): Long = runCatching {
         context.contentResolver.query(
             track.audioUri.toUri(),
@@ -110,12 +92,7 @@ internal object MusicMetadataEditor {
         )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) * 1000L else 0L } ?: 0L
     }.getOrDefault(0L)
 
-    /**
-     * 读取内嵌封面原图字节；无内嵌封面时返回 null。
-     *
-     * 封面与文本标签分开读取：封面可达数 MB，页面在表单就绪后才按需取回预览。
-     * 为 suspend：FLAC/M4A 等容器的封面取回走内嵌封面读取器，其内部按容器派发 IO 调度
-     */
+    /** 读内嵌封面原图；无则 null，须在 IO 线程 */
     suspend fun readCover(context: Context, track: MusicTrack): ByteArray? {
         val prefix = LocalAudioSource.read(context, track.path, track.audioUri, 0L, CONTAINER_PROBE_BYTES)
             ?: return null
@@ -126,35 +103,33 @@ internal object MusicMetadataEditor {
                     LosslessContainerTags.readCover(header, tail, tailOffset, readAt)
                 }
             }
-            // FLAC 的 PICTURE 块、M4A 的 covr 原子与其余容器由内嵌封面读取器统一取回
+            // FLAC/M4A 等由内嵌封面读取器取回
             else -> EmbeddedCoverReader.readRawBytes(context, track.audioUri, track.path)
         }
     }
 
-    // 文本标签：MP3 先按 ID3 声明长度取标签区，其余容器按头部窗口 + 尾部窗口的容器规则定位。
-    // 内嵌歌词不在本方法范围内，由 readLyrics 单独取回并附带写入时刻
+    // 文本标签：MP3 取 ID3 区，WAV 走窗口
     private fun readTextTags(
         context: Context,
         track: MusicTrack,
         prefix: ByteArray,
     ): TrackTagFields? = when {
-        // MP3/ID3 标签不在 LosslessContainerTags 的容器范围内，单独按帧解析取回
+        // MP3 单独按 ID3 帧解析
         prefix.startsWith("ID3") -> readId3Tag(context, track)
             ?.let { withoutLyrics(Id3v2Tag.readFields(it, 0)) }
         LosslessContainerTags.matches(prefix) -> readFromWindows(context, track, prefix) { header, tail, tailOffset, readAt ->
             LosslessContainerTags.readFields(header, tail, tailOffset, readAt)
         }?.let { withoutLyrics(it) }
-        // FLAC 的 VORBIS_COMMENT、Ogg 的注释包与 M4A 的 ilst 都在头部窗口内，按各自结构解析
+        // FLAC/Ogg 注释在头窗内，M4A 定点下钻
         else -> readHeadTaggedFields(context, track, prefix)
     }
 
-    // 歌词不由文本字段回填：它由 readLyrics 单独取回并附带写入时刻，避免两处各读一遍
+    // 歌词不由文本字段回填，避免重复读取
     private fun withoutLyrics(fields: TrackTagFields): TrackTagFields = TrackTagFields.build {
         fields.entries().forEach { (field, value) -> if (field != TagField.LYRICS) put(field, value) }
     }
 
-    // FLAC/Ogg 的 Vorbis 注释块在头窗内，按窗口解析；M4A 的 ilst 可能被大封面顶出头窗，
-    // 改由 Mp4TagReader 按盒子头定点下钻
+    // FLAC/Ogg 在头窗内解析；M4A 定点下钻
     private fun readHeadTaggedFields(
         context: Context,
         track: MusicTrack,
@@ -170,11 +145,11 @@ internal object MusicMetadataEditor {
         else -> null
     }
 
-    // 定点读取回调：按绝对偏移取盒子头与命中原子的载荷，不把头窗整段读进内存
+    // 定点读回调，不整段读头窗
     private fun readAt(context: Context, track: MusicTrack): (Long, Int) -> ByteArray? =
         { offset, count -> LocalAudioSource.read(context, track.path, track.audioUri, offset, count) }
 
-    // 键名大小写不敏感，按候选键序取首个非空值
+    // 键名大小写不敏感，按序取首个非空
     private fun readVorbisFields(comments: List<String>): TrackTagFields? {
         val result = LinkedHashMap<TagField, String>()
         VORBIS_ALIASES.forEach { (field, keys) ->
@@ -190,7 +165,7 @@ internal object MusicMetadataEditor {
             ?.takeIf { it.isNotBlank() }
     }
 
-    // 歌词字段在大写键中的取值入口：容器不同，注释区定位方式不同
+    // 歌词键取值入口，各容器定位方式不同
     private fun readVorbisField(
         header: ByteArray,
         keys: List<String>,
@@ -198,17 +173,17 @@ internal object MusicMetadataEditor {
     ): String? = comments(header)?.let { fieldValue(it, keys) }
 
     private fun readLyrics(context: Context, track: MusicTrack, prefix: ByteArray): String? = when {
-        // USLT 不是文本帧，不能走 readTextFrame 的 TXXX 之外解码路径，单独解析
+        // USLT 非文本帧，单独解析
         prefix.startsWith("ID3") -> readId3Tag(context, track)?.let { Id3v2Tag.readUslt(it, 0) }
             ?.takeIf { it.isNotBlank() }
         LosslessContainerTags.matches(prefix) -> readFromWindows(context, track, prefix) { header, tail, tailOffset, readAt ->
             LosslessContainerTags.readLyrics(header, tail, tailOffset, readAt)
         }
         else -> {
-            // 先判容器再读窗口：其余容器没有可取回歌词的落点，不必为此多读一个头窗
+            // 先判容器，避免多读头窗
             if (!prefix.startsWith("fLaC") && !prefix.startsWith("OggS") && !prefix.startsWith("ftyp", 4)) return null
             when {
-                // M4A 的歌词原子与文本标签同在 ilst 下，可能排在大封面之后，同样按盒子头定点下钻
+                // M4A 歌词可能在封面之后，定点下钻
                 prefix.startsWith("ftyp", 4) -> MusicEmbeddedLyricReader.readMp4Lyrics(
                     LocalAudioSource.size(context, track.path, track.audioUri),
                     readAt(context, track),
@@ -227,8 +202,7 @@ internal object MusicMetadataEditor {
         }
     }
 
-    // 头部窗口 + 尾部窗口 + 窗口外定点读取：WAV 的标签定位统一走这套窗口，
-    // 解析规则仍由 LosslessContainerTags 持有
+    // 头窗、尾窗与窗口外定点读取
     private fun <T> readFromWindows(
         context: Context,
         track: MusicTrack,
@@ -236,7 +210,7 @@ internal object MusicMetadataEditor {
         parse: (ByteArray, ByteArray?, Long, ((Long, Int) -> ByteArray?)?) -> T?,
     ): T? {
         val header = LocalAudioSource.read(context, track.path, track.audioUri, 0L, HEADER_CAP) ?: return null
-        // 标签在头部的容器不读尾窗：平白多读数据
+        // 标签在头部的容器不读尾窗
         if (!LosslessContainerTags.usesTrailingTag(prefix)) {
             return parse(header, null, 0L, null)
         }
@@ -249,7 +223,7 @@ internal object MusicMetadataEditor {
     private fun readId3Apic(context: Context, track: MusicTrack): ByteArray? =
         readId3Tag(context, track)?.let { Id3v2Tag.readApic(it, 0) }
 
-    // ID3v2 标签区：按标签头声明的长度精确读取（含封面帧），超出上限即放弃
+    // ID3 区按声明长度读，超上限放弃
     private fun readId3Tag(context: Context, track: MusicTrack): ByteArray? {
         val prefix = LocalAudioSource.read(context, track.path, track.audioUri, 0L, ID3_HEADER_BYTES) ?: return null
         if (!prefix.startsWith("ID3") || prefix.size < ID3_HEADER_BYTES) return null
@@ -286,7 +260,7 @@ internal object MusicMetadataEditor {
         return parseVorbisComments(bytes, start + headerLength, bytes.size - start - headerLength)
     }
 
-    // Vorbis 注释结构：LE 长度的 vendor + 字段数 + 「KEY=value」字段
+    // Vorbis：vendor、字段数、KEY=value
     private fun parseVorbisComments(data: ByteArray, offset: Int, length: Int): List<String>? {
         var p = offset
         val end = (offset + length).coerceAtMost(data.size)
@@ -298,8 +272,7 @@ internal object MusicMetadataEditor {
         val count = intLE(data, p)
         p += 4
         val fields = mutableListOf<String>()
-        // 字段数来自文件，剩余字节能承载的字段数才是上限：每个字段至少有 4 字节长度头，
-        // 否则损坏文件声明的几十亿条注释会让这里空转
+        // 字段数以剩余字节为上限，避免损坏文件空转
         repeat(count.coerceAtLeast(0).coerceAtMost((end - p).coerceAtLeast(0) / 4)) {
             if (p + 4 > end) return@repeat
             val valueLength = intLE(data, p)
@@ -311,7 +284,7 @@ internal object MusicMetadataEditor {
         return fields
     }
 
-    // M4A：标签全由 Mp4TagReader 按盒子头定点下钻读取（ilst 下的封面会把标签顶出头窗）
+    // M4A 全由 Mp4TagReader 定点下钻
     private fun readMp4Fields(context: Context, track: MusicTrack): TrackTagFields? =
         Mp4TagReader.readFields(
             LocalAudioSource.size(context, track.path, track.audioUri),
@@ -333,18 +306,10 @@ internal object MusicMetadataEditor {
             (bytes[p + 2].toInt() and 0xff shl 16) or (bytes[p + 3].toInt() and 0xff shl 24)
 }
 
-/**
- * 元数据编辑页的数据门面：读取表单初值并把用户改动写回音频文件。
- *
- * 写入是整批一次完成 —— 各容器的标签重写都要重建容器结构，逐字段写入会把文件重写多遍，
- * 每遍都是一次全量复制。缺失字段表示本次不改该项，由写入端保留既有值。
- */
+/** 编辑页数据门面：整批一次写回，缺项保留原值 */
 internal object TrackMetadataEditor {
 
-    /**
-     * 读取曲目当前的内嵌标签；曲目无可读本地音频源时返回 null。
-     * 不抛异常，读取失败按「无标签」处理，由页面展示空表单
-     */
+    /** 读内嵌标签；无本地源返回 null，失败按无标签 */
     suspend fun read(context: Context, track: MusicTrack): MusicMetadataEditor.EditableTags? =
         withContext(Dispatchers.IO) {
             if (!track.isLocalAudioSource) return@withContext null
@@ -360,7 +325,7 @@ internal object TrackMetadataEditor {
             }
         }
 
-    /** 读取内嵌封面原图字节；无内嵌封面或读取失败时返回 null */
+    /** 读内嵌封面；失败返回 null */
     suspend fun readCover(context: Context, track: MusicTrack): ByteArray? = withContext(Dispatchers.IO) {
         if (!track.isLocalAudioSource) return@withContext null
         try {
@@ -375,14 +340,7 @@ internal object TrackMetadataEditor {
         }
     }
 
-    /**
-     * 把编辑结果写回音频文件。只在字段集合中出现的项被覆盖，其余保持文件原值。
-     *
-     * [cover] 为三态：不改 / 写入给定图 / 删除既有封面 —— 用三态而非可空字节，
-     * 才能把「本次不动封面」与「本次要删掉封面」区分开。
-     *
-     * 返回是否写入成功：容器不支持、超出解析上限或文件不可写时返回 false，由页面提示用户。
-     */
+    /** 写回编辑结果；cover 三态区分不改/写入/删除 */
     suspend fun save(
         context: Context,
         track: MusicTrack,

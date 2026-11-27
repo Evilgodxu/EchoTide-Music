@@ -55,12 +55,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * 元数据编辑表单：内嵌封面 + 基本信息/曲目信息/参与人员/音量增益 + 歌词。
- *
- * 页面没有保存入口 —— 条目改动在输入停顿后自动写回音频文件，
- * 用户无需记住「改完要点保存」，也不会因切走页面而丢掉改动。
- */
+/** 编辑表单：封面 + 字段 + 歌词，自动保存 */
 @Composable
 internal fun MetadataForm(
     uiState: MetadataUiState,
@@ -97,14 +92,14 @@ internal fun MetadataForm(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // 全文复制的提示不带内容：整篇歌词装不进一行提示
+    // 全文复制提示不带内容
     val wholeCopiedHint = stringResource(R.string.metadata_lyrics_whole_copied)
-    // 本地封面候选：与播放面板同源（系统最近图片），选中后读回原始字节交给状态持有者自动落盘
+    // 本地封面候选：与播放面板同源，选中后读字节落盘
     var localCovers by remember { mutableStateOf<List<RecentCover>>(emptyList()) }
     var showLocalCover by remember { mutableStateOf(false) }
     var selectedLocalCover by remember { mutableStateOf<RecentCover?>(null) }
     var localCoverSaving by remember { mutableStateOf(false) }
-    // 无可写目标的曲目（纯在线流）不展示表单：编辑一份不会落盘的字段只会误导用户
+    // 在线流不展示表单
     if (!uiState.editable) {
         Column(
             modifier = modifier.fillMaxSize().padding(horizontal = 24.dp),
@@ -120,7 +115,7 @@ internal fun MetadataForm(
         }
         return
     }
-    // 封面操作的浮层：同专辑选择与在线刷新，均以本页状态驱动
+    // 封面浮层：同专辑与在线刷新
     MetadataCoverOverlays(
         uiState = uiState,
         playbackState = playbackState,
@@ -132,7 +127,7 @@ internal fun MetadataForm(
         onCoverRefreshConfirm = onCoverRefreshConfirm,
         onCoverRefreshCancel = onCoverRefreshCancel,
     )
-    // 在线补全：与封面刷新同款候选控件；确认候选后由二级对话框决定补全方式
+    // 在线补全：候选后二级选补全方式
     MetadataFillDialog(
         visible = uiState.fillVisible,
         playbackState = playbackState,
@@ -151,7 +146,7 @@ internal fun MetadataForm(
         onConfirm = onFillApply,
         onDismiss = onFillModeDismiss,
     )
-    // 本地封面候选：复用播放面板的候选选择控件，选中结果仍进入本页的自动落盘路径
+    // 复用播放面板的候选选择
     LocalCoverDialog(
         visible = showLocalCover,
         candidates = localCovers,
@@ -185,19 +180,13 @@ internal fun MetadataForm(
     Column(
         modifier = modifier
             .fillMaxSize()
-            // 点击输入框以外的空白区域即结束当前编辑并收起键盘：编辑被点击的可交互控件消费，
-            // 只有空白区命中根节点。编辑态收起由用户的明确意图驱动，不依赖异步焦点事件，
-            // 也不跟随键盘显隐 —— 系统返回键收起键盘后输入框保持编辑态与焦点，
-            // 用户得以继续查看刚输入的内容是否无误，确认无误再点空白处或按返回键收起
+            // 点击空白即结束编辑并收起键盘
             .pointerInput(Unit) { detectTapGestures(onTap = { onEditEnd() }) }
-            // 底部收紧：键盘展开时让出键盘，配合输入框自身的 bringIntoView 使输入框整体滚到键盘上方；
-            // 键盘收起时让出系统导航栏高度，否则表单末项被三键导航的虚拟按键压住。
-            // 两者取并集而非叠加：键盘高度已含导航栏区域，叠加会多让出一段。
-            // 只做这一处收缩，不再额外叠加固定底部内边距 —— 固定内边距会紧贴键盘上沿形成一条不随内容滚动的色带
+            // 底部让出键盘/导航栏，取并集不叠加
             .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
             .verticalScroll(rememberScrollState()),
     ) {
-        // 标签读取期间不展示表单：空字段与「文件里就是空的」在界面上无法区分，易被误保存
+        // 读取期间不展示表单
         if (uiState.loading) {
             Spacer(Modifier.height(48.dp))
             CircularProgressIndicator(
@@ -207,14 +196,14 @@ internal fun MetadataForm(
             return@Column
         }
         val labels = tagFieldLabels()
-        // 封面不套分区卡片：它是本页唯一需要看清的内容，卡片背景与内边距只会压缩它的可用面积
+        // 封面不套卡片，保留可视面积
         MetadataCoverEditor(
             title = uiState.value(TagField.TITLE),
             artist = uiState.value(TagField.ARTIST),
             coverBytes = uiState.coverBytes,
             enabled = !uiState.saving,
             exporting = uiState.exportingCover,
-            // 选择本地封面：打开候选列表，候选与播放面板同源（系统最近图片）
+            // 打开本地封面候选
             onPickCover = {
                 selectedLocalCover = null
                 showLocalCover = true
@@ -231,7 +220,7 @@ internal fun MetadataForm(
             messageIsError = uiState.messageIsError,
             modifier = Modifier.fillMaxWidth(),
         )
-        // 补全入口放在基本信息标题右侧：它填充的正是这几项（标题/艺术家/专辑/年份等）
+        // 补全入口放在基本信息标题右侧
         MetadataSection(
             title = stringResource(R.string.metadata_section_basic),
             action = {
@@ -288,7 +277,7 @@ internal fun MetadataForm(
             onRawChange = onLyricRawChange,
             onTranslationChange = onLyricTranslationChange,
             onTranslateLine = onLyricLineTranslate,
-            // 复制内容与全文编辑框同源：点击时才编码，避免「非全文模式也在每次歌词变化时序列化整篇」
+            // 点击时才编码整篇歌词
             onCopyWhole = {
                 copyToClipboard(
                     context = context,
@@ -304,7 +293,7 @@ internal fun MetadataForm(
     }
 }
 
-// 单个字段条目：把「取当前值 / 是否处于编辑态 / 回调」收在一处，避免各分组重复这套接线
+// 单字段条目接线
 @Composable
 private fun FieldEntry(
     field: TagField,
@@ -314,7 +303,7 @@ private fun FieldEntry(
     onEditStart: (MetadataEditTarget) -> Unit,
     onEditEnd: () -> Unit,
 ) {
-    // 星标与数值字段仍按文本编辑，但取值统一在此收口
+    // 星标与数值也按文本编辑
     MetadataEntry(
         label = labels.getValue(field),
         value = uiState.value(field),
@@ -326,7 +315,7 @@ private fun FieldEntry(
     )
 }
 
-// 评分条目：五颗星点选，点同一颗再次点击即清除评分
+// 评分：点同颗星清除
 @Composable
 private fun RatingEntry(
     label: String,
@@ -375,10 +364,10 @@ private fun RatingEntry(
     }
 }
 
-// 评分刻度：五颗星与容器内 POPM/rating 键的取值域一致
+// 五星，与 POPM 取值域一致
 private const val RATING_MAX_STARS = 5
 
-// 字段名文案：字段标识到界面文案的映射，供各分组统一取用
+// 字段标识到文案的映射
 @Composable
 private fun tagFieldLabels(): Map<TagField, String> = mapOf(
     TagField.TITLE to stringResource(R.string.metadata_field_title),

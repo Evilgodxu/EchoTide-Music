@@ -328,7 +328,7 @@ internal fun AddSongsPicker(
                     )
                 }
             } else {
-                // 搜索输入框：按标题/艺术家关键词筛选候选曲目
+                // 按标题/艺术家筛选候选
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -429,7 +429,7 @@ internal fun AddSongsPicker(
                             fontSize = 12.sp,
                             modifier = Modifier.weight(1f),
                         )
-                        // 用紧凑点击区替代 Material 文字按钮：其固定 48dp 触控高度会把底栏撑得过高
+                        // 用紧凑点击区，避免 TextButton 撑高底栏
                         PickerAction(
                             text = stringResource(
                                 if (allSelected) R.string.playlist_picker_select_none else R.string.playlist_picker_select_all
@@ -451,7 +451,7 @@ internal fun AddSongsPicker(
     }
 }
 
-// 选曲弹窗底栏的紧凑文字操作：无固定触控高度，按文案 + 内边距撑开，避免 Material 文字按钮把底栏撑高
+// 紧凑文字操作：无固定触控高度，避免撑高底栏
 @Composable
 private fun PickerAction(
     text: String,
@@ -475,7 +475,7 @@ private fun PickerAction(
     }
 }
 
-// 选曲行：封面 + 标题/艺术家 + 选中标识，几何与排版对齐歌单列表行
+// 选曲行：封面 + 标题/艺术家 + 勾选
 @Composable
 private fun SelectableTrackRow(
     track: MusicTrack,
@@ -518,8 +518,7 @@ private fun SelectableTrackRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        // 选中态用主色对勾，与加入歌单行的归属标识一致；未选中留出等宽占位，
-        // 避免勾选切换时标题的可排版宽度变化导致文本跳动
+        // 选中用主色对勾；未选中留等宽占位，避免文本跳动
         Box(
             modifier = Modifier.size(20.dp),
             contentAlignment = Alignment.Center,

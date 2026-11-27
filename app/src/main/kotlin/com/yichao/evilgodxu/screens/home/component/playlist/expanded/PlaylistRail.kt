@@ -46,9 +46,8 @@ import com.yichao.evilgodxu.screens.home.component.playlist.smartTypeIcon
 import com.yichao.evilgodxu.ui.component.CoverPrefetch
 import com.yichao.evilgodxu.ui.component.smartTypeLabel
 
-// 宽屏歌单面板左栏：系统歌单四项（图标 + 名称 + 计数，选中项高亮）+ 我的歌单列表 + 新建入口。
-// 横向宽度在此充当常驻导航，点选即换右栏内容，不再逐级下钻；我的歌单超出高度时本栏内滚动，
-// 新建入口固定在栏底，歌单再多也不需要滚到底才能新建
+// 宽屏左栏：系统/我的歌单与新建，点选换右栏
+// 列表在栏内滚动，新建入口固定栏底。
 @Composable
 internal fun PlaylistRail(
     playbackState: MusicPlaybackState,
@@ -66,8 +65,7 @@ internal fun PlaylistRail(
         playbackState.libraryTracks.associateBy { it.id }
     }
     val listState = rememberLazyListState()
-    // 歌单行封面取歌单首曲：可视区邻域提前取图，滚动进入视口时不再先闪占位符。
-    // 歌单行由 [RAIL_PLAYLIST_ITEM_OFFSET] 之后开始，故列表下标需先扣除头部项
+    // 封面取首曲预取，下标须扣头部偏移
     CoverPrefetch(listState) { index ->
         playlistStore.playlists.getOrNull(index - RAIL_PLAYLIST_ITEM_OFFSET)
             ?.trackIds
@@ -101,7 +99,7 @@ internal fun PlaylistRail(
                 Spacer(modifier = Modifier.height(6.dp))
             }
             items(playlistStore.playlists, key = { it.id }) { playlist ->
-                // 逐行缓存解析结果：数量与库大小无关地重复查表会形成 O(歌单数 × 库大小)
+                // 逐行缓存，避免 O(歌单数 × 库大小) 查表
                 val playlistTracks = remember(playlist.trackIds, libraryById) {
                     playlist.trackIds.mapNotNull { libraryById[it] }
                 }
@@ -125,7 +123,7 @@ internal fun PlaylistRail(
     }
 }
 
-// 系统歌单导航项：图标 + 名称 + 计数，选中项以浅色底与左侧主色条标示
+// 导航项：图标 + 名称 + 计数，选中加底色与主色条
 @Composable
 private fun SmartRailItem(
     icon: ImageVector,
@@ -178,7 +176,7 @@ private fun SmartRailItem(
     }
 }
 
-// 系统歌单计数文案：常听/收藏按曲目数，专辑/歌手按去重分组数
+// 计数：常听/收藏按曲目，专辑/歌手按分组
 @Composable
 private fun smartCountText(type: SmartPlaylistType, counts: SmartPlaylistCounts): String = when (type) {
     SmartPlaylistType.RECENT -> pluralStringResource(R.plurals.music_panel_track_count, counts.recent, counts.recent)
@@ -187,6 +185,5 @@ private fun smartCountText(type: SmartPlaylistType, counts: SmartPlaylistCounts)
     SmartPlaylistType.ARTIST -> pluralStringResource(R.plurals.playlist_artist_count, counts.artist, counts.artist)
 }
 
-// 左栏列表里歌单行之前的头部项数：系统歌单分节标题、四项系统歌单、我的歌单分节标题。
-// 预取按列表下标解析歌单时须按此回退，新增头部项时同步调整
+// 歌单行前头部占 6 项，改头部须同步
 private const val RAIL_PLAYLIST_ITEM_OFFSET = 6

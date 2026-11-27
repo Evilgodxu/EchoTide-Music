@@ -39,13 +39,13 @@ import com.yichao.evilgodxu.screens.home.HomeUiState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-// 竖屏标题栏无操作自动收起延时：与横屏标题栏同为沉浸式显隐，时长按竖屏观感取 2 秒
+// 标题栏无操作收起延时 2 秒
 private const val TopBarAutoHideDelayMs = 2000L
-// 竖屏标题栏收起/唤出的淡入淡出时长：与横屏标题栏一致
+// 标题栏淡入淡出 300ms，与横屏一致
 private const val TopBarFadeDurationMs = 300
 
-// 竖屏沉浸隐藏状态栏后，系统上报的顶部内边距归零。此处按状态栏实际高度预留该区域：
-// 标题栏与内容不再嵌入状态栏区域，且与其它页面顶部基准一致，切换页面时不会出现整体位移
+// 隐藏状态栏后系统顶部内边距归零，按实际高度补齐。
+// 否则标题栏嵌入状态栏区，切页时整体位移。
 @Composable
 private fun rememberStatusBarTopInsets(): WindowInsets {
     val view = LocalView.current
@@ -61,7 +61,7 @@ private fun rememberStatusBarTopInsets(): WindowInsets {
             }
             if (insets != next) insets = next
         }
-        // 状态栏高度随窗口尺寸（旋转、分屏、自由窗口改尺寸）变化，以布局结果为准重新取值
+        // 状态栏高度随窗口变化，布局后重新取值
         val listener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> refresh() }
         view.addOnLayoutChangeListener(listener)
         refresh()
@@ -70,7 +70,7 @@ private fun rememberStatusBarTopInsets(): WindowInsets {
     return insets
 }
 
-// 窄屏组装器：播放器页沉浸式标题栏 + 竖屏播放器主体
+// 窄屏组装器：沉浸标题栏 + 竖屏播放器
 @Composable
 internal fun CompactAssembly(
     uiState: HomeUiState,
@@ -83,43 +83,37 @@ internal fun CompactAssembly(
 ) {
     val playbackState = panelState.playbackState
     val context = LocalContext.current
-    // 沉浸隐藏状态栏时仍按状态栏高度预留顶部空间：标题栏与内容不嵌入状态栏区域
+    // 仍按状态栏高度预留顶部空间
     val topBarWindowInsets = rememberStatusBarTopInsets()
     // 标题/艺术家在线搜索等协程作用域
     val scope = rememberCoroutineScope()
     val currentTrackId = playbackState.currentTrack?.id
     val isLiked = currentTrackId?.let { playbackState.likedIds.contains(it) } ?: false
-    // 纵向切歌手势：挂在播放器页上，横向翻页由 Pager 承担
+    // 纵切歌手势挂播放页，横向交给 Pager
     val trackSwipe = rememberHomeTrackSwipeGesture(
         playbackState = playbackState,
         sheetVisible = panelState.playlistVisible || panelState.audioInfoVisible,
     )
 
-    // 底部弹层（播放列表、音频信息）与曲库分析对话框置顶：展开期间它们占住面板区域，
-    // 标题栏整体让位，避免与面板内容相互遮挡
+    // 弹层与曲库分析展开时占住面板，标题栏让位
     val sheetOnTop = panelState.playlistVisible || panelState.audioInfoVisible ||
         panelState.libraryAnalysis.visible
-    // 触摸唤出需要读到最新的置顶状态：播放页的触摸手势协程只建立一次，
-    // 直接捕获组合期的布尔值会一直读到首次组合的旧值，故经 State 转交
+    // 手势协程只建一次，置顶状态须经 State 转交
     val sheetOnTopState = rememberUpdatedState(sheetOnTop)
 
-    // 标题栏显隐：仅播放器页自动收起（搜索页与歌单页内容从标题栏下方开始，收起会留下空带），
-    // 触摸播放页任意位置或切回播放器页即唤出，两秒无操作后收起；
-    // 歌词纵向拖拽是例外——它接管整次手势，触摸瞬间的唤出会随即收回（见 lyricDragClaimed）
+    // 仅播放页自动收起，触摸唤出、2 秒收起；歌词拖拽例外
     val autoHideTopBar = panelState.currentPage == HomePage.PLAYER
-    // 歌手页自带沉浸头图，标题栏在该页始终隐藏：顶部整个让给头图，也不随触摸唤出
+    // 歌手页标题栏恒隐藏，也不随触摸唤出
     val topBarSuppressed = panelState.playlistImmersive
     var topBarVisible by remember { mutableStateOf(true) }
-    // 交互计数：每次唤出都自增以重置收起计时，连续触摸期间不会提前收起
+    // 唤出计数，自增以重置收起计时
     var topBarGeneration by remember { mutableIntStateOf(0) }
-    // 本次触摸开始前标题栏是否已收起：歌词纵向拖拽接管手势时据此把它收回，
-    // 拖拽歌词定位不把已收起的标题栏闪出来
+    // 记录触摸前是否收起，拖拽时不闪出标题栏
     var topBarHiddenBeforeTouch by remember { mutableStateOf(false) }
-    // 本次触摸是否已被歌词纵向拖拽接管：接管期间标题栏始终收起，连触摸瞬间起始的淡入也不再推进
+    // 拖拽接管期间标题栏始终收起
     var lyricDragClaimed by remember { mutableStateOf(false) }
     fun revealTopBar() {
-        // 弹层置顶期间不唤出：触摸落在弹层上，若照常唤出，标题栏会随每次触摸闪入、
-        // 两秒后再自动收起，在弹层上方反复进出
+        // 弹层置顶期间不唤出，避免标题栏反复进出
         if (sheetOnTopState.value) return
         topBarVisible = true
         topBarGeneration++
@@ -129,24 +123,24 @@ internal fun CompactAssembly(
         delay(TopBarAutoHideDelayMs)
         topBarVisible = false
     }
-    // 切回播放器页时重新展示，收起计时随后重新起算
+    // 切回播放页重新展示并重新计时
     LaunchedEffect(panelState.currentPage) {
         if (panelState.currentPage == HomePage.PLAYER) revealTopBar()
     }
-    // 底部弹层与曲库分析展开时收起，避免遮挡面板内容
+    // 弹层与曲库分析展开时收起
     LaunchedEffect(sheetOnTop) {
         if (sheetOnTop) topBarVisible = false
     }
     val animatedTopBarAlpha by animateFloatAsState(
         targetValue = when {
-            // 歌手页的标题栏恒隐藏：进该页时一并按这条淡出收走，不做突起突没
+            // 歌手页标题栏淡出收走，避免突起突没
             topBarSuppressed -> 0f
             topBarVisible || !autoHideTopBar -> 1f
             else -> 0f
         },
         animationSpec = tween(durationMillis = TopBarFadeDurationMs),
     )
-    // 被歌词纵向拖拽接管时直接归零：触摸唤出尚在淡入起始段，直接收起不留残影
+    // 拖拽接管时直接归零，不留残影
     val topBarAlpha = if (lyricDragClaimed) 0f else animatedTopBarAlpha
 
     HomeShell(
@@ -161,11 +155,11 @@ internal fun CompactAssembly(
                 onToggleFavorite = { currentTrackId?.let { playbackState.toggleFavorite(it) } },
                 onToggleLandscape = onToggleLandscape,
                 onOpenSettings = onOpenSettings,
-                // 收起期间与歌手页都不可交互：控件不可见时不该响应点击
+                // 不可见时不响应点击
                 interactive = !topBarSuppressed && (topBarVisible || !autoHideTopBar),
                 windowInsets = topBarWindowInsets,
                 modifier = Modifier.graphicsLayer {
-                    // 收起时上移淡出并移出触摸范围，布局尺寸不变以保证骨架顶部内边距稳定
+                    // 上移淡出并移出触摸范围，布局尺寸不变
                     alpha = topBarAlpha
                     translationY = -size.height * (1f - topBarAlpha)
                 },
@@ -177,18 +171,17 @@ internal fun CompactAssembly(
             topInset = topInset,
             onOpenSettings = onOpenSettings,
         ) {
-            // 播放器页铺满全屏（含标题栏区域），竖屏沉浸封面嵌入标题栏后方
+            // 播放页铺满，封面嵌入标题栏后方
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(trackSwipe.modifier)
-                    // 只在 Initial 阶段观察、不消费事件：播放页任意触摸都唤出标题栏
-                    // （弹层置顶期间除外，判定见 revealTopBar；歌词纵向拖拽接手时收回，见 lyricDragClaimed）
+                    // Initial 阶段观察不消费，任意触摸唤出标题栏
                     .pointerInput(Unit) {
                         awaitPointerEventScope {
                             while (true) {
                                 awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                                // 记录触摸前的显隐再唤出：歌词纵向拖拽接管本次手势时按此状态收回
+                                // 先记录触摸前显隐，拖拽接管时据此收回
                                 topBarHiddenBeforeTouch = !topBarVisible
                                 lyricDragClaimed = false
                                 revealTopBar()
@@ -201,9 +194,9 @@ internal fun CompactAssembly(
                     mediaAudioGranted = uiState.mediaAudioGranted,
                     topBarInset = topInset,
                     swipePreviewText = trackSwipe.previewText,
-                    // 歌词区快速滑动同样按切歌处理，复用整页纵向切歌的判定与偏好
+                    // 歌词快速滑动按切歌处理
                     onVerticalFling = trackSwipe::switchTrack,
-                    // 歌词拖拽定位接管手势时收回触摸顺带唤出的标题栏（触摸前本就收起才收回）
+                    // 拖拽接管时收回顺带唤出的标题栏
                     onLyricVerticalDragClaim = {
                         if (topBarHiddenBeforeTouch) {
                             lyricDragClaimed = true
@@ -216,14 +209,14 @@ internal fun CompactAssembly(
                     // 播放按钮上滑唤出的音频信息弹窗
                     audioInfoVisible = panelState.audioInfoVisible,
                     onAudioInfoVisibilityChange = { panelState.audioInfoVisible = it },
-                    // 长按标题/艺术家菜单「在线搜索」：切到在线搜索页并自动按当前菜单文本搜索
+                    // 菜单「在线搜索」：切到搜索页并自动搜
                     onOpenOnlineSearch = { query ->
                         playbackState.setSearchQuery(query)
                         playbackState.setSearchResultsVisible(true)
                         panelState.goToPage(HomePage.SEARCH)
                         scope.launch { performSearch(playbackState, context) }
                     },
-                    // 点击歌手信息：切到歌单面板并进入该歌手的曲目列表
+                    // 点击歌手：切歌单面板并进该歌手
                     onOpenArtistPlaylist = panelState::openArtistPlaylist,
                     onOpenSpectrum = onOpenSpectrum,
                     onOpenMetadata = onOpenMetadata,

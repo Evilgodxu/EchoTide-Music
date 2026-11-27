@@ -4,12 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/**
- * 代理音源时长解析：规范约定毫秒，但音源常直接透传平台的展示值。
- *
- * 误判的代价不对称：解析失败只是少一项时长，把 `"04:29"` 当成 0 或把 `"269"` 当成秒，
- * 会让曲目时长错到离谱，进而影响试听判定与排序。
- */
+/** 时长解析：失败少一项，误判则错到离谱 */
 class ProxyDurationTest {
 
     @Test

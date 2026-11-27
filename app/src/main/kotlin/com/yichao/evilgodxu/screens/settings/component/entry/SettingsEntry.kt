@@ -28,12 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.theme.AppAlpha
 import com.yichao.evilgodxu.theme.AppSpacing
 
-/**
- * 设置项：可点击列表项，支持返回点击坐标以驱动主题切换动效。
- *
- * @param subtitle 说明行；分区标题已写明该项是什么时留空，只留当前取值，避免同一句读两遍
- * @param onClickWithPosition 需要按点击位置播放整屏揭示时使用，此时 [onClick] 不参与
- */
+/** 设置项：可点击，可回传点击坐标驱动动效 */
 @Composable
 fun SettingsEntry(
     icon: ImageVector,

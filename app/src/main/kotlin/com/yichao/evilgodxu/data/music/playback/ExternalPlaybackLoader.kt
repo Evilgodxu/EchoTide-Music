@@ -28,13 +28,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * 外部音频的后台播放装载。
- *
- * 应用被外部以「打开/分享」唤醒时，进程可能是刚起来的，播放会话尚未就绪，故先补齐会话
- * （恢复歌单、播放列表为空时扫描、恢复当前曲目），再把传入的 URI 并入歌单并起播。全程不建立界面，
- * 迷你播放器由调用方按需显示。
- *
- * 曲库变更监听在此登记：后台播放期间新增的曲目也应进入歌单，与首页在线时的刷新口径一致。
+ * 外部音频的后台装载：先补齐会话，再并入歌单并起播。
+ * 不建界面；曲库变更监听在此登记。
  */
 class ExternalPlaybackLoader(
     private val context: Context,
@@ -51,7 +46,7 @@ class ExternalPlaybackLoader(
     private var refreshJob: Job? = null
     private val mediaObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
         override fun onChange(selfChange: Boolean, uri: Uri?) {
-            // 系统扫描期间会密集回调，合并为一次延迟刷新
+            // 系统扫描回调密集，合并为一次延迟刷新
             refreshJob?.cancel()
             refreshJob = scope.launch {
                 delay(MEDIA_REFRESH_DEBOUNCE_MS)
@@ -60,12 +55,7 @@ class ExternalPlaybackLoader(
         }
     }
 
-    /**
-     * 播放外部传入的音频。
-     *
-     * 重复调用以最后一次为准：先到的装载在持有锁后发现自己已被顶替就直接退出，
-     * 不会把旧 URI 的曲目切到前台。
-     */
+    /** 播放外部音频；重复调用以最后一次为准 */
     fun play(uri: Uri) {
         try {
             context.contentResolver.takePersistableUriPermission(
@@ -74,7 +64,7 @@ class ExternalPlaybackLoader(
             )
         } catch (e: SecurityException) {
             CrashLogManager.logException("ExternalPlaybackLoader", "获取外部音频持久访问权限失败", e)
-            // 外部应用可能只授予临时读取权限，仍需继续播放当前 URI
+            // 可能只有临时读权限，仍继续播放
         }
         pendingExternalUri = uri
         prepare()
@@ -102,8 +92,7 @@ class ExternalPlaybackLoader(
                 if (targetIndex < 0) return@withLock
                 playbackState.persistPlaylist()
                 withContext(Dispatchers.Main) {
-                    // 外部音频起播没有先后关系可读，类型按选曲播放记录：曲目状态由本处
-                    // 先行写入，类型必须与它同帧，之后的 playTrackAt 因目标已是当前曲目而不再补记
+                    // 类型须与曲目写入同帧，playTrackAt 不再补记
                     playbackState.beginTrackSwitch(TrackSwitchKind.Select)
                     playbackState.currentIndex = targetIndex
                     playbackState.currentTrack = playbackState.playlist[targetIndex]
@@ -116,7 +105,7 @@ class ExternalPlaybackLoader(
         }
     }
 
-    // 释放：停止后台任务并摘掉曲库监听
+    // 释放：停后台任务并摘掉曲库监听
     fun release() {
         refreshJob?.cancel()
         if (mediaObserverRegistered) {
@@ -126,12 +115,12 @@ class ExternalPlaybackLoader(
         scope.cancel()
     }
 
-    // 预热播放会话；已预热时直接返回，重复调用无副作用
+    // 预热会话；重复调用无副作用
     private fun prepare() {
         if (initialization != null) return
         initialization = scope.async {
             playbackState.restoreSavedState(context)
-            // MediaController 仅限主线程访问，须在 Main 线程读取其状态
+            // MediaController 仅限主线程访问
             val playerActive = withContext(Dispatchers.Main) { playbackState.isPlayerActive }
             if (!playerActive) {
                 playbackState.removeUnavailableExternalTracks(context)
@@ -141,10 +130,10 @@ class ExternalPlaybackLoader(
             } else {
                 withContext(Dispatchers.Main) {
                     restoreCurrentTrack()
-                    // 后台预读当前曲目歌词：迷你播放器显示歌词时已就绪
+                    // 预读歌词，迷你播放器可即显
                     playbackState.requestMetadata(playbackState.currentTrack)
                 }
-                // 封面/歌词全量补全延迟执行，避免抢占外部音频起播所需的解码 IO
+                // 全量补全延迟，避免抢占起播解码 IO
                 scope.launch {
                     delay(METADATA_ENRICH_DELAY_MS)
                     metadataEnricher.enrichAndCleanup(context, playbackState)
@@ -198,9 +187,9 @@ class ExternalPlaybackLoader(
             (targetPath != null && track.path.isNotBlank() && track.path == targetPath)
 
     private companion object {
-        // 曲库变更刷新去抖：系统扫描期间回调密集，合并成一次
+        // 曲库变更去抖：系统扫描时回调密集
         const val MEDIA_REFRESH_DEBOUNCE_MS = 300L
-        // 封面/歌词全量补全前的延迟：先让外部音频起播
+        // 全量补全延迟，先让外部音频起播
         const val METADATA_ENRICH_DELAY_MS = 3_000L
     }
 }

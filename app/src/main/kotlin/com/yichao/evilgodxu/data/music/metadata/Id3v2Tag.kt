@@ -3,16 +3,13 @@ package com.yichao.evilgodxu.data.music.metadata
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 
-// ID3v2 标签的帧与标签构造：MP3、WAV 内嵌的 ID3 块共用同一套帧编码。
-// 新建标签统一取 v2.4（文本 UTF-8、内容描述符以单 0 结尾、长度字段为同步安全整数），
-// 读取既有标签时按标签自身的版本解析，避免把 v2.3 的帧当 v2.4 读。
-// 写入端与内嵌歌词读取器的编码分支一一对应：v2.4 用 UTF-8，v2.3 用带 BOM 的 UTF-16
+// ID3v2 帧构造；写法 v2.4，按原版本读
 internal object Id3v2Tag {
 
     // 新建标签版本
     const val TAG_VERSION = 4
 
-    // 普通文本帧：一个字段对应一个固定帧标识，读写共用同一张表
+    // 文本帧：字段到固定帧标识，读写共用
     private val TEXT_FRAME_IDS: Map<TagField, String> = mapOf(
         TagField.TITLE to "TIT2",
         TagField.ARTIST to "TPE1",
@@ -27,13 +24,11 @@ internal object Id3v2Tag {
         TagField.LANGUAGE to "TLAN",
     )
 
-    // 日期帧：v2.4 用 TDRC（完整时间戳），v2.3 用 TYER（四位年份）。
-    // 两者不通用，按标签版本择一写出，读取时两者都认，兼容第三方工具写入的任一形式
+    // 日期帧：v2.4 用 TDRC，v2.3 用 TYER
     private const val DATE_FRAME_V4 = "TDRC"
     private const val DATE_FRAME_V3 = "TYER"
 
-    // 自定义文本帧（TXXX）承载的字段：ReplayGain 没有专用帧标识，
-    // 按业界惯例写入 TXXX，以描述符区分具体项
+    // ReplayGain 写 TXXX 并带描述符
     private val TXXX_DESCRIPTORS: Map<TagField, String> = mapOf(
         TagField.REPLAY_GAIN_TRACK_GAIN to "REPLAYGAIN_TRACK_GAIN",
         TagField.REPLAY_GAIN_TRACK_PEAK to "REPLAYGAIN_TRACK_PEAK",
@@ -48,25 +43,20 @@ internal object Id3v2Tag {
     private const val LYRICS_FRAME_ID = "USLT"
     private const val COVER_FRAME_ID = "APIC"
 
-    // USLT 与 COMM 帧的语言字段：ID3v2 规范用 "XXX" 表示语言未定义
+    // 语言未定义时用 "XXX"
     private val UNDEFINED_LANGUAGE = "XXX".toByteArray(StandardCharsets.ISO_8859_1)
 
-    // POPM 评分的满分刻度：星级 1..5 线性映射到 1..255，读回时按同一刻度反算
+    // 评分满格 255，星级 1..5 线性映射
     private const val RATING_MAX = 255
     private const val RATING_STARS = 5
 
-    // 既有标签的版本；非 ID3v2.3/2.4 标签或标签缺失时取新建版本。
-    // v2.3 的帧长度字段为 32 位大端、文本为 UTF-16，与 v2.4 的同步安全长度、UTF-8 互不兼容，
-    // 容器改写保留帧时必须以原版本重建，否则保留下来的帧会被按错版本读成乱码
+    // 非 2.3/2.4 用新建，帧按原版本重建
     fun versionOf(tag: ByteArray?): Int =
         if (tag != null && tag.size >= 10 && tag.startsWithAscii("ID3", 0)) {
             (tag[3].toInt() and 0xFF).takeIf { it in 3..4 } ?: TAG_VERSION
         } else TAG_VERSION
 
-    /**
-     * 兼容入口：以既有标签的帧区为底，覆盖标题/艺术家/专辑/封面/歌词，保留其余帧。
-     * 字段为 null 表示保留原值；无既有标签且无字段可写时返回 null（无内容可写）
-     */
+    /** 兼容入口：散字段覆盖，null 保留原值 */
     fun replaceFrames(
         existing: ByteArray?,
         title: String?,
@@ -88,16 +78,7 @@ internal object Id3v2Tag {
         version = version,
     )
 
-    /**
-     * 以既有标签的帧区为底，覆盖 [fields] 声明的字段与封面，保留其余帧。
-     *
-     * 同一帧标识的重复帧只在首次出现处替换，其后同名帧原样保留 —— 保留既有帧的语义优先于去重，
-     * 这既避免改写丢失第三方工具写入的附加信息，也让「重复帧是否该合并」的判断留给上层。
-     *
-     * @param cover 新的封面图；为 null 且 [removeCover] 为真时删除既有封面
-     * @param removeCover 本次要删除内嵌封面。与「cover 为 null」区分：后者只是没有新图，封面须原样保留
-     * @return 帧区字节（不含标签头与 footer）；无既有标签且无字段可写时返回 null
-     */
+    /** 以既有帧区为底覆盖字段与封面，其余帧原样保留 */
     fun replaceFrames(
         existing: ByteArray?,
         fields: TrackTagFields,
@@ -105,7 +86,7 @@ internal object Id3v2Tag {
         removeCover: Boolean,
         version: Int,
     ): ByteArray? {
-        // 待写入帧按帧标识归并：一个标识一个结果，首次出现处替换
+        // 待写入帧按标识归并，首次出现处替换
         val pending = LinkedHashMap<String, ByteArray>()
         val pendingTxxx = LinkedHashMap<String, ByteArray>()
         fields.entries().forEach { (field, value) ->
@@ -119,18 +100,18 @@ internal object Id3v2Tag {
                 else -> TEXT_FRAME_IDS[field]?.let { pending[it] = textFrameBytes(it, value, version) }
             }
         }
-        // 封面状态：读取端也据此决定既有 APIC 帧是替换还是原样保留
+        // 封面状态决定既有 APIC 替换还是保留
         val newCoverFrame = cover?.let { apicFrameBytes(it, version) }
         val coverChanged = newCoverFrame != null || removeCover
 
         val frames = ByteArrayOutputStream()
-        // 已被新值顶替的帧标识：同名帧只在首次出现处写新值，其后原样保留
+        // 已顶替的帧标识，同名帧其后原样保留
         val replaced = mutableSetOf<String>()
         if (existing != null) {
             forEachFrame(existing, 0) { source, frameStart, id, bodyStart, length ->
                 val raw = source.copyOfRange(frameStart, bodyStart + length)
                 when {
-                    // 封面独立处理：删除时首个 APIC 帧整帧丢弃（不写新帧即等于删掉），其余重复帧按同一状态处理
+                    // 删除时丢弃首个 APIC，其余重复帧按同一状态
                     id == COVER_FRAME_ID -> {
                         if (!coverChanged) {
                             frames.write(raw)
@@ -139,7 +120,7 @@ internal object Id3v2Tag {
                         }
                     }
                     id == TXXX_FRAME_ID -> {
-                        // TXXX 以描述符区分具体项：只有描述符命中待写入项时才替换
+                        // TXXX 按描述符命中才替换
                         val descriptor = decodeTxxxDescription(source, bodyStart, length)
                         val replacement = descriptor?.let { pendingTxxx[it] }
                         if (replacement != null && replaced.add("$TXXX_FRAME_ID:$descriptor")) {
@@ -162,10 +143,7 @@ internal object Id3v2Tag {
         return frames.toByteArray().takeIf { it.isNotEmpty() }
     }
 
-    /**
-     * 读取标签内的全量字段；未写入的字段不出现在结果中（与「写入了空串」区分）。
-     * 日期同时接受 v2.4 的 TDRC 与 v2.3 的 TYER
-     */
+    /** 读标签全量字段；未写入的字段不出现在结果中 */
     fun readFields(bytes: ByteArray, at: Int): TrackTagFields = TrackTagFields.build {
         TEXT_FRAME_IDS.forEach { (field, frameId) -> put(field, readTextFrame(bytes, at, frameId)) }
         put(TagField.DATE, readTextFrame(bytes, at, DATE_FRAME_V4) ?: readTextFrame(bytes, at, DATE_FRAME_V3))
@@ -175,8 +153,7 @@ internal object Id3v2Tag {
         put(TagField.LYRICS, readUslt(bytes, at)?.takeIf { it.isNotBlank() })
     }
 
-    // 组装完整标签：头部 + 帧区，footer 为 WAV 尾部标签所需的 ID3v2 footer（以 "3DI" 开头）。
-    // footer 与头部除标识外字段完全一致，且不计入标签头声明的长度
+    // 组装标签：头 + 帧区；footer 不计入长度
     fun buildTag(frames: ByteArray, version: Int, flags: Int = 0, footer: Boolean = false): ByteArray {
         val out = ByteArrayOutputStream()
         out.write("ID3".toByteArray(StandardCharsets.US_ASCII))
@@ -191,8 +168,7 @@ internal object Id3v2Tag {
         return out.toByteArray()
     }
 
-    // 取标签内首个 APIC（附图）帧的图片数据：编码字节 + MIME(空结尾) + 图片类型 + 描述 + 图片数据。
-    // 描述字段的结尾宽度随编码变化（UTF-16 为双 0），MIME 恒为单字节编码
+    // APIC：编码、MIME、类型、描述、数据
     fun readApic(bytes: ByteArray, at: Int): ByteArray? {
         var result: ByteArray? = null
         forEachFrame(bytes, at) { source, _, id, bodyStart, length ->
@@ -220,7 +196,7 @@ internal object Id3v2Tag {
         return bytes.copyOfRange(p, end).takeIf { it.isNotEmpty() }
     }
 
-    // 取标签内指定文本帧的文本，供标题(TIT2)/艺术家(TPE1)/专辑(TALB)等单帧字段读取
+    // 取首个指定文本帧，供单帧字段读取
     fun readTextFrame(bytes: ByteArray, at: Int, id: String): String? {
         var result: String? = null
         forEachFrame(bytes, at) { source, _, frameId, bodyStart, length ->
@@ -233,7 +209,7 @@ internal object Id3v2Tag {
         return result
     }
 
-    // 文本帧数据：编码字节 + 文本。结尾的 NUL 只是终止符，解码后一并去掉
+    // 文本帧：编码 + 文本，去掉结尾 NUL
     private fun decodeTextFrame(data: ByteArray, offset: Int, length: Int): String? {
         if (length < 1 || offset + length > data.size) return null
         val encoding = data[offset].toInt() and 0xFF
@@ -244,7 +220,7 @@ internal object Id3v2Tag {
             .takeIf { it.isNotBlank() }
     }
 
-    // 取标签内首个 USLT（非同步歌词）帧的歌词文本
+    // 取首个 USLT 歌词文本
     fun readUslt(bytes: ByteArray, at: Int): String? {
         var result: String? = null
         forEachFrame(bytes, at) { source, _, id, bodyStart, length ->
@@ -257,7 +233,7 @@ internal object Id3v2Tag {
         return result
     }
 
-    // USLT 帧数据：编码字节 + 语言(3) + 空结尾内容描述符 + 歌词文本
+    // USLT：编码 + 语言(3) + 空描述 + 歌词
     private fun decodeUslt(data: ByteArray, offset: Int, length: Int): String? {
         if (length < 4 || offset + length > data.size) return null
         val encoding = data[offset].toInt() and 0xFF
@@ -267,8 +243,7 @@ internal object Id3v2Tag {
         return decodeText(data.copyOfRange(p, end), encoding, utf16LittleEndian(data, p, end, encoding))
     }
 
-    // 取标签内指定 COMM（注释）帧的文本：只认描述符为空的「整曲注释」，
-    // 带描述符的 COMM 属第三方工具的附加信息，不属于本字段
+    // COMM：只认空描述符的整曲注释
     fun readComment(bytes: ByteArray, at: Int): String? {
         var result: String? = null
         forEachFrame(bytes, at) { source, _, id, bodyStart, length ->
@@ -284,7 +259,7 @@ internal object Id3v2Tag {
         return result
     }
 
-    // COMM 帧数据：编码字节 + 语言(3) + 空结尾描述符 + 文本
+    // COMM：编码 + 语言(3) + 空描述 + 文本
     private fun decodeComment(data: ByteArray, offset: Int, length: Int): String? {
         if (length < 4 || offset + length > data.size) return null
         val encoding = data[offset].toInt() and 0xFF
@@ -298,8 +273,7 @@ internal object Id3v2Tag {
             .trimEnd('\u0000')
     }
 
-    // 取 POPM（评分）帧的星级：帧体为「邮箱(空结尾) + 评分(1) + 计数(可选)」。
-    // 无 POPM 或评分为 0（未打分）时返回 null
+    // POPM：邮箱、评分、计数；0 分返回 null
     fun readRating(bytes: ByteArray, at: Int): String? {
         var result: String? = null
         forEachFrame(bytes, at) { source, _, id, bodyStart, length ->
@@ -311,7 +285,7 @@ internal object Id3v2Tag {
                 if (p < end) {
                     val raw = source[p].toInt() and 0xFF
                     if (raw > 0) {
-                        // 反算星级：0..255 线性刻度回到 1..5
+                        // 0..255 线性刻度反算星级
                         val stars = (raw * RATING_STARS + RATING_MAX / 2) / RATING_MAX
                         result = stars.coerceIn(1, RATING_STARS).toString()
                         return@forEachFrame true
@@ -323,7 +297,7 @@ internal object Id3v2Tag {
         return result
     }
 
-    // 取指定描述符的 TXXX（自定义文本）帧的值；描述符比较不区分大小写
+    // 取指定描述符的 TXXX，描述符不区分大小写
     fun readTxxx(bytes: ByteArray, at: Int, descriptor: String): String? {
         var result: String? = null
         forEachFrame(bytes, at) { source, _, id, bodyStart, length ->
@@ -358,7 +332,7 @@ internal object Id3v2Tag {
         return decodeText(data.copyOfRange(textStart, end), encoding, null).trimEnd('\u0000')
     }
 
-    // ID3v2 文本编码：0=ISO-8859-1、1=UTF-16(带 BOM)、2=UTF-16BE、3=UTF-8
+    // 编码：Latin1、UTF-16、BE、UTF-8
     private fun decodeText(bytes: ByteArray, encoding: Int, littleEndian: Boolean?): String = when (encoding) {
         0 -> String(bytes, StandardCharsets.ISO_8859_1)
         1 -> decodeUtf16(bytes, littleEndian)
@@ -366,14 +340,14 @@ internal object Id3v2Tag {
         else -> String(bytes, StandardCharsets.UTF_8)
     }
 
-    // UTF-16 解码：无 BOM 时按零字节奇偶分布推断字节序，并剥离解码产生的 BOM 字符
+    // UTF-16 无 BOM 时按零字节分布推断字节序
     private fun decodeUtf16(bytes: ByteArray, littleEndian: Boolean?): String {
         val little = littleEndian ?: inferUtf16Endianness(bytes)
         val text = if (little) String(bytes, StandardCharsets.UTF_16LE) else String(bytes, StandardCharsets.UTF_16BE)
         return text.removePrefix("\uFEFF")
     }
 
-    // 推断 UTF-16 字节序：ASCII 字符的高位字节恒为零，统计偶数位（BE）与奇数位（LE）的零字节数
+    // 推断字节序：ASCII 高位字节恒为零
     private fun inferUtf16Endianness(bytes: ByteArray): Boolean {
         var littleScore = 0
         var bigScore = 0
@@ -386,7 +360,7 @@ internal object Id3v2Tag {
         return littleScore > bigScore
     }
 
-    // UTF-16 文本起始处的 BOM 决定字节序（ID3v2 规范要求 UTF-16 字符串以 BOM 开头）
+    // BOM 决定 UTF-16 字节序
     private fun utf16LittleEndian(data: ByteArray, start: Int, end: Int, encoding: Int): Boolean? {
         if (encoding != 1 || start + 2 > end) return null
         return when {
@@ -396,7 +370,7 @@ internal object Id3v2Tag {
         }
     }
 
-    // 跳过以 0（UTF-16 为双 0）结尾的字段，返回其后第一个字节的位置
+    // 跳过以 0 结尾的字段，返回其后位置
     private fun skipTerminated(data: ByteArray, start: Int, end: Int, encoding: Int): Int {
         val width = terminatorWidth(encoding)
         var p = start
@@ -425,7 +399,7 @@ internal object Id3v2Tag {
         return frameBytes(id, data, version)
     }
 
-    // USLT 帧数据：编码字节 + 语言(3) + 空内容描述符 + 歌词文本。描述符结尾宽度随编码变化
+    // USLT：编码 + 语言(3) + 空描述 + 歌词
     fun usltFrame(out: ByteArrayOutputStream, lyrics: String, version: Int) {
         out.write(usltFrameBytes(lyrics, version))
     }
@@ -440,7 +414,7 @@ internal object Id3v2Tag {
         return frameBytes(LYRICS_FRAME_ID, text, version)
     }
 
-    // COMM 帧数据：编码字节 + 语言(3) + 空描述符 + 注释文本
+    // COMM：编码 + 语言(3) + 空描述 + 注释
     private fun commentFrameBytes(comment: String, version: Int): ByteArray {
         val text = if (version >= 4) {
             byteArrayOf(3) + UNDEFINED_LANGUAGE + byteArrayOf(0) + comment.toByteArray(StandardCharsets.UTF_8)
@@ -451,7 +425,7 @@ internal object Id3v2Tag {
         return frameBytes(COMMENT_FRAME_ID, text, version)
     }
 
-    // POPM 帧数据：空邮箱 + 评分(1) + 计数(4)。星级 1..5 线性映射到 1..255
+    // POPM：空邮箱 + 评分(1) + 计数(4)
     private fun popmFrameBytes(rating: String): ByteArray {
         val stars = rating.trim().toIntOrNull()?.coerceIn(0, RATING_STARS) ?: 0
         val raw = if (stars <= 0) 0 else (stars * RATING_MAX + RATING_STARS / 2) / RATING_STARS
@@ -462,7 +436,7 @@ internal object Id3v2Tag {
         return frameBytes(RATING_FRAME_ID, data.toByteArray(), 4)
     }
 
-    // TXXX 帧数据：编码字节 + 描述符(空结尾) + 值
+    // TXXX：编码 + 描述(空结尾) + 值
     private fun txxxFrameBytes(descriptor: String, value: String, version: Int): ByteArray {
         val data = if (version >= 4) {
             byteArrayOf(3) + descriptor.toByteArray(StandardCharsets.UTF_8) + byteArrayOf(0) +
@@ -493,7 +467,7 @@ internal object Id3v2Tag {
         out.write(frameBytes(id, data, version))
     }
 
-    // 单帧字节：标识(4) + 长度 + 标志(2) + 数据。v2.4 长度为同步安全整数，v2.3 为 32 位大端
+    // 单帧：标识(4) + 长度 + 标志(2) + 数据
     private fun frameBytes(id: String, data: ByteArray, version: Int): ByteArray {
         val out = ByteArrayOutputStream()
         out.write(id.toByteArray(StandardCharsets.US_ASCII))
@@ -503,7 +477,7 @@ internal object Id3v2Tag {
         return out.toByteArray()
     }
 
-    // ID3v2 长度字段为 28 位同步安全整数：每字节仅低 7 位有效
+    // 28 位同步安全整数，每字节仅低 7 位
     fun syncsafe(bytes: ByteArray, p: Int): Int =
         (bytes[p].toInt() and 0x7f shl 21) or (bytes[p + 1].toInt() and 0x7f shl 14) or
             (bytes[p + 2].toInt() and 0x7f shl 7) or (bytes[p + 3].toInt() and 0x7f)
@@ -511,9 +485,7 @@ internal object Id3v2Tag {
     fun syncsafeBytes(v: Int): ByteArray =
         byteArrayOf((v shr 21 and 0x7f).toByte(), (v shr 14 and 0x7f).toByte(), (v shr 7 and 0x7f).toByte(), (v and 0x7f).toByte())
 
-    // 遍历标签内的帧；标签头不合法或帧结构不成立即终止。
-    // block 返回 true 表示提前结束遍历；source 为实际参与解析的字节（v2.3 全局去同步已在此还原），
-    // frameStart 为帧头起点，bodyStart/length 为帧体区间。
+    // 遍历帧；block 返回 true 即停
     private inline fun forEachFrame(
         bytes: ByteArray,
         at: Int,
@@ -525,13 +497,12 @@ internal object Id3v2Tag {
         if (base + 10 > source.size || !source.startsWithAscii("ID3", base)) return
         val version = source[base + 3].toInt() and 0xFF
         if (version !in 3..4) return
-        // footer 不计入头部声明的长度，故声明长度即帧区上界
+        // footer 不计入声明长度，故声明长度即帧区上界
         val tagEnd = (base + 10 + syncsafe(source, base + 6)).coerceAtMost(source.size)
         val flags = source[base + 5].toInt() and 0xFF
         var p = base + 10
         if (flags and 0x40 != 0 && p + 4 <= tagEnd) {
-            // v2.3 的扩展头长度不含自身的 4 字节；v2.4 的同步安全长度已包含自身，
-            // 再补 4 字节会落进首帧内容，后续帧遍历随即失败并丢掉整个既有标签
+            // v2.3 扩展头长度不含自身 4 字节，v2.4 已含
             val extSize = if (version >= 4) syncsafe(source, p) else beInt(source, p)
             p += if (version >= 4) extSize else 4 + extSize
             if (p > tagEnd) return
@@ -546,13 +517,7 @@ internal object Id3v2Tag {
         }
     }
 
-    /**
-     * ID3v2.3 全局去同步的逆运算：返回去掉插入 0x00 的完整标签，无需还原时返回 null。
-     *
-     * 规范在帧构造完成后才插入 0x00，帧长度字段并不包含这些插入字节；不先还原就按声明长度
-     * 遍历，未编辑的帧也会被错位切分。还原后头部改写真实帧区长度并清掉去同步标记，
-     * 重建时才能按正常帧结构写出。
-     */
+    /** v2.3 全局去同步逆运算；无需还原返回 null */
     private fun normalizeUnsynchronisedTag(bytes: ByteArray, at: Int): ByteArray? {
         if (at + 10 > bytes.size || !bytes.startsWithAscii("ID3", at)) return null
         if ((bytes[at + 3].toInt() and 0xFF) != 3) return null

@@ -8,17 +8,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * ID3v2 标签构造与解析复核。
- *
- * 容器改写保留帧时必须以原版本重建：v2.3 是 32 位大端长度 + UTF-16 文本，
- * v2.4 是同步安全长度 + UTF-8，按错版本读会直接变成乱码。
- */
+/** 保留帧须按原版本重建，错版本读成乱码 */
 class Id3v2TagTest {
 
-    // -----------------------------------------------------------------------
     // 同步安全整数
-    // -----------------------------------------------------------------------
 
     @Test
     fun `syncsafe 在 28 位内往返一致`() {
@@ -29,14 +22,12 @@ class Id3v2TagTest {
 
     @Test
     fun `syncsafe 忽略每字节最高位`() {
-        // 每字节仅低 7 位有效，最高位恒为 0 以免被误判为帧同步
+        // 每字节低 7 位有效，最高位恒 0
         val bytes = Id3v2Tag.syncsafeBytes(0x0FFFFFFF)
         assertTrue(bytes.all { it.toInt() and 0x80 == 0 })
     }
 
-    // -----------------------------------------------------------------------
     // 版本
-    // -----------------------------------------------------------------------
 
     @Test
     fun `版本从标签自身读出`() {
@@ -47,7 +38,7 @@ class Id3v2TagTest {
 
     @Test
     fun `不支持的版本回落到写入版本`() {
-        // v2.2 及更早的帧头结构不同，按新建版本重建而非按无法解析的版本读
+        // v2.2 帧头不同，回落到写入版本
         val tag = ByteArray(16).also {
             "ID3".toByteArray(StandardCharsets.US_ASCII).copyInto(it)
             it[3] = 2
@@ -57,9 +48,7 @@ class Id3v2TagTest {
         assertEquals(Id3v2Tag.TAG_VERSION, Id3v2Tag.versionOf(ByteArray(4)))
     }
 
-    // -----------------------------------------------------------------------
     // 标签组装
-    // -----------------------------------------------------------------------
 
     @Test
     fun `构建标签声明帧区大小`() {
@@ -73,7 +62,7 @@ class Id3v2TagTest {
 
     @Test
     fun `尾注追加镜像头且不改变声明大小`() {
-        // WAV 尾部标签需要 footer；footer 与头部除标识外字段一致，且不计入声明长度
+        // footer 与头部相同，不计入声明长度
         val frames = frames { Id3v2Tag.textFrame(this, "TIT2", "标题", 4) }
         val tag = Id3v2Tag.buildTag(frames, 4, flags = 0, footer = true)
         assertEquals(10 + frames.size + 10, tag.size)
@@ -82,9 +71,7 @@ class Id3v2TagTest {
         assertEquals(frames.size, Id3v2Tag.syncsafe(tag, tag.size - 4))
     }
 
-    // -----------------------------------------------------------------------
     // 帧改写
-    // -----------------------------------------------------------------------
 
     @Test
     fun `替换帧覆盖目标并保留其余`() {
@@ -115,7 +102,7 @@ class Id3v2TagTest {
 
     @Test
     fun `替换帧只改第一处出现`() {
-        // 重复帧只在首次出现处被替换，其后同名帧原样保留（保留既有帧的语义优先于去重）
+        // 只替换首次出现，其后同名帧保留
         val existing = Id3v2Tag.buildTag(
             frames {
                 Id3v2Tag.textFrame(this, "TIT2", "旧标题", 4)
@@ -137,15 +124,13 @@ class Id3v2TagTest {
         )
     }
 
-    // -----------------------------------------------------------------------
     // 帧解析
-    // -----------------------------------------------------------------------
 
     @Test
     fun `USLT 在 v4 写 UTF-8、v3 写 UTF-16`() {
         val v4 = Id3v2Tag.buildTag(frames { Id3v2Tag.usltFrame(this, "第一行\n第二行", 4) }, 4)
         assertEquals("第一行\n第二行", Id3v2Tag.readUslt(v4, 0))
-        // v2.3 没有 UTF-8 文本编码，歌词必须写成带 BOM 的 UTF-16，否则按原版本读回是乱码
+        // v2.3 无 UTF-8，须用 UTF-16
         val v3 = Id3v2Tag.buildTag(frames { Id3v2Tag.usltFrame(this, "第一行", 3) }, 3)
         assertEquals("第一行", Id3v2Tag.readUslt(v3, 0))
     }
@@ -163,7 +148,7 @@ class Id3v2TagTest {
         assertEquals("标题", Id3v2Tag.readTextFrame(v4, 0, "TIT2"))
         assertEquals("艺术家", Id3v2Tag.readTextFrame(v4, 0, "TPE1"))
         assertEquals("专辑", Id3v2Tag.readTextFrame(v4, 0, "TALB"))
-        // v2.3 的文本为带 BOM 的 UTF-16，按原版本读回才能拿到同样的文本
+        // v2.3 文本为带 BOM 的 UTF-16
         val v3 = Id3v2Tag.buildTag(frames { Id3v2Tag.textFrame(this, "TIT2", "标题", 3) }, 3)
         assertEquals("标题", Id3v2Tag.readTextFrame(v3, 0, "TIT2"))
     }
@@ -188,9 +173,7 @@ class Id3v2TagTest {
         assertNull(Id3v2Tag.readApic(tag, 0))
     }
 
-    // -----------------------------------------------------------------------
     // 扩展字段
-    // -----------------------------------------------------------------------
 
     @Test
     fun `扩展字段按标准帧写出`() {
@@ -209,7 +192,7 @@ class Id3v2TagTest {
         }
         val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(null, fields, null, removeCover = false, version = 4)!!, 4)
 
-        // 帧标识按 ID3v2 规范落位：文本帧、注释帧、评分帧与自定义文本帧各就各位
+        // 各字段落位到对应帧标识
         val ids = walkFrames(tag).map { it.first }
         assertTrue(
             ids.containsAll(
@@ -235,14 +218,14 @@ class Id3v2TagTest {
     fun `日期在 v3 用年份帧并可读回`() {
         val fields = TrackTagFields.build { put(TagField.DATE, "2008") }
         val tag = Id3v2Tag.buildTag(Id3v2Tag.replaceFrames(null, fields, null, removeCover = false, version = 3)!!, 3)
-        // v2.3 没有 TDRC，日期落在 TYER 上；读取端两者都认
+        // v2.3 无 TDRC，日期写 TYER
         assertTrue(tag.asAscii().contains("TYER"))
         assertEquals("2008", Id3v2Tag.readFields(tag, 0)[TagField.DATE])
     }
 
     @Test
     fun `ReplayGain 只替换自身的自定义帧`() {
-        // 既有 TXXX 描述符与本次写入不同：它不属于本次改动，须原样保留
+        // 他人 TXXX 帧须原样保留
         val other = byteArrayOf(3) + "OTHER".toByteArray(StandardCharsets.UTF_8) + byteArrayOf(0) +
             "保留值".toByteArray(StandardCharsets.UTF_8)
         val existing = Id3v2Tag.buildTag(
@@ -258,7 +241,7 @@ class Id3v2TagTest {
 
     @Test
     fun `未改动字段保留原帧`() {
-        // 只写标题：其余既有帧（含扩展字段）不得被抹掉
+        // 只写标题，其余帧不得抹掉
         val existingFields = TrackTagFields.build {
             put(TagField.TITLE, "旧标题")
             put(TagField.GENRE, "流派")
@@ -289,7 +272,7 @@ class Id3v2TagTest {
         )
         assertArrayEquals(cover, Id3v2Tag.readApic(withCover, 0))
 
-        // 本次未涉及封面（没有新图、也不删除）：既有封面必须原样保留 —— 这正是「移除封面」早先失效的成因
+        // 未涉及封面时既有封面须保留
         val kept = Id3v2Tag.buildTag(
             Id3v2Tag.replaceFrames(
                 withCover,
@@ -302,7 +285,7 @@ class Id3v2TagTest {
         )
         assertArrayEquals(cover, Id3v2Tag.readApic(kept, 0))
 
-        // 删除封面：APIC 帧整帧丢弃，其余帧照常保留
+        // 删封面丢弃 APIC 帧
         val dropped = Id3v2Tag.buildTag(
             Id3v2Tag.replaceFrames(
                 withCover,
@@ -319,8 +302,7 @@ class Id3v2TagTest {
 
     @Test
     fun `v4 扩展头大小含自身长度字段`() {
-        // v2.4 扩展头长度已包含自身的 4 字节；按 v2.3 的「4 + 长度」跳会落进首帧内容，
-        // 只改标题时原有 TALB 会被当作解析失败而整段丢掉
+        // v2.4 扩展头长度含自身 4 字节
         val album = frames { Id3v2Tag.textFrame(this, "TALB", "必须保留", 4) }
         val extended = byteArrayOf(0, 0, 0, 6, 1, 0)
         val content = extended + album
@@ -342,8 +324,7 @@ class Id3v2TagTest {
 
     @Test
     fun `v3 全局去同步在重写前还原`() {
-        // v2.3 的 0x00 是在帧构造完成后插入的，帧长度不含它们；不先还原就按声明长度遍历，
-        // 未编辑的 PRIV 帧会被错位截断
+        // 先还原去同步字节，否则 PRIV 帧被截断
         val original = byteArrayOf(0x12, 0xFF.toByte(), 0xE0.toByte(), 0x34)
         val frame = frames { Id3v2Tag.frame(this, "PRIV", original, 3) }
         val stuffed = ByteArrayOutputStream().also { out ->
@@ -362,15 +343,10 @@ class Id3v2TagTest {
         assertArrayEquals(original, keptPriv)
     }
 
-    // -----------------------------------------------------------------------
-
     private fun frames(block: ByteArrayOutputStream.() -> Unit): ByteArray =
         ByteArrayOutputStream().apply(block).toByteArray()
 
-    /**
-     * 独立的帧遍历：按 ID3v2.4 规范逐帧读标识与长度，不复用被测代码的解析逻辑，
-     * 以免两侧犯同一个错误时测试仍然通过。
-     */
+    /** 独立遍历帧，不复用被测解析，避免同错同通过 */
     private fun walkFrames(tag: ByteArray): List<Pair<String, ByteArray>> {
         val declared = declaredSize(tag)
         val end = (10 + declared).coerceAtMost(tag.size)
@@ -387,7 +363,7 @@ class Id3v2TagTest {
         return result
     }
 
-    // v2.3 帧长度是 32 位大端，与 v2.4 的同步安全整数不同
+    // v2.3 帧长度为大端 32 位
     private fun walkV3Frames(tag: ByteArray): List<Pair<String, ByteArray>> {
         val end = (10 + declaredSize(tag)).coerceAtMost(tag.size)
         val result = mutableListOf<Pair<String, ByteArray>>()
@@ -412,12 +388,12 @@ class Id3v2TagTest {
         (tag[at].toInt() and 0x7f shl 21) or (tag[at + 1].toInt() and 0x7f shl 14) or
             (tag[at + 2].toInt() and 0x7f shl 7) or (tag[at + 3].toInt() and 0x7f)
 
-    /** 文本帧内容：首字节为编码号，其后为文本，末尾一个 0 结尾（v2.4 为 UTF-8） */
+    /** 首字节为编码号，末尾一字节 0 结尾 */
     private fun textOf(data: ByteArray): String {
         assertEquals(3, data[0].toInt() and 0xFF)
         return String(data, 1, data.size - 2, StandardCharsets.UTF_8)
     }
 
-    // 按单字节编码查看原始字节：帧标识等 ASCII 字段直接以文本搜索即可
+    // 以单字节编码转文本，便于搜索帧标识
     private fun ByteArray.asAscii(): String = String(this, StandardCharsets.ISO_8859_1)
 }

@@ -15,42 +15,27 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * USB 接入时的接管入口：无界面，接住系统的选择框，然后把应用带到前台。
- *
- * 弹窗只在有应用认领设备时出现，选中的应用会随之取得该设备的访问授权——这也正是应用未启动
- * 仍能弹窗的原因：弹窗由系统发出，不依赖应用进程。
- *
- * 这条链路只为独占而存在：接管要用系统选择框给出的这份授权。直出不需要 USB 授权，
- * 面板的直出参数取平台 API 上报值、不读描述符，故直出开关不参与启停。组件由独占开关启停
- * （见 [setUsbAttachEntryEnabled]），本入口再按落盘值核一次。此处只把界面带到前台、不写开关——
- * 是否启用由用户在设置里决定。界面也必须带出来：选完之后什么都不出现，用户只会当成没生效。
- *
- * 系统这个选择框就是一次授权，作答之后不该再问第二遍：独占路径收到接入广播时只尝试接管已授权的设备，
- * 不申请授权；授权随选择框落定，由本入口在拉起界面后补一声通知，接管才继续。
- */
+/** USB 接入接管：拉起到前台并补一声授权通知；只服务独占 */
 class UsbAttachActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val device = intent?.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
-        // 过滤器已限到音频类，此处再核一次接口，避免别的设备误触发接管
+        // 再核一次音频接口，避免误触发
         if (device == null || !UsbExclusiveDac.isAudioDac(device)) {
             finish()
             return
         }
-        // 落盘值的读取是异步的，而本入口没有界面，故读盘期间保持透明窗口，读完再决定去留。
-        // 走进程级作用域：本入口紧接着就结束，绑定 Activity 生命周期的作用域会被随即取消
+        // 读盘异步，本入口即结束，故走进程级作用域
         val app = application as App
         app.container.appScope.launch {
-            // 开关刚被关掉、系统的这次启动已在投递途中时，只有这道核对拦得住——组件状态那时已来不及改
+            // 开关刚关时只有这道核对拦得住
             val entryWanted = usbExclusiveOutputModeFlow().first()
             withContext(Dispatchers.Main) {
-                // 先起界面再结束自己：本入口没有界面，若先结束，这次启动就可能随任务的清理一起被丢掉
+                // 先起界面再结束，否则启动可能被丢弃
                 if (entryWanted) {
                     startActivity(Intent(this@UsbAttachActivity, MainActivity::class.java))
-                    // 选择框的作答已经带来授权，独占路径此刻才该接管；它自己不申请授权，否则会与选择框
-                    // 叠成两个弹窗，故由这里补一声
+                    // 选择框已带来授权，补一声通知接管
                     notifyUsbAttachConfirmed()
                 }
                 finish()

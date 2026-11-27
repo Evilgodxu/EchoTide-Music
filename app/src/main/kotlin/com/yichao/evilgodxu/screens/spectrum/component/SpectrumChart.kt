@@ -23,10 +23,10 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.data.music.analysis.Spectrogram
 import com.yichao.evilgodxu.utils.formatTime
 
-// 频率刻度列宽：容纳奈奎斯特标签与刻度线
+// 刻度列宽 58dp
 private val FREQUENCY_AXIS_WIDTH = 58.dp
 
-// 色标列宽：色条 + 分贝标签
+// 色标列宽 50dp
 private val COLOR_SCALE_WIDTH = 50.dp
 
 // 频谱图与左侧刻度列的间距
@@ -38,11 +38,7 @@ private val COLOR_SCALE_GAP = 8.dp
 // 时间刻度行与频谱图的间距
 private val TIME_LABEL_GAP = 4.dp
 
-// 频谱图：绘图区一行内自左向右为频率刻度、时频图、dB 色标，三者等高且共用同一套纵向坐标
-// （换算见 FrequencyAxisScale），刻度线与图内频带据此一一对齐；
-// 时间刻度另起一行置于绘图区下方，左右两端按同一组间距常量与图的横向范围对齐。
-// 轴的朝向固定，图的形状随容器伸缩。
-// 长按整体弹出导出菜单，菜单以本组件边界为锚点
+// 一行内为刻度、时频图、色标，共用纵向坐标
 @Composable
 internal fun SpectrumChart(
     spectrogram: Spectrogram,
@@ -51,7 +47,7 @@ internal fun SpectrumChart(
     onSaveImage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // 频率刻度：量程上限为奈奎斯特频率，左轴与图共用同一实例换算纵向位置
+    // 量程上限为奈奎斯特频率
     val scale = remember(spectrogram.sampleRate) {
         FrequencyAxisScale.ofSampleRate(spectrogram.sampleRate)
     }
@@ -81,8 +77,7 @@ internal fun SpectrumChart(
                         .padding(start = COLOR_SCALE_GAP),
                 )
             }
-            // 两端留白按图的横向范围取：左侧是刻度列宽加图的起始间距，右侧是色标列宽
-            // （色标列的间距在其内部，图的右缘即该列左缘，故右侧不再叠加）
+            // 两端留白按图的横向范围取
             TimeLabels(
                 labels = timeLabels,
                 modifier = Modifier
@@ -109,7 +104,7 @@ internal fun SpectrumChart(
     }
 }
 
-// 时间刻度：沿图的水平方向两端标注起点与总时长
+// 时间刻度：两端标起点与总时长
 @Composable
 private fun TimeLabels(labels: List<String>, modifier: Modifier = Modifier) {
     Row(

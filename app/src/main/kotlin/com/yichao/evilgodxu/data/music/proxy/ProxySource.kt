@@ -4,7 +4,7 @@ import com.yichao.evilgodxu.data.music.api.MusicQuality
 import org.json.JSONArray
 import org.json.JSONObject
 
-// 代理音源数据模型：对应「忆潮代理音源规范」文档 v1.6.0
+// 代理音源数据模型
 data class ProxySourceSpec(
     val name: String,
     val version: String,
@@ -14,13 +14,13 @@ data class ProxySourceSpec(
     val platforms: Map<String, ProxyPlatformSpec>,
     // 原始 JSON，持久化与转发展示使用
     val rawJson: String,
-    // 是否启用：停用的音源不参与任何平台解析
+    // 停用的音源不参与任何平台解析
     val enabled: Boolean = true,
 )
 
-// 平台定义：动作均可缺省（自定义平台的 search 除外），缺省的动作回退内置解析
+// 动作可缺省（自定义 search 除外），缺省回退内置
 data class ProxyPlatformSpec(
-    // 平台名称：仅自定义平台持有，内置平台的名称取应用内字符串资源
+    // 平台名仅自定义平台持有，内置平台取字符串资源
     val name: String? = null,
     val search: ProxyActionSpec? = null,
     val url: ProxyActionSpec? = null,
@@ -31,7 +31,7 @@ data class ProxyPlatformSpec(
         get() = search != null || url != null || lyric != null || pic != null
 }
 
-// 动作定义：请求模板 + 音质映射 + 结果映射
+// 动作：请求模板、音质映射与结果映射
 data class ProxyActionSpec(
     val method: String,
     val url: String,
@@ -46,7 +46,7 @@ data class ProxyActionSpec(
         get() = method.equals("POST", ignoreCase = true)
 }
 
-// 结果映射：按动作类型各取所需字段，未配置的字段视为 null 由调用方回退
+// 结果映射：未配置字段为 null，由调用方回退
 data class ProxyResultSpec(
     val list: String? = null,
     val id: String? = null,
@@ -59,17 +59,17 @@ data class ProxyResultSpec(
     val url: String? = null,
     val lyric: String? = null,
     val tlyric: String? = null,
-    // 标签字段：仅 search 动作取用，缺省不影响搜索与播放，只意味着缓存落地时这些标签为空
+    // 标签字段仅 search 使用，缺省即缓存落地时为空
     val album: String? = null,
     val date: String? = null,
     val trackNo: String? = null,
     val discNo: String? = null,
-    // 平台自带响度：增益(dB)与线性峰值，缓存落地时写成 ReplayGain 标签
+    // 平台响度，缓存落地写成 ReplayGain
     val rgTrackGain: String? = null,
     val rgTrackPeak: String? = null,
 )
 
-// 最小 JSONPath 子集：仅支持 $、.字段 与 [下标]
+// 最小 JSONPath：支持 $、.字段 与 [下标]
 internal object ProxyJsonPath {
     fun resolve(root: Any?, rawPath: String?): Any? {
         if (rawPath.isNullOrBlank()) return null

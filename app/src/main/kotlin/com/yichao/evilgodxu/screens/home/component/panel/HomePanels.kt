@@ -9,30 +9,27 @@ import androidx.compose.ui.unit.Dp
 import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistPanel
 import com.yichao.evilgodxu.screens.home.component.search.OnlineSearchPanel
 
-// 首页并列页面容器：跟手拖动、吸附与回弹由系统 HorizontalPager 结算，页面自身不再参与手势
+// 并列页面，拖动吸附由 Pager 结算
 @Composable
 internal fun HomePanels(
     panelState: HomePanelState,
-    // 标题栏高度：搜索页与歌单页（歌手页除外）的内容从标题栏下方开始
+    // 标题栏高度：搜索与歌单页内容下移（歌手页除外）
     topInset: Dp,
     // 歌单总览页继续左滑时的去向：打开设置页
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
-    // 播放器页：竖屏与横屏的播放器主体不同，由调用方按形态提供
+    // 播放器页，主体由调用方按形态提供
     playerPage: @Composable () -> Unit,
 ) {
     val pagerState = panelState.pagerState
     HorizontalPager(
         state = pagerState,
         modifier = modifier.fillMaxSize(),
-        // 底部播放列表面板是全屏遮罩式弹层：显示期间关闭翻页，面板内的横向滑动与屏幕边缘滑动都不会切页。
-        // 歌手页同样关闭本层翻页——该页的左右滑动用于切换歌曲/专辑标签（见 ArtistPlaylistPage），
-        // 歌单页的下钻层级也关闭——右滑在该层用于回退一级（见 PlaylistPanel），
-        // 一层滑动只该有一个去向
+        // 面板展开、歌手页、下钻层都关闭翻页：一次滑动只对应一个去向
         userScrollEnabled = !panelState.playlistVisible &&
             !panelState.playlistImmersive &&
             !panelState.playlistSwipeBack,
-        // 三页均为重量级常驻视图（歌单页持有全库分组缓存与页面栈），全部保留在合成树，避免切页重建
+        // 三页常驻合成树，避免切页重建
         beyondViewportPageCount = HomePage.entries.size,
         key = { HomePage.entries[it] },
     ) { index ->
@@ -46,17 +43,17 @@ internal fun HomePanels(
             )
             HomePage.PLAYER -> playerPage()
             HomePage.PLAYLIST -> PlaylistPanel(
-                // 离开歌单页即视为关闭，页面内回退栈随之复位
+                // 离开歌单页即关闭，回退栈复位
                 visible = panelState.currentPage == HomePage.PLAYLIST,
                 playbackState = panelState.playbackState,
                 menuBackgroundColor = panelState.backgroundColor,
-                // 顶部内边距交给面板自行分配：歌手页要把沉浸头图与背景铺到标题栏后方
+                // 顶部内边距由面板分配，沉浸头图铺到标题栏后方
                 topInset = topInset,
-                // 歌手页在场时标题栏让位：面板随页面栈同步上报，组装器据此收起标题栏
+                // 歌手页在场时让出标题栏
                 onImmersivePageChange = { panelState.playlistImmersive = it },
-                // 下钻层级接管横向滑动：面板随页面栈同步上报，首页翻页据此让位
+                // 下钻层接管横滑，首页翻页让位
                 onSwipeBackChange = { panelState.playlistSwipeBack = it },
-                // 播放器直达的歌手页回退时直接关闭面板回到播放器
+                // 歌手页回退直接回播放器
                 onClose = { panelState.closePanels() },
                 // 歌单总览页继续左滑进入设置页
                 onOpenSettings = onOpenSettings,

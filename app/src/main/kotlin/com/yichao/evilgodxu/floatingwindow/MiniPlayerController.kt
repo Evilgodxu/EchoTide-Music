@@ -23,7 +23,7 @@ import kotlinx.coroutines.SupervisorJob
 
 val LocalMiniPlayerController = staticCompositionLocalOf<MiniPlayerController?> { null }
 
-// 悬浮播放条的显示与隐藏由 Activity 前后台切换驱动
+// 悬浮播放条随前后台切换显隐
 class MiniPlayerController(
     private val context: Context,
     private val playbackState: MusicPlaybackState,
@@ -32,10 +32,9 @@ class MiniPlayerController(
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    // 退出流程专用作用域：不随控制器自身作用域释放而取消 —— 退出清理与结束进程一旦开始就必须走完，
-    // 被半途取消会让进程既不退出也不再清理
+    // 退出专用作用域：清理与结束进程须走完
     private val exitScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    // 外部音频的后台播放：会话装载与曲库监听都在其中，不在控制器里重复一份
+    // 外部音频后台播放：装载与会话监听在此
     private val externalPlaybackLoader = ExternalPlaybackLoader(
         context = context,
         playbackState = playbackState,
@@ -50,18 +49,18 @@ class MiniPlayerController(
     private var externalBackgroundPlaying = false
 
     init {
-        // 监听设置页悬浮播放开关，关闭时移除迷你播放器
+        // 悬浮播放开关关闭时移除迷你播放器
         prefsJob = scope.launch {
             context.miniPlayerEnabledFlow().collect { enabled ->
                 miniPlayerEnabled = enabled
                 if (!enabled) dismissMiniPlayer()
             }
         }
-        // 定时关闭到点且当前曲目播毕后，结束整个应用
+        // 定时关闭到点且曲目播毕后结束应用
         playbackState.onSleepTimerFinished = { exitApplication() }
     }
 
-    // 从外部打开/分享的音频 URI 后台播放：不建立界面，经迷你播放器播放并保持后台运行
+    // 外部音频后台播放：不建界面，经迷你播放器播放
     fun playExternalInBackground(uri: Uri) {
         externalPlaybackLoader.play(uri)
         if (miniPlayerEnabled) {
@@ -72,7 +71,7 @@ class MiniPlayerController(
 
     fun showMiniPlayer() {
         if (miniPlayerManager != null) return
-        // 未授予悬浮窗权限时无法添加窗口，跳过本次显示
+        // 无悬浮窗权限则跳过
         if (!Settings.canDrawOverlays(context)) return
         miniPlayerManager = MiniPlayerViewManager(
             context = context,
@@ -90,28 +89,28 @@ class MiniPlayerController(
         miniPlayerManager = null
     }
 
-    // 点封面回到应用主界面：迷你播放器只承载播放与歌单，详情操作在应用内进行
+    // 点封面回应用；详情操作在应用内
     private fun openApp() = bringAppToFront(context)
 
-    // 应用进入后台：播放中且开关开启时显示迷你播放器
+    // 进后台时播放中则显示迷你播放器
     fun onAppBackgrounded() {
         appInForeground = false
         externalBackgroundPlaying = false
         maybeShowMiniPlayer()
     }
 
-    // 应用回到前台：重置临时隐藏状态并移除迷你播放器，避免遮挡应用界面
+    // 回前台重置隐藏并移除迷你播放器
     fun onAppForegrounded() {
         appInForeground = true
-        // 重置滑动隐藏状态，此后进入后台播放即可重新唤起迷你播放器，无需重启应用
+        // 重置滑动隐藏状态，下次后台可再唤起
         miniPlayerTemporarilyHidden = false
-        // 外部触发后台播放冷启动时，先保留迷你播放器，不因本次瞬时前台而移除
+        // 冷启动外部播放时先保留迷你播放器
         if (externalBackgroundPlaying) {
             externalBackgroundPlaying = false
         } else {
             dismissMiniPlayer()
         }
-        // 后台切歌后回到前台，校正音频信息使其与当前曲目一致
+        // 回前台校正音频信息与当前曲目一致
         playbackState.reconcileTrackFormatInfo(context)
     }
 
@@ -122,18 +121,13 @@ class MiniPlayerController(
         externalPlaybackLoader.release()
     }
 
-    /**
-     * 结束整个应用。
-     *
-     * 交互退出由调用方先把任务退到后台（见 AppContent），使清理与随后的进程结束都发生在后台；
-     * 睡前定时到点没有界面可退，按同一流程清理完即结束进程。回收见 [CacheInventory.reclaimOnExit]。
-     */
+    /** 结束整个应用：清理中转文件后杀死进程 */
     fun exitApplication() {
         dismissMiniPlayer()
         externalPlaybackLoader.release()
         context.stopService(Intent(context, MusicPlaybackService::class.java))
         exitScope.launch {
-            // 回收失败也要结束进程：退出路径不能因一次清理异常就卡住不退出
+            // 清理失败也要结束进程
             runCatching { CacheInventory.reclaimOnExit(context) }
             Process.killProcess(Process.myPid())
         }

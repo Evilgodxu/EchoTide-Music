@@ -10,12 +10,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * 副歌候选定位复核（纯歌词）。
- *
- * 定位是纯函数，冷启动还原片段内进度依赖它的确定性，故除结果正确外还须验证「同输入同输出」，
- * 以及候选落在 30–45 秒、取最后一遍完整副歌、收尾落在歌词行边界三条主干。
- */
+/** 候选取最后一遍完整副歌，收尾落行边界 */
 class HighlightLocatorTest {
 
     private fun timed(vararg pairs: Pair<Long, String>): List<LyricLine> =
@@ -25,7 +20,7 @@ class HighlightLocatorTest {
 
     @Test
     fun `候选取最后一段完整副歌`() {
-        // 同一副歌出现三遍，末遍之后还有一小段尾声：应取末遍，而非首遍
+        // 副歌重复三遍，取末遍
         val lines = timed(
             5_000L to "主歌一", 9_000L to "主歌二", 13_000L to "主歌三", 17_000L to "主歌四",
             22_000L to "副歌甲", 26_000L to "副歌乙", 30_000L to "副歌丙", 34_000L to "副歌丁",
@@ -59,7 +54,7 @@ class HighlightLocatorTest {
 
     @Test
     fun `时间轴相同而歌词改变时指纹变化`() {
-        // 行数与首末时间相同、正文全换：旧指纹会完全相同，导致 NoChorus 结论一直压住新歌词
+        // 正文全换时指纹须变，否则旧结论压住新词
         fun track(text: (Int) -> String): MusicTrack = MusicTrack(
             id = 1L,
             path = "",
@@ -90,7 +85,7 @@ class HighlightLocatorTest {
 
     @Test
     fun `无时间轴歌词无候选`() {
-        // 无时间轴歌词（全部落在 0）：行数再多也不产出候选，且判为「时间轴不可用」
+        // 全为 0 时无候选且判时间轴不可用
         val lines = (1..20).map { LyricLine(timeMs = 0L, text = "副歌第 $it 行") }
         assertTrue(HighlightLocator.candidates(lines, 180_000L).isEmpty())
         assertFalse(HighlightLocator.hasUsableTimeline(lines))
@@ -98,7 +93,7 @@ class HighlightLocatorTest {
 
     @Test
     fun `曲目过短时无候选`() {
-        // 整曲短于片段下限的一半：取哪一段都短到没有意义，不产出候选
+        // 短于下限一半时无候选
         val lines = timed(
             1_000L to "甲", 2_000L to "乙", 3_000L to "丙", 4_000L to "丁",
             5_000L to "甲", 6_000L to "乙", 7_000L to "丙", 8_000L to "丁",
@@ -109,8 +104,7 @@ class HighlightLocatorTest {
 
     @Test
     fun `短曲目仍产出自身候选`() {
-        // 曲长在「下限一半」与「下限」之间：接受较短片段 ——
-        // 把能唱的部分唱完，比硬凑满 30 秒更贴合听感
+        // 曲长不足下限时接受较短片段
         val lines = timed(
             1_000L to "甲", 3_000L to "乙", 5_000L to "丙", 7_000L to "丁",
             9_000L to "甲", 11_000L to "乙", 13_000L to "丙", 15_000L to "丁",
@@ -123,7 +117,7 @@ class HighlightLocatorTest {
 
     @Test
     fun `候选在歌词边界收尾而非硬切`() {
-        // 收尾必须落在某一行的时间点上：最后一行会完整唱完，而不是被时长上限切在半句上
+        // 收尾落在行时间点，不切半句
         val lines = timed(
             4_000L to "甲一", 8_000L to "甲二", 12_000L to "乙一", 16_000L to "乙二",
             21_000L to "副歌一", 25_000L to "副歌二", 30_000L to "丙一", 34_000L to "丙二",
@@ -143,7 +137,7 @@ class HighlightLocatorTest {
 
     @Test
     fun `段落本身超长时候选不超时长上限`() {
-        // 重复块自身就长过上限：必须向回收缩到 45 秒以内，而不是把整块原样返回
+        // 超长段落向回收缩至 45 秒内
         val lines = timed(
             0L to "主歌一", 4_000L to "主歌二", 8_000L to "主歌三", 12_000L to "主歌四",
             20_000L to "高潮一", 28_000L to "高潮二", 36_000L to "高潮三",
@@ -165,8 +159,8 @@ class HighlightLocatorTest {
 
     @Test
     fun `候选结尾覆盖跨行的末字`() {
-        // 末字演唱终点越过后继行起点：收尾应取字终点，保证末句完整唱完，而不是在字中间截断。
-        // 各遍副歌之间夹一段互不重复的桥段，避免跨段落的假重复干扰定位。
+        // 收尾取末字终点，不截断
+        // 副歌间夹不重复桥段，避免假重复
         val lines = listOf(
             LyricLine(timeMs = 0L, text = "主歌一"),
             LyricLine(timeMs = 10_000L, text = "主歌二"),
@@ -190,7 +184,7 @@ class HighlightLocatorTest {
             LyricLine(
                 timeMs = 164_000L,
                 text = "副歌四",
-                // 末字延后到 180 秒，晚于后继行起点（176 秒）
+                // 末字到 180 秒，晚于下一行 176 秒
                 words = listOf(LyricWord(164_000L, 16_000L, "副歌四")),
             ),
             LyricLine(timeMs = 176_000L, text = "尾声一"),
@@ -205,7 +199,7 @@ class HighlightLocatorTest {
 
     @Test
     fun `候选忽略元数据行`() {
-        // 制作信息行整段重复，不得被当成副歌：候选应落在真正的副歌上
+        // 制作信息重复不得当作副歌
         val lines = timed(
             1_000L to "作词：甲", 2_000L to "作曲：乙", 3_000L to "编曲：丙", 4_000L to "制作人：丁",
             10_000L to "主歌一", 15_000L to "主歌二", 20_000L to "主歌三", 25_000L to "主歌四",
@@ -220,7 +214,7 @@ class HighlightLocatorTest {
 
     @Test
     fun `稀疏候选让位于密集副歌`() {
-        // 重复但稀松的段落（行间长间隔、收不出几行）不得胜过一个密集的副歌段
+        // 稀松段落不得胜过密集副歌
         val lines = timed(
             0L to "密一", 2_000L to "密二", 4_000L to "密三", 6_000L to "密四",
             8_000L to "密五", 10_000L to "密六",

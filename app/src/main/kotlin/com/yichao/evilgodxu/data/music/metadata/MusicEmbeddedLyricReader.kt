@@ -8,28 +8,23 @@ import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// 本地音频内嵌歌词读取：解析 MP3(ID3v2 USLT)、FLAC/OGG(Vorbis 注释 LYRICS)、M4A(©lyr)、
-// WAV(容器内 "ID3 " 块) 中的歌词文本，
-// 统一按增强 LRC 解析为时间轴歌词；非本地音频源或无内嵌歌词时返回空列表。
-// 标签位于音频之后的容器（WAV）需要尾窗定位，
-// 尾窗之外的标签再按绝对偏移定点读取
+// 各容器内嵌歌词，按增强 LRC 解析；无歌词返回空
 internal object MusicEmbeddedLyricReader {
 
-    // 非 MP3 容器读取的头部字节上限：FLAC/OGG 的注释块位于文件头部附近。
-    // M4A 不走头窗——其歌词原子可能被大封面顶出窗口，改按盒子头定点下钻（见 readMp4Lyrics）
+    // 头部读取上限；M4A 改走盒子头定点下钻
     private const val HEADER_CAP = 512 * 1024
-    // 尾部窗口上限：WAV 的标签紧贴文件末尾，尾窗只需覆盖标签自身
+    // 尾窗上限，WAV 标签紧贴文件末尾
     private const val TAIL_CAP = 2 * 1024 * 1024
-    // MP3 ID3v2 标签大小上限（含封面等大帧，歌词 USLT 帧通常位于标签前部）
+    // ID3v2 标签上限，含封面大帧
     private const val MAX_MP3_TAG = 4 * 1024 * 1024
-    // ID3v2 标签头长度，用于先取小段前缀判定是否为 ID3 容器
+    // ID3v2 头长度，先取小段判定
     private const val ID3_HEADER_BYTES = 10
-    // M4A data 原子头长度：类型(4) + 区域设置(4) + 版本与标志(8)
+    // data 头：类型4 + 区域4 + 版本8
     private const val DATA_ATOM_HEADER_BYTES = 16
-    // Ogg 注释包标记：Opus 为包标识 "OpusTags"，Vorbis 为包类型 3 + "vorbis"
+    // Ogg：OpusTags 或类型3 vorbis
     private const val OPUS_COMMENT_MARKER = "OpusTags"
     private const val VORBIS_COMMENT_MARKER = "\u0003vorbis"
-    // M4A 歌词原子的两种写法：iTunes 风格与非 © 前缀写法
+    // M4A 歌词原子：©lyr 与 lyr
     private const val LYRICS_ATOM = "©lyr"
     private const val BARE_LYRICS_ATOM = "lyr"
 
@@ -46,13 +41,11 @@ internal object MusicEmbeddedLyricReader {
         }
     }
 
-    // 取内嵌歌词文本：无本地可读文件返回 null（在线流为 http，取不到流）。
-    // 已缓存为 content/file 的在线曲目照常解析：缓存时会把歌词内嵌进文件，
-    // 这里能读回来才是「歌词缓存文件丢失后仍可恢复」的兜底
+    // 取内嵌歌词；无可读文件返回 null
     private fun readTagText(context: Context, track: MusicTrack): String? {
         val prefix = LocalAudioSource.read(context, track.path, track.audioUri, 0L, ID3_HEADER_BYTES)
             ?: return null
-        // 带 ID3 头的文件按声明的标签尺寸精确读取：标签可能含大封面帧，读取量随之增大
+        // 带 ID3 头时按声明尺寸精确读取
         if (prefix.size >= ID3_HEADER_BYTES && prefix.startsWith("ID3")) {
             val tagSize = Id3v2Tag.syncsafe(prefix, 6)
             if (tagSize <= 0) return null
@@ -62,7 +55,7 @@ internal object MusicEmbeddedLyricReader {
             ) ?: return null
             return Id3v2Tag.readUslt(tag, 0)
         }
-        // M4A 的歌词原子与文本标签同在 ilst 下，可能排在大封面之后，头窗取不到，故按盒子头定点下钻
+        // M4A 歌词可能在封面之后，按盒子头定点下钻
         if (prefix.startsWith("ftyp", 4)) {
             return readMp4Lyrics(LocalAudioSource.size(context, track.path, track.audioUri)) { offset, count ->
                 LocalAudioSource.read(context, track.path, track.audioUri, offset, count)
@@ -72,8 +65,7 @@ internal object MusicEmbeddedLyricReader {
         return extractLyrics(header) ?: extractLyricsFromTail(context, track, header)
     }
 
-    // 按容器格式提取内嵌歌词文本，未找到返回 null。
-    // 无独立解析分支的容器交给容器标签层处理（WAV 的 ID3 块）
+    // 按容器提取歌词，未找到返回 null
     internal fun extractLyrics(bytes: ByteArray): String? = when {
         isMp4(bytes) -> readMp4Lyrics(bytes.size.toLong()) { offset, count -> sliceOf(bytes, offset, count) }
         isFlac(bytes) -> extractFlacLyrics(bytes)
@@ -81,12 +73,7 @@ internal object MusicEmbeddedLyricReader {
         else -> LosslessContainerTags.readLyrics(bytes, null, 0L, null)
     }
 
-    /**
-     * M4A 的内嵌歌词：©lyr / lyr 普通原子与 ---- 自由格式原子（键名 lyrics）。
-     *
-     * 不按固定头窗解析：ilst 下的封面原子（covr，可达数 MB）常排在歌词原子之前，头窗遇到超出窗口的
-     * 盒子会判结构不完整，于是整份标签一个字段都取不到。改按盒子头逐层定点下钻，封面只读其盒子头。
-     */
+    /** M4A 歌词：©lyr/lyr 与 ---- 自由格式 */
     internal fun readMp4Lyrics(fileSize: Long?, readAt: (Long, Int) -> ByteArray?): String? {
         var found: String? = null
         Mp4TagReader.forEachAtom(fileSize, readAt) { atom ->
@@ -106,17 +93,16 @@ internal object MusicEmbeddedLyricReader {
         return found
     }
 
-    // 内存字节的定点读取：越界或读不满即返回 null
+    // 越界或读不满返回 null
     private fun sliceOf(bytes: ByteArray, offset: Long, count: Int): ByteArray? {
         if (offset < 0L || count <= 0 || offset + count > bytes.size) return null
         val from = offset.toInt()
         return bytes.copyOfRange(from, from + count)
     }
 
-    // 标签位于音频之后的容器：WAV（容器内 "ID3 " 块，旧布局则在文件末尾的带 footer 标签）。
-    // 尾窗覆盖不到整个标签时（超大封面）由 readAt 按标签起始绝对偏移定点读取
+    // WAV 标签在音频后，尾窗不足时按偏移读
     private fun extractLyricsFromTail(context: Context, track: MusicTrack, header: ByteArray): String? {
-        // 标签在头部的容器（FLAC/M4A/Ogg）不读尾窗：头窗已解析不出歌词，再读尾窗也是空
+        // 标签在头部的容器不读尾窗
         if (!LosslessContainerTags.usesTrailingTag(header)) return null
         val (tail, tailOffset) = LocalAudioSource.tail(context, track.path, track.audioUri, TAIL_CAP)
             ?: return null
@@ -129,7 +115,7 @@ internal object MusicEmbeddedLyricReader {
     private fun isOgg(bytes: ByteArray) = bytes.startsWith("OggS")
     private fun isMp4(bytes: ByteArray) = bytes.startsWith("ftyp", 4)
 
-    // FLAC：遍历元数据块，取 VORBIS_COMMENT(4) 块中的 LYRICS 字段
+    // FLAC 注释块 type4 取 LYRICS
     private fun extractFlacLyrics(bytes: ByteArray): String? {
         var p = 4
         while (p + 4 <= bytes.size) {
@@ -146,8 +132,7 @@ internal object MusicEmbeddedLyricReader {
         return null
     }
 
-    // OGG(Opus/Vorbis)：Opus 的注释包以 "OpusTags" 起头，Vorbis 的注释头包为
-    // 「包类型 3 + "vorbis"」，定位到标记后解析其后的 Vorbis 注释结构
+    // Ogg：定位 OpusTags 或类型3+vorbis
     private fun extractOggLyrics(bytes: ByteArray): String? {
         val opus = bytes.indexOfAscii(OPUS_COMMENT_MARKER)
         val vorbis = bytes.indexOfAscii(VORBIS_COMMENT_MARKER)
@@ -159,7 +144,7 @@ internal object MusicEmbeddedLyricReader {
         return parseVorbisLyrics(bytes, start + headerLength, bytes.size - start - headerLength)
     }
 
-    // Vorbis 注释：LE 长度的 vendor + 字段数 + "KEY=value" 字段；优先 LYRICS，其次 SYNCED/UNSYNCEDLYRICS
+    // Vorbis：优先 LYRICS，其次 SYNCED
     private fun parseVorbisLyrics(data: ByteArray, offset: Int, length: Int): String? {
         var p = offset
         val end = (offset + length).coerceAtMost(data.size)
@@ -188,8 +173,7 @@ internal object MusicEmbeddedLyricReader {
         return fallback
     }
 
-    // 定位 data 子原子：原子长度为「4 字节类型 + 4 字节区域设置 + 载荷」，
-    // 载荷自 p+16 起、长度为 size-16；头部的「版本 + 标志」8 字节已计入原子长度
+    // data 载荷自 +16 起，版本标志占 8 字节
     private fun decodeDataAtom(bytes: ByteArray, start: Int, end: Int): String? {
         var p = start
         while (p + 8 <= end) {
@@ -205,7 +189,7 @@ internal object MusicEmbeddedLyricReader {
         return null
     }
 
-    // ---- 自定义原子：mean(4 字节) + UTF-8 空结尾名称 + data 子原子
+    // 自定义原子：mean4 + 名称 + data
     private fun decodeFreeformLyrics(bytes: ByteArray, start: Int, end: Int): String? {
         var p = start + 4
         val nameStart = p

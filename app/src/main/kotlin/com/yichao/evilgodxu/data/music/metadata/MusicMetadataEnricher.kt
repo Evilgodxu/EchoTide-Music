@@ -17,42 +17,36 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-// 本地元数据补全器：只读音频内嵌信息与本地缓存，**不发起任何网络请求**。
-// 扫描、面板显示、列表预取、媒体变更等自动路径都经此处，故其耗时与联网行为会直接影响扫描体验。
-// 封面不在此补全：封面图由显示端按需取自系统略缩图或音频内嵌封面（仅当前曲目的一张缩略图落盘，见 CurrentCoverCache）；
-// 在线补齐一律由用户手动决策：封面刷新、歌词刷新、在线播放（取所选搜索结果的歌词）。
+// 本地补全器：只读内嵌与缓存，不联网
+// 扫描、预取等都经此，耗时影响扫描体验
+// 封面由显示端取，缩略图另落盘
+// 在线补齐均由用户手动触发
 class MetadataEnricher {
-    // 歌词后台读取专用调度器：限并发，避免大歌单首次启动时内存与 CPU 尖峰导致面板卡顿
+    // 歌词读取限并发，避免大歌单内存/CPU 尖峰
     private val lyricDispatcher = Dispatchers.IO.limitedParallelism(4)
-    // 内嵌标签补读专用调度器：与歌词读取各自限并发，两类读取互不排队
+    // 内嵌标签补读限并发，与歌词互不排队
     private val tagDispatcher = Dispatchers.IO.limitedParallelism(4)
-    // 按需懒加载专用调度器：与全量补全互不排队，UI 可见项优先读取
+    // 按需懒加载调度器，与全量互不排队
     private val onDemandDispatcher = Dispatchers.IO.limitedParallelism(4)
-    // 全量补全排期中的曲目 ID：按需请求遇到时让路，由全量任务统一回写
+    // 全量补全排期中的曲目 ID，按需请求让路
     private val bulkInFlight = ConcurrentHashMap.newKeySet<Long>()
-    // 按需读取进行中的曲目 ID：列表快速滚动时同一曲目滚入滚出只执行一次
+    // 按需读取进行中的曲目 ID，滚动去重
     private val onDemandInFlight = ConcurrentHashMap.newKeySet<Long>()
-    // 补全流程的互斥锁：show / 扫描 / 媒体变更 / 授权后扫描会并发触发 enrich，
-    // 不加锁会让同一曲目的歌词被两轮补全交叉回写
+    // 补全互斥，避免同一曲目被两轮交叉回写
     private val enrichMutex = Mutex()
 
-    /**
-     * 补全歌词。
-     *
-     * 不回收歌词缓存：公共下载目录里也可能有用户自己放入的 .lrc，无法区分应用产出与用户文件，
-     * 故任何入口都不对歌词目录做自动删除。
-     */
+    /** 补全歌词；不回收缓存，目录里可能有用户自放的 .lrc */
     suspend fun enrichAndCleanup(
         context: Context,
         playbackState: MusicPlaybackState,
     ) {
         enrichMutex.withLock {
-            // 补全全程置位：曲库分析的自动触发读到该标记即延后，避免频谱解码与元数据读取并发争抢资源
+            // 置位后曲库分析延后，避免与频谱争抢资源
             withContext(Dispatchers.Main) { playbackState.isEnrichingMetadata = true }
             try {
                 enrichPlaylistMetadata(context, playbackState)
             } finally {
-                // 取消（切歌单 / 退出）路径同样要复位，否则自动分析会被永久挡住
+                // 取消路径也要复位，否则自动分析被永久挡住
                 withContext(Dispatchers.Main + NonCancellable) {
                     playbackState.isEnrichingMetadata = false
                 }
@@ -62,17 +56,13 @@ class MetadataEnricher {
 
     private suspend fun enrichPlaylistMetadata(context: Context, playbackState: MusicPlaybackState) {
         val tracks = withContext(Dispatchers.Main) { playbackState.playlist.toList() }
-        // 「是否需要补全」的判定含逐个缓存文件的 stat（isValid → File.isFile/length），
-        // 放 IO 执行：外部存储路径经 FUSE 的 stat 开销远高于内存判断，数千首在主线程判定会直接掉帧
+        // 判定含文件 stat，放 IO 执行避免主线程掉帧
         val plannedIds = withContext(Dispatchers.IO) {
             tracks.filter { plansMetadataFor(context, it) }.map { it.id }
         }
         bulkInFlight.addAll(plannedIds)
         try {
-            // 标签与歌词只有一处依赖：歌词缓存以「标题 - 艺术家」为索引，该曲目标签尚未落定时
-            // 补歌词会按占位标题写出一份对不上的缓存，还会因找不到共享歌词而误标 lyricFailed。
-            // 故按「是否需要补标签」分组：无需补标签的一组与标签阶段并行补歌词，
-            // 需要补标签的一组等标签落定后再补
+            // 歌词索引依赖标签：需补标签的一组等标签落定再补歌词
             val unknownArtist = context.getString(R.string.music_scanner_unknown_artist)
             val (needsTags, readyForLyrics) = withContext(Dispatchers.IO) {
                 tracks.partition { EmbeddedTagBackfill.isPending(it, unknownArtist) }
@@ -90,12 +80,7 @@ class MetadataEnricher {
         }
     }
 
-    /**
-     * 内嵌标签后台补读：并发读取平台读不出标签的容器（WAV），每首读完即回写内存态。
-     *
-     * 读取不发生在刷新路径上——扫描先以 MediaStore 给出的标签返回结果，这里的补读只负责
-     * 后续把标题 / 艺术家 / 专辑修正到面板上，因此单首耗时不进入扫描的完成时间。
-     */
+    /** 内嵌标签后台补读，读完即回写内存态 */
     private suspend fun embedTagsProgressively(
         context: Context,
         playbackState: MusicPlaybackState,
@@ -114,14 +99,13 @@ class MetadataEnricher {
                 }
             }.awaitAll().any { it }
         }
-        // 逐首只更新内存态，本阶段收尾统一落盘一次，避免逐曲重写整份播放列表
         if (changed) {
+            // 本阶段收尾统一落盘一次
             withContext(Dispatchers.Main) { playbackState.persistPlaylist() }
         }
     }
 
-    /** 内嵌标签结果的字段级合并：只应用本次相对扫描快照确实被替换过的字段，
-     *  其余字段以当前内存态为准，避免覆盖并发支路已写入的结果；无实际变化返回 null */
+    /** 只合并本次被替换的字段，无变化返回 null */
     private fun mergeTagUpdate(
         playbackState: MusicPlaybackState,
         original: MusicTrack,
@@ -136,35 +120,29 @@ class MetadataEnricher {
         return merged.takeIf { it != base }
     }
 
-    /**
-     * 按需补全单曲歌词（懒加载）：纯离线，只读内嵌信息与本地缓存，幂等、重复请求自动跳过，
-     * 供 UI 可见项（当前播放、列表滚入视口）触发，避免每次启动全量补全拖慢首屏。
-     */
+    /** 按需补全单曲歌词，纯离线、幂等 */
     internal suspend fun ensureMetadata(
         context: Context,
         playbackState: MusicPlaybackState,
         track: MusicTrack?,
     ) {
         if (track == null) return
-        // 全量补全已排期该曲目，由全量任务统一回写
+        // 全量已排期，交给全量任务回写
         if (track.id in bulkInFlight) return
-        // 同一曲目并发去重：列表快速滚动时滚入滚出只执行一次
+        // 同一曲目并发去重
         if (!onDemandInFlight.add(track.id)) return
         try {
-            // 缓存有效性判定与读取同放 IO：列表预取会在一次组合中对全表逐首调用本方法，
-            // 「已具备缓存」的判定若留在主线程会形成数千次外部存储 stat
+            // 缓存判定与读取放 IO，避免主线程逐首 stat
             val updated = withContext(onDemandDispatcher) {
                 // 已具备完整缓存则无需补全
                 if (hasCompleteMetadata(track)) return@withContext track
-                // 没有可做的补全时直接跳过，判定与全量排期同源：
-                // 「曾落盘但文件已失效」不算已尝试失败，仍需重建
+                // 无可补全时跳过；“曾落盘但失效”仍需重建
                 if (!needsLyrics(context, track)) return@withContext track
                 enrichLyric(context, track)
             } ?: return
             if (updated != track) {
                 withContext(Dispatchers.Main) {
-                    // 传入曲目可能落后于内存态（UI 组合期间捕获的快照），与全量支路并发时
-                    // 整体替换会抹掉对方刚写入的字段，故只应用本次实际替换过的字段
+                    // 只应用本次替换的字段，避免抹掉并发写入
                     val base = playbackState.playlist.firstOrNull { it.id == updated.id }
                     val merged = if (base == null) updated else mergeOnDemandUpdate(base, track, updated)
                     if (merged != base) playbackState.updateTrack(merged)
@@ -179,30 +157,29 @@ class MetadataEnricher {
 
     private fun plansMetadataFor(context: Context, track: MusicTrack): Boolean = needsLyrics(context, track)
 
-    // 歌词未挂载即需处理：有有效缓存路径时必须读回内容；
-    // 仅当既无缓存又已标记失败时才跳过，避免 lyricFailed 挡住缓存歌词的恢复
+    // 有缓存路径就需读回；仅无缓存且已失败才跳过
     private fun needsLyrics(context: Context, track: MusicTrack): Boolean =
         track.lyricLines.isEmpty() &&
             (MusicMetadataCache.isValid(context, track.lyricCachePath) || !track.lyricFailed)
 
-    /** 歌词懒加载：并发读取本地歌词，每首完成即回写内存态（面板/列表逐首刷新）；不联网 */
+    /** 并发读本地歌词，每首完成即回写；不联网 */
     private suspend fun enrichLyricsProgressively(
         context: Context,
         playbackState: MusicPlaybackState,
         tracks: List<MusicTrack>,
-        // 分批补歌词时只在最后一批落盘：每批各写一次会让整份歌单被重复重写
+        // 只在最后一批落盘，避免重复重写歌单
         persist: Boolean = true,
     ) {
-        // 当前播放曲目优先读取，保证面板歌词先于整库就绪；限并发调度器按提交顺序排队，优先级仍然生效
+        // 当前播放曲目优先读取
         val currentId = withContext(Dispatchers.Main) { playbackState.currentTrack?.id }
-        // 筛选与排序放 IO：歌词缓存有效性判定含文件 stat，主线程逐首判定代价高
+        // 筛选与排序放 IO，判定含 stat
         val ordered = withContext(Dispatchers.IO) {
             tracks
                 .filter { needsLyrics(context, it) }
                 .sortedWith(compareBy { it.id != currentId })
         }
         if (ordered.isEmpty()) return
-        // 并发读取，每首完成即回写内存态（只取歌词字段，不做整体替换）
+        // 并发读取，每首完成即回写歌词字段
         val changed = coroutineScope {
             ordered.map { track ->
                 async(lyricDispatcher) {
@@ -215,17 +192,15 @@ class MetadataEnricher {
                 }
             }.awaitAll().any { it }
         }
-        // 逐首只更新内存态，本阶段收尾统一落盘一次，避免逐曲重写整份播放列表
         if (changed && persist) {
+            // 本阶段收尾统一落盘一次
             withContext(Dispatchers.Main) { playbackState.persistPlaylist() }
         }
     }
 
-    // 读取单曲本地歌词：曲目缓存 → 共享 .lrc 缓存 → 内嵌歌词；三处均未命中即标记失败。
-    // 共享缓存先于内嵌歌词：首次启动（曲目尚无关联路径）时优先复用公共目录下已有的 .lrc，
-    // 不必逐首重新解码音频内嵌歌词
+    // 曲目缓存 → .lrc → 内嵌，未命中即失败
     private suspend fun enrichLyric(context: Context, track: MusicTrack): MusicTrack? = try {
-        // 优先直接复用曲目已关联的歌词缓存（冷启动恢复残留的路径），按需读取并应用手动偏移
+        // 复用曲目已关联的缓存，应用手动偏移
         track.lyricCachePath.takeIf { MusicMetadataCache.isValid(context, it) }?.let { path ->
             MusicMetadataCache.loadLyrics(context, path).takeIf { it.isNotEmpty() }?.let { lines ->
                 return track.copy(
@@ -235,7 +210,7 @@ class MetadataEnricher {
                 )
             }
         }
-        // 其次复用按"标题 - 艺术家"落盘的通用歌词缓存（在线播放/手动刷新保存的 .lrc）
+        // 其次复用按标题/艺术家落盘的通用缓存
         val existingPath = MusicMetadataCache.findLyrics(context, track.title, track.artist)
         val existingLines = existingPath?.let { MusicMetadataCache.loadLyrics(context, it) }
         if (!existingLines.isNullOrEmpty()) {
@@ -245,8 +220,7 @@ class MetadataEnricher {
                 lyricFailed = false,
             )
         }
-        // 再次读取本地音频内嵌歌词：新曲目的歌词来源；读回后落盘为歌词缓存，
-        // 避免冷启动重复读取音频文件头部
+        // 读内嵌歌词并落盘，避免冷启动重读
         if (track.isLocalAudioSource) {
             MusicEmbeddedLyricReader.read(context, track).takeIf { it.isNotEmpty() }?.let { lines ->
                 val lyricPath = MusicMetadataCache.saveLyrics(context, track.title, track.artist, lines).orEmpty()
@@ -257,8 +231,7 @@ class MetadataEnricher {
                 )
             }
         }
-        // 本地三处均无歌词：标记失败并转占位显示，同时避免后续补全反复重扫同一曲目。
-        // 联网补齐由用户手动触发（歌词刷新），不在自动路径内
+        // 三处均无则标记失败；联网补齐由用户手动触发
         track.copy(lyricFailed = true)
     } catch (e: Exception) {
         CrashLogManager.logException(
@@ -269,12 +242,11 @@ class MetadataEnricher {
         null
     }
 
-    // 应用手动时间偏移：缓存文件保存的始终是原始时间戳，读取后按需平移
+    // 缓存存原始时间戳，读取后按需平移
     private fun applyLyricOffset(lines: List<LyricLine>, offsetMs: Long): List<LyricLine> =
         if (offsetMs != 0L) MusicMetadataCache.shiftLyrics(lines, offsetMs) else lines
 
-    /** 合并单曲歌词结果：歌词基于扫描快照，合并时以当前内存态为基准、只取歌词字段，
-     *  避免用快照里的其它字段覆盖并发支路已写入的结果；无实际变化返回 null */
+    /** 只取歌词字段合并，无变化返回 null */
     private fun mergeLyricUpdate(
         playbackState: MusicPlaybackState,
         lyric: MusicTrack
@@ -288,8 +260,7 @@ class MetadataEnricher {
         return merged.takeIf { it != base }
     }
 
-    /** 按需补全结果的字段级合并：只应用本次相对传入曲目确实被替换过的歌词字段，
-     *  其余字段以当前内存态为准。判定用引用比较，故未命中的分支返回的仍是入参本身 */
+    /** 只合并本次替换的歌词字段 */
     private fun mergeOnDemandUpdate(
         base: MusicTrack,
         original: MusicTrack,

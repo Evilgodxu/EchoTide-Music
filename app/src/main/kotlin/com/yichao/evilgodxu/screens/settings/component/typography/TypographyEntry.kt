@@ -7,7 +7,7 @@ import com.yichao.evilgodxu.screens.settings.component.entry.SettingsEntry
 import com.yichao.evilgodxu.ui.component.section.GroupCard
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-// 歌词排版入口：排版参数自持一份状态并经自己的 ViewModel 落盘，故走独立路由而非页内层级
+// 排版入口，自带 ViewModel 与状态
 @Composable
 fun TypographyEntry(onClick: () -> Unit) {
     GroupCard(title = stringResource(R.string.settings_section_typography)) {

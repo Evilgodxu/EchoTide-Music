@@ -16,8 +16,7 @@ import com.yichao.evilgodxu.utils.formatBytes
 // 参数项之间的分隔符
 private const val ITEM_SEPARATOR = " · "
 
-// 音频参数行：格式、规格与体积串成一行并居中显示，宽度不足时自然换行。
-// 置于图下方而非侧边，避免挤占频谱图的横向空间
+// 参数行居中，置于图下方不挤横向空间
 @Composable
 internal fun SpectrumTrackInfo(
     format: AudioSignalPathFormat?,
@@ -35,8 +34,7 @@ internal fun SpectrumTrackInfo(
     )
 }
 
-// 参数行文案：界面与导出图共用，避免两处口径漂移；仅拼接实际读到的项，
-// 无可展示项时返回空串由调用方跳过该行
+// 界面与导出共用；无可展示项返回空串
 internal fun spectrumInfoText(
     context: Context,
     format: AudioSignalPathFormat?,
@@ -61,6 +59,6 @@ internal fun spectrumInfoText(
     }.removeSuffix(ITEM_SEPARATOR)
 }
 
-// 采样率按千赫兹展示，整千时省去小数位
+// 采样率按 kHz，整千省小数
 private fun formatSampleRate(hertz: Int): String =
     if (hertz % 1000 == 0) "${hertz / 1000}kHz" else "%.1fkHz".format(hertz / 1000f)

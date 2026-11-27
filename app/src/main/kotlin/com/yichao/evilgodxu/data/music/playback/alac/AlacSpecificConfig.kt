@@ -1,21 +1,16 @@
 package com.yichao.evilgodxu.data.music.playback.alac
 
 /**
- * ALAC 的编解码参数，对应 magic cookie 里的 `ALACSpecificConfig`。
- *
- * 这是解码所需的全部容器外信息：每一帧都自带预测系数与自适应 Golomb 参数，帧与帧之间不共享状态，
- * 故除本配置与逐帧数据之外无第三处输入。
- *
- * 解析失败一律返回 null 而不以默认值顶替：不认识的 cookie 就是「本实现不认识这一条流」，
- * 上层据此放弃接管该轨道，交由媒体3 的其它渲染器处置（本机无 ALAC 解码器时表现为静音跳过），
- * 而不是按猜测的参数解出一段错误的音频。
+ * ALAC 编解码参数，来自 magic cookie。
+ * 每帧自带预测与 Golomb 参数，帧间不共享状态。
+ * 解析失败返回 null，上层据此放弃接管。
  */
 internal class AlacSpecificConfig(
     /** 每帧样本数；除末帧外每帧都解出这个数 */
     val frameLength: Int,
-    /** 源位深，只取 16/20/24/32——参考实现的输出分支只覆盖这四个 */
+    /** 源位深，只取 16/20/24/32 */
     val bitDepth: Int,
-    /** 自适应 Golomb 的均值比例、初始均值与均值上限所用的移位量 */
+    /** Golomb 的均值比例、初始均值与上限移位量 */
     val pb: Int,
     val mb: Int,
     val kb: Int,
@@ -26,35 +21,32 @@ internal class AlacSpecificConfig(
     val sampleRate: Int,
 ) {
     companion object {
-        /** `ALACSpecificConfig` 的固定长度 */
+        /** ALACSpecificConfig 固定长度 */
         private const val SIZE_BYTES = 24
 
-        // 配置可能被包在 'frma' / 'alac' 原子之后（历史编码器所为），每个原子头 12 字节
+        // 可包在 frma/alac 后，原子头 12 字节
         private const val ATOM_HEADER_BYTES = 12
         private const val ATOM_TAG_OFFSET = 4
         private const val FRMA_ATOM = "frma"
         private const val ALAC_ATOM = "alac"
 
-        /** 参考实现声明的最高兼容版本，更高的版本不作兼容承诺 */
+        /** 最高兼容版本，更高版本不承诺 */
         private const val SUPPORTED_VERSION = 0
 
-        /** 参考实现的输出分支只覆盖这四个位深，其余值会走到「什么都不写」的分支 */
+        /** 支持的位深，其余值无输出 */
         private val SUPPORTED_BIT_DEPTHS = setOf(16, 20, 24, 32)
         private const val MAX_CHANNELS = 8
 
-        /** `kb` 会作为 `1 shl kb` 的移位量使用，0 与 32 及以上都会让该表达式失去意义 */
+        /** kb 是 1 shl kb 的移位量，0 与 ≥32 无意义 */
         private const val MIN_KB = 1
         private const val MAX_KB = 31
 
-        // 单帧样本总量上限：解码器按帧长 × 声道预分配多组 Int 缓冲，
-        // 只看「帧长 > 0」会让 24 字节配置申请与文件体积不成比例的巨型数组
+        // 单帧样本总量上限，防止小配置申请巨型数组
         private const val MAX_SAMPLES_PER_FRAME = 1 shl 20
 
         /**
-         * 解析 magic cookie；含本实现不支持的内容时返回 null。
-         *
-         * 各字段的取值域按「参考实现的算术能否成立」而不是「文档怎么写」来卡：位深决定输出分支，
-         * 声道数决定混音缓冲的维数，`kb` 决定均值上限的移位量，任一越界都会让解码走进未定义路径。
+         * 解析 cookie，不支持返回 null。
+         * 字段按算术能否成立来卡，越界即不支持。
          */
         fun parse(cookie: ByteArray): AlacSpecificConfig? {
             var offset = 0

@@ -10,14 +10,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
 
-/**
- * 打包整型转换复核。
- *
- * 自研输出实现全靠这一层把解码数据对齐到设备唯一声明的打包整型（24 位或 32 位）。此路径在设备上无从
- * 直接校验：数值错一位不会报错，只会让写出编码与所下发的混音器属性对不上，静默走回系统混音；而读取
- * 越界会让播放直接失败（曾因此崩过两次）。故逐项核对：位深只增不减的编码必须逐位精确，越界必须不可能
- * 发生，样本数必须守恒。
- */
+/** 位深只增不减须逐位精确，越界不可发生 */
 class IntPcmConversionTest {
 
     private val int24 = C.ENCODING_PCM_24BIT
@@ -113,7 +106,7 @@ class IntPcmConversionTest {
 
         packIntPcm(source, output, C.ENCODING_PCM_FLOAT, int24)
 
-        // 浮点中间态按 0x7FFFFFFF 缩放，半量程处允许一个最低有效位的偏差
+        // 按 0x7FFFFFFF 缩放，容 1 LSB
         val value = readPackedInt24(output)
         assertTrue("半量程还原值 $value 偏离 0.5 满量程过多", abs(value - 4194304) <= 1)
     }
@@ -126,7 +119,7 @@ class IntPcmConversionTest {
 
         packIntPcm(source, output, C.ENCODING_PCM_FLOAT, int32)
 
-        // 同上，只是这次中间态原样写成 32 位整型
+        // 同上，中间态写 32 位整型
         val value = output.order(ByteOrder.LITTLE_ENDIAN).getInt(0)
         assertTrue("半量程还原值 $value 偏离 0.5 满量程过多", abs(value - 1073741823) <= 2)
     }
@@ -179,13 +172,13 @@ class IntPcmConversionTest {
     private fun convert(samples: ByteArray, inputEncoding: Int, outputEncoding: Int): ByteArray {
         val source = littleEndian(samples.size).apply { put(samples) }
         source.flip()
-        // 每个输入字节至多一个样本，每样本至多四个写出字节，故按输入长度的四倍申请必定够用
+        // 每样本至多 4 字节，按四倍申请
         val output = ByteBuffer.allocate(samples.size * 4).order(ByteOrder.LITTLE_ENDIAN)
         packIntPcm(source, output, inputEncoding, outputEncoding)
         return ByteArray(output.position()).also { output.rewind(); output.get(it) }
     }
 
-    // 24 位整型按小端三字节存放，与平台编码一致
+    // 24 位按小端三字节存放
     private fun readPackedInt24(buffer: ByteBuffer): Int {
         val bytes = buffer.array()
         val unsigned = (bytes[0].toInt() and 0xFF) or
@@ -194,7 +187,7 @@ class IntPcmConversionTest {
         return if (unsigned and 0x800000 != 0) unsigned - 0x1000000 else unsigned
     }
 
-    // 线性 PCM 各编码均按小端存放，与设备上实际字节序一致
+    // 各编码均按小端存放
     private fun littleEndian(capacity: Int): ByteBuffer =
         ByteBuffer.allocate(capacity).order(ByteOrder.LITTLE_ENDIAN)
 }

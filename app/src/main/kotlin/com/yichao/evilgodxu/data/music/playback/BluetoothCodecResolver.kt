@@ -16,26 +16,19 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
-// A2DP 代理的等待上限：正常路径即时回调，超时说明蓝牙栈不可用，放弃本次采集
+// A2DP 代理等待上限，超时说明栈不可用
 private const val PROXY_TIMEOUT_MS = 1_000L
 
 /**
- * 蓝牙编解码器参数解析。
- *
- * 开发者选项展示的解码器、采样率、每样本位数与声道模式都来自 A2DP 的协商结果，而读取该结果的
- * BluetoothA2dp.getCodecStatus 属系统接口，未纳入公开 SDK，只能按方法名反射调用；其返回的
- * BluetoothCodecStatus 与 BluetoothCodecConfig 本身是公开类型，解析无需反射。
- *
- * 系统未授予特权、且应用未与本机建立「配套设备」关联时，该调用会因权限不足而失败；此类失败为
- * 预期情形，直接返回 null 交由展示层跳过对应行，仅平台成员缺失（本机版本与预期不符）才记日志。
- * 编解码器由手机与耳机协商决定，与开发者选项里的手动选择可能不同，故只上报协商结果。
+ * 蓝牙编解码参数：A2DP 协商结果，反射读取。
+ * 权限不足属预期，仅成员缺失才记日志。
  */
 internal object BluetoothCodecResolver {
 
-    /** 反射调用的系统接口：按远端设备返回当前 A2DP 编解码器状态 */
+    /** 反射的系统接口：按远端设备返回 A2DP 状态 */
     private const val CODEC_STATUS_METHOD = "getCodecStatus"
 
-    // 位掩码到实际取值的对照表，按最低有效位优先排列
+    // 位掩码对照表，按最低有效位优先
     private val SAMPLE_RATE_FLAGS = listOf(
         BluetoothCodecConfig.SAMPLE_RATE_44100 to 44_100,
         BluetoothCodecConfig.SAMPLE_RATE_48000 to 48_000,
@@ -51,7 +44,7 @@ internal object BluetoothCodecResolver {
         BluetoothCodecConfig.BITS_PER_SAMPLE_32 to 32,
     )
 
-    /** 解析远端设备当前使用的编解码器参数；接口不可用或未协商完成时返回 null */
+    /** 解析当前编解码器参数，不可用时 null */
     suspend fun resolve(context: Context, device: BluetoothDevice): BluetoothCodecInfo? {
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: return null
         return withTimeoutOrNull(PROXY_TIMEOUT_MS) {
@@ -64,12 +57,7 @@ internal object BluetoothCodecResolver {
         }
     }
 
-    /**
-     * 取 A2DP Profile 代理。
-     *
-     * 代理只能经蓝牙适配器异步获取，回调不来即说明蓝牙栈不可用，由超时兜底；
-     * 超时后回调仍可能到达，此时就地关闭代理，避免连接泄漏。
-     */
+    /** 取 A2DP 代理；超时后就地关闭防泄漏 */
     private suspend fun awaitA2dpProxy(
         context: Context,
         adapter: BluetoothAdapter,
@@ -92,7 +80,7 @@ internal object BluetoothCodecResolver {
         if (!requested && continuation.isActive) continuation.resume(null)
     }
 
-    // getCodecStatus 受 BLUETOOTH_CONNECT 保护，调用方已校验权限，故此处标注 SuppressLint
+    // 需 BLUETOOTH_CONNECT，入口已校验
     @SuppressLint("MissingPermission")
     private fun readCodecInfo(proxy: BluetoothA2dp, device: BluetoothDevice): BluetoothCodecInfo? =
         try {
@@ -101,15 +89,15 @@ internal object BluetoothCodecResolver {
                 .invoke(proxy, device) as? BluetoothCodecStatus
             status?.codecConfig?.let(::codecInfo)
         } catch (e: LinkageError) {
-            // 平台成员缺失说明本机版本与预期不符，属缺陷而非运行时状况，记日志以便定位
+            // 成员缺失说明版本不符，记日志定位
             CrashLogManager.logException("BluetoothCodecResolver", "读取蓝牙编解码器参数失败", e)
             null
         } catch (e: Exception) {
-            // 权限不足、接口不可用等属预期情形，留空交由展示层跳过对应行
+            // 权限不足等属预期，留空跳过
             null
         }
 
-    // 各项都读不到时视为尚未协商出结果，不产出条目
+    // 全空视为尚未协商，不产出
     private fun codecInfo(config: BluetoothCodecConfig): BluetoothCodecInfo? = BluetoothCodecInfo(
         name = codecName(config),
         sampleRateHz = sampleRateHz(config.sampleRate),
@@ -120,12 +108,7 @@ internal object BluetoothCodecResolver {
             it.bitsPerSample != null || it.channelMode != null
     }
 
-    /**
-     * 编解码器名称。
-     *
-     * Android 15 起平台以标识对象上报编解码器并直接给出名称，厂商编解码器也能命名，故优先取用；
-     * 更低版本只有整数标识，且公开接口不含名称，只能自行取名，未收录的标识留空。
-     */
+    /** 编解码器名：Android 15 取平台名，否则查对照表 */
     @Suppress("DEPRECATION")
     private fun codecName(config: BluetoothCodecConfig): String? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
@@ -138,7 +121,7 @@ internal object BluetoothCodecResolver {
     private fun extendedCodecName(config: BluetoothCodecConfig): String? =
         config.extendedCodecType?.codecName?.takeIf { it.isNotBlank() }
 
-    // 整数标识自 Android 13 起公开、Android 15 起标注弃用，改名接口在 15 才提供，故此处保留标识对照
+    // 整数标识 13 公开、15 弃用
     @Suppress("DEPRECATION")
     internal fun legacyCodecName(codecType: Int): String? = when (codecType) {
         BluetoothCodecConfig.SOURCE_CODEC_TYPE_SBC -> "SBC"
@@ -161,7 +144,7 @@ internal object BluetoothCodecResolver {
         else -> null
     }
 
-    // 采样率与位深均以位掩码上报，当前配置只置一个位；按对照表顺序取最低有效位对应的取值
+    // 位掩码按对照表取最低有效位
     private fun lowestFlagValue(mask: Int, flags: List<Pair<Int, Int>>): Int? =
         flags.firstOrNull { mask and it.first != 0 }?.second
 }

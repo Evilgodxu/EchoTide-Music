@@ -23,13 +23,7 @@ private val PLOT_SLOT_TOP_GAP = 4.dp
 // 底部信息块与频谱图的间距
 private val BOTTOM_INFO_TOP_GAP = 4.dp
 
-// 频谱内容：上区按时频分析状态分发——分析中报进度、有结果则铺开时频图与两侧刻度，
-// 否则给出不可分析占位；三种状态共用同一槽位尺寸，切换时下半区不跳动。
-// 下区紧随槽位排布：源文件参数行距图 4dp。
-// 槽位按权重吃掉全部剩余高度，页面底缘留白只由组装器给出：此处若再按比例分一份，
-// 高屏上会随内容区高度放大成大片空白，底部信息块下方出现明显空档。
-// 与顶部标题区的 4dp 间距由槽位统一给出，组装器不得再叠加顶部留白。
-// 长按频谱图导出高清图：由界面渲染，交数据层写入相册或分享
+// 上区按时频状态分发，共用槽位避免跳动
 @Composable
 internal fun SpectrumBody(
     uiState: SpectrumUiState,
@@ -38,8 +32,7 @@ internal fun SpectrumBody(
     val spectrogram = uiState.spectrogram
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // 底部避让系统导航栏：页面内容延伸到屏幕底缘，不避让则参数行被三键导航的虚拟按键压住。
-    // 此处只避让窗口内边距，页面自身的底缘留白仍由组装器给出
+    // 底部避让导航栏，底缘留白由组装器给出
     Column(modifier = modifier.navigationBarsPadding()) {
         val slotModifier = Modifier
             .fillMaxWidth()
@@ -68,7 +61,7 @@ internal fun SpectrumBody(
     }
 }
 
-// 导出频谱图：渲染高清图后写入相册或经分享面板分享，只在失败与保存成功时提示
+// 渲染高清图后分享或存相册
 private suspend fun exportSpectrumImage(
     context: Context,
     uiState: SpectrumUiState,
@@ -96,7 +89,7 @@ private suspend fun exportSpectrumImage(
     Toast.makeText(context, context.getString(messageRes), Toast.LENGTH_SHORT).show()
 }
 
-// 导出内容：文案取自与界面同一套口径（首行曲名与歌手、参数行）
+// 导出文案与界面同口径
 private fun spectrumShareContent(context: Context, uiState: SpectrumUiState): SpectrumShareContent =
     SpectrumShareContent(
         title = uiState.title.ifBlank { context.getString(R.string.spectrum_screen_title) },

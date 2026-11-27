@@ -3,87 +3,72 @@ package com.yichao.evilgodxu.screens.metadata
 import com.yichao.evilgodxu.data.music.metadata.TagField
 import com.yichao.evilgodxu.data.music.model.LyricLine
 
-// 正在编辑的条目：字段与歌词行共用一个编辑位，同时只允许一行处于编辑态
+// 编辑位：字段与歌词行共用，同时只编辑一项
 sealed interface MetadataEditTarget {
     data class Field(val field: TagField) : MetadataEditTarget
 
-    // 歌词行按解析结果的下标标识：同一行的时间戳可能重复，文本也可重名，只有位置能唯一确定一行
+    // 按解析结果下标定位，行内容可能重复
     data class LyricLineAt(val index: Int) : MetadataEditTarget
 
-    // 歌词翻译行：与原文行分属不同编辑位，互不干扰，可独立进入与退出编辑
+    // 翻译行独立编辑，与原文互不干扰
     data class LyricTranslationAt(val index: Int) : MetadataEditTarget
 
-    // 歌词全文编辑：整篇以增强 LRC 文本一次性编辑，与逐行编辑共用同一编辑位，二者互斥
+    // 全文编辑：整篇增强 LRC，与逐行互斥
     data object LyricsWhole : MetadataEditTarget
 }
 
-/**
- * 元数据编辑页状态：每次进入页面重新读取音频文件的内嵌标签回填表单，
- * 编辑中的字段与文件原值分列，使「未改动」与「改为空」可区分。
- *
- * 字段以映射承载而非逐个具名：字段清单会随容器能力增长，映射让新增字段不必再扩状态字段，
- * 表单只需按 [TagField] 的分组顺序遍历渲染。
- */
+/** 元数据页状态：字段用映射承载，未收录按空串 */
 data class MetadataUiState(
-    // 目标曲目 id：浮层（在线刷新封面）需要据此取回对应曲目以驱动既有能力
+    // 目标曲目 id，浮层据此取回曲目
     val trackId: Long = 0L,
-    // 各字段的当前编辑值；未收录的字段按空串展示
+    // 字段当前值，未收录按空串
     val fields: Map<TagField, String> = emptyMap(),
-    // 歌词按解析出的行分列展示：每行是独立条目，编辑也以行为单位进行
+    // 歌词按行展示与编辑
     val lyricLines: List<LyricLine> = emptyList(),
-    // 文件里有歌词文本但解析不出行（时间戳格式不对）：与「本来就没有歌词」分开提示，
-    // 否则用户会把格式问题当成歌词丢失
+    // 有文本却解析不出行，与无歌词分开提示
     val lyricsUnparsable: Boolean = false,
-    // 封面预览：进入页面时从文件内嵌封面取回，用户选择新图或移除后替换；为 null 表示当前无封面
+    // 封面预览，null 表示无封面
     val coverBytes: ByteArray? = null,
-    // 载入中：读取标签期间不展示表单，避免旧内容与新内容在界面上交叠
+    // 载入中，读取期间不展示表单
     val loading: Boolean = true,
-    // 正在写回音频文件：期间不接受新的编辑入口，避免写入过程中的改动与已有写入交错。
-    // 已在编辑的输入框不受影响 —— 禁用取焦中的输入框会连带清掉焦点与键盘，
-    // 其在写入期间的新输入由状态持有者合并进下一批
+    // 写回中：不接受新编辑，已聚焦输入框仍可输入
     val saving: Boolean = false,
-    // 目标曲目不可编辑（在线流无本地可写文件）
+    // 在线流不可编辑
     val editable: Boolean = true,
-    // 当前处于编辑态的条目；为 null 时全部条目为只读展示
+    // 当前编辑项，null 时只读
     val editing: MetadataEditTarget? = null,
-    // 歌词原文行的内联草稿：完整增强 LRC 文本，仅在原文行编辑态非空。
-    // 文本需原样保留用户输入（含尚未成形的标签），不能由解析结果反推，故单独存放；
-    // 放在状态里而非组件内，使「点击外部退出」也能提交草稿
+    // 原文行草稿：原样保留输入，放状态以便外部退出也提交
     val lyricLineDraft: String? = null,
-    // 歌词是否处于全文编辑模式。模式与编辑态分开：模式决定展示形态（整篇卡片），编辑态
-    // 只在用户点击卡片后建立，退出编辑（点击别处）只回到整篇卡片，不会退回逐行
+    // 全文模式：决定展示形态，与编辑态分开
     val lyricsWholeMode: Boolean = false,
-    // 正在单行补译的行下标：非空时该行显示补译中占位，其余行不再接受新的补译请求
-    // （翻译接口按 IP 限流，同一时刻只允许一个补译任务）
+    // 补译中的行；接口限流，同时只跑一个
     val translatingLine: Int? = null,
     val sameAlbumVisible: Boolean = false,
     val sameAlbumLoading: Boolean = false,
-    // 取自同名专辑的其它本地曲目的内嵌封面
+    // 同专辑其它本地曲目封面
     val sameAlbumCovers: List<ByteArray> = emptyList(),
-    // 复用首页既有的封面搜索能力
+    // 复用首页封面搜索
     val coverRefreshVisible: Boolean = false,
     val coverRefreshSelectedId: Long? = null,
     val coverRefreshSaving: Boolean = false,
     val exportingCover: Boolean = false,
-    // 在线补全：候选对话框 + 二级的补全方式对话框。
-    // fillOverwrite 为 false 表示仅补全空字段，true 表示平台值覆盖本地值
+    // fillOverwrite 为 true 则覆盖
     val fillVisible: Boolean = false,
     val fillSelectedId: Long? = null,
     val fillModeVisible: Boolean = false,
     val fillApplying: Boolean = false,
     val fillOverwrite: Boolean = false,
-    // 音量增益自算进行中：期间按钮显示进度，不接受重复触发
+    // 增益计算中，拒绝重复触发
     val replayGainComputing: Boolean = false,
-    // 自动保存结果提示：成功或失败原因，显示后可被下次保存覆盖
+    // 保存结果提示，可被下次覆盖
     val message: String? = null,
     val messageIsError: Boolean = false,
 ) {
-    // 数据类含 ByteArray，默认的 equals/hashCode 按引用比较；
-    // 该状态只用于重组驱动，不做相等性判定，故显式覆盖以消除编译期告警
+    // 含 ByteArray，按引用比较以消除告警
     override fun equals(other: Any?): Boolean = this === other
 
     override fun hashCode(): Int = System.identityHashCode(this)
 
-    /** 字段的当前编辑值：未收录即空串，供表单直接渲染 */
+    /** 字段当前值，未收录即空串 */
     fun value(field: TagField): String = fields[field].orEmpty()
 }

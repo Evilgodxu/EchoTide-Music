@@ -17,64 +17,39 @@ import com.yichao.evilgodxu.data.music.playback.PcmConversion
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-// 帧数换算毫秒用的系数：与 OutputLatency 同口径
+// 帧转毫秒系数，与 OutputLatency 同口径
 private const val MILLIS_PER_SECOND = 1_000f
 
-// 欠载与传输错误的轮询间隔：原生层在另一条线程上计数，本层按秒取一次即可，不必每块缓冲都问
+// 统计轮询间隔 1s，不必每块缓冲都问原生层
 private const val STATS_INTERVAL_MS = 1000L
 
 /**
- * USB 独占输出：把解码数据经自写的 usbfs 等时层直接交给解码器的等时端点。
+ * USB 独占输出：经自写 usbfs 等时层直送。
  *
- * 与 [PcmAudioSink] 的关系是并列而非叠加——两者都在"接受解码数据、转成整型帧、写出"这一段，
- * 区别只在最后一公里：那个写出的是 `AudioTrack`（因而仍在平台的混音链路里），本类写出的是等时端点
- * （因而绕开了混音链路）。**绕开正是独占的来历**：[UsbExclusiveDac] 用
- * `claimInterface(intf, force = true)` 把接口收归本应用时，内核的音频驱动被解绑，该解码器随之从系统
- * 音频里消失，别的应用与通话都用不到它；代价是平台的混音、音效与音量不再作用于这条流，得自己做。
- *
- * 因此本类**只在独占路径下被选用**，与平台直出互斥：接口同一时刻只能有一个持有者，两者不可能同时成立。
- * 谁来选、选不上怎么办属于上层路由的职责，本类只管在已被选中的前提下把数据送对。
- *
- * 与平台路径的三处必然差别：
- * - **没有播放头可读**。等时端点只报告"这批送出去了"，没有设备侧的播出台账，故位置按原生层回收 URB 时
- *   累计的实际帧数估算（见 [UsbIsoOutput.stats]）——提交量会整体偏前一个在飞时长，
- *   拿它报位置会让曲末判定提前；
- * - **音量与音效得自己做**。绕开混音器即绕开平台的音量与效果链，`AudioManager` 的音量不再作用于这条流；
- * - **曲末必须显式排空**。平台路径的尾巴由音频轨自己播完，等时路径的数据还在环与在飞 URB 里，
- *   不排空就切歌会把最后一整块直接吃掉。
+ * 与 PcmAudioSink 并列，只区别在最后一公里。
+ * claimInterface 收归接口后内核驱动被解绑。
  */
 @OptIn(UnstableApi::class)
 internal class UsbExclusiveAudioSink(
     /**
-     * 独占会话：由设备接入侧在取得授权并接管后持有。
-     *
-     * 取值为 null 表示当前没有可用的独占设备——本类不做设备枚举与授权（那属于交互与生命周期管理），
-     * 拿不到会话即在配置期判失败，由上层退回平台路径。
+     * 独占会话，null 表示无可用设备。
      */
     private val session: () -> UsbExclusiveDac?,
     /**
-     * 应用自持音量（线性增益，0..1），档位由 [com.yichao.evilgodxu.data.music.playback.ExclusiveVolume] 持有。
-     *
-     * 必须自己施加：绕开混音器即绕开 `AudioManager` 的音量，不施加这条流就永远停在满幅。独占期间系统
-     * 媒体音量已不再参与（音量键也已被会话的远端音量通道接管），故这里的取值与系统音量无关。
+     * 应用自持线性音量 0..1。
+     * 绕开混音器后须自己施加。
      */
     private val appVolume: () -> Float = { 1f },
-    /** 当前曲目的源位深；写出位深按它选，未知时退回解码输出位深 */
+    /** 当前曲目源位深，未知时退回解码输出位深 */
     private val sourceBitDepth: () -> Int? = { null },
     /**
      * 按曲目 id 取源位深。
-     *
-     * 与 [sourceBitDepth] 并列而不是替代它：那个读的是界面侧的"当前曲目"，而换曲重配发生在播放线程上，
-     * 那一刻当前曲目还没推进到新曲，读到的仍是上一曲的值。本次配置要播的是哪一首，只有配置自己知道
-     * （见 [configure] 的 trackId），故位深也要能按 id 取——否则位深一变就只能先按旧档建流、
-     * 播到一半再拆一次重建。
+     * 界面侧当前曲目会滞后，须按配置的 trackId 取。
      */
     private val trackBitDepth: (Long?) -> Int? = { null },
     /**
-     * 写出编码的上报出口：等时输出建立时报出设备实际收到的位深，释放时报空。
-     *
-     * 音频信息面板的"输出编码"一行取的正是它，而这条链路上没有 `AudioTrack` 可供平台回填，
-     * 漏报会让面板显示"输出未建立"——与实际正在出声完全对不上。
+     * 写出编码上报：建流时报设备实际位深，释放时报空。
+     * 面板"输出编码"一行取它，漏报会显示"输出未建立"。
      */
     private val onOutputEncodingChanged: (Int?) -> Unit = {},
 ) : AudioSink {
@@ -82,49 +57,44 @@ internal class UsbExclusiveAudioSink(
     private var listener: AudioSink.Listener = SILENT_LISTENER
     private var clock: Clock = Clock.DEFAULT
     private var audioAttributes = AudioAttributes.DEFAULT
-    /** 播放器音量：平时恒为 1，心动模式的片段淡入淡出靠它 */
+    /** 播放器音量，平时恒为 1，心动模式淡入淡出用 */
     private var volume = 1f
 
-    /** 上一块缓冲收敛到的定点增益：本块由它斜到目标值，音量改动才不落在缓冲边界上 */
+    /** 上一块末的定点增益，本块由它斜到目标 */
     private var appliedGainQ15 = UNITY_GAIN_Q15
 
-    /** 下一块缓冲是否直接从目标增益起步：跳转与重配之后，旧增益属于上一段声音，不该斜过去 */
+    /** 下一块直接从目标增益起步，跳转重配后为真 */
     private var rampJumpNext = false
 
     /**
-     * 本次配置下重建等时流之后要渐入的样本数（= 帧数 × 声道数）。
-     *
-     * 在 [configure] 里按本曲的采样率与声道算定：流是建在配置之后的，建流那一刻手里只有这一份值。
+     * 重建流后要渐入的样本数，配置时算定。
      */
     private var rebuildFadeSamples = 0
 
-    /** 渐入剩余样本数；大于零即本条流刚重建，写出的样本要按包络渐入 */
+    /** 渐入剩余样本数，大于零即按包络渐入 */
     private var fadeInSamplesLeft = 0
 
-    /** 渐入的总样本数：包络的斜率由它与剩余量共同给出 */
+    /** 渐入总样本数，决定包络斜率 */
     private var fadeInSamplesTotal = 0
 
-    /** 是否处于暂停：暂停期间待播量必须保留，见 [hasPendingData] */
+    /** 是否暂停，暂停期间待播量必须保留 */
     private var paused = false
 
     /**
-     * 曲末排空之后是否转入静音填充。
-     *
-     * 与 [paused] 分开记：这个表示"本条流已经没有内容可送"，而暂停表示渲染器的意图。两者对原生层的
-     * 效果相同（都不从环取数据、只补零、不计欠载），但不能合并——合并会让曲末那段静音看起来像用户
-     * 暂停，恢复播放时判据就错了。曲末不关流的理由见 [playToEndOfStream]。
+     * 曲末排空后是否转静音填充。
+     * 与暂停分开，合并会误判用户暂停。
      */
     private var silentHold = false
 
     private var skipSilenceEnabled = false
 
-    /** 解码输出格式：本类接受任意线性 PCM 编码，写出统一为设备子槽排布 */
+    /** 解码输出格式，写出统一为设备子槽排布 */
     private var inputFormat: Format? = null
 
-    /** 本次配置选定的设备格式；null 表示尚未选定 */
+    /** 选定的设备格式，null 表示尚未选定 */
     private var plan: UsbAudioOutputFormat? = null
 
-    /** 本次配置对应的会话：释放与就绪都落在它身上，会话本身由上层持有并归还，本类不关 */
+    /** 本次会话，由上层持有并归还，本类不关 */
     private var dac: UsbExclusiveDac? = null
 
     private var sampleRate = 0
@@ -133,56 +103,48 @@ internal class UsbExclusiveAudioSink(
     private var outputChannelMask = AudioFormat.CHANNEL_INVALID
 
     /**
-     * 等时输出句柄。
-     *
-     * 按易变发布：它由播放线程建立与释放，而界面线程会经 [latencyReading] 读它的容量这类不变量。
-     * 句柄本身（进原生层的那几次调用）只能由播放线程碰——它就是个原生对象的指针，释放之后再进原生层
-     * 即 use-after-free，故 [latencyReading] 只读本层缓存的快照，不碰句柄。
+     * 等时输出句柄，按易变发布。
+     * 只由播放线程碰，释放后再进即 use-after-free。
      */
     @Volatile
     private var output: UsbIsoOutput? = null
 
-    /** 已交给等时输出的帧数：位置上限与待播判定都以它为准。界面算"缓冲驻留"时也要读，故按易变发布 */
+    /** 已交给等时输出的帧数，位置上限与待播判定以它为准 */
     @Volatile
     private var writtenFrames = 0L
 
     /**
-     * 最近一次由播放线程读到的"已从环取走帧数"（原生层装入 URB 的量）。
-     *
-     * 界面要的"缓冲驻留"是「已写出 − 已取走」，而后者只能问原生层。把这份读数留在播放线程上取、
-     * 供界面读，界面才不会为了一个数字去碰原生句柄。
+     * 播放线程读到的已从环取走帧数。
      */
     @Volatile
     private var cachedSentFrames = 0L
 
     /**
-     * 最近一次由播放线程读到的"已送出帧数"（原生层回收 URB 时累计的实际长度）。
-     *
-     * 与 [cachedSentFrames] 同一次 `stats()` 取回：只有同一刻的一对才能相减出在飞量，分两次取会跨过
-     * 一个取走周期。待播判定与播放位置都取本值。
+     * 播放线程读到的已送出帧数。
+     * 与 cachedSentFrames 同一次取回
      */
     @Volatile
     private var cachedPlayedFrames = 0L
 
-    /** 上一次未写完的整型数据：等时写入不保证一次接纳整块，余量须暂存于此 */
+    /** 未写完的整型余量，等时写入可能只接纳一部分 */
     private var pendingOutput: ByteBuffer? = null
 
-    /** 转换用缓冲，按需增长后复用，避免每次写入都分配直接缓冲 */
+    /** 转换缓冲，按需增长复用，避免每次分配直接缓冲 */
     private var scratch: ByteBuffer? = null
 
     private var handledEndOfStream = false
 
-    /** 曲末是否已排空：排空之后环与在飞 URB 都已送出，待播判定转为「无」 */
+    /** 曲末已排空，待播判定转为无 */
     private var drained = false
 
     // 欠载按秒收敛上报，避免把回调刷成流水账
     private var lastStatsMs = 0L
     private var lastReportedUnderruns = 0L
 
-    /** 上一次被接纳写入的时刻：欠载回调按接口约定要给出"距上次接纳写入"的间隔 */
+    /** 上次接纳写入时刻，欠载回调需给出间隔 */
     private var lastFedMs = 0L
 
-    /** 媒体时间锚点：媒体时刻与当时的写出位置配对，查询时按速率外推 */
+    /** 媒体时间锚点，查询时按速率外推 */
     private val checkpoints = ArrayDeque<PositionCheckpoint>()
 
     private var checkpointPending = true
@@ -191,17 +153,13 @@ internal class UsbExclusiveAudioSink(
         this.listener = listener
     }
 
-    // 只接本层能按子槽排布写出的线性 PCM：独占变体只被选来按源格式写出，压缩格式与直通不经此处
+    // 只接线性 PCM，压缩与直通不经此处
     override fun supportsFormat(format: Format): Boolean =
         MimeTypes.AUDIO_RAW == format.sampleMimeType && isDeliverableEncoding(format.pcmEncoding)
 
     /**
-     * 能力申报与 [supportsFormat] 用同一个判据。
-     *
-     * 报「直接支持」就是让媒体3 跳过重采样与转码，因此它必须与配置期真正建得起的流一致：位深规划
-     * （[planUsbOutput]）只认得出 [sourceBitDepthOf] 覆盖的编码，大端变体与双精度在那里没有位深可言，
-     * 配置期会以 `ConfigurationException` 拒绝。若这里照样报支持，就成了"申报能播、配置报错"——
-     * 直接配置本接收器的一方拿到的是整曲失败，而不是退回去走平台路径。
+     * 能力申报与 supportsFormat 同判据。
+     * 报直连会跳过转码，须与实际建流一致。
      */
     override fun getFormatSupport(format: Format): Int =
         if (isDeliverableEncoding(format.pcmEncoding)) {
@@ -210,7 +168,7 @@ internal class UsbExclusiveAudioSink(
             AudioSink.SINK_FORMAT_UNSUPPORTED
         }
 
-    /** 线性 PCM 且位深可判定：两者缺一，配置期都挑不出子槽 */
+    /** 线性 PCM 且位深可判定，缺一挑不出子槽 */
     private fun isDeliverableEncoding(pcmEncoding: Int): Boolean =
         PcmConversion.isLinearPcm(pcmEncoding) && sourceBitDepthOf(pcmEncoding) != 0
 
@@ -219,12 +177,7 @@ internal class UsbExclusiveAudioSink(
     }
 
     /**
-     * 本次格式能否由独占路径承接：会话在、且设备声明了可原样送出的格式。
-     *
-     * 只做判定、不产生副作用：上层路由要在 [configure] 之前据此决定走哪条路，而在错误的一侧做设备
-     * 控制（改采样率、切备用设置）会把设备挪到另一条路上够不着的状态。
-     *
-     * [trackId] 是本次要播的曲目：位深按它取，判定与真正建流才会挑到同一档。
+     * 本次格式能否由独占承接，只判定不产生副作用。
      */
     fun canHandle(format: Format, trackId: Long?): Boolean {
         val active = session() ?: return false
@@ -233,31 +186,9 @@ internal class UsbExclusiveAudioSink(
 
     /**
      * 选定设备格式并让设备就绪。
-     *
-     * 选择与就绪都在此处落地而非推迟到首次写入：两者都可能因设备能力而失败（未声明该采样率、
-     * 子槽放不下源位深、时钟拒绝改档），而这类失败越早暴露越好——配置期失败还能由上层退回平台路径，
-     * 拖到写入期就只剩一条"播到一半没声"的路。
-     *
-     * **档位没变就不许碰设备**。换曲时渲染器同样会重配一次，而同格式的两曲之间没有任何设备侧的事要做：
-     * 重建等时流意味着撤下全部在飞 URB、关闭端点、再切一次备用设置，设备因此重新锁一次时钟——听感上
-     * 是切歌瞬间的一顿、一声爆音，重锁期间设备还可能重放内部缓冲的一小段（听起来像倒回去了）。故只要
-     * 会话、档位与采样率都没变，就沿用现有这条流，环里的上一曲尾巴顺势接上新曲——这正是连播该有的
-     * 样子。真正需要换档时（采样率、子槽位深变化）才重建，且重建前先把已写出的数据送完。
-     *
-     * **位深要在本方法里就定对**，不能留给播放中修正。换曲那刻界面侧的当前曲目还未推进，[sourceBitDepth]
-     * 读到的是上一曲的值；若照它建流，位深一变就得等 `syncRouting` 在曲中再拆一次流——那正是断流的
-     * 来路。故本次要播的曲目由 [AudioSink.AudioSinkConfig] 的 period 直接定位（[UsbOutputSink] 负责
-     * 解析后传入），位深按它取：两曲位深不同就在这里换档，与复用判据 [canReuseStream] 用的是同一个
-     * 档位，二者不会各自为政。
-     *
-     * 抛出的是 [AudioSink.ConfigurationException] 而非 [AudioSink.InitializationException]：
-     * 媒体3 的音频渲染器只在配置期捕获前者（其余一概向上抛），用错了会让本可优雅退回的失败变成崩溃。
-     */
-    /**
-     * 接口入口：按接口调用时无从得知本次配置对应哪一首曲目，位深退回"当前曲目"的口径。
-     *
-     * 路由层（[UsbOutputSink]）始终走带 [trackId] 的重载——只有它能在换曲那一刻取到本次真正要播的
-     * 那一首的位深，位深不同的两曲才会在配置期换档而不是播放中再拆流。
+     * 失败抛 ConfigurationException
+     * 档位没变就沿用现有流，避免切歌顿挫。
+     * 接口入口不知曲目，位深退回当前曲目。
      */
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) = configure(audioSinkConfig, null)
 
@@ -271,19 +202,19 @@ internal class UsbExclusiveAudioSink(
 
         inputFormat = format
         rampJumpNext = true
-        // 新的一段声音：上一次配置遗留的渐入到此为止，真要渐入会在建流之后重新挂上（见 [ensureOutput]）
+        // 新的一段声音，上次配置遗留的渐入到此为止
         clearFadeIn()
         rebuildFadeSamples = fadeInSampleCount(format.sampleRate, format.channelCount)
         handledEndOfStream = false
         drained = false
-        // 新的一段声音即将写入：曲末那段静音到此为止，环随之回到正常取数
+        // 新数据即将写入，曲末静音到此为止，环回到正常取数
         silentHold = false
         checkpointPending = true
-        // 媒体时间在新曲上重新起算，旧锚点留着会让位置先按上一曲的时间轴推一段
+        // 新曲重新起算，旧锚点会推偏
         checkpoints.clear()
 
         if (canReuseStream(active, selected, format, channelMask)) {
-            // 流与端点都原样留着：只更新本次配置的记账，环不动（上一曲未送出的尾巴要接着送出去）
+            // 流与端点保留，只更新记账
             dac = active
             plan = selected
             sampleRate = format.sampleRate
@@ -293,7 +224,7 @@ internal class UsbExclusiveAudioSink(
             return
         }
 
-        // 换档（或首次配置）：旧流到此为止。先送完再停，正在出声的这一段不会被硬切断
+        // 换档或首配，先送完再停
         dropStream(graceful = writtenFrames > 0)
         pendingOutput = null
         writtenFrames = 0
@@ -316,9 +247,7 @@ internal class UsbExclusiveAudioSink(
 
     /**
      * 现有等时流能否直接承接本次配置。
-     *
-     * 判据只有四项，缺一即必须重建：流已在、会话仍是同一台设备、档位没有变化（同一声道排布、同一子槽
-     * 宽度、同一同步方式）、采样率没有变化。档位相等已覆盖声道数与写出位深——它们都是档位的字段。
+     * 流在、同设备、档位不变、采样率不变。
      */
     private fun canReuseStream(
         active: UsbExclusiveDac,
@@ -332,16 +261,14 @@ internal class UsbExclusiveAudioSink(
             sampleRate == format.sampleRate &&
             outputChannelMask == channelMask
 
-    /** 声道掩码的取值口径：源格式给了就用它，否则按声道数折算 */
+    /** 源格式给了声道掩码就用，否则按声道数折算 */
     private fun channelMaskOf(format: Format): Int =
         format.channelMask.takeIf { it != Format.NO_VALUE }
             ?: PcmConversion.audioTrackChannelConfig(format.channelCount)
 
     /**
-     * 从设备声明的格式里挑出按源位深写出的那一个；源位深未知时按解码输出位深，挑不出即本次不成立。
-     *
-     * 位深优先按 [trackId] 取：本方法在配置期调用，那时界面侧的"当前曲目"尚未推进，[sourceBitDepth]
-     * 给的是上一曲的值——拿它定档，位深一变就得在曲中再拆一次流。
+     * 按源位深挑设备格式，挑不出即不成立。
+     * 位深优先按 trackId 取，避开界面滞后。
      */
     private fun selectFormat(
         active: UsbExclusiveDac,
@@ -358,14 +285,8 @@ internal class UsbExclusiveAudioSink(
         )
 
     /**
-     * 本次配置选定的档位是否与当前曲目的源位深不符。
-     *
-     * 正常情况下不该为真：位深在 [configure] 期就按曲目 id 定档（见该方法的说明），位深不同的两曲
-     * 在配置阶段已经换了档。只有预读未命中（下一曲的容器头没读出来、或由随机模式跳到没预读过的曲目）
-     * 时才可能落到这里——此时按 [UsbOutputSink.syncRouting] 补一次重建，代价是一次可闻的换档，
-     * 是这条兜底路径应当承担的。
-     *
-     * 纯判定不做设备控制，故可在路由重算时随意调用。
+     * 档位是否与本次曲目的源位深不符。
+     * 正常不该为真，由 syncRouting 补一次重建。
      */
     fun planDiffers(format: Format, trackId: Long?): Boolean {
         val selected = plan ?: return false
@@ -395,8 +316,7 @@ internal class UsbExclusiveAudioSink(
         val frames = converted.remaining() / outputFrameBytes
         val accepted = output.write(converted, frames)
         if (accepted < 0) {
-            // 流已终止（停止或设备拔出）。本层已无从继续，如实交可恢复错误：上层据此退回平台路径，
-            // 而不是把整曲播放带走
+            // 流已终止，交可恢复错误退回平台
             releaseOutput()
             throw AudioSink.WriteException(
                 PlatformAudioTrack.ERROR_DEAD_OBJECT,
@@ -408,19 +328,14 @@ internal class UsbExclusiveAudioSink(
         if (accepted > 0) lastFedMs = clock.elapsedRealtime()
         pendingOutput = converted.takeIf { it.hasRemaining() }
         reportUnderruns(output)
-        // 余量未清空即未写完：返回 false 让媒体3 以同一缓冲再次调用，由本层继续消费余量
+        // 未写完即 false，让媒体3 带余量再来
         return pendingOutput == null
     }
 
     /**
      * 播放与暂停。
-     *
-     * 暂停不是空操作：它要让本层**停止把环里的数据交给设备**（见 [UsbIsoOutput.setPaused]）。若只是
-     * "不再写入"了事，环里攒下的数据仍会被逐步投出去，待播量随之归零——媒体3 的 `hasPendingData` 一旦
-     * 为假便判输出已空，把播放状态从 READY 打回 BUFFERING 并停掉渲染器，表现就是"一暂停就卡在缓冲中、
-     * 再按播放起不来"。
-     *
-     * 设备侧仍持续收到静音包，时钟因此不会被放开，恢复时无需重新锁钟。
+     * 暂停要让本层停止把环数据交给设备。
+     * 否则环被投空，媒体3 卡在缓冲中。
      */
     override fun play() {
         paused = false
@@ -433,26 +348,22 @@ internal class UsbExclusiveAudioSink(
         output?.setPaused(true)
     }
 
-    // 跳转后媒体时间与已写出时长不再连续，须在新缓冲处重新落锚点，位置换算才不会沿用旧锚点
+    // 跳转后时间不连续，须重新落锚点
     override fun handleDiscontinuity() {
         checkpointPending = true
         rampJumpNext = true
-        // 跳转点之后的样本属于另一段内容，硬起才是对的：把渐入带过去等于给用户的一次操作加了个淡入
+        // 跳转后属另一段内容，硬起不加淡入
         clearFadeIn()
     }
 
     /**
      * 丢弃尚未送出的数据。
-     *
-     * 换曲与跳转都落在这里，而两者都不该拆掉等时流：渲染器紧接着就会重新配置，若此处把流关掉，下一次
-     * 写入要么等一条新流建起来（一顿），要么在极短的间隙里让端点先关后开（一声爆音，设备还要重锁时钟）。
-     * 故只作废环内数据、把记账归零，流与端点原样留着。已进入在飞 URB 的那一段撤不回，仍会送出——
-     * 它最多是一个在飞段的时长，故 [UsbIsoOutput.flushRing] 与下面的清零必须同时发生，两边基准才对齐。
+     * 换曲与跳转都走这里，但不拆流。
+     * 在飞 URB 撤不回，记账须同时清零。
      */
     override fun flush() {
         output?.flushRing()
-        // 冲刷之后环是空的、数据马上还会写进来：若此前停在曲末那段静音上，这里要退回取环状态，
-        // 否则新数据写进去也只是堆在环里，设备继续收到静音
+        // 冲刷后环为空，须退回取环状态
         silentHold = false
         output?.setPaused(paused)
         pendingOutput = null
@@ -468,11 +379,8 @@ internal class UsbExclusiveAudioSink(
     }
 
     /**
-     * 资源作废：改道（独占与平台之间交接）与渲染器重建都经这里，等时流必须真正拆掉。
-     *
-     * 与 [flush] 的分工要守住：**flush 只丢数据、reset 才拆流**。换曲与跳转走前者，故它们保住的正是
-     * 这条流；若这里也只丢数据，改道之后留在独占路由上的那条流既没人写、也没人关，会一直占着一条
-     * dup 出来的 fd 与一条回收线程。
+     * 资源作废，改道与重建都走这里。
+     * flush 只丢数据，reset 才拆流。
      */
     override fun reset() {
         flush()
@@ -486,7 +394,7 @@ internal class UsbExclusiveAudioSink(
         inputFormat = null
     }
 
-    /** 拆掉等时流并把流接口交还零带宽；接管本身由上层持有并归还，此处不碰 */
+    /** 拆流并交还零带宽，接管由上层持有，此处不碰 */
     private fun closeStream() {
         releaseOutput()
         dac?.idle()
@@ -512,13 +420,11 @@ internal class UsbExclusiveAudioSink(
             if (remaining.hasRemaining()) return
             pendingOutput = null
         }
-        // 排空是必需的：数据还在环与在飞 URB 里，不等它们送出去就切歌会把尾巴整段吃掉。
-        // 排空前先恢复送流——暂停期间环只进不出，不恢复就会一直等在那里
+        // 排空必需，不等送完切歌会吃掉尾巴
+        // 排空前先恢复送流——暂停期间环只进不出
         output.setPaused(false)
         output.drain()
-        // 排空之后转成静音填充，**不关流**：曲与曲之间设备必须一直收到包，端点一关一开就是切歌处的
-        // 那一顿、那一声爆音，以及设备重锁时钟期间的一小段重放。下一曲的数据一到（配置沿用同一条流，
-        // 见 [configure]）就直接接上。停机由 [release] 负责，暂停本来就不停流（见 [pause]）。
+        // 排空后转静音，不关流，免得切歌顿挫
         silentHold = true
         output.setPaused(true)
         handledEndOfStream = true
@@ -529,22 +435,13 @@ internal class UsbExclusiveAudioSink(
 
     /**
      * 是否仍有已写出而未送出的数据。
-     *
-     * 判据取自原生层回收 URB 时累计的**真实音频**帧数，而不是本层已交给它的帧数：两者差着在飞 URB 那一整段
-     * （由 `UsbIsoOutput` 的目标时长折算，两种总线速度下都取到 64ms 及以上），拿提交量当播出量会让曲末判定
-     * 提前一个在飞时长。
-     * 静音补出的帧一概不计入——环空时补的零不是"已播出的内容"，计入会让位置越过已写出的量。
-     *
-     * 暂停期间一律判为有待播数据：本层可等的缓冲就只有环这一段（不另有一层平台音频轨兜着），暂停时环
-     * 只进不出，留在环里的那一段就是全部待播量，而媒体3 的位置估计在暂停期间本就应当停住（平台路径上
-     * 音频轨暂停后播放头同样不再推进）。排空之后环与在飞 URB 都已送出，直接判为无。
+     * 取原生层真实帧数，不取提交量。
      */
     override fun hasPendingData(): Boolean {
         val output = output ?: return false
         if (pendingOutput != null) return true
         if (drained) return false
-        // 先取一次进度再判暂停：暂停期间原生层不再从环里取数据，但暂停那一刻的最后一批取走仍会落账，
-        // 这次刷新让面板读到的驻留停在环的真实存量上，而不是上一个读周期里偏低的"已取走"量
+        // 先刷进度再判暂停，读真实存量
         val played = progressFrames(output)
         return paused || writtenFrames > played
     }
@@ -553,9 +450,7 @@ internal class UsbExclusiveAudioSink(
         val output = output ?: return AudioSink.CURRENT_POSITION_NOT_SET
         val format = inputFormat ?: return AudioSink.CURRENT_POSITION_NOT_SET
         if (checkpoints.isEmpty()) return AudioSink.CURRENT_POSITION_NOT_SET
-        // 上限只作用于输出位置，不作用于换算后的媒体时间：两个量不同基准——媒体时间是渲染器时间
-        // （含渲染器时间偏移，量级在 1e12 微秒），已写出时长只是输出侧的时长（量级在曲目时长内），
-        // 拿后者钳前者会把渲染器时间偏移一并削掉，上报位置随之跌出时间轴
+        // 上限只钳输出位置，媒体时间含渲染器偏移
         val outputPositionUs = minOf(
             framesToDurationUs(progressFrames(output), format.sampleRate),
             framesToDurationUs(writtenFrames, format.sampleRate),
@@ -570,7 +465,7 @@ internal class UsbExclusiveAudioSink(
             PcmConversion.mediaDurationForPlayoutDuration(playoutDeltaUs, checkpoint.speed)
     }
 
-    // 上报渲染器用于决定休眠上界：口径与平台路径一致，取设备侧缓冲的时长
+    // 休眠上界取设备侧缓冲时长，与平台路径同口径
     override fun getAudioTrackBufferSizeUs(): Long {
         val output = output ?: return C.TIME_UNSET
         if (output.sampleRate <= 0) return C.TIME_UNSET
@@ -578,23 +473,21 @@ internal class UsbExclusiveAudioSink(
     }
 
     /**
-     * 音量改由本层施加（见 [targetGainQ15] 与 [packToSubslot] 的增益参数），不转发给任何平台对象。
-     *
-     * 真正的作用点在样本打包处，那里每次写入都读一遍本取值——绕开混音器之后，平台的音量与
-     * `AudioManager` 都不再作用于这条流，软件音量是唯一还剩的手段。等于 1 时整段缩放不参与。
+     * 音量在本层打包处施加。
+     * 绕开混音器后软件音量是唯一手段。
      */
     override fun setVolume(volume: Float) {
         this.volume = volume
     }
 
-    // 独占直出优先保真：静音跳过需要改动时长映射，本路径不支持，仅如实回报开关状态
+    // 不支持静音跳过，仅记录开关
     override fun setSkipSilenceEnabled(skipSilenceEnabled: Boolean) {
         this.skipSilenceEnabled = skipSilenceEnabled
     }
 
     override fun getSkipSilenceEnabled(): Boolean = skipSilenceEnabled
 
-    // 变速功能已移除：playback parameters 保持默认值，不接受外部调速请求
+    // 变速已移除，保持默认参数，不接受外部调速
     override fun setPlaybackParameters(playbackParameters: PlaybackParameters) = Unit
 
     override fun getPlaybackParameters(): PlaybackParameters = PlaybackParameters.DEFAULT
@@ -605,29 +498,23 @@ internal class UsbExclusiveAudioSink(
 
     override fun getAudioAttributes(): AudioAttributes = audioAttributes
 
-    // 本条流不经平台的音频会话，会话号无处可用；记名接收以免调用方误以为它生效
+    // 本流不经平台音频会话，会话号无处可用，只记名接收
     override fun setAudioSessionId(audioSessionId: Int) = Unit
 
-    // 音效挂在平台的音频会上，本条流不经过它，故只记名而不施加
+    // 音效挂平台音频会话，本流不经过，只记名不施加
     override fun setAuxEffectInfo(auxEffectInfo: AuxEffectInfo) = Unit
 
-    // 隧道启用是显式请求，本路径不支持，如实拒绝；关闭则按空操作处理
+    // 隧道本路径不支持，启用即拒绝；关闭按空操作
     override fun enableTunnelingV21() = throw UnsupportedOperationException("USB 独占输出不支持隧道")
 
     override fun disableTunneling() = Unit
 
-    // 本类自带输出实现，不经媒体3 的输出提供者；空操作以免调用方误以为可替换
+    // 本类自带输出实现，不经媒体3 输出提供者，空操作
     override fun setAudioOutputProvider(audioProvider: androidx.media3.exoplayer.audio.AudioOutputProvider) = Unit
 
     /**
-     * 本层输出链路的延迟读数；未建立输出时为 null。
-     *
-     * 这条路上没有音频轨可读，故读数只能自己算。与平台路径同口径地切成两段，但只有一段能测：
-     * - **本层缓冲驻留**——还留在环形缓冲里、尚未被取走的那一段，即 [ringResidentFrames]。它是这条路上
-     *   唯一可测的一段，也正是缓冲策略能调的那一段；
-     * - **缓冲之后那一段**（设备传输与解码器自身的排队）在 usbfs 上没有可查询的口子，一律不产出。
-     *   不接受用别的量顶替：把「测不到」显示成「很短」比空着更糟。已取走而尚未送出的在飞 URB 段同属
-     *   这一档而不计入驻留——它是主机侧的传输在途量，不是本层缓冲里的存量，计入会让驻留超过缓冲容量。
+     * 本层输出链路的延迟读数。
+     * 只测环形缓冲驻留，设备传输无口可查。
      */
     fun latencyReading(): OutputLatencyReading? {
         val output = output ?: return null
@@ -637,17 +524,15 @@ internal class UsbExclusiveAudioSink(
             trackBufferFrames = bufferFrames,
             trackBufferMs = bufferFrames * MILLIS_PER_SECOND / sampleRate,
             afterTrackMs = null,
-            // 读数取播放线程留下的快照而非直接问原生层——句柄会随播放结束被释放，界面不该去碰它
+            // 读播放线程快照，界面不该碰句柄
             trackResidentMs = ringResidentFrames(writtenFrames, cachedSentFrames, bufferFrames) *
                 MILLIS_PER_SECOND / sampleRate,
         )
     }
 
     /**
-     * 读一次原生层的进度并把两个计数留下供界面取用，返回"已由主机侧送出"的帧数。
-     *
-     * 必须在播放线程上调用：它要进原生层，而句柄的释放也在播放线程上——同一条线程才不会有机会读到
-     * 已释放的对象。界面侧的 [latencyReading] 因此只读 [cachedSentFrames] 与 [cachedPlayedFrames]。
+     * 读一次原生进度，留下计数供界面取用。
+     * 须在播放线程调用，句柄也在该线程释放。
      */
     private fun progressFrames(output: UsbIsoOutput): Long {
         val stats = output.stats()
@@ -657,12 +542,8 @@ internal class UsbExclusiveAudioSink(
     }
 
     /**
-     * 建起等时输出；未建起时向上抛出初始化异常，由渲染器按可恢复与否处置。
-     *
-     * 一次建不起来就重设一次备用设置再建一次：接管是在平台那条输出放手之后才做的，而它的收尾
-     * （HAL 关声卡、内核驱动解绑）是异步的，可能正好落在就绪流程设完备用设置之后，把流接口带回 alt 0
-     * ——端点随之从设备侧消失，URB 一个也投不出去。重设即是把端点挂回来；此时收尾已过，第二次不会被
-     * 同一个原因打断。若连就绪都做不到了，如实判失败，由上层退回平台路径。
+     * 建起等时输出，失败抛可恢复异常。
+     * 一次失败就重设备用设置再建一次。
      */
     private fun ensureOutput(): UsbIsoOutput {
         output?.let { return it }
@@ -678,15 +559,12 @@ internal class UsbExclusiveAudioSink(
                 /* cause= */ null,
             )
         output = created
-        // 建流时同步当前的启停状态：首次写入可能发生在渲染器还未下发 play 的时刻。
-        // 曲末的静音保活也按"不取环"起步——新建的流若从环里取数，等于把上一段的声音又送一遍
+        // 首次写入可能早于渲染器下发 play，故同步启停
         created.setPaused(paused || silentHold)
-        // 新流意味着端点刚按新的采样率与备用设置重开：设备此刻停在零电平上，紧接着的第一批真实样本
-        // 就是一次电平阶跃。起播的前几毫秒按包络渐入，阶跃被摊成一段斜坡——这是本层唯一能施加平滑的
-        // 地方，硬件不会替我们做
+        // 新流首个样本是电平阶跃，起播渐入数毫秒
         armFadeIn()
         listener.onAudioTrackInitialized(trackConfigOf(created))
-        // 面板的"输出编码"取自这里：设备实际收到的是子槽排布，故报的是子槽宽度对应的编码
+        // 面板的输出编码取自这里，报子槽宽度对应的编码
         onOutputEncodingChanged(encodingForSubslot(created.subslotBytes))
         return created
     }
@@ -694,15 +572,12 @@ internal class UsbExclusiveAudioSink(
     private fun openOutput(active: UsbExclusiveDac, selected: UsbAudioOutputFormat): UsbIsoOutput? =
         UsbIsoOutput.create(active.fileDescriptor, selected, sampleRate)
 
-    /** 重设一次备用设置再建一次（口径见 [ensureOutput]）；就绪都做不成时不再建 */
+    /** 重设备用设置再建一次；就绪都做不成就不再建 */
     private fun rebuildOutput(active: UsbExclusiveDac, selected: UsbAudioOutputFormat): UsbIsoOutput? =
         if (active.prepareStream(selected, sampleRate)) openOutput(active, selected) else null
 
     /**
-     * 上报音频轨配置。
-     *
-     * 本条链路上没有 `AudioTrack`，但音频信息面板与延迟采集都从这个回调取"当前写出的是什么"，
-     * 漏发会让面板显示未建立。故按等时输出实际的位宽与容量如实上报一个等价配置。
+     * 上报音频轨配置，面板与延迟采集靠它。
      */
     private fun trackConfigOf(output: UsbIsoOutput): AudioSink.AudioTrackConfig =
         AudioSink.AudioTrackConfig(
@@ -717,13 +592,9 @@ internal class UsbExclusiveAudioSink(
     private fun releaseOutput() = dropStream(graceful = false)
 
     /**
-     * 拆掉当前这条等时流。
-     *
-     * [graceful] 为真时先把环与在飞 URB 送完再停：换档重建之前用它，正在出声的这一段因此不会被硬切断
-     * （撤下的 URB 里那批数据直接作废，听感是切歌处的一声爆音）。排空前要先恢复送流——暂停期间环只进
-     * 不出，不恢复就会一直等在那里。
-     *
-     * 这条路径只在真正换档或输出失效时走；换曲、跳转一律走 [flush]，那里不拆流。
+     * 拆掉当前等时流。
+     * graceful 为真时先送完环再停。
+     * 只在换档或失效时走，换曲走 flush。
      */
     private fun dropStream(graceful: Boolean) {
         val current = output ?: return
@@ -731,7 +602,7 @@ internal class UsbExclusiveAudioSink(
             current.setPaused(false)
             current.drain()
         }
-        // 先停后关：停会撤下在飞的 URB 并让回收线程退出，关再释放流本体
+        // 先停后关，停会撤下在飞 URB
         current.stop()
         current.close()
         output = null
@@ -742,15 +613,8 @@ internal class UsbExclusiveAudioSink(
     }
 
     /**
-     * 把整块输入按设备子槽打包。
-     *
-     * 输入被消费到末位，末尾凑不满一个样本的余字节由打包器一并跳过（见 [packToSubslot]）。
-     *
-     * 增益有三条路，优先级从高到低：
-     * 1. **重建后的渐入**：本条流刚建起，本块按包络从零走到目标增益；渐入跨块时下一块接着走，直到用完。
-     * 2. **硬起**：跳转与重配之后从目标增益直接起步，旧增益属于上一段声音，斜过去只是把一个不该有的
-     *    过渡补进新段落。
-     * 3. **音量斜坡**：音量值变了，在本块内斜到新值，改动才不落在缓冲边界上。
+     * 按设备子槽打包整块，末尾余字节跳过。
+     * 增益优先级：重建渐入、硬起、音量斜坡。
      */
     private fun convert(source: ByteBuffer, format: Format): ByteBuffer {
         val bytesPerSample = PcmConversion.frameSize(format.pcmEncoding, 1)
@@ -761,7 +625,7 @@ internal class UsbExclusiveAudioSink(
         val to: Int
         var rampSamples = RAMP_WHOLE_BLOCK
         if (fadeInSamplesLeft > 0 && samples > 0) {
-            // 本块能消耗多少样本就斜多少：起播渐入只有几毫秒，通常一块内就走完
+            // 起播渐入只有几毫秒，通常一块内走完
             val span = minOf(samples, fadeInSamplesLeft)
             val consumed = fadeInSamplesTotal - fadeInSamplesLeft
             from = fadeGainQ15(consumed, fadeInSamplesTotal, target)
@@ -771,8 +635,7 @@ internal class UsbExclusiveAudioSink(
             appliedGainQ15 = to
             rampJumpNext = false
         } else if (rampJumpNext) {
-            // 跳转与重配之后从目标值直接起步：此刻的旧增益属于上一段声音，斜过去只是把一个不该存在的过渡
-            // 补进新段落里
+            // 跳转重配后从目标值硬起，旧增益属于上一段声音
             from = target
             to = target
             rampJumpNext = false
@@ -787,7 +650,7 @@ internal class UsbExclusiveAudioSink(
         return output
     }
 
-    /** 挂上渐入：样本数按本次配置算定（见 [rebuildFadeSamples]） */
+    /** 挂上渐入，样本数按本次配置算定 */
     private fun armFadeIn() {
         fadeInSamplesTotal = rebuildFadeSamples
         fadeInSamplesLeft = rebuildFadeSamples
@@ -799,10 +662,8 @@ internal class UsbExclusiveAudioSink(
     }
 
     /**
-     * 本次写出应收敛到的定点增益：播放器音量与应用音量的乘积。
-     *
-     * 两者相乘而非取其一：播放器音量平时恒为 1，但心动模式的片段首尾靠它做淡入淡出，独占路径上那次
-     * 斜坡也得照常生效。等于满幅时打包器整段缩放不参与，写出仍是逐位原样。
+     * 定点增益 = 播放器音量 × 应用音量。
+     * 满幅时打包器不缩放。
      */
     private fun targetGainQ15(): Int = volumeToGainQ15((volume * appVolume()).coerceIn(0f, 1f))
 
@@ -826,10 +687,8 @@ internal class UsbExclusiveAudioSink(
         PcmConversion.sampleCountToDurationUs(output.bufferFrames.toLong(), output.sampleRate) / 1000
 
     /**
-     * 按秒读一次原生层的欠载计数并如实上报，同时刷新供界面取用的进度快照。
-     *
-     * 等时端点上的欠载与平台路径上的欠载是同一件事（数据没跟上设备的消费），故走同一个 `onUnderrun`
-     * 回调；计数只在原生层有意义——它才知道每个 URB 回收时包里到底有没有数据。
+     * 按秒读欠载计数并上报，同时刷新进度快照。
+     * 与平台路径走同一个 onUnderrun。
      */
     private fun reportUnderruns(output: UsbIsoOutput) {
         val nowMs = clock.elapsedRealtime()
@@ -849,7 +708,7 @@ internal class UsbExclusiveAudioSink(
         }
     }
 
-    /** 媒体时间锚点：媒体时刻与当时的写出位置配对，换算时按速率外推 */
+    /** 媒体时间锚点，换算时按速率外推 */
     private class PositionCheckpoint(
         val mediaTimeUs: Long,
         val outputPositionUs: Long,
@@ -874,41 +733,26 @@ internal class UsbExclusiveAudioSink(
 
 /**
  * 本层环形缓冲此刻的存量（帧）。
- *
- * 口径与平台路径的"音频轨驻留"一致：只算还留在缓冲里、尚未被取走的那一段。两个方向都要收：
- *
- * - 上界按容量收。已取走的量取自播放线程留下的快照，可能比此刻的已写出量落后一个读周期，算出来会偏向
- *   高估；而缓冲容不下更多，超过容量只可能是这份滞后，按容量封顶才是此刻的真值；
- * - 下界按零收。已写出恒不落后于已取走，负值只可能来自快照与记账错位，压成 0 而不是把负数报给界面。
+ * 上下界按容量与零封顶封底。
  */
 internal fun ringResidentFrames(writtenFrames: Long, sentFrames: Long, bufferFrames: Int): Long =
     (writtenFrames - sentFrames).coerceIn(0L, bufferFrames.toLong())
 
 /**
- * 重建等时流之后起播渐入的时长（毫秒）。
- *
- * 这一段要治的是**换档时的电平阶跃**：设备按新的采样率与备用设置重开后停在零电平上，第一条真实样本
- * 一到，输出端的直流偏置就从零跳到有效值——硬件不提供过渡，听感就是那一声"啪"。渐入把它摊成一段斜坡，
- * 借人耳的听觉掩蔽消掉。
- *
- * 取 5ms 而不是更长的理由：再长就从"起音"变成"淡入"，曲首的瞬态（鼓点、拨弦）会被削掉，而这类曲目
- * 恰恰是直出最想保真的；再短则斜坡的斜率仍接近阶跃，掩蔽不成立。斜率是线性的，不做等幂曲线：这里要
- * 的只是一次没有台阶的起振，不是做包络整形。
- *
- * 只在**建流之后**生效，同档连播（流不重建）与跳转都不渐入——前者流没断，后者是用户操作，硬起才对。
+ * 重建流后起播渐入 5ms，掩蔽换档电平阶跃。
+ * 再长会削掉曲首瞬态，跳转不渐入。
  */
 private const val REBUILD_FADE_IN_MS = 5
 
-/** 起播渐入覆盖的样本数（= 帧数 × 声道数）；参数不成立时为 0，即不渐入 */
+/** 渐入样本数 = 帧数 × 声道数，参数不成立为 0 */
 internal fun fadeInSampleCount(sampleRate: Int, channels: Int): Int {
     if (sampleRate <= 0 || channels <= 0) return 0
     return (sampleRate.toLong() * REBUILD_FADE_IN_MS / 1000L * channels).toInt().coerceAtLeast(0)
 }
 
 /**
- * 渐入包络走 [consumedSamples] 个样本时的定点增益：起点为 0，走满即 [targetQ15]。
- *
- * 按已消耗量取增益而不是按"上一块的末值"递推：跨块时才不会把取整误差累积成斜率偏差。
+ * 渐入包络走过 consumedSamples 时的定点增益。
+ * 按已消耗量取值，跨块不累积取整误差。
  */
 internal fun fadeGainQ15(consumedSamples: Int, totalSamples: Int, targetQ15: Int): Int {
     if (totalSamples <= 0) return targetQ15
@@ -917,10 +761,8 @@ internal fun fadeGainQ15(consumedSamples: Int, totalSamples: Int, targetQ15: Int
 }
 
 /**
- * 解码输出的位深，仅在源位深未知时作为写出位深的兜底。
- *
- * 浮点按 24 位计而不是 32 位：取 32 会要求设备具备 32 位有效位深，把大量 24 位解码器无谓地挡在门外；
- * 按 24 位判则至多拒绝 16 位的设备——那种搭配下确实会丢低位，判为不成立才是诚实的。
+ * 解码输出位深，仅在源位深未知时兜底。
+ * 浮点按 24 位计：取 32 会挡掉大量 24 位解码器。
  */
 internal fun sourceBitDepthOf(pcmEncoding: Int): Int = when (pcmEncoding) {
     C.ENCODING_PCM_8BIT -> 8

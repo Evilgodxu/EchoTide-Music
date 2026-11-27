@@ -12,16 +12,7 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.extractor.ExtractorsFactory
 
-/**
- * 媒体源工厂：音频一律走渐进式，不含默认工厂那层按类型分派的加载器。
- *
- * DefaultMediaSourceFactory 会按 MIME 与扩展名分派到 HLS/DASH/RTSP/平滑流四类媒体源，
- * 这些模块本项目一个都没引入，分派层与默认提取器工厂却因被引用而始终保留。
- * 本类只保留项目实际存在的两种地址（本地 content/file 与在线直链）共用的渐进式路径。
- *
- * 片段的裁剪包装必须自己补：默认工厂是在媒体源之外包 ClippingMediaSource 的，
- * 渐进式工厂本身不看 MediaItem 的裁剪配置（心动模式依赖它，漏掉就会播成整首）。
- */
+/** 媒体源工厂：一律渐进式，并自行补上片段裁剪 */
 @OptIn(UnstableApi::class)
 internal class AudioMediaSourceFactory(
     dataSourceFactory: DataSource.Factory,

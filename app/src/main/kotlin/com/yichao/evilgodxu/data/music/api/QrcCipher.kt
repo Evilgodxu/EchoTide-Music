@@ -1,34 +1,30 @@
 package com.yichao.evilgodxu.data.music.api
 
-/**
- * QQ 音乐 QRC 歌词解密：三段式分组密码 + zlib 压缩。
- *
- * 该算法的结构（IP 置换 / 16 轮 Feistel / 8 个 S 盒 / P 盒 / 两个 28 位半密钥）与 DES 同源，
- * 但 S 盒、P 盒、E 盒与密钥调度表均为平台私有取值，标准库的 DES/3DES 解不出结果，
- * 故按其等价逻辑内联于此 —— 仅供 QRC 歌词解密，不可用于任何实际安全用途。
- */
+// QQ QRC 歌词解密：三段式分组密码 + zlib 压缩
+// 结构与 DES 同源，但 S/P/E 盒与密钥调度为平台私有
+// 仅供 QRC 解密，不可用于实际安全用途
 internal object QrcCipher {
 
     private const val BLOCK_SIZE = 8
     private const val BITS_28_MASK = 0xFFFFFFF0L
 
-    // 三段密钥；解密按 D(K3) -> E(K2) -> D(K1) 执行
+    // 三段密钥，解密按 D(K3)->E(K2)->D(K1)
     private val KEY_1 = "!@#)(*$%".toByteArray(Charsets.US_ASCII)
     private val KEY_2 = "123ZXC!@".toByteArray(Charsets.US_ASCII)
     private val KEY_3 = "!@#)(NHL".toByteArray(Charsets.US_ASCII)
 
-    /** 解密十六进制密文并 zlib 解压，返回明文；数据非法时返回 null */
+    // 解密十六进制密文并 zlib 解压，非法返回 null
     fun decrypt(hexData: String): String? {
         val encrypted = decodeHex(hexData) ?: return null
         if (encrypted.isEmpty() || encrypted.size % BLOCK_SIZE != 0) return null
         val decrypted = ByteArray(encrypted.size)
-        // 三段密码的中间结果需落在独立缓冲，否则会覆盖下一段的输入
+        // 中间结果需落独立缓冲，避免覆盖下一段输入
         val scratch = ByteArray(BLOCK_SIZE)
         var offset = 0
         while (offset < encrypted.size) {
             desCrypt(encrypted, offset, scratch, 0, DECRYPT_SCHEDULES[0])
             desCrypt(scratch, 0, decrypted, offset, DECRYPT_SCHEDULES[1])
-            // 第二段的结果写在目标缓冲上，第三段直接就地覆盖
+            // 第二段写目标缓冲，第三段就地覆盖
             desCrypt(decrypted, offset, scratch, 0, DECRYPT_SCHEDULES[2])
             System.arraycopy(scratch, 0, decrypted, offset, BLOCK_SIZE)
             offset += BLOCK_SIZE
@@ -40,7 +36,7 @@ internal object QrcCipher {
         return String(plain, start, plain.size - start, Charsets.UTF_8)
     }
 
-    // 密钥调度：由 8 字节密钥派生 16 组 48 位轮密钥，每组按高/低 24 位各存一个 int
+    // 8 字节密钥派生 16 组轮密钥，高/低 24 位分存
     private fun keySchedule(key: ByteArray, decrypt: Boolean): IntArray {
         val schedule = IntArray(32)
         var c = permuteFromKeyBytes(key, KEY_PERM_C) shl 4
@@ -72,10 +68,7 @@ internal object QrcCipher {
         return schedule
     }
 
-    /**
-     * 按置换表从 8 字节密钥取位。密钥被视作两个小端 32 位字拼接，
-     * 故第 0 位实际取 key[3] 的最高位，第 31 位取 key[0] 的最低位。
-     */
+    // 按置换表从密钥取位：小端，第 0 位取 key[3] 高位
     private fun permuteFromKeyBytes(key: ByteArray, table: IntArray): Long {
         var output = 0L
         var mask = 1L shl (table.size - 1)
@@ -131,7 +124,7 @@ internal object QrcCipher {
         output[outOffset + 7] = outRight.toByte()
     }
 
-    // Feistel 轮函数：E 盒扩展 -> 与轮密钥异或 -> S 盒代换与 P 盒置换（查预生成的合并表）
+    // Feistel 轮：E 盒、异或轮密钥、S/P 查表
     private fun fFunction(state: Int, keyHigh24: Int, keyLow24: Int): Int {
         val byte0 = (state ushr 24) and 0xFF
         val byte1 = (state ushr 16) and 0xFF
@@ -245,7 +238,7 @@ internal object QrcCipher {
     private val EBOX_LOW_TABLE = IntArray(1024)
 
     init {
-        // IP 置换拆成左右两半查表，按（字节位置, 字节值）索引
+        // IP 置换拆左右两半查表，按字节位置与值索引
         for (bytePosition in 0 until 8) {
             for (byteValue in 0 until 256) {
                 val index = (bytePosition shl 8) or byteValue
@@ -258,7 +251,7 @@ internal object QrcCipher {
                 INV_IP_RIGHT_TABLE[index] = (inverse and 0xFFFFFFFFL).toInt()
             }
         }
-        // S 盒代换与 P 盒置换合并成一张 8×64 的表
+        // S 盒与 P 盒合并为 8×64 表
         for (boxIndex in 0 until 8) {
             for (boxInput in 0 until 64) {
                 val value = (boxInput and 32) or ((boxInput and 31) shr 1) or ((boxInput and 1) shl 4)
@@ -266,7 +259,7 @@ internal object QrcCipher {
                 SP_TABLE[(boxIndex shl 6) or boxInput] = applyPBox(substituted)
             }
         }
-        // E 盒扩展按 4 段 8 位切片建表，高/低 24 位分开存储
+        // E 盒按 4 段 8 位切片建表，高低 24 位分存
         for (chunkIndex in 0 until 4) {
             val shift = (3 - chunkIndex) * 8
             for (byteValue in 0 until 256) {
@@ -290,7 +283,7 @@ internal object QrcCipher {
         }
     }
 
-    // 声明在所有密钥表之后：轮密钥依赖密钥调度表，必须等其初始化完成
+    // 须声明在密钥表之后，等待调度表初始化完成
     private val DECRYPT_SCHEDULES: Array<IntArray> = arrayOf(
         keySchedule(KEY_3, decrypt = true),
         keySchedule(KEY_2, decrypt = false),

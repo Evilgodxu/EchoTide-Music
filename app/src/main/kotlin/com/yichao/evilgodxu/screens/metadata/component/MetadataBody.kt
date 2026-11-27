@@ -52,35 +52,28 @@ import androidx.compose.ui.unit.sp
 import com.yichao.evilgodxu.R
 import com.yichao.evilgodxu.ui.component.rememberSyncedTextFieldState
 
-// 行内容与文本对齐用的水平内边距：行底色自带 10dp 内缩，文本位置与此一致
+// 行水平内边距 10dp，与行底色对齐
 internal val ROW_HORIZONTAL_PADDING = 10.dp
 
-// 输入框细边框：聚焦与否都取同一宽度，避免默认描边在聚焦时变粗
+// 细边框：聚焦与否同宽
 private val ENTRY_FIELD_SHAPE = RoundedCornerShape(8.dp)
 private val ENTRY_FIELD_BORDER_WIDTH = 1.dp
 private val ENTRY_FIELD_CONTENT_PADDING = 10.dp
 
-// 值文本默认字号：编辑态与展示态保持一致
+// 值字号，编辑与展示一致
 private val ENTRY_VALUE_FONT_SIZE = 15.sp
 
-// 行/块的圆角形状。底色在各自的容器里取，与播放列表「当前曲目」行同款（见下）
+// 行/块圆角，同播放列表当前曲目
 private val ROW_SHAPE = RoundedCornerShape(10.dp)
 
-// 分组标题动作按钮的点击区域圆角：与行内小控件同一档
+// 动作按钮点击区圆角
 private val ACTION_SHAPE = RoundedCornerShape(8.dp)
 
-// 分组标题动作按钮的触控尺寸与图标尺寸：行高与 12sp 的标题对齐，图标略小于正文
+// 动作按钮触控 28dp，图标 16dp
 private val ACTION_TOUCH_SIZE = 28.dp
 private val ACTION_ICON_SIZE = 16.dp
 
-/**
- * 表单分组：小标题 + 字段行，不套外层卡片。
- *
- * 展示方式与音频信息弹窗一致 —— 分组只以标题区分，行自身带弱化底色，
- * 避免大卡片把整组内容再包一层背景。
- *
- * @param action 标题行尾部的分组动作（如「补全」「计算」）；为 null 时标题独占整行
- */
+/** 表单分组：标题 + 字段行，不套外层卡片 */
 @Composable
 internal fun MetadataSection(
     title: String,
@@ -109,12 +102,7 @@ internal fun MetadataSection(
     }
 }
 
-/**
- * 分组标题行的动作按钮：图标按钮，执行中原地显示进度圈并禁用点击。
- *
- * 与字段行的点击语义区分开：它作用于整组而非单个字段，故不套行底色；
- * 用图标而非文字，是为了不让标题行在窄窗下被按钮文字挤占。
- */
+/** 分组标题动作按钮：执行中显示进度并禁用 */
 @Composable
 internal fun MetadataSectionAction(
     icon: ImageVector,
@@ -147,14 +135,7 @@ internal fun MetadataSectionAction(
     }
 }
 
-/**
- * 字段行容器：整行弱化底色 + 行内边距，可选整行点击与长按。
- *
- * 底色取「播放列表当前曲目」同款——主题色淡染，页内条目与列表选中项保持同一套视觉语言。
- * 单独抽出使展示行与输入控件在各分组里保持同一外观与内缩。
- *
- * @param onLongClick 长按入口（如翻译行的操作菜单）；为 null 时该行只响应点击
- */
+/** 字段行容器：弱化底色，可选点击与长按 */
 @Composable
 internal fun MetadataRowContainer(
     modifier: Modifier = Modifier,
@@ -182,11 +163,7 @@ internal fun MetadataRowContainer(
     )
 }
 
-/**
- * 成块内容的容器：与字段行同一套底色，供整篇歌词卡片等纵向成块内容复用。
- *
- * @param onLongClick 长按入口（如整篇歌词的复制菜单）；为 null 时该块不响应长按
- */
+/** 成块内容容器：与字段行同底色，供整篇歌词复用 */
 @Composable
 internal fun MetadataBlockContainer(
     modifier: Modifier = Modifier,
@@ -214,16 +191,7 @@ internal fun MetadataBlockContainer(
     )
 }
 
-/**
- * 可编辑条目：展示态为「标签 + 值」一行（左标签右取值），点击后换成输入框。
- *
- * 空值用弱化文案标注，避免与「标签本身」混淆。
- *
- * @param editing 该条目是否处于编辑态，由调用方保证同一时刻只有一条为真
- * @param enabled 仅约束展示态的点击入口；编辑态输入框不受此开关影响（见 [EntryTextField]）
- * @param onStartEdit 点击展示态时进入编辑态的请求
- * @param onEditDone 输入框按「完成」键后结束编辑态
- */
+/** 可编辑条目：展示态点击后换输入框，空值用弱化文案 */
 @Composable
 internal fun MetadataEntry(
     label: String,
@@ -258,7 +226,7 @@ internal fun MetadataEntry(
     }
 }
 
-// 只读展示行：左侧字段名弱化，右侧取值，与音频信息弹窗的字段行同构
+// 只读展示行：左标签右取值
 @Composable
 internal fun EntryDisplayRow(
     label: String,
@@ -293,28 +261,7 @@ internal fun EntryDisplayRow(
     }
 }
 
-/**
- * 条目输入框：进入编辑态即取焦并弹出键盘，按「完成」键或点击其它区域退出编辑态。
- *
- * 不按失焦退出编辑态：取焦是异步的，首次组合时 Compose 会先派发一次未聚焦回调，
- * 而切换条目时上一轮尚未派发完的失焦回调又会落到新节点上 —— 两者都会把刚打开的输入框
- * 立刻关掉，且难以可靠区分。编辑态的收起改由「完成」键与点击其他条目、点击空白区承担，
- * 这些都是用户的明确意图，不依赖焦点事件时序。
- *
- * 键盘收起不结束编辑态：系统返回键收起键盘后输入框保持编辑态与焦点，用户得以继续核对
- * 刚输入的内容，确认无误再退出编辑。把「收起键盘」当作编辑完成，会让用户来不及复核。
- *
- * 输入框不提供禁用开关，任何时刻都可编辑：禁用取焦中的输入框会使该节点变为不可聚焦，
- * 系统随即清掉焦点并结束输入会话（Compose 以 Modifier.focusable(enabled) 承载输入框的焦点），
- * 键盘随之收起且不会自行恢复 —— 而自动落盘恰好发生在输入停顿之后，正是「清空字段准备
- * 重新输入」的间隙。落盘期间的新输入由状态持有者合并进下一批写入，无需在界面层拦截。
- *
- * 边框用 BasicTextField 自绘 1dp 描边：OutlinedTextField 的聚焦描边固定为 2dp，
- * 无法通过参数调细，与「细边框」的诉求不符。
- *
- * @param singleLine 单行条目以「完成」键收尾；多行条目保留换行键，由点击其他条目退出
- * @param maxLines singleLine 为 false 时的最大行数
- */
+/** 输入框：取焦后按「完成」/点击别处退出，1dp 边框 */
 @Composable
 internal fun EntryTextField(
     value: String,
@@ -334,8 +281,7 @@ internal fun EntryTextField(
         runCatching { focusRequester.requestFocus() }
         runCatching { bringIntoViewRequester.bringIntoView() }
     }
-    // 键盘弹出会压缩可用高度，取焦那一刻的高度还不是最终高度，故在键盘可见后再请求一次，
-    // 使输入框整体滚到键盘之上而不是被下缘截断
+    // 键盘可见后再滚动一次，避免被下缘截断
     LaunchedEffect(imeVisible) {
         if (imeVisible) runCatching { bringIntoViewRequester.bringIntoView() }
     }
@@ -377,7 +323,7 @@ internal fun EntryTextField(
     )
 }
 
-// 表单顶部说明：提示条目的编辑与保存方式，避免用户寻找不存在的保存按钮
+// 顶部说明：提示自动保存
 @Composable
 internal fun MetadataFormHint(text: String) {
     Text(
@@ -391,11 +337,7 @@ internal fun MetadataFormHint(text: String) {
     )
 }
 
-// 保存结果提示：自动保存后短暂展示，成功与失败用不同颜色区分。
-//
-// 无提示时渲染空文案占住这一行：提示在「输入清空提示、落盘重新提示」之间反复出现与消失，
-// 若它的高度跟着变化，下方整片表单（含用户正在输入的输入框）会随每次落盘上下跳动。
-// 限制为单行同样是为了固定高度 —— 失败文案较长，换行会让提示区从一行变两行
+// 保存提示：固定单行高度，避免表单跳动
 @Composable
 internal fun MetadataStatusText(
     message: String?,

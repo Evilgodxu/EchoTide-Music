@@ -5,12 +5,7 @@ import com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache
 import com.yichao.evilgodxu.data.music.model.MusicTrack
 import kotlinx.serialization.Serializable
 
-/**
- * 播放列表落盘的曲目形态。
- *
- * 不直接序列化 [MusicTrack]：歌词内容不落盘（显示时按缓存文件懒加载），
- * 歌词缓存路径读回时还要按文件是否仍可用做一次校验，这两点必须落在编解码处而非模型上。
- */
+/** 播放列表落盘的曲目形态：歌词不落盘，路径读回时校验 */
 @Serializable
 internal data class StoredTrack(
     val id: Long,
@@ -63,8 +58,7 @@ internal fun StoredTrack.toMusicTrack(context: Context): MusicTrack = MusicTrack
     neteaseCoverUrl = neteaseCoverUrl,
     isFavorite = isFavorite,
     isOnlinePlay = isOnlinePlay,
-    // 歌词内容延迟到显示时按需从缓存文件读取（含偏移），
-    // 冷启动不逐首解析歌词，避免大歌单的数百次文件读取拖慢所有界面首帧
+    // 歌词延迟到显示时按需读取，冷启动不逐首解析
     lyricCachePath = lyricCachePath.takeIf { MusicMetadataCache.isValid(context, it) }.orEmpty(),
     lyricLines = emptyList(),
     lyricOffsetMs = lyricOffsetMs,

@@ -12,10 +12,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// 搜索结果每页条数：首页 20 条，列表滑到底部后再加载下一页
+// 每页 20 条，滑到底再加载
 private const val SEARCH_PAGE_SIZE = 20
 
-// 代理音源一次拉取的条数上限：多数代理不支持分页，一次拿全量后本地按页切分
+// 代理一次拉 60 条，本地分页
 private const val PROXY_FETCH_COUNT = 60
 
 private const val MAX_PROXY_COVER_FILL = 8
@@ -26,7 +26,7 @@ internal suspend fun performSearch(
 ) {
     val query = playbackState.searchQuery.trim()
     if (query.isBlank()) return
-    // 取消上一次未完成的搜索与分页加载，避免过期响应覆盖新查询结果
+    // 取消旧搜索，避免过期响应覆盖
     playbackState.searchJob?.cancel()
     playbackState.searchLoadJob?.cancel()
     playbackState.searchJob = currentCoroutineContext()[Job] ?: return
@@ -39,10 +39,10 @@ internal suspend fun performSearch(
     playbackState.searchPage = 0
     playbackState.hasMoreSearchResults = true
     playbackState.isLoadingMore = false
-    // 立即切到结果视图，使加载指示器在搜索期间可见
+    // 切到结果视图，加载指示器可见
     playbackState.showSearchResults = true
     try {
-        // 代理音源一次拉取全量（多数代理不支持分页），本地按页切分展示
+        // 代理一次拉全量，本地按页切分
         val proxyResults = ProxySourceEngine.search(
             playbackState.proxySourceStore,
             playbackState.searchSource,
@@ -51,7 +51,7 @@ internal suspend fun performSearch(
             pageSize = PROXY_FETCH_COUNT,
         )
         if (proxyResults != null) {
-            // 代理音源可能返回重复条目（同一首歌多种音质/hash 相同），按 source+id 去重防止列表 key 冲突
+            // 按 source+id 去重，防止列表 key 冲突
             val deduped = proxyResults.distinctBy { it.source to it.id }
             playbackState.searchResults = deduped.take(SEARCH_PAGE_SIZE)
             playbackState.searchPending = deduped.drop(SEARCH_PAGE_SIZE)
@@ -59,7 +59,7 @@ internal suspend fun performSearch(
             playbackState.hasMoreSearchResults =
                 playbackState.searchPending.isNotEmpty() || playbackState.searchPendingFull
         } else {
-            // 内置平台按页请求，首屏一页；自定义平台没有内置实现，代理不可用即无结果
+            // 内置平台按页请求；自定义平台仅靠代理
             val results = builtInSourceOf(playbackState.searchSource)
                 ?.let { runCatching { it.search(query, 1, SEARCH_PAGE_SIZE) }.getOrDefault(emptyList()) }
                 .orEmpty()
@@ -69,23 +69,23 @@ internal suspend fun performSearch(
         playbackState.searchPage = 1
         if (playbackState.searchResults.isNotEmpty()) playbackState.addSearchHistory(query)
         playbackState.showSearchResults = true
-        // 代理搜索结果的封面为逐条经 pic 动作换取，后台渐进补齐
+        // 代理封面逐条换取，后台渐进补齐
         if (playbackState.searchResults.isNotEmpty()) fillProxySearchCovers(playbackState, context)
     } catch (e: kotlinx.coroutines.CancellationException) {
-        // 搜索界面退出导致的协程取消，不是失败，向上传递取消
+        // 退出搜索的取消，向上传递
         throw e
     } catch (e: Exception) {
         CrashLogManager.logException("OnlineSearch", "搜索歌曲失败", e)
         playbackState.searchResults = emptyList()
     } finally {
-        // 仅当前搜索协程复位搜索状态，避免被取消的旧协程提前清掉新搜索的加载态
+        // 仅当前协程复位，避免旧协程清掉新状态
         if (playbackState.searchJob == currentCoroutineContext()[Job]) {
             playbackState.isSearching = false
         }
     }
 }
 
-// 分页获取搜索结果：代理音源优先，失败或未配置时回退内置平台
+// 分页取结果：代理优先，失败回退内置
 private suspend fun fetchSearchPage(
     playbackState: MusicPlaybackState,
     context: Context,
@@ -108,16 +108,16 @@ private suspend fun fetchSearchPage(
     }.distinctBy { it.source to it.id }
 }
 
-// 上拉加载下一页：优先消费代理全量缓冲，缓冲耗尽或内置平台再请求下一页
+// 加载下一页：先消费代理缓冲，再请求
 internal suspend fun loadMoreSearchResults(
     playbackState: MusicPlaybackState,
     context: Context,
 ) {
     if (playbackState.isLoadingMore || playbackState.isSearching || !playbackState.hasMoreSearchResults) return
     if (playbackState.searchResults.isEmpty()) return
-    // 代理音源全量缓冲：本地切分追加，无需重复请求（不支持分页的代理每次返回相同结果）
+    // 消费本地缓冲，避免重复请求
     if (playbackState.searchPending.isNotEmpty()) {
-        // 缓冲内仍可能与已加载条目重复，追加前按 source+id 去重
+        // 追加前按 source+id 去重
         val existingKeys = playbackState.searchResults.map { it.source to it.id }.toMutableSet()
         val batch = playbackState.searchPending.take(SEARCH_PAGE_SIZE).filter { item ->
             existingKeys.add(item.source to item.id)
@@ -137,22 +137,22 @@ internal suspend fun loadMoreSearchResults(
     try {
         val nextPage = playbackState.searchPage + 1
         val pageResults = fetchSearchPage(playbackState, context, query, page = nextPage)
-        // 新搜索已取代本次加载时丢弃过期分页
+        // 新搜索已取代则丢弃本页
         if (playbackState.searchLoadJob != currentCoroutineContext()[Job]) return
         val existingKeys = playbackState.searchResults.map { it.source to it.id }.toSet()
         val newItems = pageResults.filter { (it.source to it.id) !in existingKeys }
         if (newItems.isEmpty()) {
-            // 本页无新增条目（全部与已加载重复）时视为已加载完全部结果，避免重复请求
+            // 无新增条目即视为加载完毕
             playbackState.hasMoreSearchResults = false
             return
         }
         playbackState.searchResults = playbackState.searchResults + newItems
         playbackState.searchPage = nextPage
         playbackState.hasMoreSearchResults = pageResults.size >= SEARCH_PAGE_SIZE
-        // 代理搜索结果的封面为逐条经 pic 动作换取，后台渐进补齐
+        // 代理封面逐条换取，后台渐进补齐
         if (newItems.isNotEmpty()) fillProxySearchCovers(playbackState, context)
     } catch (e: kotlinx.coroutines.CancellationException) {
-        // 新搜索发起导致的分页协程取消，不是失败，向上传递取消
+        // 新搜索导致的取消，向上传递
         throw e
     } catch (e: Exception) {
         CrashLogManager.logException("OnlineSearch", "加载更多搜索结果失败", e)
@@ -162,7 +162,7 @@ internal suspend fun loadMoreSearchResults(
     }
 }
 
-// 串行补齐前 N 条，控制聚合接口调用频率
+// 串行补齐前 N 条封面，控制调用频率
 private fun fillProxySearchCovers(playbackState: MusicPlaybackState, context: Context) {
     val pending = playbackState.searchResults
         .filter { it.coverUrl.isNullOrBlank() && !it.coverId.isNullOrBlank() }

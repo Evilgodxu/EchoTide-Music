@@ -14,11 +14,7 @@ import com.yichao.evilgodxu.ui.component.AppDialog
 import com.yichao.evilgodxu.ui.component.DialogOption
 import com.yichao.evilgodxu.ui.icons.AppIcons
 
-/**
- * 高级菜单对话框：五项操作随曲目可用性整体置灰。
- *
- * 不设取消入口，点击遮罩或返回键即可收起。
- */
+/** 高级菜单：五项操作随曲目可用性整体置灰，点遮罩收起 */
 @Composable
 internal fun TrackAdvancedMenuDialog(
     visible: Boolean,
@@ -35,7 +31,7 @@ internal fun TrackAdvancedMenuDialog(
         onDismiss = onDismiss,
         title = stringResource(R.string.playlist_advanced_menu_title),
     ) {
-        // 置灰原因随菜单一并给出，避免用户把「不可点」当成故障
+        // 置灰原因随菜单给出，避免被当成故障
         if (!actionsEnabled) {
             Text(
                 text = stringResource(R.string.playlist_advanced_unavailable),

@@ -20,7 +20,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
-// 设置页状态持有者：验证仓库回流、USB 互斥的乐观更新与三条授权流程的置位与回滚
+// 仓库回流、USB 乐观更新与授权回滚
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsViewModelTest {
 

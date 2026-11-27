@@ -16,7 +16,7 @@ internal data class AudioReportLine(
     val value: String = "",
 )
 
-// 文本是采集层唯一的报告内容来源；排版只识别层级，不改写、归纳或丢弃字段值
+// 排版只识别层级，不改写字段值
 internal fun parseAudioReportLines(report: String): List<AudioReportLine> = report.lines().map { raw ->
     when {
         raw.isBlank() -> AudioReportLine(raw, AudioReportLineKind.BLANK)

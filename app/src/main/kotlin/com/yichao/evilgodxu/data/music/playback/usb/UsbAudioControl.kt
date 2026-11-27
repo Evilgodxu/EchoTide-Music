@@ -3,21 +3,19 @@ package com.yichao.evilgodxu.data.music.playback.usb
 import android.hardware.usb.UsbDeviceConnection
 import com.yichao.evilgodxu.log.CrashLogManager
 
-// 异常日志的类名前缀：控制请求只有抛出或未完成时才记（正常收发不写日志）
+// 日志类名：控制请求仅出错时记录
 private const val LOG_TAG = "UsbAudioControl"
 
-// 类特定请求都不该长等：超时即判失败，避免卡住播放线程
+// 控制请求 1s 超时即判失败，避免卡住播放线程
 private const val CONTROL_TIMEOUT_MS = 1000
 
 /**
- * UAC 类特定控制请求的编码。
- *
- * 抽成纯函数是为了能在 JVM 上验证。这些参数由规范固定，写错一位会打到错误的实体上——而错误的实体
- * 通常不回报错误，只是静默无视，表现为"设了采样率却没反应"，靠日志也看不出所以然。
+ * UAC 类请求编码，抽成纯函数便于验证。
+ * 参数固定，写错一位即静默无效。
  */
 internal object UsbAudioRequests {
 
-    /** bmRequestType：方向 | 类型（类） | 接收者（接口或端点） */
+    /** bmRequestType：方向 | 类型 | 接收者 */
     const val OUT_INTERFACE = 0x21
     const val IN_INTERFACE = 0xA1
     const val OUT_ENDPOINT = 0x22
@@ -30,7 +28,7 @@ internal object UsbAudioRequests {
     const val GET_MAX = 0x83
     const val GET_RES = 0x84
 
-    /** UAC2 的类请求：读写共用请求码，方向由 bmRequestType 区分 */
+    /** UAC2 读写共用码，方向看 bmRequestType */
     const val UAC2_CUR = 0x01
     const val UAC2_RANGE = 0x02
 
@@ -40,13 +38,13 @@ internal object UsbAudioRequests {
     const val CONTROL_SAMPLING_FREQ = 0x01
     const val CONTROL_CLOCK_SELECTOR = 0x01
 
-    /** 特征单元：wValue = 选择子 << 8 | 声道（0 表示主控），wIndex = 单元号 << 8 | 控制接口号 */
+    /** 特征单元：wValue = 选择子 << 8 | 声道（0 主控），wIndex = 单元号 << 8 | 接口号 */
     fun featureUnitValue(control: Int, channel: Int): Int = (control shl 8) or (channel and 0xFF)
 
     fun featureUnitIndex(unitId: Int, controlInterface: Int): Int =
         (unitId shl 8) or (controlInterface and 0xFF)
 
-    /** 时钟实体：wValue = 选择子 << 8，wIndex = 时钟号 << 8 | 控制接口号 */
+    /** 时钟实体：wValue = 选择子 << 8，wIndex = 时钟号 << 8 | 接口号 */
     fun clockValue(control: Int): Int = control shl 8
 
     fun clockIndex(clockId: Int, controlInterface: Int): Int =
@@ -82,11 +80,9 @@ internal data class UsbAudioVolumeRange(val min: Int, val max: Int, val step: In
 }
 
 /**
- * UAC2 特征单元的 RANGE 应答解析：先给子区间数（16 位），每个子区间 6 字节——最小、最大、步长，
- * 各为 16 位有符号。取第一个子区间即可，与内核驱动一致。
- *
- * 注意与时钟实体的 RANGE 不同：那里每个子区间是 12 字节的 32 位值（见 [usbAudioRatesFromRange]）。
- * 两者都是 RANGE 请求，但实体不同、布局也不同。
+ * UAC2 特征单元 RANGE 应答解析。
+ * 先 2 字节子区间数，每区间 6 字节（16 位值）。
+ * 取第一个子区间；时钟实体区间为 12 字节。
  */
 internal fun usbAudioVolumeRange(reply: ByteArray, length: Int): UsbAudioVolumeRange? {
     if (length < 8) return null
@@ -99,10 +95,7 @@ internal fun usbAudioVolumeRange(reply: ByteArray, length: Int): UsbAudioVolumeR
 }
 
 /**
- * 设备的类特定控制：采样率与音量。
- *
- * 全部走 [UsbDeviceConnection.controlTransfer] 这一公开入口，不需要任何原生代码——USB 主机 API 缺的只有
- * 等时传输，控制传输一直是齐的。所以这一层留在 Kotlin 里，只有把 PCM 送进等时端点那一步才落原生。
+ * 采样率与音量控制，全走 controlTransfer
  */
 internal class UsbAudioControl(
     private val connection: UsbDeviceConnection,
@@ -113,15 +106,13 @@ internal class UsbAudioControl(
     private val controlInterface = device.controlInterfaceNumber
 
     /**
-     * 逐个格式回溯出真正承载采样率的时钟源编号，0 表示回溯不到。
-     *
-     * 选择器当前选中哪一路只能问设备，故 [selectedPin] 由调用方给（它读 UAC2 的当前选择子）；
-     * 同一时钟源会被多个格式共用，故按源缓存一次读数，避免逐格式重问。
+     * 逐格式回溯时钟源，0 表示回溯不到。
+     * 选中引脚只能问设备，故由调用方给。
      */
     fun resolveClockSources(selectedPin: (selectorId: Int) -> Int): List<Int> =
         device.outputs.map { format -> device.resolveClockSource(format.clockId, selectedPin) }
 
-    /** 读某个时钟源的当前选中引脚；拿不到时返回 0，由回溯按第一路处理 */
+    /** 读时钟源当前选中引脚，拿不到返回 0，由回溯按第一路处理 */
     fun selectedClockPin(selectorId: Int): Int {
         val reply = ByteArray(1)
         if (!controlIn(UsbAudioRequests.UAC2_CUR, UsbAudioRequests.clockValue(UsbAudioRequests.CONTROL_CLOCK_SELECTOR),
@@ -133,17 +124,8 @@ internal class UsbAudioControl(
     }
 
     /**
-     * 读时钟源支持的采样率档位。
-     *
-     * 三条路依次尝试，谁先给出非空档位就用谁：
-     * 1. **一次问满**：请求长度取应答结构的上限，设备按实际长度短答复、宿主多要的部分被短包截断。
-     *    这是内核驱动的问法（`snd_usb_get_sample_rate` 一次要 `2 + 12 * MAX`），对「只认与应答等长的
-     *    请求」的设备最保险——KT02H20 就走这条才答得上来；
-     * 2. **两步问**：先要子区间个数、再按个数取。少数设备对超长请求报错，只认第二种；
-     * 3. **读当前值**：把"此刻正在用的那一档"当作唯一已知档位。
-     *
-     * [trace] 供诊断收取每次尝试的实际传输字节数：三次都失败时，是设备不应答还是宿主侧被拒，
-     * 只能靠这三个数分辨——-1 表示传输失败，0 或短读表示应答形状不符。
+     * 读时钟源档位，依次试：问满、两步问、读当前。
+     * trace 收实际字节数，用于分辨不应答与拒绝。
      */
     fun readClockRates(clockSourceId: Int, trace: ((String) -> Unit)? = null): List<Int> {
         val index = UsbAudioRequests.clockIndex(clockSourceId, controlInterface)
@@ -188,12 +170,8 @@ internal class UsbAudioControl(
     }
 
     /**
-     * 在时钟源上设置采样率，返回设备实际生效的采样率（读不到时为 0）。
-     *
-     * 必须在**切换备用设置之前**调用：UAC2 的采样率控制通道是时钟实体，而切换备用设置会把流接口带入
-     * 工作带宽，此时若时钟仍在旧速率，部分设备会拒绝切换或直接以旧速率工作。
-     *
-     * 写后回读并留出重新锁定时钟的时间，是因为设备的时钟需要重新锁定；不等这一次就回读，读到的仍是旧值。
+     * 在时钟源上设采样率，返回生效值。
+     * 须先于切备用设置；写后等时钟重锁再回读。
      */
     fun setClockRate(clockSourceId: Int, rate: Int): Int {
         val index = UsbAudioRequests.clockIndex(clockSourceId, controlInterface)
@@ -209,7 +187,7 @@ internal class UsbAudioControl(
         }
         val current = readBack()
         if (current == rate) return current
-        // 时钟源声明为不可写、且此刻有确定的速率：不试写，直接如实回报
+        // 不可写且有确定速率：不试写，直接如实回报
         device.clock(clockSourceId)?.takeIf { !it.frequencyWritable && current != 0 }?.let {
             return current
         }
@@ -227,10 +205,8 @@ internal class UsbAudioControl(
     }
 
     /**
-     * 在端点上设置采样率（UAC1），返回设备实际生效的采样率（读不到时为 0）。
-     *
-     * 必须在**切换备用设置之后**调用：UAC1 的采样率控制挂在流端点上，而端点在备用设置 0 上并不存在。
-     * 这与 UAC2 的顺序相反，两者不可互换。
+     * 在端点设采样率（UAC1）。
+     * 须在切备用设置之后，与 UAC2 相反。
      */
     fun setEndpointRate(endpointAddress: Int, rate: Int): Int {
         val value = UsbAudioRequests.CONTROL_SAMPLING_FREQ shl 8
@@ -256,11 +232,11 @@ internal class UsbAudioControl(
         return 0
     }
 
-    /** 读特征单元的音量范围；设备未暴露音量控制时返回 null */
+    /** 读音量范围，设备未暴露音量控制时返回 null */
     fun volumeRange(featureUnit: UsbAudioFeatureUnit): UsbAudioVolumeRange? {
         val channel = volumeChannel(featureUnit) ?: return null
         if (uacVersion == 2) {
-            // UAC2 用 RANGE 一次性取回范围，每个子区间是 16 位值
+            // UAC2 用 RANGE 一次取回，子区间为 16 位值
             val reply = ByteArray(2 + 6 * MAX_VOLUME_SUB_RANGES)
             val read = controlIn(
                 UsbAudioRequests.UAC2_RANGE,
@@ -287,7 +263,7 @@ internal class UsbAudioControl(
         )
     }
 
-    /** 读特征单元当前的音量值（1/256 dB）；读不到时返回 null */
+    /** 读当前音量值 1/256 dB，读不到返回 null */
     fun currentVolume(featureUnit: UsbAudioFeatureUnit): Int? {
         val channel = volumeChannel(featureUnit) ?: return null
         val reply = ByteArray(2)
@@ -298,7 +274,7 @@ internal class UsbAudioControl(
         return UsbAudioRequests.signed16(reply, 0)
     }
 
-    /** 在特征单元上设置音量（1/256 dB）。音量设在硬件里，数据本身因此不参与缩放。 */
+    /** 设置音量 1/256 dB，硬件缩放，数据本身不参与 */
     fun setVolume(featureUnit: UsbAudioFeatureUnit, value256: Int): Boolean {
         val channels = volumeChannels(featureUnit)
         if (channels.isEmpty()) return false
@@ -314,7 +290,7 @@ internal class UsbAudioControl(
         }
     }
 
-    /** 主控可写时只设主控；否则逐个设置可写的声道 */
+    /** 主控可写只设主控，否则逐个设可写声道 */
     private fun volumeChannels(featureUnit: UsbAudioFeatureUnit): List<Int> = when {
         !featureUnit.hasVolume -> emptyList()
         featureUnit.masterVolume -> listOf(MASTER_CHANNEL)
@@ -325,10 +301,8 @@ internal class UsbAudioControl(
     private fun volumeChannel(featureUnit: UsbAudioFeatureUnit): Int? = volumeChannels(featureUnit).firstOrNull()
 
     /**
-     * 类请求的写：bmRequestType 取接口类，方向为出。
-     *
-     * UAC2 的读写在规范里共用请求码，但 UAC1 的 GET_CUR 与 SET_CUR 是不同的码——调用方给出的请求码按
-     * 各自版本传，本方法只负责搬运。
+     * 类请求的写。
+     * UAC2 读写同码，UAC1 读写异码，由调用方传。
      */
     private fun controlOut(
         request: Int,
@@ -355,10 +329,8 @@ internal class UsbAudioControl(
     ): Boolean = transferIn(request, value, index, data, requestType) == length
 
     /**
-     * 类请求的读，返回实际传输的字节数：-1 为传输失败，短读如实给出。
-     *
-     * 与 [controlIn] 分开：多数调用点只需「读到想要的长度就算成功」，但诊断要知道失败是传输被拒还是
-     * 应答形状不符——这两种情况的下一步完全不同，混成一个布尔值就分不出来了。
+     * 类请求的读，返回实际字节数，-1 为失败。
+     * 与 controlIn 分开，便于诊断。
      */
     private fun transferIn(
         request: Int,
@@ -376,13 +348,13 @@ internal class UsbAudioControl(
         /** 主控的声道号 */
         const val MASTER_CHANNEL = 0
 
-        /** 时钟重新锁定前不等这一次，回读拿到的仍是旧速率 */
+        /** 时钟重锁 20ms，不等则回读到旧速率 */
         const val CLOCK_RELOCK_WAIT_MS = 20L
 
-        /** 子区间个数的合理上限：防止设备的异常应答让缓冲区按天量申请 */
+        /** 子区间个数上限，防异常应答申请超大缓冲 */
         const val MAX_RANGE_ENTRIES = 8
 
-        /** RANGE 应答的请求上限：2 字节子区间数 + 每个子区间 12 字节（下限、上限、步长各 32 位） */
+        /** RANGE 请求上限：2 字节子区间数 + 每子区间 12 字节（下限、上限、步长各 32 位） */
         const val MAX_RANGE_REPLY_BYTES = 2 + 12 * MAX_RANGE_ENTRIES
 
         const val MAX_VOLUME_SUB_RANGES = 4

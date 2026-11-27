@@ -9,11 +9,11 @@ internal data class OnlinePlatformOption(
     val name: String,
 )
 
-// 在线平台注册表：枚举平台切换菜单的候选，并提供按平台键取展示名的能力。
-// 内置平台固定可见、名称取应用内字符串资源；自定义平台来自已启用的代理音源，名称由音源声明
+// 在线平台注册表：枚举候选并提供平台展示名
+// 内置平台固定可见，自定义平台来自已启用音源
 internal object OnlinePlatformRegistry {
 
-    // 可选平台：内置平台在前，自定义平台按音源导入顺序追加
+    // 可选平台：内置在前，自定义按导入顺序追加
     fun options(context: Context, sources: List<ProxySourceSpec>): List<OnlinePlatformOption> {
         val builtIn = MusicSearchSource.BUILT_IN.map { source ->
             OnlinePlatformOption(source, builtInNameRes(source)?.let(context::getString) ?: source.key)
@@ -24,8 +24,8 @@ internal object OnlinePlatformRegistry {
         return builtIn + custom
     }
 
-    // 平台展示名：候选标签等按平台取名的场景使用。
-    // 音源被移除后其历史结果已查不到名称，此时回退平台键，取值可能不是人类可读文本
+    // 平台展示名，供候选标签等按平台取名
+    // 音源移除后查不到名称，回退平台键
     fun displayName(
         context: Context,
         sources: List<ProxySourceSpec>,

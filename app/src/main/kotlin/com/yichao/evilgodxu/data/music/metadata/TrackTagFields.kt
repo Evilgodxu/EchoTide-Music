@@ -1,35 +1,18 @@
 package com.yichao.evilgodxu.data.music.metadata
 
-/**
- * 本次对封面要做的改动。
- *
- * 用三态而非「字节或 null」：null 只表示「没有新封面」，无法区分「不改封面」与「删除封面」——
- * 前者要保留文件里的既有封面，后者要把它连同既有封面一并删掉。二者混用会让「移除封面」静默失效：
- * 写入端只看到 null，按「未参与本次改动」处理，封面原样留着。
- */
+/** 封面三态：Keep 保留，Set 写入，Remove 删除 */
 sealed interface CoverUpdate {
     /** 本次不改封面，保留文件里的既有值 */
     data object Keep : CoverUpdate
 
-    /**
-     * 写入这张封面。
-     *
-     * 非数据类：封面字节可达数 MB，逐字节相等判定既无调用方需要，也会在比较时白读一遍。
-     */
+    /** 写入封面；非数据类，避免逐字节比较 */
     class Set(val bytes: ByteArray) : CoverUpdate
 
     /** 删除内嵌封面 */
     data object Remove : CoverUpdate
 }
 
-/**
- * 内嵌标签字段的身份标识。
- *
- * 读写两侧共用同一组标识：读取端把各容器的异构键统一收敛到它，写入端再由它分派回各容器的键。
- * 没有这份共同标识，字段清单会在「读取」「写入」「界面」三处各存一份，增删一个字段要同步改三遍。
- *
- * 位置参数与界面表单的排列顺序一致，供界面按序生成条目。
- */
+/** 标签字段标识，读写与界面共用；顺序同表单 */
 enum class TagField {
     TITLE,
     ARTIST,
@@ -69,22 +52,13 @@ enum class TagField {
     }
 }
 
-/**
- * 一次标签读写的字段集合。
- *
- * 以映射承载而非逐个具名字段：字段清单会随容器能力继续增长，映射让「增删一个字段」不必改动
- * 构造、拷贝与遍历三处；容器的键映射也天然按字段查找。
- *
- * 值缺失与空串语义不同且在两处一致：**缺失**表示该字段未参与本次操作 ——
- * 读取时是「文件里没有这个字段」，写入时是「保留文件原有值」；**空串**表示有值且值为空，
- * 写入即清除该字段。二者在读取侧的区分同样重要：未写入与写入空串是两回事。
- */
+/** 字段集合：缺项保留原值，空串表示清除 */
 class TrackTagFields private constructor(private val values: Map<TagField, String>) {
 
     /** 该字段的取值；未参与本次操作时为 null */
     operator fun get(field: TagField): String? = values[field]
 
-    /** 参与本次操作的字段：按声明顺序返回，写入端据此逐个落到容器的键上 */
+    /** 参与本次操作的字段，按声明顺序 */
     fun entries(): List<Pair<TagField, String>> = TagField.entries.mapNotNull { field ->
         values[field]?.let { field to it }
     }
@@ -92,16 +66,16 @@ class TrackTagFields private constructor(private val values: Map<TagField, Strin
     companion object {
         val EMPTY: TrackTagFields = TrackTagFields(emptyMap())
 
-        /** 由非空字段构造：读取端组装结果与写入端按需覆盖都用它 */
+        /** 由非空字段构造 */
         fun build(block: Builder.() -> Unit): TrackTagFields = Builder().apply(block).build()
 
-        /** 以既有字段集合为底，覆盖其中的部分字段：界面的「只写改动过的项」由此表达 */
+        /** 以既有集合为底覆盖部分字段 */
         fun overlay(base: TrackTagFields, block: Builder.() -> Unit): TrackTagFields =
             Builder(base.values.toMutableMap()).apply(block).build()
     }
 
     class Builder internal constructor(private val map: MutableMap<TagField, String> = LinkedHashMap()) {
-        /** 值为 null 表示该字段不参与本次操作（保留原值），与空串区分 */
+        /** 值为 null 不参与本次操作，与空串区分 */
         fun put(field: TagField, value: String?) {
             if (value != null) map[field] = value
         }

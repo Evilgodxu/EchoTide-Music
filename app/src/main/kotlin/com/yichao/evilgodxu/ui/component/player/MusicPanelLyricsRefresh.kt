@@ -89,7 +89,7 @@ internal fun LyricsRefreshDialog(
     )
 }
 
-// 歌词候选条目：封面(或来源名占位) + 标题 + 歌手（内容形态与封面包围条目不同，故注入）
+// 歌词候选：封面或来源名占位 + 标题 + 歌手
 @Composable
 private fun LyricsCandidateItem(
     candidate: NeteaseSongSearchResult,

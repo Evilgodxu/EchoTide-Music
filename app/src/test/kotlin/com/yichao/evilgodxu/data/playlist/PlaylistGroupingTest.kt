@@ -7,12 +7,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * 歌单分组与来源解析复核。
- *
- * 来源 key 是持久化的唯一身份，解析必须与其生成规则（专辑/艺术家分组 key）保持同口径，
- * 否则曲库变化后同一 key 会解析出不同集合。
- */
+/** 来源 key 解析须与生成规则同口径 */
 class PlaylistGroupingTest {
 
     private val tracks = listOf(
@@ -21,13 +16,11 @@ class PlaylistGroupingTest {
         track(3, "三", artist = "乙", albumId = 20, albumName = "合辑"),
     )
 
-    // -----------------------------------------------------------------------
     // id 集合解析
-    // -----------------------------------------------------------------------
 
     @Test
     fun `解析保持集合顺序并跳过未知 ID`() {
-        // 集合顺序即播放顺序，不能按曲库顺序重排；已删除曲目的 id 静默跳过
+        // 集合顺序即播放顺序，缺失 ID 跳过
         assertEquals(listOf(3L, 1L), resolveTracks(tracks, listOf(3, 99, 1)).map { it.id })
     }
 
@@ -48,9 +41,7 @@ class PlaylistGroupingTest {
         assertEquals(0, smartTrackCount(tracks, emptyList()))
     }
 
-    // -----------------------------------------------------------------------
     // 来源解析
-    // -----------------------------------------------------------------------
 
     @Test
     fun `智能来源解析最近与收藏`() {
@@ -74,7 +65,7 @@ class PlaylistGroupingTest {
 
     @Test
     fun `歌手来源解析列出的每位歌手`() {
-        // 多歌手曲目「甲 / 乙」在两位歌手名下都应出现
+        // 合作曲归属每位歌手
         assertEquals(listOf(1L, 2L), resolveSource(tracks, emptyList(), emptySet(), emptyList(), source("artist:甲")).map { it.id })
         assertEquals(listOf(2L, 3L), resolveSource(tracks, emptyList(), emptySet(), emptyList(), source("artist:乙")).map { it.id })
     }
@@ -146,7 +137,7 @@ class PlaylistGroupingTest {
 
     @Test
     fun `常听来源始终跟随播放时间线`() {
-        // 常听不套任何存档：曲序就是最近播放顺序，随播放事件自动更新
+        // 常听不套存档，随播放事件更新
         assertEquals(
             listOf(2L, 3L),
             resolveSource(
@@ -160,9 +151,7 @@ class PlaylistGroupingTest {
         )
     }
 
-    // -----------------------------------------------------------------------
     // 来源有效性
-    // -----------------------------------------------------------------------
 
     @Test
     fun `智能来源始终有效`() {
@@ -172,7 +161,7 @@ class PlaylistGroupingTest {
     @Test
     fun `自建来源需要已存在的歌单`() {
         val playlists = listOf(Playlist(7, "我的", emptyList(), 0L))
-        // 空歌单仍是有效状态，判据是歌单是否存在而非是否为空
+        // 空歌单仍有效，只看歌单是否存在
         assertTrue(isViewSourceValid(playlists, emptyList(), source("custom:7")))
         assertFalse(isViewSourceValid(playlists, emptyList(), source("custom:8")))
     }
@@ -183,16 +172,14 @@ class PlaylistGroupingTest {
         assertFalse(isViewSourceValid(emptyList(), emptyList(), source("album:20")))
     }
 
-    // -----------------------------------------------------------------------
     // 分组
-    // -----------------------------------------------------------------------
 
     @Test
     fun `专辑分组按 ID 归键、以首曲命名`() {
         val groups = albumGroups(tracks, "未知专辑")
         assertEquals(listOf("合辑", "甲专辑"), groups.map { it.name })
         assertEquals(listOf("album:20", "album:10"), groups.map { it.key })
-        // 按 albumId 分组而非按名字：同名不同专辑不会被并入一块
+        // 按 albumId 分组，同名不合并
         assertEquals(listOf(2L, 3L), groups[0].trackIds)
         assertEquals(listOf(1L), groups[1].trackIds)
     }
@@ -203,21 +190,18 @@ class PlaylistGroupingTest {
         assertEquals("未知专辑", groups.single().name)
     }
 
-    // -----------------------------------------------------------------------
     // 专辑改名后的身份重绑
-    // -----------------------------------------------------------------------
 
     @Test
     fun `专辑标识并入同名既有专辑`() {
-        // 库内已有同名专辑：改名曲目并入那张专辑，而不是另起一组同名分组
+        // 同名专辑并入既有分组
         assertEquals(20L, albumIdentity(tracks, " 合辑 "))
     }
 
     @Test
     fun `曲库首见的专辑名分配稳定标识`() {
         val minted = albumIdentity(tracks, "New Album")
-        // 负值不与 MediaStore 的正 id 相撞；名字大小写与首尾空白不改变身份，
-        // 先后改到同一名字的曲目仍聚成一组
+        // 负值避开正 id，名字忽略大小写空白
         assertTrue(minted < 0)
         assertEquals(minted, albumIdentity(tracks, " new album "))
         assertTrue(albumIdentity(tracks, "另一张") != minted)
@@ -235,7 +219,7 @@ class PlaylistGroupingTest {
             albumId = albumIdentity(tracks, "新专辑"),
         )
         val groups = albumGroups(listOf(renamed) + tracks.drop(1), "未知专辑")
-        // 旧专辑仅剩改名曲目时整组消失，曲目改由新专辑收纳
+        // 旧专辑空后整组消失
         assertEquals(listOf("合辑", "新专辑"), groups.map { it.name })
         assertEquals(listOf(2L, 3L), groups[0].trackIds)
         assertEquals(listOf(1L), groups[1].trackIds)
@@ -245,7 +229,7 @@ class PlaylistGroupingTest {
     fun `多歌手曲目归属到每位歌手分组`() {
         val groups = artistGroups(tracks, "未知艺术家")
         assertEquals(listOf("artist:乙", "artist:甲"), groups.map { it.key })
-        // 合作曲同时进入两位歌手名下：乙为 2、3，甲为 1、2
+        // 合作曲进入两位歌手分组
         assertEquals(listOf(2L, 3L), groups[0].trackIds)
         assertEquals(listOf(1L, 2L), groups[1].trackIds)
     }
@@ -259,13 +243,11 @@ class PlaylistGroupingTest {
     @Test
     fun `去重计数拆分多歌手字段`() {
         assertEquals(2, distinctAlbumCount(tracks))
-        // 按整串歌手字段计数会把「甲 / 乙」算成第三个歌手
+        // 按整串计数会多算合作歌手
         assertEquals(2, distinctArtistCount(tracks))
     }
 
-    // -----------------------------------------------------------------------
     // 歌手曲序存档
-    // -----------------------------------------------------------------------
 
     @Test
     fun `保存顺序按排位重排列出的曲目`() {
@@ -274,7 +256,7 @@ class PlaylistGroupingTest {
 
     @Test
     fun `保存顺序把未列出曲目放在其后`() {
-        // 新入库、从未参与排序的曲目一律附在存档曲目之后，且彼此保持原相对次序
+        // 未列出曲目附在其后，保持原序
         assertEquals(listOf(3L, 1L, 2L), applySavedTrackOrder(tracks, listOf(3)).map { it.id })
         // 无存档即为原顺序
         assertEquals(listOf(1L, 2L, 3L), applySavedTrackOrder(tracks, emptyList()).map { it.id })
@@ -282,18 +264,16 @@ class PlaylistGroupingTest {
 
     @Test
     fun `保存顺序跳过已不存在的 ID`() {
-        // 曲目被删除后存档里的死 id 落空，不影响其余曲目的次序
+        // 死 id 落空，不影响其余次序
         assertEquals(listOf(2L, 1L, 3L), applySavedTrackOrder(tracks, listOf(99, 2, 1)).map { it.id })
     }
 
-    // -----------------------------------------------------------------------
     // 列表封面
-    // -----------------------------------------------------------------------
 
     @Test
     fun `列表封面取存档曲序中的第一首有效曲目`() {
         val libraryById = tracks.associateBy { it.id }
-        // 先跳过已失效 ID，再按存档次序取首曲：与详情页展示的同一份顺序一致
+        // 跳过失效 ID，按存档次序取首曲
         assertEquals(
             3L,
             playlistCoverTrack(
@@ -309,8 +289,6 @@ class PlaylistGroupingTest {
         val libraryById = tracks.associateBy { it.id }
         assertEquals(2L, playlistCoverTrack(libraryById, listOf(99, 2, 3), emptyList())?.id)
     }
-
-    // -----------------------------------------------------------------------
 
     private fun resolveSource(
         all: List<MusicTrack>,

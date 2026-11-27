@@ -8,24 +8,13 @@ import java.util.zip.Inflater
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-/**
- * 歌词文本编解码：把各平台的歌词原文统一解析为 [LyricLine]。
- *
- * 平台歌词格式分三类：普通 LRC（逐行）、增强 LRC（行内 `<mm:ss.xxx>` 字标签）、
- * 以及平台私有逐字格式（QQ 的 QRC、酷狗的 KRC、酷我的 lrcx）。
- *
- * 逐字时间轴一律归一为绝对毫秒：字标签写相对行首偏移的格式（KRC、酷我 lrcx）在此补上行起点，
- * 与歌词缓存的序列化约定（[com.yichao.evilgodxu.data.music.metadata.MusicMetadataCache.encodeLyrics]）
- * 保持一致，各平台解析结果也因此可直接互换比较。
- */
+// 解析平台歌词为 LyricLine：LRC 与逐字格式
+// 逐字时间轴统一归一为绝对毫秒，与歌词缓存约定一致
 
-/**
- * 字标签的捕获组编号：各平台把文本与时间数值放在正则的不同位置，解析时按组号取值。
- * 前两组均为时间数值，其含义随格式而异（KRC/QRC 是字的起止，酷我 lrcx 是区间两端的编码值）。
- */
+// 字标签捕获组：前两组为时间数值，text 为文本组
 private class WordTagGroups(val first: Int, val second: Int, val text: Int)
 
-// 标准 LRC 解析：网易云（无逐字标签时）复用
+// 标准 LRC 解析，网易云无逐字标签时复用
 internal fun parseLrcText(lrc: String): List<LyricLine> {
     return lrc.lineSequence().mapNotNull { line ->
         val match = Regex("\\[(\\d+):(\\d+)(?:\\.(\\d+))?](.*)").find(line) ?: return@mapNotNull null
@@ -38,7 +27,7 @@ internal fun parseLrcText(lrc: String): List<LyricLine> {
     }.sortedBy { it.timeMs }.toList()
 }
 
-// 按时间戳把翻译歌词合并进原歌词：优先精确匹配，其次取 [TRANSLATION_MATCH_WINDOW_MS] 内最近的一条
+// 按时间戳合并译文，精确匹配优先，容差内取最近
 internal fun mergeTranslations(lines: List<LyricLine>, transLines: List<LyricLine>): List<LyricLine> {
     if (lines.isEmpty() || transLines.isEmpty()) return lines
     val byTime = transLines.associateBy { it.timeMs }
@@ -53,15 +42,11 @@ internal fun mergeTranslations(lines: List<LyricLine>, transLines: List<LyricLin
     }
 }
 
-// 译文与原文的时间戳可能不严格相等，容差内按最近的一条配对
+// 译文与原文时间戳可能有偏差，容差内配对
 private const val TRANSLATION_MATCH_WINDOW_MS = 500L
 
-/**
- * 增强 LRC 解析：兼容纯文本行、行内 `<mm:ss.xxx>` 逐字标签与 `[tr][/tr]` 翻译块。
- *
- * 无字标签的行按普通 LRC 处理，故本函数可同时承担 [parseLrcText] 的职责：平台歌词带逐字标签时取其时间轴，
- * 不带时退化为逐行歌词。时间戳支持 `[mm:ss(.xxx)]` 与长音频常用的小时制 `[hh:mm:ss(.xxx)]`。
- */
+// 增强 LRC：兼容纯文本、逐字标签与 [tr] 翻译
+// 无标签按 LRC 处理；支持 mm:ss、hh:mm:ss
 internal fun parseWordTimedLrcText(lrc: String): List<LyricLine> {
     if (lrc.isBlank()) return emptyList()
     return lrc.lineSequence().mapNotNull { rawLine ->
@@ -87,11 +72,7 @@ internal fun parseWordTimedLrcText(lrc: String): List<LyricLine> {
     }.sortedBy { it.timeMs }.toList()
 }
 
-/**
- * QRC 解析（QQ 音乐逐字歌词）：`[行起点,行时长]字(字起点,字时长)...`。
- *
- * 字标签给的是绝对毫秒，与行标签同一时间基准，无需再叠加行起点；元信息行（`[ti:...]`）不匹配数字行标签，被跳过。
- */
+// QRC 解析：字标签为绝对毫秒，无需叠加行起点
 internal fun parseQrcText(raw: String): List<LyricLine> {
     return raw.lineSequence().mapNotNull { rawLine ->
         val line = BRACKET_LINE_PATTERN.find(rawLine) ?: return@mapNotNull null
@@ -99,13 +80,8 @@ internal fun parseQrcText(raw: String): List<LyricLine> {
     }.sortedBy { it.timeMs }.toList()
 }
 
-/**
- * KRC 解析（酷狗逐字歌词）：`[行起点,行时长]<字偏移,字时长,效果>字...`。
- *
- * 字偏移相对行起点，需叠加行起点还原为绝对时间。译文有两条来源：其一是内嵌的
- * `[language:<base64>]` 行，按歌词行顺序 1:1 对齐，是酷狗给出译文的常规通道；
- * 其二是与主行同时间戳、字标签全零的翻译行。前者按行序、后者按时间戳分别并入主行。
- */
+// KRC 解析：字偏移相对行起点，需叠加还原绝对时间
+// 译文来自 [language] 行与同时间戳全零字标签行
 internal fun parseKrcText(raw: String): List<LyricLine> {
     val main = mutableListOf<LyricLine>()
     val translations = mutableListOf<LyricLine>()
@@ -115,7 +91,7 @@ internal fun parseKrcText(raw: String): List<LyricLine> {
         val line = BRACKET_LINE_PATTERN.find(rawLine) ?: return@forEach
         val timeMs = line.groupValues[1].toLong()
         val payload = line.groupValues[3]
-        // [language] 数组按 [行起点,行时长] 行的出现顺序对齐，逐行取下一条
+        // [language] 数组按歌词行顺序对齐，逐行取下一条
         val translation = languageTranslations.getOrNull(lyricIndex)
         lyricIndex++
         if (isZeroOffsetLine(payload, KRC_WORD_PATTERN, KRC_GROUPS)) {
@@ -130,13 +106,8 @@ internal fun parseKrcText(raw: String): List<LyricLine> {
     return mergeTranslationLines(main, translations)
 }
 
-/**
- * 解析 KRC 的 `[language:<base64>]` 元信息行，取出与歌词行一一对应的译文。
- *
- * 载荷是 base64 编码的 JSON：`content` 为若干语言段，`type=1` 是译文、`type=0` 是音译；
- * 每段的 `lyricContent` 按歌词行顺序排列，元素为该行拆分后的字块，拼回整行文本即为译文。
- * 仅取译文段，音译不并入译文位；缺行或载荷非法时返回空列表，解析退化为无译文。
- */
+// [language] 元信息：base64 JSON 取译文
+// 载荷非法或缺行时返回空列表，退化为无译文
 private fun parseKrcLanguageTranslations(raw: String): List<String> {
     val encoded = raw.lineSequence()
         .firstOrNull { it.startsWith(KRC_LANGUAGE_PREFIX) }
@@ -155,27 +126,20 @@ private fun parseKrcLanguageTranslations(raw: String): List<String> {
         .orEmpty()
 }
 
-// [language] 载荷的 JSON 结构：content 为语言段列表，type 区分译文/音译
+// [language] 载荷结构，type 区分译文/音译
 @Serializable
 private data class KrcLanguage(val content: List<KrcLanguageSegment> = emptyList())
 
 @Serializable
 private data class KrcLanguageSegment(
     val type: Int = 0,
-    // 每行译文由若干字块拼成，与歌词行顺序逐一对应
+    // 每行译文由字块拼成，与歌词行逐一对应
     val lyricContent: List<List<String>> = emptyList(),
 )
 
-/**
- * 酷我 lrcx 解析：`[mm:ss.mmm]<字尾,字起>字...`。
- *
- * 两个数值是同一区间两端按 (和, 差) 变形后的编码值、且放大了 8 倍：
- * 字起点 = |尾 + 起| / 16，字终点 = max(|尾|, |起|) / 8（与 QQ QRC 逐字时间轴实测逐字吻合）。
- * 原始数据允许相邻字区间重叠，此处按下一字的起点截断，保证逐字高亮单调推进。
- *
- * 译文与原文成对出现且共用同一个行时间戳：原文行带真实字标签，译文行整行只有一个时间点（字标签全零），
- * 故译文只能靠行时间戳与原文配对，其文字语言不作判据 —— 英文等非中文译文同样存在。
- */
+// 酷我 lrcx 解析：两数值为区间两端放大 8 倍的编码
+// 起点=|尾+起|/16，终点=max(|尾|,|起|)/8
+// 重叠按下一字起点截断；译文靠行时间戳配对
 internal fun parseKuwoLrcxText(raw: String): List<LyricLine> {
     val main = mutableListOf<LyricLine>()
     val translations = mutableListOf<LyricLine>()
@@ -216,12 +180,7 @@ internal fun parseKuwoLrcxText(raw: String): List<LyricLine> {
     return mergeTranslationLines(main, translations)
 }
 
-/**
- * 合并译文并把配不上主行的译文行保留为普通行。
- *
- * 主行为空（如纯器乐段）时平台仍会给出译文行，此时译文没有可挂靠的主行；
- * 直接丢弃会整句丢失，退化为普通行至少不丢内容。
- */
+// 合并译文；配不上主行的译文保留为普通行，避免丢句
 private fun mergeTranslationLines(main: List<LyricLine>, translations: List<LyricLine>): List<LyricLine> {
     if (translations.isEmpty()) return main.sortedBy { it.timeMs }
     val mainTimes = main.map { it.timeMs }
@@ -231,7 +190,7 @@ private fun mergeTranslationLines(main: List<LyricLine>, translations: List<Lyri
     return (mergeTranslations(main, translations) + orphans).sortedBy { it.timeMs }
 }
 
-// 把 `字<时间标签>` 形式的载荷还原为 [LyricLine]；标签缺失时退化为逐行歌词，空行返回 null
+// 把标签文本还原为 LyricLine，无标签退化为逐行
 private fun buildWordLine(
     timeMs: Long,
     payload: String,
@@ -260,8 +219,7 @@ private fun buildWordLine(
 private fun stripTags(payload: String, tagPattern: Regex, groups: WordTagGroups): String =
     tagPattern.replace(payload) { it.groupValues[groups.text] }.trim()
 
-// 行内每个标签的起止均为 0，即整行共享一个时间点，是平台标记翻译行的约定。
-// 要求全零而非只看首个标签：正常歌词的首字也可能落在行首偏移 0 上
+// 标签起止全零表示整行共用一个时间点，即译文行
 private fun isZeroOffsetLine(payload: String, tagPattern: Regex, groups: WordTagGroups): Boolean {
     val tags = tagPattern.findAll(payload).toList()
     return tags.isNotEmpty() && tags.all {
@@ -269,14 +227,14 @@ private fun isZeroOffsetLine(payload: String, tagPattern: Regex, groups: WordTag
     }
 }
 
-// 形如 [mm:ss]、[mm:ss.xxx]、[hh:mm:ss.xxx] 的时间戳，转成毫秒；小时段可省略
+// 时间戳转毫秒，小时段可省略
 private fun colonTimestamp(hours: String, minutes: String, seconds: String, fraction: String): Long =
     (hours.toLongOrNull() ?: 0L) * 3_600_000 +
         minutes.toLong() * 60_000 +
         seconds.toLong() * 1000 +
         fraction.padEnd(3, '0').take(3).toLong()
 
-/** zlib 解压；数据非法时返回 null，由调用方按平台容忍缺失 */
+// zlib 解压，数据非法返回 null
 internal fun inflateBytes(data: ByteArray): ByteArray? = try {
     val inflater = Inflater()
     inflater.setInput(data)
@@ -284,7 +242,7 @@ internal fun inflateBytes(data: ByteArray): ByteArray? = try {
     val buffer = ByteArray(8 * 1024)
     while (!inflater.finished()) {
         val count = inflater.inflate(buffer)
-        // 无输出即输入已耗尽或数据被截断，继续循环只会空转
+        // 无输出即输入耗尽或截断，避免空转
         if (count == 0) break
         out.write(buffer, 0, count)
     }
@@ -298,24 +256,23 @@ private val WORD_LINE_PATTERN = Regex("""\[(?:(\d+):)?(\d+):(\d+)(?:\.(\d+))?](.
 private val WORD_TAG_PATTERN = Regex("""<(?:(\d+):)?(\d+):(\d+)(?:\.(\d+))?>([^<]*)""")
 private val TRANSLATION_PATTERN = Regex("""\[tr](.*?)\[/tr]""")
 
-// QRC 与 KRC 的行标签形态一致：[行起点毫秒, 行时长毫秒]行内容
+// QRC/KRC 行标签：[行起点,行时长]内容
 private val BRACKET_LINE_PATTERN = Regex("""\[(\d+),(\d+)](.*)""")
 
-// QRC 的字文本写在标签之前：字(字起点, 字时长)。
-// 前缀用惰性通配而非「排除括号」，否则歌词里的括号会被当成标签边界吞掉
+// QRC 字在标签前：字(起点,时长)，惰性通配避免吞括号
 private val QRC_WORD_PATTERN = Regex("""(.*?)\((\d+),(\d+)\)""")
 private val QRC_GROUPS = WordTagGroups(first = 2, second = 3, text = 1)
 
-// KRC 的字文本写在标签之后：<字偏移, 字时长, 效果>字
+// KRC 字在标签后：<偏移,时长,效果>字
 private val KRC_WORD_PATTERN = Regex("""<(-?\d+),(-?\d+)(?:,-?\d+)?>([^<]*)""")
 private val KRC_GROUPS = WordTagGroups(first = 1, second = 2, text = 3)
 
-// KRC 译文元信息行的前缀，其载荷为 base64 编码的 JSON；type=1 的段是译文
+// KRC 译文前缀，base64 JSON 中 type=1
 private const val KRC_LANGUAGE_PREFIX = "[language:"
 private const val KRC_LANGUAGE_TRANSLATION_TYPE = 1
 private val KRC_LANGUAGE_JSON = Json { ignoreUnknownKeys = true }
 
-// 酷我 lrcx 的字文本写在标签之后：<区间一端, 区间另一端>字
+// 酷我字在标签后：<区间一端,另一端>字
 private val KUWO_LINE_PATTERN = Regex("""^\[(\d+):(\d+)\.(\d+)](.*)$""")
 private val KUWO_WORD_PATTERN = Regex("""<(-?\d+),(-?\d+)>([^<]*)""")
 private val KUWO_GROUPS = WordTagGroups(first = 1, second = 2, text = 3)

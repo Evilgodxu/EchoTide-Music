@@ -41,18 +41,16 @@ internal suspend fun applyCoverCandidate(
 ): Boolean {
     return try {
         val writeSuccess = withContext(Dispatchers.IO) {
-            // 代理音源优先按 coverId 换取封面，未配置或失败时回退候选自带的封面直链；
-            // 自定义平台没有内置封面地址，两者都取不到时视为该候选不可用
+            // 代理优先按 coverId 换封面，失败回退封面直链
             val bytes = ProxySourceEngine.coverBytes(playbackState.proxySourceStore, candidate)
                 ?: NeteaseMusicApi.loadCoverBytes(candidate.coverUrl.orEmpty())
                 ?: return@withContext false
-            // 手动刷新封面：按音频容器格式原生写入元数据；系统据此重建封面略缩图，
-            // 显示端据此重新取图（系统略缩图或文件内嵌封面）；落盘的旧缩略图由 bumpCoverRevision 一并作废
+            // 按容器格式写封面，旧缩略图作废
             MusicMetadataWriter.writeCover(context, track, bytes)
         }
         if (!writeSuccess) return false
         withContext(Dispatchers.Main) {
-            // 封面已写入音频文件：清掉在线封面地址，转由文件自身的封面提供显示
+            // 封面已写入文件，清掉在线封面地址
             playbackState.updateTrack(track.copy(neteaseId = candidate.id, neteaseCoverUrl = ""))
             playbackState.coverCache.bumpCoverRevision()
             playbackState.coverCandidates = emptyList()

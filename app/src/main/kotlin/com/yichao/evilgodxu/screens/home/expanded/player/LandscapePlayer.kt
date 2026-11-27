@@ -56,52 +56,52 @@ import com.yichao.evilgodxu.ui.component.player.CoverCarouselOverlay
 import com.yichao.evilgodxu.ui.component.player.LyricsPanel
 import kotlinx.coroutines.launch
 
-// 横屏播放器：双栏结构（封面视觉区 → 歌词透视区）左右居中，标题栏与控制栏点击弹出
+// 横屏播放器：封面 + 歌词双栏，点击弹出 chrome
 @Composable
 fun LandscapePlayer(
     playbackState: MusicPlaybackState,
-    // 音频访问授权：播放列表面板空列表的成因据此区分「未授权」与「暂无本地音乐」
+    // 授权状态，用于区分空列表成因
     mediaAudioGranted: Boolean,
     chromeVisible: Boolean,
     onToggleChrome: () -> Unit,
-    // 播放模式选择展开态：由首页层持有，展开期间的点击遮罩铺满全屏，故随控制栏显隐一并管理
+    // 播放模式展开态，由首页层持有
     modeSelectorExpanded: Boolean,
     onModeSelectorExpandedChange: (Boolean) -> Unit,
-    // 播放列表面板显隐：由首页层持有，显示期间禁用上下滑动切歌
+    // 播放列表显隐，显示时禁用纵向切歌
     playlistVisible: Boolean,
     onPlaylistVisibilityChange: (Boolean) -> Unit,
-    // 3D 封面轮播显隐：由首页层持有，进入沉浸覆盖层时同步隐藏标题栏与控制栏
+    // 3D 轮播显隐，由首页层持有
     coverCarouselVisible: Boolean,
     onCoverCarouselVisibilityChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    // 音量调节进行态：起手至松手期间为 true，供首页层暂停标题栏与控制栏的自动收起
+    // 音量调节中，供首页层暂停自动收起
     onVolumeAdjustingChange: (Boolean) -> Unit = {},
-    // 播放列表高级菜单的「查看频谱」：跳转频谱分析页，只传曲目标识
+    // 高级菜单「查看频谱」：跳转频谱页
     onOpenSpectrum: (Long) -> Unit = {},
-    // 播放列表高级菜单的「编辑元数据」：跳转元数据编辑页，只传曲目标识
+    // 高级菜单「编辑元数据」：跳转元数据页
     onOpenMetadata: (Long) -> Unit = {},
-    // 歌词区快速纵向滑动的切歌出口（true 为下一曲）：与整页上下滑动切歌同一套判定
+    // 歌词快速滑动切歌出口，true 为下一曲
     onVerticalFling: ((next: Boolean) -> Unit)? = null,
 ) {
     var showLosslessUpgrade by remember { mutableStateOf(false) }
-    // 封面与点击检测层在窗口坐标系下的位置，用于判定点击是否命中封面
+    // 点击层与封面的窗口坐标，判定是否命中
     var tapBounds by remember { mutableStateOf<Rect?>(null) }
     var coverBounds by remember { mutableStateOf<Rect?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 覆盖层压住本页时让出返回键，否则会先一步吃掉返回、只收起身后看不见的面板
+    // 被覆盖层压住时让出返回键
     val isTopLayer = LocalIsTopLayer.current
-    // 覆盖层开启时，系统返回键收起 3D 封面轮播
+    // 返回键收起 3D 轮播
     BackHandler(enabled = isTopLayer && coverCarouselVisible) { onCoverCarouselVisibilityChange(false) }
-    // 播放列表面板开启时，系统返回键优先收起面板，避免直接落到首页退出逻辑
+    // 返回键优先收起播放列表面板
     BackHandler(enabled = isTopLayer && playlistVisible) { onPlaylistVisibilityChange(false) }
 
-    // 播放进度由 MusicPlaybackState 全局 ticker 驱动，此处不再独立轮询
+    // 进度由全局 ticker 驱动，此处不轮询
 
     Box(modifier = modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxSize()) {
-            // 左：封面视觉区，封面四边羽化融入背景，上下左右居中
+            // 左栏封面，四边羽化居中
             BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)
@@ -130,7 +130,7 @@ fun LandscapePlayer(
             )
         }
 
-        // 全屏点击检测：命中封面区域则进入 3D 轮播；点击其它区域切换标题栏与控制栏显隐
+        // 点封面进 3D 轮播，点其它切换 chrome
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -150,7 +150,7 @@ fun LandscapePlayer(
                 },
         )
 
-        // 播放模式选择展开期间的全屏点击遮罩：控制栏在其上层仍可点，其余区域点击即收起并复位
+        // 播放模式遮罩：控制栏仍可点，其余点击收起
         PlayModeSelectionScrim(
             visible = modeSelectorExpanded,
             onDismiss = { onModeSelectorExpandedChange(false) },
@@ -184,7 +184,7 @@ fun LandscapePlayer(
                     modeSelectorExpanded = modeSelectorExpanded,
                     onModeSelectorExpandedChange = onModeSelectorExpandedChange,
                     onPlaylistClick = { onPlaylistVisibilityChange(true) },
-                    // 播放列表按钮上滑同样打开面板：与竖屏控制栏手势一致
+                    // 上滑播放列表按钮同样打开面板
                     onPlaylistSwipeUp = { onPlaylistVisibilityChange(true) },
                     onVolumeAdjustingChange = onVolumeAdjustingChange,
                 )
@@ -207,7 +207,7 @@ fun LandscapePlayer(
             onDismiss = { showLosslessUpgrade = false },
         )
 
-        // 3D 封面轮播覆盖全屏，淡入 + 轻微缩放过渡入场，避免闪屏且衔接自然
+        // 3D 轮播全屏淡入 + 轻微缩放
         AnimatedVisibility(
             visible = coverCarouselVisible && playbackState.playlist.isNotEmpty(),
             enter = fadeIn(animationSpec = tween(300)) + scaleIn(
@@ -233,22 +233,22 @@ fun LandscapePlayer(
     }
 }
 
-// 3D 透视基准参数：强度为 1 时的旋转角与相机距离系数
+// 强度 1 时的旋转角与相机距离系数
 private const val BASE_ROTATION_Y_DEGREES = -45f
 private const val BASE_CAMERA_DISTANCE_FACTOR = 0.15f
 
-// 歌词透视区：rotationY 绕 Y 轴旋转，配合随宽度缩放的 cameraDistance 产生近大远小的真实 3D 透视
+// 歌词区做 3D 透视
 @Composable
 private fun LyricsPerspectiveZone(
     playbackState: MusicPlaybackState,
-    // 歌词区快速纵向滑动的切歌出口：交由首页纵向切歌手势处理
+    // 快速滑动切歌，交给首页手势
     onVerticalFling: ((next: Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val landscapeLayout by context.landscapeLyricLayoutFlow()
         .collectAsStateWithLifecycle(initialValue = LyricLayoutDefaults.LANDSCAPE_LAYOUT)
-    // 强度映射：旋转角随强度增大，相机距离随强度减小，透视随之增强
+    // 强度越大旋转角越大、相机越近
     val intensity = landscapeLayout.threeDIntensity
     val rotationYDegrees = (BASE_ROTATION_Y_DEGREES * intensity).coerceIn(-75f, 0f)
     val cameraDistanceFactor = if (intensity > 0f) {
@@ -260,7 +260,7 @@ private fun LyricsPerspectiveZone(
             .clipToBounds()
             .graphicsLayer {
                 rotationY = rotationYDegrees
-                // 官方推荐：cameraDistance 不小于视图宽度，透视才自然且不畸变
+                // cameraDistance 不小于视图宽度，避免畸变
                 cameraDistance = size.width * cameraDistanceFactor
             },
         contentAlignment = Alignment.Center,
@@ -279,5 +279,5 @@ private fun LyricsPerspectiveZone(
     }
 }
 
-// 横屏封面边长占比：占左栏可用较短边（宽高中较小者）的比例，居中留出四边羽化渐隐的过渡带
+// 封面占左栏短边 75%，留出羽化过渡带
 private const val LANDSCAPE_COVER_FRACTION = 0.75f

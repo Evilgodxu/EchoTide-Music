@@ -59,22 +59,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 专辑页「信息」栏：陈列一首曲目的详细信息。
- *
- * 展示哪一首由调用方定（见 [AlbumPlaylistPage]：本专辑正在播放时取正在播放那首，否则取首曲），
- * 与头图封面同源，一处口径同时决定封面与信息。
- *
- * 全部内容由曲目实时读取，不另存一份副本：标签来自音频文件内嵌标签（缺失项回落到曲目内存态），
- * 音频规格来自文件本身的容器头与平台元数据。
- *
- * 补全沿用元数据编辑页的同一套交互与落地路径：先在同一组候选对话框里挑条目、选补全方式，
- * 再由 [applyMetadataFill] 写回文件，写成功后重读这一份信息。
+ * 专辑页「信息」栏：展示调用方指定的那首曲目，与头图同源。
+ * 标签与规格实时读文件，补全写回后重读
  */
 @Composable
 internal fun AlbumInfoContent(
     track: MusicTrack?,
     playbackState: MusicPlaybackState,
-    // 标签与音频规格都要读文件，标签栏未切到本页时不读：两页常驻合成树，读不读由是否看得到决定
+    // 不可见时不读文件；两页常驻合成树
     visible: Boolean,
 ) {
     if (track == null) {
@@ -84,14 +76,13 @@ internal fun AlbumInfoContent(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val requestAllFilesAccess = rememberAllFilesAccessRequest()
-    // 补全写回文件后标签与规格都变了，重读一遍才与文件一致
+    // 写回后重读，才与文件一致
     var reloadVersion by remember(track.id) { mutableIntStateOf(0) }
     val info by produceState<AlbumTrackInfo?>(initialValue = null, track.id, reloadVersion, visible) {
         if (!visible) return@produceState
         value = readAlbumTrackInfo(context, track)
     }
-    // 补全流程的界面状态：候选对话框 → 补全方式对话框 → 写入中。
-    // 候选与来源本身由播放状态持有（与编辑页共用同一份），这里只管这两级对话框的开关与选中项
+    // 补全流程：候选 → 方式 → 写入
     var fillVisible by remember(track.id) { mutableStateOf(false) }
     var fillSelectedId by remember(track.id) { mutableStateOf<Long?>(null) }
     var fillModeVisible by remember(track.id) { mutableStateOf(false) }
@@ -99,13 +90,13 @@ internal fun AlbumInfoContent(
     var fillOverwrite by remember(track.id) { mutableStateOf(false) }
 
     fun openFill() {
-        // 信息未就绪时补全计划没有比较基准，宁可等这一瞬读完也不按空字段猜
+        // 信息未就绪不补全，避免按空字段猜
         if (info == null || fillApplying) return
-        // 补全要重写音频文件：无权限时就地申请，本次不进入候选
+        // 写文件需权限，无权限先申请
         if (!ensureTrackFileWritable(requestAllFilesAccess)) return
         fillSelectedId = null
         fillModeVisible = false
-        // 每次重新进入候选都回到「仅补全」：全覆盖是破坏性的一档，须由用户当次显式切换
+        // 每次进入都回到「仅补全」，全覆盖须显式选
         fillOverwrite = false
         fillVisible = true
         scope.launch { searchMetadataCandidates(playbackState, track, playbackState.metadataFillSource) }
@@ -135,7 +126,7 @@ internal fun AlbumInfoContent(
         if (fillApplying) return
         val candidate = playbackState.metadataFillCandidates.firstOrNull { it.id == fillSelectedId } ?: return
         fillApplying = true
-        // 写入含联网详情请求与整段音频重写，交给常驻作用域：中途离开本页不该把已开始的写入取消
+        // 交给常驻作用域，离开本页不取消写入
         playbackState.playbackScope.launch {
             val outcome = runCatching {
                 applyMetadataFill(context, playbackState, track, loaded.fields, candidate, fillOverwrite)
@@ -179,16 +170,14 @@ internal fun AlbumInfoContent(
         Spacer(modifier = Modifier.height(6.dp))
         val loaded = info ?: return@Column
         val format = loaded.format
-        // 版式顺序：先标签字段，再文件规格。规格内部由「这首歌多长」排到「什么规格、怎么编码」，
-        // 文件路径体积最大、与其余各行无关，留在末尾独占一段。曲目号不在展示范围内：专辑页的曲序
-        // 由「歌曲」标签的列表承担，信息栏只交代这一首文件里写的是什么
+        // 先标签字段再文件规格，路径独占末段；曲目号由「歌曲」列表承担
         AlbumInfoRow(stringResource(R.string.metadata_field_artist), loaded.fields[TagField.ARTIST])
         AlbumInfoRow(stringResource(R.string.metadata_field_album), loaded.fields[TagField.ALBUM])
         AlbumInfoRow(stringResource(R.string.metadata_field_language), loaded.fields[TagField.LANGUAGE])
         AlbumInfoRow(stringResource(R.string.metadata_field_genre), loaded.fields[TagField.GENRE])
         AlbumInfoRow(stringResource(R.string.metadata_field_date), loaded.fields[TagField.DATE])
         AlbumInfoRow(stringResource(R.string.playlist_album_info_track_duration), formatTime(loaded.durationMs))
-        // 位深只在无损容器头里读得到：有损编码没有这一项，该行随之不产出，不拿位深去推算
+        // 位深仅无损可读，不推算
         format?.bitDepth?.let {
             AlbumInfoRow(stringResource(R.string.playlist_album_info_bit_depth), stringResource(R.string.audio_info_value_bit, it))
         }
@@ -226,7 +215,7 @@ internal fun AlbumInfoContent(
         overwrite = fillOverwrite,
         applying = fillApplying,
         onOverwriteChange = { fillOverwrite = it },
-        // 补全方式对话框的取消回到候选项，而不是退出整个补全流程
+        // 取消回到候选项，不退出整个流程
         onDismiss = {
             fillModeVisible = false
             fillVisible = true
@@ -235,24 +224,24 @@ internal fun AlbumInfoContent(
     )
 }
 
-// 信息栏的展示内容：标签按字段陈列，音频规格只在文件里读得到时才给出
+// 展示内容：标签按字段，规格读得到才给
 private class AlbumTrackInfo(
-    /** 内嵌标签；标题/艺术家/专辑在文件未写标签时回落到曲目内存态 */
+    // 内嵌标签；标题/艺术家/专辑可回落内存态
     val fields: Map<TagField, String>,
     val durationMs: Long,
     val path: String,
-    /** 编码格式：容器头或平台元数据给出的码流名，读不到时按文件扩展名给出 */
+    // 码流名，读不到按扩展名兜底
     val codec: String?,
-    /** 文件自身的采样率、位深、比特率等；读不到时为 null，对应行不展示 */
+    // 采样率/位深/比特率；null 时不展示
     val format: AudioSignalPathFormat?,
 )
 
-// 读取一份展示内容：标签读内嵌值（比曲目内存态更接近文件实况），规格读文件容器头与平台元数据
+// 标签读内嵌值，规格读容器头与平台元数据
 private suspend fun readAlbumTrackInfo(context: Context, track: MusicTrack): AlbumTrackInfo {
     val tags = TrackMetadataEditor.read(context, track)?.fields
     val format = withContext(Dispatchers.IO) { TrackAudioInfoReader.readIdleFormat(context, track) }
     val fields = TagField.entries.mapNotNull { field ->
-        // 标题/艺术家/专辑的回落口径与元数据编辑页一致：文件里没写标签时，扫描出的名字比空行更有用
+        // 标题/艺术家/专辑回落口径与编辑页一致
         val value = when (field) {
             TagField.TITLE -> tags?.get(field)?.takeIf { it.isNotBlank() } ?: track.title.takeIf { it.isNotBlank() }
             TagField.ARTIST -> tags?.get(field)?.takeIf { it.isNotBlank() } ?: track.artist.takeIf { it.isNotBlank() }
@@ -261,8 +250,7 @@ private suspend fun readAlbumTrackInfo(context: Context, track: MusicTrack): Alb
         }
         value?.takeIf { it.isNotBlank() }?.let { field to it }
     }.toMap()
-    // 编码格式单独留一路兜底：容器头与 mime 都读不出的曲目（经 content URI 进入的缓存歌）仍能从扩展名认出码流，
-    // 而这一行缺的正是「这是什么格式」这个最基本的问题
+    // 容器头与 mime 都读不出时用扩展名兜底
     val codec = format?.format?.takeIf { it.isNotBlank() }
         ?: track.path.substringAfterLast('.', "").takeIf { it.isNotBlank() }?.uppercase()
     return AlbumTrackInfo(
@@ -274,7 +262,7 @@ private suspend fun readAlbumTrackInfo(context: Context, track: MusicTrack): Alb
     )
 }
 
-// 补全结果提示：写入成功报写入项数，无字段可写与写入失败分别给出各自的交代
+// 结果提示：成功报项数，无可写与失败分别提示
 private fun fillResultMessage(context: Context, outcome: MetadataFillOutcome): String = when (outcome) {
     is MetadataFillOutcome.Filled -> context.resources.getQuantityString(
         R.plurals.metadata_fill_done,
@@ -286,7 +274,7 @@ private fun fillResultMessage(context: Context, outcome: MetadataFillOutcome): S
     MetadataFillOutcome.Failed -> context.getString(R.string.playlist_album_info_fill_failed)
 }
 
-// 补全入口：与页面其余图标动作同为图标按钮；联网与写盘期间换成进度圈并停止响应
+// 补全按钮；联网与写盘时换进度圈并禁用
 @Composable
 private fun FillActionButton(
     loading: Boolean,
@@ -315,7 +303,7 @@ private fun FillActionButton(
     }
 }
 
-// 信息行：标签居左、取值居右并单行截断——取值过长时不该把行高撑成两行
+// 信息行：标签左、取值右，单行截断
 @Composable
 private fun AlbumInfoRow(label: String, value: String?) {
     Row(
@@ -341,8 +329,7 @@ private fun AlbumInfoRow(label: String, value: String?) {
     }
 }
 
-// 文件路径独占一段两行排布：路径是这一栏里唯一会被截断就失去意义的取值，
-// 尾部的文件名与目录名都要看得到，故不塞进单行右对齐的信息行
+// 路径独占两行，尾部文件名与目录都要可见
 @Composable
 private fun AlbumInfoPathRow(path: String) {
     Column(

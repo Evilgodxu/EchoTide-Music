@@ -17,63 +17,55 @@ import org.junit.runner.RunWith
 import kotlin.math.abs
 
 private const val TARGET_PACKAGE = "com.yichao.evilgodxu"
-// 采集过程打点标签：生成结束后从 logcat 过滤该标签核对各历程的实际命中情况
+// logcat 过滤标签，核对历程命中
 private const val TAG = "BaselineProfileGen"
 
-// 首页并列页面的位置：枚举顺序即 Pager 索引，右滑退一页、左滑进一页
+// Pager 索引；右滑退一页、左滑进一页
 private const val PAGE_SEARCH = 0
 private const val PAGE_PLAYER = 1
 private const val PAGE_PLAYLIST = 2
 
-// 首帧等待上限：低端机与模拟器冷启动都可能较慢，超时只影响兜底等待
+// 首帧等待上限，冷启动慢时兜底
 private const val HOME_TIMEOUT_MS = 30_000L
 // 单个控件出现等待上限
 private const val UI_TIMEOUT_MS = 5_000L
-// 旋转落定等待上限：请求方向后系统需重新布局窗口并分发配置变更
+// 旋转落定上限：等系统重新布局窗口
 private const val ROTATION_TIMEOUT_MS = 10_000L
-// 动作之间的稳定间隔：等动画与状态落定，避免连续点击落在过渡态上
+// 动作间隔，等动画落定
 private const val SETTLE_MS = 700L
-// 翻页滑动距离占屏宽比例：过短不足以触发 Pager 吸附
+// 翻页滑动占屏宽比，过短不吸附
 private const val SWIPE_SPAN = 0.7f
 private const val SWIPE_STEPS = 24
 
-// 竖屏播放列表面板占屏底一半，纵向滚动手势的起止位置须落在该面板内，
-// 否则手势起点会落在面板外的遮罩上而被当作点击，直接收起面板
+// 面板占屏底一半，手势须落在面板内
 private const val PANEL_SCROLL_TOP = 0.55f
 private const val PANEL_SCROLL_BOTTOM = 0.9f
 
-// 竖屏播放器艺术家行距底部控制栏图标顶缘的高度。
-// 曲名、艺术家、进度区与控制栏自上而下贴屏底排列，各行高度固定，故艺术家行与控制栏的距离恒定；
-// 锚定控制栏（图标有稳定的无障碍文案）而非屏高比例——比例会随窗口高宽比与底部系统栏避让量漂移
+// 艺术家行距控制栏图标顶缘；锚定图标不按屏高比
 private const val ARTIST_ROW_ABOVE_CONTROLS_DP = 89f
 
-// 横屏播放器左侧封面视觉区中心占屏宽比例：点击封面进入 3D 封面轮播
+// 横屏封面视觉区中心占屏宽比，点击进轮播
 private const val COVER_CENTER_X = 0.25f
-// 横屏点右侧歌词区空白处：切换标题栏与控制栏显隐，用于轮播收起后重新唤出顶栏
+// 横屏歌词区空白处：切换标题栏与控制栏
 private const val LYRICS_AREA_X = 0.8f
 private const val LYRICS_AREA_Y = 0.5f
 
-// 沉浸标题栏高度：首页竖屏按状态栏高度预留 + Material 顶栏，宽屏无标题栏
+// 沉浸标题栏高度：状态栏 + 顶栏
 private const val TOP_APP_BAR_HEIGHT_DP = 64f
-// 宽屏歌单面板左栏宽度（PlaylistRailWidth）。左栏导航项与右栏标题同名（「常听」「专辑」等），
-// 按文案点击时限定在该宽度内取值，避免命中右栏标题
+// 宽屏左栏宽度，限定左栏按名点击
 private const val PLAYLIST_RAIL_WIDTH_DP = 300f
-// 歌单分组列表首行的中心距内容顶部的高度：窄屏在页面标题（34dp）之下、宽屏在右栏标题（30dp）之下，
-// 行高 40dp，取 52dp 两形态都落在首行内。分组名取自曲库、无法按固定文案匹配，只能按坐标点击
+// 首行中心 52dp；行高 40dp，两形态均命中
 private const val GROUP_ROW_CENTER_DP = 52f
 
 /**
- * 生成基准配置与启动配置，覆盖精简后的核心常用功能场景：
- *
+ * 生成基准与启动配置，覆盖核心场景：
  * - 冷启动到首页可交互
- * - 竖屏播放器页：上下滑动切歌、左右滑动翻页、点按艺术家信息进入该歌手歌单
- * - 竖屏歌单页：总览滚动、常听曲目、专辑/歌手分组与分组曲目、歌手页歌曲/专辑标签切换
- * - 竖屏播放列表面板：列表滚动与切换排序
- * - 横屏播放器页：3D 封面轮播、标题栏与控制栏显隐
- * - 横屏歌单页：宽屏左栏导航下的系统歌单与分组下钻
- *
- * 启动路径单独成组并标记 `includeInStartupProfile`，其规则才会进入 Startup Profile；
- * 其余历程只进基准配置。把非启动历程混进启动配置会撑大首个 DEX、反而拖慢启动。
+ * - 竖屏播放器：滑动切歌翻页、点艺术家
+ * - 竖屏歌单：三类系统歌单下钻
+ * - 播放列表面板：滚动与切换排序
+ * - 横屏播放器：封面轮播与栏显隐
+ * - 横屏歌单：左栏导航与分组下钻
+ * 启动历程单独成组，混入非启动会撑大 DEX
  */
 @RunWith(AndroidJUnit4::class)
 class BaselineProfileGenerator {
@@ -81,7 +73,7 @@ class BaselineProfileGenerator {
     @get:Rule
     val rule = BaselineProfileRule()
 
-    /** 冷启动到首页可交互：Application 初始化、首页首帧组合与背景取色。 */
+    /** 冷启动到首页可交互：初始化、首帧与取色 */
     @Test
     fun startup() = rule.collect(
         packageName = TARGET_PACKAGE,
@@ -92,26 +84,26 @@ class BaselineProfileGenerator {
         awaitHome()
     }
 
-    /** 竖屏播放器页：上下滑动切歌、左右滑动翻页、点按艺术家信息查看该歌手歌单。 */
+    /** 竖屏播放器：滑动切歌翻页、点艺术家 */
     @Test
     fun playerJourney() = rule.collect(TARGET_PACKAGE) {
         prepare()
         launch()
-        // 上下滑动切歌：先上后下，两方向各覆盖一次切歌路径
+        // 上下滑动切歌，两方向各一次
         swipeOnPlayerVertical()
-        // 左右滑动切页：依次进搜索页与歌单页再回到播放器，覆盖 Pager 吸附与页面组合
+        // 左右翻页：搜索页、歌单页各往返一次
         swipeToPage(PAGE_SEARCH)
         swipeToPage(PAGE_PLAYER)
         swipeToPage(PAGE_PLAYLIST)
         swipeToPage(PAGE_PLAYER)
-        // 点按播放器页的艺术家信息：进入该歌手的曲目列表（歌手页 → 总览 → 播放器逐级回退）
+        // 点艺术家进歌手页，再逐级回退
         if (tapArtistRow()) {
             goBack()
             goBack()
         }
     }
 
-    /** 竖屏歌单页：总览与三类系统歌单（常听、专辑分组、歌手分组）的列表与分组曲目。 */
+    /** 竖屏歌单：总览与三类系统歌单下钻 */
     @Test
     fun portraitPlaylistJourney() = rule.collect(TARGET_PACKAGE) {
         prepare()
@@ -123,14 +115,14 @@ class BaselineProfileGenerator {
         tap("playlist_smart_recent")
         scrollVertically(times = 2)
         goBack()
-        // 专辑：分组列表滚动后进入某分组的曲目页，再逐级退回总览
+        // 专辑：滚动分组列表，进分组曲目再退回
         tap("playlist_smart_album")
         scrollVertically(times = 2)
         tapFirstGroupRow(expanded = false)
         scrollVertically(times = 2)
         goBack()
         goBack()
-        // 歌手：分组列表滚动后进入沉浸歌手页，切换歌曲/专辑标签并滚动
+        // 歌手：进歌手页切换标签并滚动
         tap("playlist_smart_artist")
         scrollVertically(times = 2)
         tapFirstGroupRow(expanded = false)
@@ -141,17 +133,15 @@ class BaselineProfileGenerator {
         goBack()
     }
 
-    /** 竖屏播放列表面板：列表滚动查看，切换排序后再滚动，最后恢复默认排序收起。 */
+    /** 播放列表面板：滚动、切排序、恢复 */
     @Test
     fun queueJourney() = rule.collect(TARGET_PACKAGE) {
         prepare()
         launch()
         openQueuePanel()
-        // 播放列表滚动查看：手势收在面板内，避免起点落到遮罩上收起面板
+        // 手势收在面板内，避免点到遮罩
         scrollVertically(times = 2, topFraction = PANEL_SCROLL_TOP, bottomFraction = PANEL_SCROLL_BOTTOM)
-        // 反向滚动覆盖回滚路径。列表滑到顶后继续下拉会触发面板自身的下拉收起，
-        // 是否触发取决于回滚距离与队列长度的差值，故滑完重新核对面板，被收起则再打开，
-        // 否则后续排序步骤全部落在已消失的面板上，整轮只能空等到超时
+        // 反向滚动：滑到顶会触发下拉收起，滑完核对面板
         scrollVertically(
             times = 2,
             reversed = true,
@@ -159,32 +149,32 @@ class BaselineProfileGenerator {
             bottomFraction = PANEL_SCROLL_BOTTOM,
         )
         openQueuePanel()
-        // 切换排序（按标题）后再滚动，覆盖排序重组路径
+        // 切排序后再滚动
         tap("music_panel_sort")
         tap("music_panel_sort_by_title")
         scrollVertically(times = 2, topFraction = PANEL_SCROLL_TOP, bottomFraction = PANEL_SCROLL_BOTTOM)
-        // 恢复默认排序，避免改变队列顺序影响后续历程
+        // 恢复默认排序，免影响后续历程
         tap("music_panel_sort")
         tap("music_panel_sort_default")
         // 关闭面板收尾
         tap("home_player_close_playlist")
     }
 
-    /** 横屏播放器页：点击封面进入 3D 封面轮播，收起后经标题栏切回竖屏。 */
+    /** 横屏播放器：封面轮播与切回竖屏 */
     @Test
     fun landscapePlayerJourney() = rule.collect(TARGET_PACKAGE) {
         prepare()
         launch()
         toLandscape()
-        // 横屏点击封面视觉区：进入 3D 封面轮播沉浸层，系统返回键收起
+        // 点封面进 3D 轮播，返回键收起
         tapCoverForCarousel()
         device.pressBack()
         settle()
-        // 点歌词区空白处唤出标题栏与控制栏，再点横屏按钮切回竖屏
+        // 点歌词区唤出栏位，再切回竖屏
         toPortrait()
     }
 
-    /** 横屏歌单页：宽屏左栏导航下的系统歌单切换与专辑/歌手分组下钻。 */
+    /** 横屏歌单：左栏导航与分组下钻 */
     @Test
     fun landscapePlaylistJourney() = rule.collect(TARGET_PACKAGE) {
         prepare()
@@ -194,32 +184,26 @@ class BaselineProfileGenerator {
         // 左栏「常听」：右栏曲目列表滚动
         tap("playlist_smart_recent", maxLeftPx = railWidthPx())
         scrollVertically(times = 2)
-        // 左栏「专辑」：分组列表滚动后下钻到某分组的曲目
+        // 左栏「专辑」：滚动后下钻分组曲目
         tap("playlist_smart_album", maxLeftPx = railWidthPx())
         scrollVertically(times = 2)
         tapFirstGroupRow(expanded = true)
         scrollVertically(times = 2)
         goBack()
-        // 左栏「歌手」：分组列表滚动后下钻到该歌手的曲目
+        // 左栏「歌手」：滚动后下钻歌手曲目
         tap("playlist_smart_artist", maxLeftPx = railWidthPx())
         scrollVertically(times = 2)
         tapFirstGroupRow(expanded = true)
         scrollVertically(times = 2)
         goBack()
-        // 收起歌单面板回到播放器页（本页由首页的返回处理接管）
+        // 收起歌单面板回播放器页
         goBack()
     }
 }
 
-/**
- * 授予应用所需的全部权限并清除后台，保证每个历程从已授权的冷启动状态开始。
- *
- * 应用在任一权限缺失时会随冷启动弹出权限对话框，它是独立窗口：弹出期间首页控件
- * 既不在无障碍树中也不接收点击，历程会整轮落空。故这里须把会触发该对话框的权限
- * 一次性给全（全部文件、音乐、图片、蓝牙、通知），而不只是俗称的「媒体与通知」几项。
- */
+/** 授全所需权限并清后台；缺任一权限会弹窗挡住历程 */
 private fun MacrobenchmarkScope.prepare() {
-    // 运行时权限直接授予；全部文件与悬浮窗走 appops，避免历程中途弹出系统授权页
+    // 权限直接授予，文件与悬浮窗走 appops
     listOf(
         "android.permission.READ_MEDIA_AUDIO",
         "android.permission.READ_MEDIA_IMAGES",
@@ -231,7 +215,7 @@ private fun MacrobenchmarkScope.prepare() {
     device.executeShellCommand("am force-stop $TARGET_PACKAGE")
 }
 
-/** 启动应用并等待首页根节点出现，作为其余历程的统一起点。 */
+/** 启动并等首页根节点，作为统一起点 */
 private fun MacrobenchmarkScope.launch() {
     startActivityAndWait()
     awaitHome()
@@ -243,10 +227,8 @@ private fun MacrobenchmarkScope.awaitHome() {
 }
 
 /**
- * 竖屏切横屏：触摸播放器页唤出自动收起的标题栏，再点横屏按钮，直到窗口实际转为横向。
- *
- * 标题栏两秒无操作即自动收起、控件随之不可交互，故按「唤出—点击—核对朝向」成组重试，
- * 单次点击落空不会让整个历程停在竖屏。
+ * 竖屏切横屏：唤出标题栏点横屏，直到实际转横。
+ * 栏两秒后自动收起，故成组重试。
  */
 private fun MacrobenchmarkScope.toLandscape() {
     repeat(RETRY_TIMES) {
@@ -257,11 +239,8 @@ private fun MacrobenchmarkScope.toLandscape() {
 }
 
 /**
- * 横屏切竖屏：点歌词区唤出悬浮标题栏后点横屏按钮，直到窗口实际转为纵向。
- *
- * 点击落空多为顶栏未唤出（重新唤出再试）；点击已送达而朝向未变，则是横屏下应用把方向请求改回
- * 「不指定」后系统未按传感器回落显示（部分模拟器如此，重试无益）。此时把显示旋转临时改写为
- * 自然方向再解锁，使采集继续走横屏之外的其余步骤。
+ * 横屏切竖屏：点歌词区唤出标题栏再点横屏，直到转为纵向。
+ * 顶栏未唤出则重试；部分模拟器不回落时改写显示旋转。
  */
 private fun MacrobenchmarkScope.toPortrait() {
     var attempt = 0
@@ -278,13 +257,13 @@ private fun MacrobenchmarkScope.toPortrait() {
     if (!rotated) Log.w(TAG, "MISS switch to portrait")
 }
 
-/** 触摸播放器页顶部唤出自动收起的标题栏：该处为封面区域，单击不触发任何控件。 */
+/** 点播放器页顶部唤出标题栏；该处为封面区 */
 private fun MacrobenchmarkScope.revealTopBar() {
     device.click(device.displayWidth / 2, (device.displayHeight * 0.07f).toInt())
     settle()
 }
 
-/** 点横屏歌词区空白处唤出悬浮标题栏与控制栏（横屏两侧均不常驻，点按即切换显隐）。 */
+/** 点歌词区空白处切换标题栏与控制栏显隐 */
 private fun MacrobenchmarkScope.showLandscapeChrome() {
     device.click(
         (device.displayWidth * LYRICS_AREA_X).toInt(),
@@ -293,10 +272,7 @@ private fun MacrobenchmarkScope.showLandscapeChrome() {
     settle()
 }
 
-/**
- * 等待窗口朝向落定：请求方向后系统需重新布局，以窗口实测宽高判定而非固定等待。
- * 朝向未按预期落定即视为本次切换未生效，交由调用方重试。
- */
+/** 以窗口实测宽高判断朝向落定，超时视为切换未生效 */
 private fun MacrobenchmarkScope.awaitRotation(landscape: Boolean): Boolean {
     val deadline = SystemClock.uptimeMillis() + ROTATION_TIMEOUT_MS
     while (SystemClock.uptimeMillis() < deadline) {
@@ -310,20 +286,15 @@ private fun MacrobenchmarkScope.awaitRotation(landscape: Boolean): Boolean {
     return false
 }
 
-/** 系统返回键逐级回退：歌单面板的下钻层级、面板自身与首页页面栈都经它退出。 */
+/** 返回键逐级退出面板层级与页面 */
 private fun MacrobenchmarkScope.goBack() {
     device.pressBack()
     settle()
 }
 
 /**
- * 按无障碍标签或可见文本点击控件。
- *
- * 图标类控件以标签匹配，纯文本入口以可见文本匹配，命中失败仅记录日志并跳过，
- * 保证单条操作失败不会让整轮采集中断。
- *
- * [maxLeftPx] 限定候选取用范围：宽屏歌单左栏导航项与右栏标题同名，不限定时会命中同名的首个节点，
- * 左栏导航一律按该参数限定在左栏内取值。
+ * 按无障碍标签或可见文本点击，失败只记日志不中断。
+ * maxLeftPx 限定左栏取值，避开右栏同名标题。
  */
 private fun MacrobenchmarkScope.tap(resourceName: String, maxLeftPx: Int = Int.MAX_VALUE): Boolean {
     val label = label(resourceName)
@@ -331,7 +302,7 @@ private fun MacrobenchmarkScope.tap(resourceName: String, maxLeftPx: Int = Int.M
     return clickIfVisible(node, "$resourceName($label)")
 }
 
-/** 等待文案出现，用于确认已进入目标页面：只打点核对，不改变采集流程。 */
+/** 等文案出现确认页面，只打点 */
 private fun MacrobenchmarkScope.awaitText(resourceName: String): Boolean {
     val label = label(resourceName)
     val found = device.wait(Until.hasObject(By.text(label)), UI_TIMEOUT_MS)
@@ -339,7 +310,7 @@ private fun MacrobenchmarkScope.awaitText(resourceName: String): Boolean {
     return found
 }
 
-/** 等控件按无障碍标签出现：用于确认展开态，与 [awaitText] 同一口径只打点不改变流程。 */
+/** 等标签出现确认展开态，只打点 */
 private fun MacrobenchmarkScope.awaitDesc(resourceName: String): Boolean {
     val label = label(resourceName)
     val found = device.wait(Until.hasObject(By.desc(label)), UI_TIMEOUT_MS)
@@ -348,11 +319,8 @@ private fun MacrobenchmarkScope.awaitDesc(resourceName: String): Boolean {
 }
 
 /**
- * 确保播放列表面板处于展开态。
- *
- * 面板头部的排序按钮常驻，以它是否在无障碍树中判定展开：面板收起时其内容整体移除，
- * 判据不会误判。面板支持下拉收起，上一段滚动可能已把它收走；点击本身也可能落在
- * 滑入动画的过渡态上被吞掉，故不在展开态就点按钮，点后仍不出现则重试。
+ * 确保播放列表面板展开：以常驻的排序按钮判定。
+ * 面板可能被下拉收起或点击落在动画过渡态，故重试。
  */
 private fun MacrobenchmarkScope.openQueuePanel(): Boolean {
     if (queuePanelShown()) return true
@@ -366,7 +334,7 @@ private fun MacrobenchmarkScope.openQueuePanel(): Boolean {
 private fun MacrobenchmarkScope.queuePanelShown(): Boolean =
     device.findObject(By.desc(label("music_panel_sort"))) != null
 
-/** 取首个落在 [maxLeftPx] 左侧的候选节点：同名文案在左右两栏各有一份时用于区分。 */
+/** 取首个左边界在 maxLeftPx 内的节点，区分两栏同名 */
 private fun MacrobenchmarkScope.findFirst(selector: BySelector, maxLeftPx: Int): UiObject2? {
     val nodes = device.wait(Until.findObjects(selector), UI_TIMEOUT_MS) ?: return null
     return nodes.firstOrNull { node ->
@@ -375,10 +343,8 @@ private fun MacrobenchmarkScope.findFirst(selector: BySelector, maxLeftPx: Int):
 }
 
 /**
- * 校验节点可见且可交互后再点击：遮挡、移出屏幕或置灰的节点不响应点击，命中它们只会空耗一步。
- *
- * 点击前后状态可能被应用重组刷新，节点引用随时可能失效，
- * 统一在这里吞掉过期异常并记日志，不让单次操作中断整轮采集。
+ * 校验节点可见可交互再点；遮挡或置灰只会空耗一步。
+ * 重组会让节点引用失效，故在此吞掉过期异常。
  */
 private fun clickIfVisible(node: UiObject2?, hint: String): Boolean {
     if (node == null) {
@@ -386,8 +352,7 @@ private fun clickIfVisible(node: UiObject2?, hint: String): Boolean {
         settle()
         return false
     }
-    // 读取边界与点击都可能因重组让引用失效而抛 StaleObjectException，
-    // 整段兜住并记日志，避免单次失效中断整轮采集
+    // 读取边界与点击都可能抛过期异常，整段兜住
     return try {
         val bounds = node.visibleBounds
         when {
@@ -396,7 +361,7 @@ private fun clickIfVisible(node: UiObject2?, hint: String): Boolean {
                 settle()
                 false
             }
-            // 标题栏收起期间控件仅置灰不可点，按失败处理交由调用方重新唤出
+            // 标题栏收起时控件置灰不可点
             !node.isEnabled -> {
                 Log.i(TAG, "DISABLED $hint $bounds")
                 settle()
@@ -416,7 +381,7 @@ private fun clickIfVisible(node: UiObject2?, hint: String): Boolean {
     }
 }
 
-/** 横向翻页到指定索引，按当前位置判断方向。 */
+/** 横滑翻页到指定索引，按位置定方向 */
 private fun MacrobenchmarkScope.swipeToPage(target: Int) {
     val step = if (target > PAGE_PLAYER) -1 else 1
     repeat(abs(target - PAGE_PLAYER)) {
@@ -439,13 +404,7 @@ private fun MacrobenchmarkScope.swipeOnPlayerVertical() {
     settle()
 }
 
-/**
- * 点按竖屏播放器页的艺术家信息行，进入该歌手的曲目列表。
- *
- * 艺术家文案随曲目动态变化，无法按固定资源匹配，故以底部控制栏的播放列表按钮为锚点，
- * 按固定距离反推该行位置（该行位于控制栏上方的信息块内）。
- * 点后以歌手页的标签文案确认已进入目标页，未命中只记日志，不影响后续流程。
- */
+/** 由控制栏反推艺术家行位置点击；未命中只日志 */
 private fun MacrobenchmarkScope.tapArtistRow(): Boolean {
     val anchor = device.wait(Until.findObject(By.desc(label("music_panel_playlist"))), UI_TIMEOUT_MS)
     val anchorTop = runCatching { anchor?.visibleBounds?.top }.getOrNull()
@@ -461,27 +420,22 @@ private fun MacrobenchmarkScope.tapArtistRow(): Boolean {
     return awaitText("playlist_tab_songs")
 }
 
-/** 点击横屏播放器左侧封面视觉区中心，进入 3D 封面轮播。 */
+/** 点横屏封面区中心进 3D 轮播 */
 private fun MacrobenchmarkScope.tapCoverForCarousel() {
     device.click((device.displayWidth * COVER_CENTER_X).toInt(), (device.displayHeight * 0.5f).toInt())
     settle()
 }
 
-/**
- * 点击歌单分组列表的首行，进入该分组的曲目页。
- *
- * 分组名取自曲库、无法按固定文案匹配，故按坐标点击：首行位于页面标题栏下方的固定高度处。
- * 点后以曲目页的「播放全部」确认已下钻，未命中只记日志，不影响后续流程。
- */
+/** 按坐标点分组首行下钻；未命中只日志 */
 private fun MacrobenchmarkScope.tapFirstGroupRow(expanded: Boolean) {
     val width = device.displayWidth
     val centerXDp = if (expanded) {
-        // 宽屏右栏：左栏导航占固定宽度，右栏内容区水平居中
+        // 宽屏右栏内容水平居中
         PLAYLIST_RAIL_WIDTH_DP + (width / density() - PLAYLIST_RAIL_WIDTH_DP) / 2f
     } else {
         width / density() / 2f
     }
-    // 窄屏内容列从沉浸标题栏下方开始，宽屏无标题栏
+    // 窄屏内容自标题栏下方开始
     val contentTopPx = if (expanded) 0 else statusBarHeightPx() + dpPx(TOP_APP_BAR_HEIGHT_DP)
     val y = contentTopPx + dpPx(GROUP_ROW_CENTER_DP)
     Log.i(TAG, "TAP group row first(expanded=$expanded) x=${dpPx(centerXDp)} y=$y")
@@ -491,10 +445,7 @@ private fun MacrobenchmarkScope.tapFirstGroupRow(expanded: Boolean) {
 }
 
 /**
- * 歌手页标签分页：左滑切到「专辑」标签。
- *
- * 手势落在标签分页的曲目列表内（头图与标签栏之下）；「歌曲」是首个标签，
- * 左滑才有可切换的目标，右滑在该标签上由页面用于回退一级。
+ * 歌手页左滑切「专辑」；「歌曲」右滑回退。
  */
 private fun MacrobenchmarkScope.swipeArtistTab() {
     val width = device.displayWidth
@@ -510,11 +461,8 @@ private fun MacrobenchmarkScope.swipeArtistTab() {
 }
 
 /**
- * 纵向滚动，用于触发惰性列表的组合与回收路径。
- *
- * [topFraction]、[bottomFraction] 是手势起止位置占屏高比例，正向为「从下往上」。
- * 滚动底部面板内的列表时须传入落在面板内的范围：起点越过面板顶缘会落到面板外的
- * 遮罩上，而遮罩以点击收起面板，滑动抬手会被当成点击，面板随之关闭。
+ * 纵向滚动以触发惰性列表的组合与回收。
+ * 面板内须传面板内范围：起点越过顶缘会点到遮罩收起面板。
  */
 private fun MacrobenchmarkScope.scrollVertically(
     times: Int = 1,
@@ -531,10 +479,10 @@ private fun MacrobenchmarkScope.scrollVertically(
     }
 }
 
-/** 屏幕密度：坐标常量按 dp 定义，落到点击时按实测密度换算。 */
+/** 按实测密度把 dp 换成像素 */
 private fun density(): Float = appContext().resources.displayMetrics.density
 
-/** 界面按状态栏高度为沉浸标题栏预留顶部空间，坐标估算须取同一基准。 */
+/** 状态栏高度：沉浸标题栏预留同一基准 */
 private fun statusBarHeightPx(): Int {
     val resources = appContext().resources
     val id = resources.getIdentifier("status_bar_height", "dimen", "android")
@@ -543,15 +491,10 @@ private fun statusBarHeightPx(): Int {
 
 private fun dpPx(dp: Float): Int = (dp * density()).toInt()
 
-/** 宽屏左栏宽度像素：用于把按文案的点击限定在左栏导航内。 */
+/** 左栏宽度像素，限定左栏点击 */
 private fun railWidthPx(): Int = dpPx(PLAYLIST_RAIL_WIDTH_DP)
 
-/**
- * 从被测应用解析字符串文案。
- *
- * 插桩的 targetContext 在部分环境下指向测试包而非目标包，按名查找会全部落空，
- * 这里统一改用 createPackageContext 拿目标包资源后按名查 ID。
- */
+/** 从被测包上下文解析文案，插桩上下文常指向测试包 */
 private fun label(resourceName: String): String {
     val context = appContext()
     val id = context.resources.getIdentifier(resourceName, "string", TARGET_PACKAGE)
@@ -565,7 +508,7 @@ private fun label(resourceName: String): String {
     }
 }
 
-/** 目标包上下文：文案与资源一律从被测应用读取，与插桩自身的包无关。 */
+/** 被测包上下文，与插桩自身包无关 */
 private fun appContext() = runCatching {
     InstrumentationRegistry.getInstrumentation().targetContext
         .createPackageContext(TARGET_PACKAGE, 0)
@@ -578,7 +521,7 @@ private fun settle() {
     SystemClock.sleep(SETTLE_MS)
 }
 
-// 标题栏显隐类操作的成组重试次数：一次落空即重新唤出再试
+// 成组重试次数，落空即重新唤出
 private const val RETRY_TIMES = 3
 // 朝向落定的轮询间隔
 private const val ROTATION_POLL_MS = 100L

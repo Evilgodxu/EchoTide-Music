@@ -50,26 +50,13 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 
-// 选择器菜单的展开方向：决定菜单相对触发区域的位置与逐项展开的进入方向
+// 菜单展开方向
 enum class ExpandDirection { Up, Down, Right }
 
 /**
- * 展开式选择器：点击展开，选中选项或点击其他区域自动收回。
- *
- * 触发区域由 [trigger] 槽位承载，其大小决定触控热区；展开后菜单自触发一侧向外长出，
- * 选项自锚点侧起逐项浮现，收起时逐项隐去。选项内容由 [itemContent] 注入，选中态（背景高亮）
- * 由本组件统一处理，前景配色由注入内容按 selected 自行决定。跨页面复用，故上提至 ui/component/。
- *
- * 本组件只认点击，不识别滑动手势：滑动的判定与让位（如与切歌、翻页手势共存）由触发区域自身的
- * 实现负责，避免在触发区里抢走本应交给上层的手势。
- *
- * [horizontalAlignment] 在 [ExpandDirection.Up] / [ExpandDirection.Down] 下控制菜单相对触发区域
- * 的水平落位；[verticalAlignment] 在 [ExpandDirection.Right] 下控制垂直落位。
- *
- * [maxMenuHeight] 限制菜单容器的高度上限（null 表示不限制）：锚定在高度有限的面板内时，
- * 传入按面板高度换算出的上限可避免菜单盖过整块面板；超出上限的选项改为在菜单内滚动查看。
- * 限高菜单的实际高度不超过锚点这一侧的可用空间，放不下时在本侧收缩滚动，不翻转到对侧——
- * 否则窗口高度不同会翻转展开方向（同一按钮在部分设备上变成向上展开）。
+ * 展开式选择器：点击展开，选中或点外部收回。
+ * 触发区由 trigger 承载，菜单自锚点一侧逐项浮现。
+ * maxMenuHeight 限制高度，超出则滚动。
  */
 @Composable
 fun <T> ExpandPicker(
@@ -81,8 +68,7 @@ fun <T> ExpandPicker(
     horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
     verticalAlignment: Alignment.Vertical = Alignment.CenterVertically,
     maxMenuHeight: Dp? = null,
-    // 菜单容器默认用抬升色阶：对话框与面板容器均为 surface，若菜单同色会与之融为一片难以分辨；
-    // surfaceContainerHigh 在浅色下比 surface 更灰、深色下比 surface 更亮，两个主题都能拉开层次
+    // 默认抬升色阶，与对话框容器区分
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
     containerShape: Shape = AppShape.Control,
     itemShape: Shape = AppShape.Micro,
@@ -92,20 +78,17 @@ fun <T> ExpandPicker(
     onItemClick: (T) -> Unit,
     header: (@Composable () -> Unit)? = null,
 ) {
-    // 展开为逻辑意图，动画进度由动画库的过渡状态持有：currentState 为当前所处状态、
-    // targetState 为目标状态。弹窗在两者任一为 true 期间保持挂载——收起动画播放时不卸载，
-    // 播完自动回到 false 才移除，此前以计时器估算移除时机既不精确也会在末尾露出空容器
+    // 展开意图；弹窗在收起动画播完才卸载
     var expanded by remember { mutableStateOf(false) }
     val visibleState = remember { MutableTransitionState(false) }
     visibleState.targetState = expanded
 
-    // 触发区域在窗口中的上下缘：限高菜单据此把上限收进锚点这一侧的可用空间
+    // 触发区上下缘，用于限高
     var triggerTopPx by remember { mutableFloatStateOf(0f) }
     var triggerBottomPx by remember { mutableFloatStateOf(0f) }
     val windowHeightPx = LocalWindowInfo.current.containerSize.height
     val density = LocalDensity.current
-    // 限高菜单的实际上限：调用方上限与锚点这一侧可用空间取小，使菜单恒放得下、位置不随窗口高度变化。
-    // 窗口几何尚未测得（可用空间非正）时保持调用方上限
+    // 上限取调用方与锚点侧可用空间的较小值
     val anchoredMaxHeight = maxMenuHeight?.let { cap ->
         val gapPx = with(density) { MENU_GAP_DP.toPx() }
         val marginPx = with(density) { HORIZONTAL_MARGIN_DP.toPx() }
@@ -139,7 +122,7 @@ fun <T> ExpandPicker(
                     direction = expandDirection,
                     horizontalAlignment = horizontalAlignment,
                     verticalAlignment = verticalAlignment,
-                    // 限高菜单须留在本侧（高度上限已保证放得下），不参与空间不足时的翻转
+                    // 限高菜单不翻转，留在本侧
                     allowFlip = anchoredMaxHeight == null,
                 ),
                 properties = PopupProperties(
@@ -169,17 +152,9 @@ fun <T> ExpandPicker(
 }
 
 /**
- * 菜单主体：容器自锚点一侧向外裁切展开/收起，内部选项按「距锚点远近」逐项浮现/隐去。
- *
- * 容器与选项共用同一条进度时间轴（[progress]，0 收起 / 1 展开）：容器的可见区域随进度自锚点一侧长出，
- * 选项的浮现窗口也映射在同一进度轴上——容器展开到该项所在位置时它开始浮现，收起时随进度回落逐项隐去，
- * 二者因此天然同步，不会出现等容器完全展开后内容才弹出、或容器收完内容还残留的脱节。
- *
- * 展开由裁切而非整体缩放完成：缩放只是把整块内容缩小，视觉上像「瞬间出现后再微调」；裁切则让容器
- * 真正从锚点一侧往外生长，边缘推到哪一项，哪一项就露出来。裁切在绘制层进行，容器布局尺寸在动画期间恒定——
- * 弹窗定位依赖内容尺寸，若改变尺寸会导致定位逐帧重算（抖动/闪烁的来源），且项始终参与组合与布局，
- * 不会在末尾露出空框。展开与收起由 [visibleState] 的过渡驱动：它由动画库创建，首次组合即为
- * current=false、target=true，因此不会出现「首帧已是展开态故不播动画」。
+ * 菜单主体：容器自锚点一侧裁切展开，选项逐项浮现。
+ * 容器与选项共用同一进度轴，天然同步。
+ * 裁切不改布局尺寸，避免弹窗定位抖动。
  */
 @Composable
 private fun <T> ExpandMenuContent(
@@ -198,20 +173,18 @@ private fun <T> ExpandMenuContent(
     onCollapse: () -> Unit,
 ) {
     val transition = rememberTransition(visibleState, label = "ExpandPicker")
-    // 唯一进度源：容器与选项都从它取值，保证展开/收起过程中二者节奏一致
+    // 唯一进度源，容器与选项共用
     val progress by transition.animateFloat(
         transitionSpec = { tween(MENU_REVEAL_MS) },
         label = "revealProgress",
     ) { expanded -> if (expanded) 1f else 0f }
-    // 容器不透明度：仅在展开初期快速显形，用于柔化裁切前沿；实际展开由裁切驱动
+    // 容器不透明度，先快速显形
     val containerAlpha = (progress / CONTAINER_FADE_PROGRESS).coerceIn(0f, 1f)
 
-    // header 占第一个呈现位，其后选项顺延
+    // header 占第一个呈现位
     val headerCount = if (header != null) 1 else 0
     val itemCount = options.size + headerCount
-    // 菜单仅在展开期间挂载，滚动位置随重开复位。
-    // 起始位置取锚点一侧：Down / Right 的锚点在上，从顶部看起；Up 的锚点在下，
-    // 初始值取最大整数由滚动状态在测量后夹到末尾，与「靠锚点一侧先露出」保持一致
+    // 起始滚动位置取锚点一侧
     val scrollState = rememberScrollState(
         initial = if (direction == ExpandDirection.Up) Int.MAX_VALUE else 0,
     )
@@ -220,7 +193,7 @@ private fun <T> ExpandMenuContent(
         modifier = Modifier
             .graphicsLayer { alpha = containerAlpha }
             .drawWithContent {
-                // 自锚点一侧向外裁切出可见区域：展开时边缘持续推进，边缘越过的项随之露出；收起时反向收回
+                // 自锚点一侧向外裁切
                 when (direction) {
                     ExpandDirection.Up -> clipRect(
                         left = 0f,
@@ -249,11 +222,10 @@ private fun <T> ExpandMenuContent(
     ) {
         Column(
             modifier = Modifier
-                // 高度上限放在最外层，使上限涵盖容器内边距；受限时接入滚动，超出部分滚动查看。
-                // 未限制高度的菜单保持原样：接入滚动会让容器高度被窗口裁剪，与原先随内容自适应不同
+                // 上限含内边距，受限时接入滚动
                 .then(if (maxMenuHeight != null) Modifier.heightIn(max = maxMenuHeight) else Modifier)
                 .padding(MENU_PADDING)
-                // 以最宽选项为公共宽度：各选项等宽，避免随文字长度错落
+                // 以最宽选项为公共宽度
                 .width(IntrinsicSize.Max)
                 .then(if (maxMenuHeight != null) Modifier.verticalScroll(scrollState) else Modifier),
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -287,13 +259,11 @@ private fun <T> ExpandMenuContent(
     }
 }
 
-// 呈现位到「距锚点远近」的换算：0 表示最靠近锚点、最先浮现。
-// Up 的锚点在下，呈现位自上而下与锚点远近相反，故需倒置；Down / Right 的锚点在正序一侧，保持原序
+// 呈现位换算为距锚点远近，Up 需倒置
 private fun anchorOrder(direction: ExpandDirection, position: Int, itemCount: Int): Int =
     if (direction == ExpandDirection.Up) itemCount - 1 - position else position
 
-// 由共享进度换算单项透明度：距锚点越近，浮现起点越早（收起时隐去越晚），
-// 末项的浮现终点对齐进度 1，与容器完全展开同步
+// 距锚点越近浮现越早，末项对齐进度 1
 private fun itemRevealAlpha(progress: Float, order: Int, itemCount: Int): Float {
     val firstStart = ITEM_REVEAL_LEAD_IN
     val lastStart = (1f - ITEM_REVEAL_SPAN).coerceAtLeast(firstStart)
@@ -302,8 +272,7 @@ private fun itemRevealAlpha(progress: Float, order: Int, itemCount: Int): Float 
     return ((progress - start) / ITEM_REVEAL_SPAN).coerceIn(0f, 1f)
 }
 
-// 单个选项行：透明度由共享进度换算而来，始终参与布局（仅透明度变化），
-// 避免因显隐进出组合树导致容器尺寸逐帧变化
+// 单项仅改透明度，始终参与布局
 @Composable
 private fun ExpandMenuRow(
     progress: Float,
@@ -329,8 +298,7 @@ private fun ExpandMenuRow(
     }
 }
 
-// 展开式菜单的定位：按方向贴触发区域对应侧，空间不足时翻转到对侧（[allowFlip] 为假者除外）；
-// 水平/垂直按传入对齐方式落位，并夹在锚定窗口内，避免贴边触发时菜单溢出屏幕
+// 按方向贴锚点，空间不足时翻转并夹在窗口内
 @Composable
 private fun expandPositionProvider(
     direction: ExpandDirection,
@@ -383,8 +351,7 @@ private fun expandPositionProvider(
                     }
                     ExpandDirection.Down -> {
                         val below = anchorBounds.bottom + gapPx
-                        // 下方放不下且允许翻转时改到触发区域上方；不允许翻转者留在下方，
-                        // 由高度上限保证放得下，超出部分在菜单内滚动
+                        // 下方放不下且允许翻转时改到上方
                         y = if (below + height <= windowSize.height || !allowFlip) {
                             below
                         } else {
@@ -407,18 +374,17 @@ private fun expandPositionProvider(
     }
 }
 
-// 容器展开/收起总时长：容器与选项的浮现/隐去共用此时间轴
-// 取较长时长让裁切推进与逐项浮现都能看清；过快会显得生硬
+// 展开总时长 560ms，裁切与逐项浮现共用
 private const val MENU_REVEAL_MS = 560
-// 容器不透明度到达 1 所需的进度比例：容器先快速显形以柔化裁切前沿，随后裁切继续推进完成展开
+// 容器透明显形到 1 的进度比例
 private const val CONTAINER_FADE_PROGRESS = 0.3f
-// 首项开始浮现前容器的展开进度：先让容器露出，再逐项带出内容
+// 首项浮现前的进度留白
 private const val ITEM_REVEAL_LEAD_IN = 0.12f
-// 单项浮现占用的进度窗口：末项据此收束在进度 1，与容器完全展开同步
+// 单项浮现占用的进度窗口
 private const val ITEM_REVEAL_SPAN = 0.3f
 // 菜单容器内边距
 private val MENU_PADDING = 4.dp
-// 菜单与触发区域的间隔
+// 菜单与触发区间隔
 private val MENU_GAP_DP = 4.dp
-// 菜单距屏幕边缘的最小边距
+// 菜单距屏幕边缘最小边距
 private val HORIZONTAL_MARGIN_DP = 8.dp
