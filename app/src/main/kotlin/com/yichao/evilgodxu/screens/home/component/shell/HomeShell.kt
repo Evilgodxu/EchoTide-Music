@@ -34,7 +34,7 @@ internal fun HomeShell(
         // 首页在场即代算背景帧，补后台时组合停摆，重复调用无副作用
         LaunchedEffect(Unit) { CoverFlowFrameStore.start(playbackState) }
         // 歌单页与搜索页铺不透明底色，背景帧只在播放页或翻页途中可见
-        // 不可见时停摆，避免被底色盖住仍以 30fps 推相位
+        // 不可见时停摆，避免被底色盖住仍逐帧推相位
         val pagerState = panelState.pagerState
         val backgroundVisible = !backgroundSuppressed && (pagerState.isScrollInProgress ||
             panelState.currentPage == HomePage.PLAYER)

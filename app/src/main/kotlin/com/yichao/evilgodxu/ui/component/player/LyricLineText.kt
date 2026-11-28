@@ -1,9 +1,7 @@
 package com.yichao.evilgodxu.ui.component.player
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateTo
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -15,7 +13,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -157,15 +154,8 @@ internal fun LyricChar(
             },
         )
     }
-    // 线性 tween 把跳跃进度平滑成连续亮起
-    val highlightFraction by animateFloatAsState(
-        targetValue = fillFraction,
-        animationSpec = tween(
-            durationMillis = LYRIC_FILL_SMOOTH_MS,
-            easing = LinearEasing,
-        ),
-        label = "lyric_char_fill",
-    )
+    // 位置已按 vsync 推进，直接消费当前帧，不再叠加固定时长补间
+    val highlightFraction = fillFraction
     val density = LocalDensity.current
     val floatPx = with(density) { 0.05f * fontSize.toPx() }
     // 样式沿用 LocalTextStyle，保证行高准确
@@ -204,9 +194,6 @@ internal fun LyricChar(
 }
 
 private const val LINE_CHAR_SHADOW_BLUR = 5f
-
-// 逐字填充只补一帧的差：位置已按 vsync 推进，过渡再长就会持续落后于真实进度
-private const val LYRIC_FILL_SMOOTH_MS = 16
 
 // 回落 320ms，与下一字跳起重叠
 private const val LYRIC_JUMP_DOWN_MS = 320

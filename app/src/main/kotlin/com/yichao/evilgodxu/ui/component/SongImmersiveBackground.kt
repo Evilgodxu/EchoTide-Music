@@ -36,7 +36,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
 import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.createBitmap
@@ -54,7 +53,6 @@ import com.yichao.evilgodxu.theme.md_theme_dark_surface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.withContext
-import kotlin.math.ceil
 import kotlin.math.max
 
 // 封面取样 64px，取色与代现算共用
@@ -72,23 +70,8 @@ private const val COVER_BACKGROUND_SATURATION = 2.5f
 // 小图模糊 11px：化开边界，保留明暗层次
 private const val COVER_BACKGROUND_BLUR_RADIUS = 11
 
-// 重绘间隔约 30fps，更密的并入下一帧
-private const val COVER_BACKGROUND_FLOW_FRAME_INTERVAL_MS = 32L
-
 // 帧间隔上限 1s，超出视为停滞不计入相位
 private const val FLOW_FRAME_MAX_GAP_MS = 1_000L
-
-// 取不到显示器刷新率时按 60Hz 兜底
-private const val FALLBACK_VSYNC_NANOS = 16_666_667L
-
-// 发布间隔取 vsync 周期的整数倍：120Hz 下 32ms 是 3.84 个周期，
-// 不对齐则每次发布都落在 vsync 之间，高刷机上表现为相位推进忽快忽慢
-private fun publishIntervalNanos(vsyncNanos: Long): Long {
-    val frames = ceil(COVER_BACKGROUND_FLOW_FRAME_INTERVAL_MS * 1_000_000.0 / vsyncNanos)
-        .toLong()
-        .coerceAtLeast(1L)
-    return frames * vsyncNanos
-}
 
 // 压暗下限：保证前景文字与状态栏对比
 private const val DIM_MIN_ALPHA = 0.15f
@@ -340,40 +323,26 @@ internal fun SongImmersiveBackground(
     // 流动时间轴：相位按帧累加，只在本曲可见且页面活跃时推进
     // 不取系统时间，避免回前台一次性跳变
     // 关开关时相位钉在零点，即首帧
-    var flowTimeMs by remember(audioUri) { mutableLongStateOf(0L) }
+    var flowTimeNanos by remember(audioUri) { mutableLongStateOf(0L) }
     val screenActive = LocalScreenActive.current
-    // 发布时刻对齐 vsync 整数倍，高刷设备上间隔仍稳定在约 30fps
-    val view = LocalView.current
-    val publishInterval = remember(view) {
-        val vsyncNanos = view.display?.refreshRate
-            ?.takeIf { it > 0f }
-            ?.let { (1_000_000_000.0 / it).toLong() }
-            ?: FALLBACK_VSYNC_NANOS
-        publishIntervalNanos(vsyncNanos)
-    }
     LaunchedEffect(flowEnabled, screenActive, visibleSession) {
         if (!flowEnabled) {
-            flowTimeMs = 0L
+            flowTimeNanos = 0L
             return@LaunchedEffect
         }
         // 被覆盖层压住期间不订阅 vsync，恢复后从上次相位继续
         if (!screenActive) return@LaunchedEffect
-        var elapsedMs = flowTimeMs
+        var elapsedNanos = flowTimeNanos
         var previousNanos = 0L
-        var nextPublishNanos = 0L
         while (true) {
             val nowNanos = withFrameNanos { it }
             // 帧间隔上限，超出视为停摆
             val deltaNanos = (nowNanos - previousNanos)
                 .takeIf { previousNanos != 0L && it in 0..FLOW_FRAME_MAX_GAP_MS * 1_000_000L } ?: 0L
             previousNanos = nowNanos
-            elapsedMs += deltaNanos / 1_000_000L
-            if (nextPublishNanos == 0L || nowNanos >= nextPublishNanos) {
-                flowTimeMs = elapsedMs
-                // 按网格递增；落后超过一格即重新对齐，不补帧
-                nextPublishNanos += publishInterval
-                if (nextPublishNanos <= nowNanos) nextPublishNanos = nowNanos + publishInterval
-            }
+            // 每个 vsync 都发布；保留纳秒余量，避免高刷下逐帧截断拖慢相位
+            elapsedNanos += deltaNanos
+            flowTimeNanos = elapsedNanos
         }
     }
 
@@ -391,9 +360,9 @@ internal fun SongImmersiveBackground(
         // 封面取图中保留旧帧，避免换帧窗口露底色
         val cover = thumbnail?.asAndroidBitmap() ?: return@LaunchedEffect
         if (viewportSize.width <= 0 || viewportSize.height <= 0) return@LaunchedEffect
-        snapshotFlow { flowTimeMs }.conflate().collect { phase ->
+        snapshotFlow { flowTimeNanos }.conflate().collect { phaseNanos ->
             frame = withContext(Dispatchers.Default) {
-                renderCoverFlowFrame(cover, viewportSize, base.tone, phase)
+                renderCoverFlowFrame(cover, viewportSize, base.tone, phaseNanos / 1_000_000L)
             }
             // 认领本曲目后逐帧推进
             frameUri = audioUri
