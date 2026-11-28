@@ -86,17 +86,25 @@ internal fun ProgressSection(
         )
         val displayPosition = (displayProgress * playbackState.duration).toLong()
 
-        // 时间槽位取总时长实测宽，位数变化不抖动
-        val timeStyle = LocalTextStyle.current.copy(fontSize = 9.sp, color = dimTextColor)
+        // 时间槽位取两段文本实测宽的较大值，位数变化不抖动
+        val timeStyle = LocalTextStyle.current.copy(
+            fontSize = 9.sp,
+            color = dimTextColor,
+            // 等宽数字：同位数文本宽度一致，秒跳动不挤占末位
+            fontFeatureSettings = "tnum",
+        )
         val textMeasurer = rememberTextMeasurer()
         val density = LocalDensity.current
         val durationText = formatTime(playbackState.duration)
-        val timeSlotWidth = remember(durationText, timeStyle, textMeasurer, density) {
-            with(density) {
+        val positionText = formatTime(displayPosition)
+        val timeSlotWidth = remember(positionText, durationText, timeStyle, textMeasurer, density) {
+            // 比例数字下当前位置可能比总时长更宽，取两者较大值
+            val slotWidthPx = listOf(positionText, durationText).maxOf { text ->
                 textMeasurer
-                    .measure(durationText, style = timeStyle, maxLines = 1, softWrap = false)
-                    .size.width.toDp()
+                    .measure(text, style = timeStyle, maxLines = 1, softWrap = false)
+                    .size.width
             }
+            with(density) { slotWidthPx.toDp() }
         }
 
         Row(
@@ -105,7 +113,7 @@ internal fun ProgressSection(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = formatTime(displayPosition),
+                text = positionText,
                 style = timeStyle,
                 maxLines = 1,
                 softWrap = false,
