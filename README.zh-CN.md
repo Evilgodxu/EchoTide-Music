@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp" width="96" alt="忆潮音乐" />
+<img src="docs/design/app-icon/mipmap-xxxhdpi/ic_launcher.webp" width="96" alt="忆潮音乐" />
 
 # 忆潮音乐 · Echo Tide
 

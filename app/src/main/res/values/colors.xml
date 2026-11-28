@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 取自原图边缘平均色，层间视差露出时与画面衔接 -->
+    <color name="ic_launcher_background">#ACCEF3</color>
+</resources>
