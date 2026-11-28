@@ -2,7 +2,6 @@ package com.yichao.evilgodxu.screens.home.component.panel
 
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -13,7 +12,6 @@ import androidx.compose.runtime.Stable
 import androidx.compose.ui.platform.LocalContext
 import com.yichao.evilgodxu.data.music.playback.MusicPlaybackState
 import com.yichao.evilgodxu.screens.home.component.analysis.LibraryAnalysisController
-import com.yichao.evilgodxu.theme.AppMotion
 import com.yichao.evilgodxu.theme.md_theme_dark_surface
 import com.yichao.evilgodxu.LocalPlaybackState
 import kotlinx.coroutines.CoroutineScope
@@ -46,15 +44,17 @@ internal class HomePanelState(
     val currentPage: HomePage
         get() = HomePage.entries[pagerState.currentPage]
 
-    // 切到指定页面：位移与吸附动画由 Pager 结算
-    // 显式给缓动与时长，默认弹簧在整宽位移上起步过猛，看起来像瞬移
+    // 程序化切页意图：落位前一直保留，由当前在组合中的 Pager 执行
+    // 存成状态而非一次协程，Pager 重建或转场被手势打断后仍能续上
+    var pageRequest by mutableStateOf<HomePage?>(null)
+        private set
+
     fun goToPage(page: HomePage) {
-        scope.launch {
-            pagerState.animateScrollToPage(
-                page = page.ordinal,
-                animationSpec = tween(AppMotion.Standard),
-            )
-        }
+        pageRequest = page
+    }
+
+    internal fun onPageRequestDone(page: HomePage) {
+        if (pageRequest == page) pageRequest = null
     }
 
     fun closePanels() {
@@ -66,6 +66,8 @@ internal class HomePanelState(
     // 两段整宽位移同向叠加会让转场看起来快一倍
     fun openArtistPlaylist(artist: String) {
         pendingArtistPlaylist = artist
+        // 直达歌手页不能再被未完成的切页意图拉走
+        pageRequest = null
         scope.launch { pagerState.scrollToPage(HomePage.PLAYLIST.ordinal) }
     }
 }

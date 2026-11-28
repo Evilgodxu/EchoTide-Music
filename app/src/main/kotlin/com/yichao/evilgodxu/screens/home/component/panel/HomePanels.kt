@@ -1,15 +1,18 @@
 package com.yichao.evilgodxu.screens.home.component.panel
 
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import com.yichao.evilgodxu.navigation.LocalScreenActive
 import com.yichao.evilgodxu.screens.home.component.playlist.PlaylistPanel
 import com.yichao.evilgodxu.screens.home.component.search.OnlineSearchPanel
+import com.yichao.evilgodxu.theme.AppMotion
 
 // 并列页面，拖动吸附由 Pager 结算
 @Composable
@@ -28,11 +31,26 @@ internal fun HomePanels(
     val ownerActive = LocalScreenActive.current
     val scrolling = pagerState.isScrollInProgress
     val currentPage = pagerState.currentPage
+    // 切页意图在此执行：意图留在状态里，动画被打断或 Pager 重建后仍会按目标落位
+    val pageRequest = panelState.pageRequest
+    LaunchedEffect(pagerState, pageRequest) {
+        val target = pageRequest ?: return@LaunchedEffect
+        pagerState.animateScrollToPage(
+            page = target.ordinal,
+            animationSpec = tween(AppMotion.Standard),
+        )
+        // 动画被接手时停在中间页，直接落位保证页面与意图一致
+        if (pagerState.currentPage != target.ordinal) {
+            pagerState.scrollToPage(target.ordinal)
+        }
+        panelState.onPageRequestDone(target)
+    }
     HorizontalPager(
         state = pagerState,
         modifier = modifier.fillMaxSize(),
-        // 面板展开、歌手页、下钻层都关闭翻页：一次滑动只对应一个去向
-        userScrollEnabled = !panelState.playlistVisible &&
+        // 面板展开、歌手页、下钻层与切页转场期间关闭翻页：一次滑动只对应一个去向
+        userScrollEnabled = pageRequest == null &&
+            !panelState.playlistVisible &&
             !panelState.playlistImmersive &&
             !panelState.playlistSwipeBack,
         // 三页常驻合成树，避免切页重建
